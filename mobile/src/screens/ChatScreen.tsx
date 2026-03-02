@@ -73,7 +73,10 @@ export default function ChatScreen({ route, navigation }: any) {
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
-    const [selectedMsg, setSelectedMsg] = useState<any>(null);
+    const [selectedMsg, setSelectedMsg] = useState<any>(null);      // context menu
+    const [viewerUrl, setViewerUrl] = useState<string | null>(null); // fullscreen image
+    const [multiSelect, setMultiSelect] = useState<string[]>([]);   // bulk select IDs
+    const isMultiSelecting = multiSelect.length > 0;
     const menuAnim = useRef(new Animated.Value(300)).current;
     const { data, isLoading, refetch } = useConversationMessages(conversationId);
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
@@ -140,6 +143,33 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const isMyMessage = selectedMsg && (selectedMsg.sender_id || selectedMsg.user_id) === user?.id;
     const isTextMsg = selectedMsg && !selectedMsg.text?.startsWith('[imagen]') && !selectedMsg.text?.startsWith('[audio]');
+
+    // ─── Multi-select delete ─────────────────────────────────────────────────────
+
+    const toggleSelect = (id: string) => {
+        setMultiSelect(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    };
+
+    const cancelMultiSelect = () => setMultiSelect([]);
+
+    const deleteSelected = () => {
+        Alert.alert(
+            `Eliminar ${multiSelect.length} mensaje(s)`,
+            '¿Eliminar para todos?',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar', style: 'destructive', onPress: async () => {
+                        await supabase.from('messages').delete().in('id', multiSelect);
+                        setMultiSelect([]);
+                        refetch();
+                    }
+                }
+            ]
+        );
+    };
     // ─── Send text ───────────────────────────────────────────────────────────
 
     const handleSend = () => {
@@ -270,18 +300,41 @@ export default function ChatScreen({ route, navigation }: any) {
         const isImage = msgText.startsWith('[imagen]');
         const isAudio = msgText.startsWith('[audio]');
         const mediaUrl = isImage ? msgText.slice(8) : isAudio ? msgText.slice(7) : null;
+        const isSelected = multiSelect.includes(item.id);
+
+        const handlePress = () => {
+            if (isMultiSelecting) { toggleSelect(item.id); return; }
+            if (isImage && mediaUrl) { setViewerUrl(mediaUrl); }
+        };
+
+        const handleLongPress = () => {
+            if (isMultiSelecting) { toggleSelect(item.id); return; }
+            // Enter multi-select mode OR show context menu
+            if (!isMultiSelecting) {
+                openMenu(item);
+            }
+        };
 
         return (
             <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}>
+                {isMultiSelecting && (
+                    <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
+                        <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
+                            {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
+                        </View>
+                    </TouchableOpacity>
+                )}
                 <TouchableOpacity
                     activeOpacity={0.85}
-                    onLongPress={() => openMenu(item)}
+                    onPress={handlePress}
+                    onLongPress={handleLongPress}
                     delayLongPress={350}
                     style={[
                         styles.bubble,
                         isMe ? styles.bubbleMe : styles.bubbleThem,
                         isAudio && styles.bubbleMedia,
                         isImage && styles.bubbleImageFrame,
+                        isSelected && styles.bubbleSelected,
                     ]}
                 >
                     {!isMe && !isSelf && !isImage && !isAudio && (
@@ -383,13 +436,41 @@ export default function ChatScreen({ route, navigation }: any) {
                 )}
             </View>
 
+            {/* Multi-select top bar */}
+            {isMultiSelecting && (
+                <View style={styles.selectBar}>
+                    <TouchableOpacity onPress={cancelMultiSelect} style={styles.selectBarBtn}>
+                        <Ionicons name="close" size={22} color="white" />
+                    </TouchableOpacity>
+                    <Text style={styles.selectBarText}>{multiSelect.length} seleccionado(s)</Text>
+                    <TouchableOpacity onPress={deleteSelected} style={styles.selectBarDelete}>
+                        <Ionicons name="trash" size={20} color="white" />
+                        <Text style={styles.selectBarDeleteText}>Eliminar</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             {isRecording && (
                 <View style={styles.recordingBar}>
                     <Text style={styles.recordingText}>🎤 Grabando... suelta para enviar</Text>
                 </View>
             )}
 
-            {/* ─── Context Menu Modal ─────────────────────────────────── */}
+            {/* ─── Fullscreen Image Viewer ────────────────────────── */}
+            <Modal visible={!!viewerUrl} transparent animationType="fade" onRequestClose={() => setViewerUrl(null)}>
+                <TouchableOpacity style={styles.viewerBackdrop} activeOpacity={1} onPress={() => setViewerUrl(null)}>
+                    <Image
+                        source={{ uri: viewerUrl || '' }}
+                        style={styles.viewerImage}
+                        resizeMode="contain"
+                    />
+                    <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerUrl(null)}>
+                        <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* ─── Context Menu Modal ──────────────────────────────── */}
             <Modal visible={!!selectedMsg} transparent animationType="none" onRequestClose={closeMenu}>
                 <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu}>
                     <Animated.View style={[styles.menuSheet, { transform: [{ translateY: menuAnim }] }]}>
@@ -541,9 +622,9 @@ const styles = StyleSheet.create({
     timeThem: { color: '#9ca3af' },
     readTick: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginLeft: 2 },
 
-    // Image message - smaller with thin colored frame
+    // Image message — minimal 1px frame
     msgImage: { width: 160, height: 160, borderRadius: 10 },
-    bubbleImageFrame: { padding: 3 },   // thin photo frame effect
+    bubbleImageFrame: { padding: 1, paddingBottom: 1 },
 
     // Audio player
     audioPlayer: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 8, minWidth: 180 },
@@ -599,6 +680,38 @@ const styles = StyleSheet.create({
         borderTopWidth: 1, borderTopColor: '#fecaca',
     },
     recordingText: { color: '#dc2626', fontWeight: '600', fontSize: 14 },
+
+    // ─── Multi-select bar ─────────────────────────────────────────────────────
+    selectBar: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#1e3a5f', paddingHorizontal: 16, paddingVertical: 10,
+        gap: 10,
+    },
+    selectBarBtn: { padding: 4 },
+    selectBarText: { flex: 1, color: 'white', fontSize: 15, fontWeight: '600' },
+    selectBarDelete: {
+        flexDirection: 'row', alignItems: 'center', gap: 4,
+        backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+    },
+    selectBarDeleteText: { color: 'white', fontWeight: '700', fontSize: 13 },
+
+    // ─── Checkboxes ──────────────────────────────────────────────────────────
+    checkbox: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
+    checkCircle: {
+        width: 22, height: 22, borderRadius: 11,
+        borderWidth: 2, borderColor: '#9ca3af',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    checkCircleOn: { backgroundColor: '#0a84ff', borderColor: '#0a84ff' },
+    bubbleSelected: { opacity: 0.75 },
+
+    // ─── Fullscreen image viewer ───────────────────────────────────────────
+    viewerBackdrop: {
+        flex: 1, backgroundColor: 'black',
+        justifyContent: 'center', alignItems: 'center',
+    },
+    viewerImage: { width: '100%', height: '100%' },
+    viewerClose: { position: 'absolute', top: 48, right: 20 },
 
     // ─── Context Menu ────────────────────────────────────────────────────────
     menuBackdrop: {
