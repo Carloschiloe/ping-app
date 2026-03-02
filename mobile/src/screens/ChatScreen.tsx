@@ -177,6 +177,21 @@ export default function ChatScreen({ route, navigation }: any) {
             ]
         );
     };
+
+    const forwardSelected = async () => {
+        const selectedMsgs = messages.filter((m: any) => multiSelect.includes(m.id)).reverse();
+        const combinedText = selectedMsgs.map((m: any) => {
+            const t = m.text || '';
+            if (t.startsWith('[imagen]')) return t.slice(8);
+            if (t.startsWith('[audio]')) return t.slice(7);
+            return t;
+        }).join('\n\n');
+
+        cancelMultiSelect();
+        // Short delay to avoid UI stutter when dismissing the bar and opening Share
+        setTimeout(() => Share.share({ message: combinedText }), 200);
+    };
+
     // ─── Send text ───────────────────────────────────────────────────────────
 
     const handleSend = () => {
@@ -450,6 +465,9 @@ export default function ChatScreen({ route, navigation }: any) {
                         <Ionicons name="close" size={22} color="white" />
                     </TouchableOpacity>
                     <Text style={styles.selectBarText}>{multiSelect.length} seleccionado(s)</Text>
+                    <TouchableOpacity onPress={forwardSelected} style={styles.selectBarForward}>
+                        <Ionicons name="arrow-redo" size={18} color="white" />
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={deleteSelected} style={styles.selectBarDelete}>
                         <Ionicons name="trash" size={20} color="white" />
                         <Text style={styles.selectBarDeleteText}>Eliminar</Text>
@@ -703,6 +721,10 @@ const styles = StyleSheet.create({
     },
     selectBarBtn: { padding: 4 },
     selectBarText: { flex: 1, color: 'white', fontSize: 15, fontWeight: '600' },
+    selectBarForward: {
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: '#10b981', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+    },
     selectBarDelete: {
         flexDirection: 'row', alignItems: 'center', gap: 4,
         backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
