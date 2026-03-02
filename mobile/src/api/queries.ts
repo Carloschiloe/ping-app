@@ -112,6 +112,18 @@ export const useGetOrCreateSelfConversation = () => {
     });
 };
 
+// ─── Groups ──────────────────────────────────────────────────────────
+
+export const useCreateGroup = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { name: string, participantIds: string[], avatarUrl?: string }) =>
+            apiClient.post('/groups', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
+    });
+};
 
 // ─── User search ──────────────────────────────────────────────────────
 

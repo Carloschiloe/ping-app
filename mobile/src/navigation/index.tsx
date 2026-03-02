@@ -9,6 +9,7 @@ import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import NewChatScreen from '../screens/NewChatScreen';
+import NewGroupScreen from '../screens/NewGroupScreen';
 import HoyScreen from '../screens/HoyScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -38,6 +39,17 @@ const ConversationsStack = () => (
             name="NewChat"
             component={NewChatScreen}
             options={{ headerShown: false }}
+        />
+        <Stack.Screen
+            name="NewGroup"
+            component={NewGroupScreen}
+            options={{
+                headerShown: true,
+                title: 'Nuevo Grupo',
+                headerBackTitle: 'Atrás',
+                headerStyle: { backgroundColor: '#1e3a5f' },
+                headerTintColor: 'white',
+            }}
         />
     </Stack.Navigator>
 );

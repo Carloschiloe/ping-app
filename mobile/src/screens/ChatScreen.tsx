@@ -4,6 +4,7 @@ import {
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
     StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard
 } from 'react-native';
+import { useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,8 +68,9 @@ async function uploadToSupabase(uri: string, bucket: string, mimeType: string): 
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function ChatScreen({ route, navigation }: any) {
-    const { conversationId, otherUser, isSelf } = route.params;
+export default function ChatScreen({ navigation }: any) {
+    const route = useRoute<any>();
+    const { conversationId, otherUser, isSelf, isGroup } = route.params;
     const [text, setText] = useState('');
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -374,7 +376,10 @@ export default function ChatScreen({ route, navigation }: any) {
                 >
                     {!isMe && !isSelf && !isImage && !isAudio && !isVideo && (
                         <Text style={styles.senderName}>
-                            {otherUser?.email?.split('@')[0] || 'Usuario'}
+                            {isGroup
+                                ? (item.profiles?.email?.split('@')[0] || 'Miembro')
+                                : (otherUser?.email?.split('@')[0] || 'Usuario')
+                            }
                         </Text>
                     )}
                     {isImage && mediaUrl ? (

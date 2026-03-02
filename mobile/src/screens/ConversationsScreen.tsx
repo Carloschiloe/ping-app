@@ -3,6 +3,7 @@ import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
     ActivityIndicator, StatusBar, Platform
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,16 +34,36 @@ export default function ConversationsScreen({ navigation }: any) {
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
 
     const renderItem = ({ item }: { item: any }) => {
+        const isGroup = item.isGroup;
         const otherUser = item.otherUser;
+        const groupMeta = item.groupMetadata;
         const lastMsg = item.lastMessage;
+
         const isSystem = lastMsg?.meta?.isSystem;
-        const email = otherUser?.email || 'chat';
-        const initials = avatarInitials(email);
-        const color = avatarColor(email);
+        const isByMe = lastMsg && (lastMsg.sender_id === user?.id || lastMsg.user_id === user?.id);
+
+        // Compute Name and Initials based on whether it is a Group or 1-on-1
+        let displayName = 'Chat';
+        let initials = '?';
+        let colorStr = 'chat';
+
+        if (isGroup && groupMeta) {
+            displayName = groupMeta.name;
+            colorStr = groupMeta.name;
+            // Get first letter of first two words, or just first two letters if one word
+            const words = groupMeta.name.split(' ').filter((w: string) => w.length > 0);
+            if (words.length >= 2) initials = (words[0][0] + words[1][0]).toUpperCase();
+            else initials = groupMeta.name.substring(0, 2).toUpperCase();
+        } else if (otherUser) {
+            displayName = otherUser.email.split('@')[0];
+            initials = avatarInitials(otherUser.email);
+            colorStr = otherUser.email;
+        }
+
+        const color = avatarColor(colorStr);
         const preview = lastMsg
             ? (isSystem ? `🤖 ${lastMsg.text}` : lastMsg.text)
             : 'Sin mensajes aún';
-        const isByMe = lastMsg && (lastMsg.sender_id === user?.id || lastMsg.user_id === user?.id);
 
         return (
             <TouchableOpacity
@@ -59,7 +80,7 @@ export default function ConversationsScreen({ navigation }: any) {
                 <View style={styles.info}>
                     <View style={styles.topRow}>
                         <Text style={styles.name} numberOfLines={1}>
-                            {email.split('@')[0]}
+                            {displayName}
                         </Text>
                         {lastMsg && (
                             <Text style={styles.time}>{formatTime(lastMsg.created_at)}</Text>
@@ -81,9 +102,14 @@ export default function ConversationsScreen({ navigation }: any) {
             {/* Header */}
             <View style={styles.header}>
                 <Text style={styles.title}>Ping</Text>
-                <TouchableOpacity style={styles.newBtn} onPress={() => navigation.navigate('NewChat')}>
-                    <Text style={styles.newBtnText}>✏️</Text>
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('NewGroup')}>
+                        <Ionicons name="people" size={24} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('NewChat')}>
+                        <Ionicons name="create-outline" size={26} color="white" />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {isLoading ? (
@@ -146,8 +172,8 @@ const styles = StyleSheet.create({
         paddingBottom: 16,
     },
     title: { fontSize: 26, fontWeight: '800', color: 'white', letterSpacing: -0.5 },
-    newBtn: { padding: 8 },
-    newBtnText: { fontSize: 22 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+    actionBtn: { padding: 4 },
 
     // Pinned self row
     selfRow: {
