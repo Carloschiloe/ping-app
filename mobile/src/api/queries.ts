@@ -59,9 +59,12 @@ export const useConversationMessages = (conversationId: string) => {
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-                () => {
-                    queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-                }
+                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+            )
+            .on(
+                'postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
             )
             .subscribe();
         return () => { supabase.removeChannel(channel); };

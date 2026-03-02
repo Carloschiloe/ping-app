@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, Pressable
+    StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
@@ -73,7 +73,9 @@ export default function ChatScreen({ route, navigation }: any) {
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
-    const { data, isLoading } = useConversationMessages(conversationId);
+    const [selectedMsg, setSelectedMsg] = useState<any>(null);
+    const menuAnim = useRef(new Animated.Value(300)).current;
+    const { data, isLoading, refetch } = useConversationMessages(conversationId);
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
     const { user } = useAuth();
     const messages = data?.messages || [];
@@ -84,6 +86,60 @@ export default function ChatScreen({ route, navigation }: any) {
         navigation.setOptions({ title: chatTitle });
     }, [navigation, chatTitle]);
 
+    // ─── Context Menu ────────────────────────────────────────────────────────
+
+    const openMenu = useCallback((item: any) => {
+        setSelectedMsg(item);
+        Animated.spring(menuAnim, { toValue: 0, useNativeDriver: true, tension: 70, friction: 8 }).start();
+    }, [menuAnim]);
+
+    const closeMenu = useCallback(() => {
+        Animated.timing(menuAnim, { toValue: 300, duration: 180, useNativeDriver: true }).start(() => {
+            setSelectedMsg(null);
+        });
+    }, [menuAnim]);
+
+    const handleCopy = () => {
+        const t = selectedMsg?.text || '';
+        const clean = t.startsWith('[imagen]') || t.startsWith('[audio]') ? '📷 Contenido multimedia' : t;
+        Clipboard.setString(clean);
+        closeMenu();
+    };
+
+    const handleEdit = () => {
+        const t = selectedMsg?.text || '';
+        if (t.startsWith('[imagen]') || t.startsWith('[audio]')) { closeMenu(); return; }
+        setText(t);
+        closeMenu();
+    };
+
+    const handleDelete = () => {
+        Alert.alert(
+            'Eliminar mensaje',
+            '¿Eliminar este mensaje para todos?',
+            [
+                { text: 'Cancelar', style: 'cancel', onPress: closeMenu },
+                {
+                    text: 'Eliminar', style: 'destructive', onPress: async () => {
+                        closeMenu();
+                        const { error } = await supabase.from('messages').delete().eq('id', selectedMsg?.id);
+                        if (error) Alert.alert('Error', 'No se pudo eliminar el mensaje.');
+                        else refetch();
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleForward = async () => {
+        const t = selectedMsg?.text || '';
+        const clean = t.startsWith('[imagen]') ? t.slice(8) : t.startsWith('[audio]') ? t.slice(7) : t;
+        closeMenu();
+        await Share.share({ message: clean });
+    };
+
+    const isMyMessage = selectedMsg && (selectedMsg.sender_id || selectedMsg.user_id) === user?.id;
+    const isTextMsg = selectedMsg && !selectedMsg.text?.startsWith('[imagen]') && !selectedMsg.text?.startsWith('[audio]');
     // ─── Send text ───────────────────────────────────────────────────────────
 
     const handleSend = () => {
@@ -217,11 +273,17 @@ export default function ChatScreen({ route, navigation }: any) {
 
         return (
             <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}>
-                <View style={[
-                    styles.bubble,
-                    isMe ? styles.bubbleMe : styles.bubbleThem,
-                    isAudio && styles.bubbleMedia,
-                ]}>
+                <TouchableOpacity
+                    activeOpacity={0.85}
+                    onLongPress={() => openMenu(item)}
+                    delayLongPress={350}
+                    style={[
+                        styles.bubble,
+                        isMe ? styles.bubbleMe : styles.bubbleThem,
+                        isAudio && styles.bubbleMedia,
+                        isImage && styles.bubbleImageFrame,
+                    ]}
+                >
                     {!isMe && !isSelf && !isImage && !isAudio && (
                         <Text style={styles.senderName}>
                             {otherUser?.email?.split('@')[0] || 'Usuario'}
@@ -245,7 +307,7 @@ export default function ChatScreen({ route, navigation }: any) {
                         <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                         {isMe && <Text style={styles.readTick}> ✓✓</Text>}
                     </View>
-                </View>
+                </TouchableOpacity>
             </View>
         );
     };
@@ -297,12 +359,9 @@ export default function ChatScreen({ route, navigation }: any) {
 
             {/* Input bar */}
             <View style={styles.inputBar}>
-                {/* Photo button */}
                 <TouchableOpacity style={styles.mediaBtn} onPress={pickImageSource} disabled={sendingMedia || isPending}>
                     <Ionicons name="image-outline" size={24} color="#6b7280" />
                 </TouchableOpacity>
-
-                {/* Text input */}
                 <TextInput
                     style={styles.input}
                     placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
@@ -311,29 +370,14 @@ export default function ChatScreen({ route, navigation }: any) {
                     onChangeText={setText}
                     multiline
                 />
-
-                {/* Audio or Send button */}
                 {text.trim() ? (
-                    <TouchableOpacity
-                        style={[styles.sendBtn, isPending && styles.sendDisabled]}
-                        onPress={handleSend}
-                        disabled={isPending}
-                    >
-                        {isPending
-                            ? <ActivityIndicator size="small" color="white" />
-                            : <Ionicons name="send" size={18} color="white" />
-                        }
+                    <TouchableOpacity style={[styles.sendBtn, isPending && styles.sendDisabled]} onPress={handleSend} disabled={isPending}>
+                        {isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
                     </TouchableOpacity>
                 ) : sendingMedia ? (
-                    <View style={styles.sendBtn}>
-                        <ActivityIndicator size="small" color="white" />
-                    </View>
+                    <View style={styles.sendBtn}><ActivityIndicator size="small" color="white" /></View>
                 ) : (
-                    <Pressable
-                        style={[styles.sendBtn, isRecording && styles.recordingBtn]}
-                        onPressIn={startRecording}
-                        onPressOut={stopRecording}
-                    >
+                    <Pressable style={[styles.sendBtn, isRecording && styles.recordingBtn]} onPressIn={startRecording} onPressOut={stopRecording}>
                         <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color="white" />
                     </Pressable>
                 )}
@@ -341,9 +385,67 @@ export default function ChatScreen({ route, navigation }: any) {
 
             {isRecording && (
                 <View style={styles.recordingBar}>
-                    <Text style={styles.recordingText}>🎙️ Grabando... suelta para enviar</Text>
+                    <Text style={styles.recordingText}>🎤 Grabando... suelta para enviar</Text>
                 </View>
             )}
+
+            {/* ─── Context Menu Modal ─────────────────────────────────── */}
+            <Modal visible={!!selectedMsg} transparent animationType="none" onRequestClose={closeMenu}>
+                <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu}>
+                    <Animated.View style={[styles.menuSheet, { transform: [{ translateY: menuAnim }] }]}>
+                        {/* Message preview */}
+                        <View style={styles.menuPreview}>
+                            <Text style={styles.menuPreviewText} numberOfLines={2}>
+                                {(() => {
+                                    const t = selectedMsg?.text || '';
+                                    if (t.startsWith('[imagen]')) return '📷 Imagen';
+                                    if (t.startsWith('[audio]')) return '🎤 Audio';
+                                    return t;
+                                })()}
+                            </Text>
+                        </View>
+
+                        {/* Actions */}
+                        <View style={styles.menuActions}>
+                            <TouchableOpacity style={styles.menuAction} onPress={handleCopy}>
+                                <View style={[styles.menuIcon, { backgroundColor: '#6366f1' }]}>
+                                    <Ionicons name="copy-outline" size={22} color="white" />
+                                </View>
+                                <Text style={styles.menuLabel}>Copiar</Text>
+                            </TouchableOpacity>
+
+                            {isMyMessage && isTextMsg && (
+                                <TouchableOpacity style={styles.menuAction} onPress={handleEdit}>
+                                    <View style={[styles.menuIcon, { backgroundColor: '#f59e0b' }]}>
+                                        <Ionicons name="pencil-outline" size={22} color="white" />
+                                    </View>
+                                    <Text style={styles.menuLabel}>Editar</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity style={styles.menuAction} onPress={handleForward}>
+                                <View style={[styles.menuIcon, { backgroundColor: '#10b981' }]}>
+                                    <Ionicons name="arrow-redo-outline" size={22} color="white" />
+                                </View>
+                                <Text style={styles.menuLabel}>Reenviar</Text>
+                            </TouchableOpacity>
+
+                            {isMyMessage && (
+                                <TouchableOpacity style={styles.menuAction} onPress={handleDelete}>
+                                    <View style={[styles.menuIcon, { backgroundColor: '#ef4444' }]}>
+                                        <Ionicons name="trash-outline" size={22} color="white" />
+                                    </View>
+                                    <Text style={styles.menuLabel}>Eliminar</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        <TouchableOpacity style={styles.menuCancel} onPress={closeMenu}>
+                            <Text style={styles.menuCancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                    </Animated.View>
+                </TouchableOpacity>
+            </Modal>
         </KeyboardAvoidingView>
     );
 }
@@ -439,8 +541,9 @@ const styles = StyleSheet.create({
     timeThem: { color: '#9ca3af' },
     readTick: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginLeft: 2 },
 
-    // Image message
-    msgImage: { width: 220, height: 220, borderRadius: 14 },
+    // Image message - smaller with thin colored frame
+    msgImage: { width: 160, height: 160, borderRadius: 10 },
+    bubbleImageFrame: { padding: 3 },   // thin photo frame effect
 
     // Audio player
     audioPlayer: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 8, minWidth: 180 },
@@ -496,4 +599,37 @@ const styles = StyleSheet.create({
         borderTopWidth: 1, borderTopColor: '#fecaca',
     },
     recordingText: { color: '#dc2626', fontWeight: '600', fontSize: 14 },
+
+    // ─── Context Menu ────────────────────────────────────────────────────────
+    menuBackdrop: {
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
+    },
+    menuSheet: {
+        backgroundColor: '#f9fafb', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+        paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+        shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 20, elevation: 20,
+    },
+    menuPreview: {
+        marginHorizontal: 20, marginBottom: 16, padding: 14,
+        backgroundColor: 'white', borderRadius: 14,
+        borderWidth: 1, borderColor: '#e5e7eb',
+    },
+    menuPreviewText: { fontSize: 14, color: '#374151', lineHeight: 20 },
+    menuActions: {
+        flexDirection: 'row', justifyContent: 'space-around',
+        paddingHorizontal: 20, marginBottom: 12,
+    },
+    menuAction: { alignItems: 'center', gap: 6, minWidth: 64 },
+    menuIcon: {
+        width: 52, height: 52, borderRadius: 26,
+        alignItems: 'center', justifyContent: 'center',
+        shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 3,
+    },
+    menuLabel: { fontSize: 12, color: '#374151', fontWeight: '500', marginTop: 4 },
+    menuCancel: {
+        marginHorizontal: 20, marginTop: 4, paddingVertical: 14,
+        backgroundColor: 'white', borderRadius: 14, alignItems: 'center',
+        borderWidth: 1, borderColor: '#e5e7eb',
+    },
+    menuCancelText: { fontSize: 16, color: '#ef4444', fontWeight: '600' },
 });
