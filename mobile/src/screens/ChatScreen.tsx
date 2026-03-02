@@ -134,11 +134,18 @@ export default function ChatScreen({ route, navigation }: any) {
         );
     };
 
-    const handleForward = async () => {
+    const handleForward = () => {
         const t = selectedMsg?.text || '';
         const clean = t.startsWith('[imagen]') ? t.slice(8) : t.startsWith('[audio]') ? t.slice(7) : t;
         closeMenu();
-        await Share.share({ message: clean });
+        // Wait for modal to close before opening system share sheet
+        setTimeout(() => Share.share({ message: clean }), 350);
+    };
+
+    const handleSelect = () => {
+        const id = selectedMsg?.id;
+        closeMenu();
+        if (id) setTimeout(() => setMultiSelect([id]), 200);
     };
 
     const isMyMessage = selectedMsg && (selectedMsg.sender_id || selectedMsg.user_id) === user?.id;
@@ -509,6 +516,13 @@ export default function ChatScreen({ route, navigation }: any) {
                                     <Ionicons name="arrow-redo-outline" size={22} color="white" />
                                 </View>
                                 <Text style={styles.menuLabel}>Reenviar</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.menuAction} onPress={handleSelect}>
+                                <View style={[styles.menuIcon, { backgroundColor: '#3b82f6' }]}>
+                                    <Ionicons name="checkmark-circle-outline" size={22} color="white" />
+                                </View>
+                                <Text style={styles.menuLabel}>Seleccionar</Text>
                             </TouchableOpacity>
 
                             {isMyMessage && (
