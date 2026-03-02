@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
@@ -26,8 +27,11 @@ const ConversationsStack = () => (
             name="Chat"
             component={ChatScreen}
             options={({ route }: any) => ({
-                title: route.params?.otherUser?.email || 'Chat',
+                title: route.params?.isSelf ? '📌 Mis Recordatorios' : (route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
                 headerBackTitle: '',
+                headerStyle: { backgroundColor: '#1e3a5f' },
+                headerTintColor: 'white',
+                headerTitleStyle: { fontWeight: '700', color: 'white' },
             })}
         />
         <Stack.Screen
@@ -39,7 +43,34 @@ const ConversationsStack = () => (
 );
 
 const MainTabs = () => (
-    <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: '#3b82f6' }}>
+    <Tab.Navigator
+        screenOptions={({ route }) => ({
+            headerShown: false,
+            tabBarActiveTintColor: '#1e3a5f',
+            tabBarInactiveTintColor: '#9ca3af',
+            tabBarStyle: {
+                backgroundColor: 'white',
+                borderTopColor: '#f0f0f0',
+                height: 60,
+                paddingBottom: 8,
+                paddingTop: 4,
+            },
+            tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+            tabBarIcon: ({ focused, color, size }) => {
+                let iconName: any;
+                if (route.name === 'Chats') {
+                    iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                } else if (route.name === 'Hoy') {
+                    iconName = focused ? 'today' : 'today-outline';
+                } else if (route.name === 'Search') {
+                    iconName = focused ? 'search' : 'search-outline';
+                } else if (route.name === 'Perfil') {
+                    iconName = focused ? 'person-circle' : 'person-circle-outline';
+                }
+                return <Ionicons name={iconName} size={24} color={color} />;
+            },
+        })}
+    >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
         <Tab.Screen name="Search" component={SearchScreen} options={{ title: 'Buscar' }} />
@@ -53,7 +84,7 @@ export const AppNavigator = () => {
     if (!initialized) {
         return (
             <View style={styles.loading}>
-                <ActivityIndicator size="large" color="#3b82f6" />
+                <ActivityIndicator size="large" color="#1e3a5f" />
             </View>
         );
     }
