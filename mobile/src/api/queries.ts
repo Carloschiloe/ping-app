@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { apiClient } from './client';
 
@@ -28,21 +29,51 @@ export const useSendMessage = () => {
 // ─── Conversations ────────────────────────────────────────────────────
 
 export const useConversations = () => {
+    const queryClient = useQueryClient();
+
+    // Realtime: refresh conversation list when any message is inserted
+    useEffect(() => {
+        const channel = supabase
+            .channel('conversations-list')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            })
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [queryClient]);
+
     return useQuery({
         queryKey: ['conversations'],
         queryFn: () => apiClient.get('/conversations'),
-        refetchInterval: 5000, // poll every 5s for new messages
     });
 };
 
 export const useConversationMessages = (conversationId: string) => {
+    const queryClient = useQueryClient();
+
+    // Realtime: instantly append new messages in this conversation
+    useEffect(() => {
+        if (!conversationId) return;
+        const channel = supabase
+            .channel(`messages-${conversationId}`)
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+                () => {
+                    queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                }
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [conversationId, queryClient]);
+
     return useQuery({
         queryKey: ['conversation-messages', conversationId],
         queryFn: () => apiClient.get(`/conversations/${conversationId}/messages`),
         enabled: !!conversationId,
-        refetchInterval: 3000, // poll every 3s for real-time feel
     });
 };
+
 
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
