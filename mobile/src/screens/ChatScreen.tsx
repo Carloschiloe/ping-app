@@ -29,12 +29,34 @@ function formatDateDivider(iso: string) {
 
 async function uploadToSupabase(uri: string, bucket: string, mimeType: string): Promise<string | null> {
     try {
-        const ext = uri.split('.').pop() || 'bin';
+        const ext = mimeType.includes('audio') ? 'm4a' : 'jpg';
         const path = `${Date.now()}.${ext}`;
-        const response = await fetch(uri);
-        const blob = await response.blob();
-        const { error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: mimeType });
-        if (error) throw error;
+
+        // React Native compatible upload using FormData
+        const formData = new FormData();
+        formData.append('file', { uri, name: path, type: mimeType } as any);
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+
+        const res = await fetch(
+            `${supabaseUrl}/storage/v1/object/${bucket}/${path}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'x-upsert': 'true',
+                },
+                body: formData,
+            }
+        );
+
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Upload failed: ${err}`);
+        }
+
         const { data } = supabase.storage.from(bucket).getPublicUrl(path);
         return data.publicUrl;
     } catch (e) {
@@ -198,7 +220,6 @@ export default function ChatScreen({ route, navigation }: any) {
                 <View style={[
                     styles.bubble,
                     isMe ? styles.bubbleMe : styles.bubbleThem,
-                    isImage && styles.bubbleImage,
                     isAudio && styles.bubbleMedia,
                 ]}>
                     {!isMe && !isSelf && !isImage && !isAudio && (
@@ -220,8 +241,8 @@ export default function ChatScreen({ route, navigation }: any) {
                             {msgText}
                         </Text>
                     )}
-                    <View style={[styles.metaRow, isImage && styles.metaRowOverImage]}>
-                        <Text style={[styles.timeText, (isMe || isImage) ? styles.timeMe : styles.timeThem]}>{time}</Text>
+                    <View style={styles.metaRow}>
+                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                         {isMe && <Text style={styles.readTick}> ✓✓</Text>}
                     </View>
                 </View>
