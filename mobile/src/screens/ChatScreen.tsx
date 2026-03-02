@@ -71,36 +71,65 @@ export default function ChatScreen({ route, navigation }: any) {
 
     // ─── Photo picker ────────────────────────────────────────────────────────
 
-    const handlePickImage = async () => {
+    const pickImageSource = () => {
+        Alert.alert(
+            'Enviar foto',
+            '¿Cómo quieres agregar la foto?',
+            [
+                { text: '📷 Tomar foto', onPress: () => openCamera() },
+                { text: '🖼️ Elegir de galería', onPress: () => openGallery() },
+                { text: 'Cancelar', style: 'cancel' },
+            ]
+        );
+    };
+
+    const openGallery = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-            Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería para enviar fotos.');
+            Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería.');
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             quality: 0.7,
-            allowsEditing: false,
         });
         if (result.canceled || !result.assets[0]) return;
-        const asset = result.assets[0];
+        await uploadAndSendImage(result.assets[0].uri);
+    };
+
+    const openCamera = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara.');
+            return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.7,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        await uploadAndSendImage(result.assets[0].uri);
+    };
+
+    const uploadAndSendImage = async (uri: string) => {
         setSendingMedia(true);
-        const url = await uploadToSupabase(asset.uri, 'chat-media', 'image/jpeg');
+        const url = await uploadToSupabase(uri, 'chat-media', 'image/jpeg');
         setSendingMedia(false);
         if (url) {
             sendMessage(`[imagen]${url}`, {});
         } else {
-            Alert.alert('Error', 'No se pudo subir la imagen. Intenta de nuevo.');
+            Alert.alert('Error', 'No se pudo subir la imagen.');
         }
     };
 
     // ─── Audio recorder ──────────────────────────────────────────────────────
 
     const startRecording = async () => {
+        if (isRecording || recording) return; // guard: only one at a time
         try {
             const { status } = await Audio.requestPermissionsAsync();
             if (status !== 'granted') {
-                Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono para grabar audio.');
+                Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
                 return;
             }
             await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
@@ -111,23 +140,26 @@ export default function ChatScreen({ route, navigation }: any) {
             setIsRecording(true);
         } catch (e) {
             console.error('[Audio]', e);
+            setIsRecording(false);
         }
     };
 
     const stopRecording = async () => {
-        if (!recording) return;
+        if (!recording || !isRecording) return;
         setIsRecording(false);
-        await recording.stopAndUnloadAsync();
-        const uri = recording.getURI();
-        setRecording(null);
-        if (!uri) return;
-        setSendingMedia(true);
-        const url = await uploadToSupabase(uri, 'chat-media', 'audio/m4a');
-        setSendingMedia(false);
-        if (url) {
-            sendMessage(`[audio]${url}`, {});
-        } else {
-            Alert.alert('Error', 'No se pudo subir el audio.');
+        try {
+            await recording.stopAndUnloadAsync();
+            const uri = recording.getURI();
+            setRecording(null);
+            if (!uri) return;
+            setSendingMedia(true);
+            const url = await uploadToSupabase(uri, 'chat-media', 'audio/m4a');
+            setSendingMedia(false);
+            if (url) sendMessage(`[audio]${url}`, {});
+            else Alert.alert('Error', 'No se pudo subir el audio.');
+        } catch (e) {
+            console.error('[Audio stop]', e);
+            setRecording(null);
         }
     };
 
@@ -236,7 +268,7 @@ export default function ChatScreen({ route, navigation }: any) {
             {/* Input bar */}
             <View style={styles.inputBar}>
                 {/* Photo button */}
-                <TouchableOpacity style={styles.mediaBtn} onPress={handlePickImage} disabled={sendingMedia || isPending}>
+                <TouchableOpacity style={styles.mediaBtn} onPress={pickImageSource} disabled={sendingMedia || isPending}>
                     <Ionicons name="image-outline" size={24} color="#6b7280" />
                 </TouchableOpacity>
 
