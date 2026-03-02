@@ -6,6 +6,7 @@ import * as searchController from '../controllers/search.controller';
 import * as pushController from '../controllers/push.controller';
 import * as conversationController from '../controllers/conversation.controller';
 import * as userController from '../controllers/user.controller';
+import * as groupController from '../controllers/group.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 export const router = Router();
@@ -36,6 +37,10 @@ router.post('/conversations', requireAuth, conversationController.createOrFind);
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
 router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
+
+// Groups
+router.post('/groups', requireAuth, groupController.createGroup);
+router.post('/groups/:id/participants', requireAuth, groupController.addParticipants);
 
 // Legacy self-chat message routes (kept for backward compatibility)
 router.post('/messages', requireAuth, messageController.createMessage);

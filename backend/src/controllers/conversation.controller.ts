@@ -128,7 +128,15 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Get all participants in these conversations (to find "the other person")
+        // Fetch conversation metadata (is_group, name, avatar)
+        const { data: conversationsData, error: cErr } = await supabaseAdmin
+            .from('conversations')
+            .select('id, is_group, name, avatar_url, admin_id')
+            .in('id', conversationIds);
+
+        if (cErr) throw cErr;
+
+        // Get all participants in these conversations (to find "the other person" or all members)
         const { data: allParticipants, error: apErr } = await supabaseAdmin
             .from('conversation_participants')
             .select('conversation_id, user_id, profiles(id, email)')
@@ -154,16 +162,43 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             }
         });
 
-        const participantMap: Record<string, any> = {};
+        const participantMap: Record<string, any[]> = {};
         allParticipants?.forEach(p => {
-            participantMap[p.conversation_id] = p.profiles;
+            if (!participantMap[p.conversation_id]) participantMap[p.conversation_id] = [];
+            participantMap[p.conversation_id].push(p.profiles);
         });
 
-        const conversations = conversationIds.map(id => ({
-            id,
-            otherUser: participantMap[id] || null,
-            lastMessage: lastMsgMap[id] || null,
-        })).sort((a, b) => {
+        const convMap: Record<string, any> = {};
+        conversationsData?.forEach(c => {
+            convMap[c.id] = c;
+        });
+
+        const conversations = conversationIds.map(id => {
+            const conv = convMap[id];
+            const isGroup = conv?.is_group || false;
+            let otherUser = null;
+            let groupMetadata = null;
+
+            if (isGroup) {
+                groupMetadata = {
+                    name: conv.name,
+                    avatar_url: conv.avatar_url,
+                    admin_id: conv.admin_id,
+                    participants: participantMap[id] || []
+                };
+            } else {
+                // For 1-on-1 chats, just grab the first other participant
+                otherUser = participantMap[id]?.[0] || null;
+            }
+
+            return {
+                id,
+                isGroup,
+                otherUser,
+                groupMetadata,
+                lastMessage: lastMsgMap[id] || null,
+            };
+        }).sort((a, b) => {
             const timeA = a.lastMessage?.created_at || '';
             const timeB = b.lastMessage?.created_at || '';
             return timeB.localeCompare(timeA);
