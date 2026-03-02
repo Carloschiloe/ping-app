@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { extractCommitment } from './ai.service';
 import { parseDateFromText } from './date-parser.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -19,56 +20,69 @@ export const processUserMessage = async (userId: string, text: string, conversat
     if (messageError) throw messageError;
 
     let commitmentCreated: any = null;
-    let systemReplyText = null;
     let systemMessage: any = null;
 
-    // 2. Parse date for commitments
-    const parsedDate = parseDateFromText(text);
-    if (parsedDate) {
-        // 3. Create commitment
-        const title = `Recordatorio: "${text.substring(0, 30)}..."`;
+    // 2. Try AI extraction first, fall back to regex
+    const nowIso = new Date().toISOString();
+    let title: string | null = null;
+    let dueAt: Date | null = null;
+    let replyText: string | null = null;
 
+    if (process.env.OPENAI_API_KEY) {
+        // AI path
+        const ai = await extractCommitment(text, nowIso);
+        if (ai.hasCommitment && ai.dueAt) {
+            title = ai.title;
+            dueAt = new Date(ai.dueAt);
+            replyText = ai.replyText;
+        }
+    } else {
+        // Fallback: regex date parser
+        const parsed = parseDateFromText(text);
+        if (parsed) {
+            title = `Recordatorio: "${text.substring(0, 40)}..."`;
+            dueAt = parsed.date;
+            const formattedDate = format(dueAt, "EEEE d 'de' MMMM 'a las' HH:mm", { locale: es });
+            replyText = `⏰ Te lo recordaré el ${formattedDate}.`;
+        }
+    }
+
+    // 3. Save commitment if detected
+    if (dueAt && title) {
         const { data: commitment, error: commError } = await supabaseAdmin
             .from('commitments')
             .insert({
                 owner_user_id: userId,
                 message_id: message.id,
                 title,
-                due_at: parsedDate.date.toISOString(),
+                due_at: dueAt.toISOString(),
             })
             .select()
             .single();
 
         if (commError) {
-            console.error('Error creating commitment', commError);
+            console.error('[Commitment] Error:', commError);
         } else {
             commitmentCreated = commitment;
 
-            // Create a system message reply acknowledging the commitment
-            const formattedDate = format(parsedDate.date, "EEEE d 'de' MMMM 'a las' HH:mm", { locale: es });
-            systemReplyText = `Te lo recordaré el ${formattedDate}.`;
-
+            // 4. Save system reply in the same conversation
             const { data: sysMsg, error: sysError } = await supabaseAdmin
                 .from('messages')
                 .insert({
                     user_id: userId,
-                    text: systemReplyText,
+                    sender_id: null,
+                    ...(conversationId ? { conversation_id: conversationId } : {}),
+                    text: replyText || '✅ Compromiso guardado.',
                     meta: { isSystem: true, relatedCommitmentId: commitment.id }
                 })
                 .select()
                 .single();
 
-            if (!sysError) {
-                systemMessage = sysMsg;
-            }
+            if (!sysError) systemMessage = sysMsg;
         }
     }
 
-    return {
-        userMessage: message,
-        systemMessage,
-        commitment: commitmentCreated,
-    };
+    return { userMessage: message, systemMessage, commitment: commitmentCreated };
 };
 
 export const getMessages = async (userId: string, limit = 50, offset = 0) => {

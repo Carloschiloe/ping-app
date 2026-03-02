@@ -22,7 +22,8 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.3.1",
     "expo-server-sdk": "^6.0.0",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "openai": "^6.25.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
