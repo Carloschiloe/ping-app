@@ -74,7 +74,7 @@ export default function ChatScreen({ route, navigation }: any) {
     const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
     const [selectedMsg, setSelectedMsg] = useState<any>(null);      // context menu
-    const [viewerUrl, setViewerUrl] = useState<string | null>(null); // fullscreen image
+    const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null); // fullscreen
     const [multiSelect, setMultiSelect] = useState<string[]>([]);   // bulk select IDs
     const isMultiSelecting = multiSelect.length > 0;
     const menuAnim = useRef(new Animated.Value(300)).current;
@@ -332,7 +332,8 @@ export default function ChatScreen({ route, navigation }: any) {
 
         const handlePress = () => {
             if (isMultiSelecting) { toggleSelect(item.id); return; }
-            if (isImage && mediaUrl) { setViewerUrl(mediaUrl); }
+            if (isImage && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'image' }); }
+            if (isVideo && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'video' }); }
         };
 
         const handleLongPress = () => {
@@ -378,12 +379,17 @@ export default function ChatScreen({ route, navigation }: any) {
                             onError={() => console.warn('[Image] failed to load:', mediaUrl)}
                         />
                     ) : isVideo && mediaUrl ? (
-                        <Video
-                            source={{ uri: mediaUrl }}
-                            style={styles.msgImage}
-                            useNativeControls
-                            resizeMode={ResizeMode.COVER}
-                        />
+                        <View style={styles.inlineVideoWrap}>
+                            <Video
+                                source={{ uri: mediaUrl }}
+                                style={styles.msgImage}
+                                useNativeControls={false}
+                                resizeMode={ResizeMode.COVER}
+                            />
+                            <View style={styles.videoPlayOverlay}>
+                                <Ionicons name="play-circle" size={48} color="white" />
+                            </View>
+                        </View>
                     ) : isAudio && mediaUrl ? (
                         <AudioPlayer url={mediaUrl} isMe={isMe} />
                     ) : (
@@ -494,18 +500,30 @@ export default function ChatScreen({ route, navigation }: any) {
                 </View>
             )}
 
-            {/* ─── Fullscreen Image Viewer ────────────────────────── */}
-            <Modal visible={!!viewerUrl} transparent animationType="fade" onRequestClose={() => setViewerUrl(null)}>
-                <TouchableOpacity style={styles.viewerBackdrop} activeOpacity={1} onPress={() => setViewerUrl(null)}>
-                    <Image
-                        source={{ uri: viewerUrl || '' }}
-                        style={styles.viewerImage}
-                        resizeMode="contain"
-                    />
-                    <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerUrl(null)}>
+            {/* ─── Fullscreen Media Viewer ────────────────────────── */}
+            <Modal visible={!!viewerMedia} transparent animationType="fade" onRequestClose={() => setViewerMedia(null)}>
+                <View style={styles.viewerBackdrop}>
+                    {viewerMedia?.type === 'video' ? (
+                        <Video
+                            source={{ uri: viewerMedia.url }}
+                            style={styles.viewerImage}
+                            useNativeControls
+                            shouldPlay
+                            resizeMode={ResizeMode.CONTAIN}
+                        />
+                    ) : (
+                        <TouchableOpacity style={{ flex: 1, width: '100%' }} activeOpacity={1} onPress={() => setViewerMedia(null)}>
+                            <Image
+                                source={{ uri: viewerMedia?.url || '' }}
+                                style={styles.viewerImage}
+                                resizeMode="contain"
+                            />
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
                         <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
                     </TouchableOpacity>
-                </TouchableOpacity>
+                </View>
             </Modal>
 
             {/* ─── Context Menu Modal ──────────────────────────────── */}
@@ -671,6 +689,12 @@ const styles = StyleSheet.create({
     // Image message — minimal 1px frame
     msgImage: { width: 160, height: 160, borderRadius: 10 },
     bubbleImageFrame: { padding: 1, paddingBottom: 1 },
+    inlineVideoWrap: { position: 'relative', width: 160, height: 160, borderRadius: 10, overflow: 'hidden' },
+    videoPlayOverlay: {
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        justifyContent: 'center', alignItems: 'center',
+    },
 
     // Audio player
     audioPlayer: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 8, minWidth: 180 },
