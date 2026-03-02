@@ -5,7 +5,7 @@ import {
     StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Audio } from 'expo-av';
+import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversationMessages, useSendConversationMessage } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
@@ -29,7 +29,7 @@ function formatDateDivider(iso: string) {
 
 async function uploadToSupabase(uri: string, bucket: string, mimeType: string): Promise<string | null> {
     try {
-        const ext = mimeType.includes('audio') ? 'm4a' : 'jpg';
+        const ext = mimeType.includes('audio') ? 'm4a' : mimeType.includes('video') ? 'mp4' : 'jpg';
         const path = `${Date.now()}.${ext}`;
 
         // React Native compatible upload using FormData
@@ -104,14 +104,14 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const handleCopy = () => {
         const t = selectedMsg?.text || '';
-        const clean = t.startsWith('[imagen]') || t.startsWith('[audio]') ? '📷 Contenido multimedia' : t;
+        const clean = t.match(/^\[(imagen|audio|video)\]/) ? '📷 Contenido multimedia' : t;
         Clipboard.setString(clean);
         closeMenu();
     };
 
     const handleEdit = () => {
         const t = selectedMsg?.text || '';
-        if (t.startsWith('[imagen]') || t.startsWith('[audio]')) { closeMenu(); return; }
+        if (t.match(/^\[(imagen|audio|video)\]/)) { closeMenu(); return; }
         setText(t);
         closeMenu();
     };
@@ -136,7 +136,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const handleForward = () => {
         const t = selectedMsg?.text || '';
-        const clean = t.startsWith('[imagen]') ? t.slice(8) : t.startsWith('[audio]') ? t.slice(7) : t;
+        const clean = t.startsWith('[imagen]') ? t.slice(8) : t.startsWith('[audio]') ? t.slice(7) : t.startsWith('[video]') ? t.slice(7) : t;
         closeMenu();
         // Wait for modal to close before opening system share sheet
         setTimeout(() => Share.share({ message: clean }), 350);
@@ -149,7 +149,7 @@ export default function ChatScreen({ route, navigation }: any) {
     };
 
     const isMyMessage = selectedMsg && (selectedMsg.sender_id || selectedMsg.user_id) === user?.id;
-    const isTextMsg = selectedMsg && !selectedMsg.text?.startsWith('[imagen]') && !selectedMsg.text?.startsWith('[audio]');
+    const isTextMsg = selectedMsg && !selectedMsg.text?.match(/^\[(imagen|audio|video)\]/);
 
     // ─── Multi-select delete ─────────────────────────────────────────────────────
 
@@ -184,6 +184,7 @@ export default function ChatScreen({ route, navigation }: any) {
             const t = m.text || '';
             if (t.startsWith('[imagen]')) return t.slice(8);
             if (t.startsWith('[audio]')) return t.slice(7);
+            if (t.startsWith('[video]')) return t.slice(7);
             return t;
         }).join('\n\n');
 
@@ -199,15 +200,15 @@ export default function ChatScreen({ route, navigation }: any) {
         sendMessage(text, { onSuccess: () => setText('') });
     };
 
-    // ─── Photo picker ────────────────────────────────────────────────────────
+    // ─── Photo/Video picker ──────────────────────────────────────────────────
 
-    const pickImageSource = () => {
+    const pickMediaSource = () => {
         Alert.alert(
-            'Enviar foto',
-            '¿Cómo quieres agregar la foto?',
+            'Enviar archivo',
+            '¿Qué quieres enviar?',
             [
-                { text: '📷 Tomar foto', onPress: () => openCamera() },
-                { text: '🖼️ Elegir de galería', onPress: () => openGallery() },
+                { text: '📷 Cámara (Foto o Video)', onPress: () => openCamera() },
+                { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
                 { text: 'Cancelar', style: 'cancel' },
             ]
         );
@@ -220,11 +221,12 @@ export default function ChatScreen({ route, navigation }: any) {
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ImagePicker.MediaTypeOptions.All,
             quality: 0.7,
+            videoMaxDuration: 120,
         });
         if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendImage(result.assets[0].uri);
+        await uploadAndSendMedia(result.assets[0]);
     };
 
     const openCamera = async () => {
@@ -234,21 +236,24 @@ export default function ChatScreen({ route, navigation }: any) {
             return;
         }
         const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ImagePicker.MediaTypeOptions.All,
             quality: 0.7,
+            videoMaxDuration: 120,
         });
         if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendImage(result.assets[0].uri);
+        await uploadAndSendMedia(result.assets[0]);
     };
 
-    const uploadAndSendImage = async (uri: string) => {
+    const uploadAndSendMedia = async (asset: any) => {
         setSendingMedia(true);
-        const url = await uploadToSupabase(uri, 'chat-media', 'image/jpeg');
+        const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+        const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+        const url = await uploadToSupabase(asset.uri, 'chat-media', mimeType);
         setSendingMedia(false);
         if (url) {
-            sendMessage(`[imagen]${url}`, {});
+            sendMessage(`[${isVideo ? 'video' : 'imagen'}]${url}`, {});
         } else {
-            Alert.alert('Error', 'No se pudo subir la imagen.');
+            Alert.alert('Error', 'No se pudo subir el archivo.');
         }
     };
 
@@ -321,7 +326,8 @@ export default function ChatScreen({ route, navigation }: any) {
 
         const isImage = msgText.startsWith('[imagen]');
         const isAudio = msgText.startsWith('[audio]');
-        const mediaUrl = isImage ? msgText.slice(8) : isAudio ? msgText.slice(7) : null;
+        const isVideo = msgText.startsWith('[video]');
+        const mediaUrl = isImage ? msgText.slice(8) : isAudio ? msgText.slice(7) : isVideo ? msgText.slice(7) : null;
         const isSelected = multiSelect.includes(item.id);
 
         const handlePress = () => {
@@ -355,11 +361,11 @@ export default function ChatScreen({ route, navigation }: any) {
                         styles.bubble,
                         isMe ? styles.bubbleMe : styles.bubbleThem,
                         isAudio && styles.bubbleMedia,
-                        isImage && styles.bubbleImageFrame,
+                        (isImage || isVideo) && styles.bubbleImageFrame,
                         isSelected && styles.bubbleSelected,
                     ]}
                 >
-                    {!isMe && !isSelf && !isImage && !isAudio && (
+                    {!isMe && !isSelf && !isImage && !isAudio && !isVideo && (
                         <Text style={styles.senderName}>
                             {otherUser?.email?.split('@')[0] || 'Usuario'}
                         </Text>
@@ -370,6 +376,13 @@ export default function ChatScreen({ route, navigation }: any) {
                             style={styles.msgImage}
                             resizeMode="cover"
                             onError={() => console.warn('[Image] failed to load:', mediaUrl)}
+                        />
+                    ) : isVideo && mediaUrl ? (
+                        <Video
+                            source={{ uri: mediaUrl }}
+                            style={styles.msgImage}
+                            useNativeControls
+                            resizeMode={ResizeMode.COVER}
                         />
                     ) : isAudio && mediaUrl ? (
                         <AudioPlayer url={mediaUrl} isMe={isMe} />
@@ -434,7 +447,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
             {/* Input bar */}
             <View style={styles.inputBar}>
-                <TouchableOpacity style={styles.mediaBtn} onPress={pickImageSource} disabled={sendingMedia || isPending}>
+                <TouchableOpacity style={styles.mediaBtn} onPress={pickMediaSource} disabled={sendingMedia || isPending}>
                     <Ionicons name="image-outline" size={24} color="#6b7280" />
                 </TouchableOpacity>
                 <TextInput
@@ -505,6 +518,7 @@ export default function ChatScreen({ route, navigation }: any) {
                                 {(() => {
                                     const t = selectedMsg?.text || '';
                                     if (t.startsWith('[imagen]')) return '📷 Imagen';
+                                    if (t.startsWith('[video]')) return '📹 Video';
                                     if (t.startsWith('[audio]')) return '🎤 Audio';
                                     return t;
                                 })()}
