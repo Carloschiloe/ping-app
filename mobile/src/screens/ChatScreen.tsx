@@ -324,10 +324,16 @@ export default function ChatScreen({ route, navigation }: any) {
             );
         }
 
-        const isImage = msgText.startsWith('[imagen]');
+        let isImage = msgText.startsWith('[imagen]');
         const isAudio = msgText.startsWith('[audio]');
-        const isVideo = msgText.startsWith('[video]');
+        let isVideo = msgText.startsWith('[video]');
         const mediaUrl = isImage ? msgText.slice(8) : isAudio ? msgText.slice(7) : isVideo ? msgText.slice(7) : null;
+
+        // Backward compatibility: old videos were saved as [imagen]URL.mp4
+        if (isImage && mediaUrl && (mediaUrl.toLowerCase().includes('.mp4') || mediaUrl.toLowerCase().includes('.mov'))) {
+            isImage = false;
+            isVideo = true;
+        }
         const isSelected = multiSelect.includes(item.id);
 
         const handlePress = () => {
