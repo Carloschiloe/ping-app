@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.production
+
+# Expo
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# OS
+.DS_Store
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
