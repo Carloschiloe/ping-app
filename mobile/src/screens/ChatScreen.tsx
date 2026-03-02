@@ -195,15 +195,24 @@ export default function ChatScreen({ route, navigation }: any) {
 
         return (
             <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}>
-                <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem,
-                (isImage || isAudio) && styles.bubbleMedia]}>
-                    {!isMe && !isSelf && (
+                <View style={[
+                    styles.bubble,
+                    isMe ? styles.bubbleMe : styles.bubbleThem,
+                    isImage && styles.bubbleImage,
+                    isAudio && styles.bubbleMedia,
+                ]}>
+                    {!isMe && !isSelf && !isImage && !isAudio && (
                         <Text style={styles.senderName}>
                             {otherUser?.email?.split('@')[0] || 'Usuario'}
                         </Text>
                     )}
                     {isImage && mediaUrl ? (
-                        <Image source={{ uri: mediaUrl }} style={styles.msgImage} resizeMode="cover" />
+                        <Image
+                            source={{ uri: mediaUrl }}
+                            style={styles.msgImage}
+                            resizeMode="cover"
+                            onError={() => console.warn('[Image] failed to load:', mediaUrl)}
+                        />
                     ) : isAudio && mediaUrl ? (
                         <AudioPlayer url={mediaUrl} isMe={isMe} />
                     ) : (
@@ -211,8 +220,8 @@ export default function ChatScreen({ route, navigation }: any) {
                             {msgText}
                         </Text>
                     )}
-                    <View style={styles.metaRow}>
-                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
+                    <View style={[styles.metaRow, isImage && styles.metaRowOverImage]}>
+                        <Text style={[styles.timeText, (isMe || isImage) ? styles.timeMe : styles.timeThem]}>{time}</Text>
                         {isMe && <Text style={styles.readTick}> ✓✓</Text>}
                     </View>
                 </View>
@@ -386,18 +395,31 @@ const styles = StyleSheet.create({
     bubbleMe: { backgroundColor: BUBBLE_BLUE, borderBottomRightRadius: 4 },
     bubbleThem: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
     bubbleMedia: { padding: 4 },
+    bubbleImage: {
+        backgroundColor: 'transparent',
+        padding: 0,
+        paddingHorizontal: 0,
+        paddingTop: 0,
+        paddingBottom: 0,
+        overflow: 'hidden',
+    },
     senderName: { fontSize: 12, fontWeight: '700', color: BUBBLE_BLUE, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
     msgText: { fontSize: 15.5, lineHeight: 21 },
     msgTextMe: { color: 'white' },
     msgTextThem: { color: '#111827' },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
+    metaRowOverImage: {
+        position: 'absolute', bottom: 4, right: 8,
+        backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8,
+        paddingHorizontal: 6, paddingVertical: 2,
+    },
     timeText: { fontSize: 11 },
     timeMe: { color: 'rgba(255,255,255,0.7)' },
     timeThem: { color: '#9ca3af' },
     readTick: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginLeft: 2 },
 
     // Image message
-    msgImage: { width: 200, height: 200, borderRadius: 12 },
+    msgImage: { width: 220, height: 220, borderRadius: 14 },
 
     // Audio player
     audioPlayer: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 8, minWidth: 180 },
