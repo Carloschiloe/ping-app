@@ -385,11 +385,13 @@ export default function ChatScreen({ route, navigation }: any) {
                             onError={() => console.warn('[Image] failed to load:', mediaUrl)}
                         />
                     ) : isVideo && mediaUrl ? (
-                        <View style={styles.inlineVideoWrap}>
+                        <View style={styles.inlineVideoWrap} pointerEvents="none">
                             <Video
                                 source={{ uri: mediaUrl }}
                                 style={styles.msgImage}
                                 useNativeControls={false}
+                                shouldPlay={false}
+                                isMuted={true}
                                 resizeMode={ResizeMode.COVER}
                             />
                             <View style={styles.videoPlayOverlay}>
