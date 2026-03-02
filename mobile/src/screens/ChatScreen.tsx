@@ -2,15 +2,17 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard
+    StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard, Linking
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversationMessages, useSendConversationMessage } from '../api/queries';
+import { useConversationMessages, useSendConversationMessage, useReactToMessage } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import AudioPlayer from '../components/AudioPlayer';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -27,69 +29,110 @@ function formatDateDivider(iso: string) {
     if (d.toDateString() === yesterday.toDateString()) return 'Ayer';
     return d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' });
 }
-
-async function uploadToSupabase(uri: string, bucket: string, mimeType: string): Promise<string | null> {
-    try {
-        const ext = mimeType.includes('audio') ? 'm4a' : mimeType.includes('video') ? 'mp4' : 'jpg';
-        const path = `${Date.now()}.${ext}`;
-
-        // React Native compatible upload using FormData
-        const formData = new FormData();
-        formData.append('file', { uri, name: path, type: mimeType } as any);
-
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-
-        const res = await fetch(
-            `${supabaseUrl}/storage/v1/object/${bucket}/${path}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'x-upsert': 'true',
-                },
-                body: formData,
-            }
-        );
-
-        if (!res.ok) {
-            const err = await res.text();
-            throw new Error(`Upload failed: ${err}`);
-        }
-
-        const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-        return data.publicUrl;
-    } catch (e) {
-        console.error('[Upload]', e);
-        return null;
-    }
-}
+import { uploadToSupabase } from '../lib/upload';
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatScreen({ navigation }: any) {
     const route = useRoute<any>();
-    const { conversationId, otherUser, isSelf, isGroup } = route.params;
+    const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
     const [text, setText] = useState('');
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
     const [selectedMsg, setSelectedMsg] = useState<any>(null);      // context menu
+    const [replyingToMsg, setReplyingToMsg] = useState<any>(null);  // reply state
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null); // fullscreen
     const [multiSelect, setMultiSelect] = useState<string[]>([]);   // bulk select IDs
     const isMultiSelecting = multiSelect.length > 0;
     const menuAnim = useRef(new Animated.Value(300)).current;
+
+    // Presence state
+    const [typingUsers, setTypingUsers] = useState<string[]>([]);
+    const presenceChannel = useRef<any>(null);
+    let typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
     const { data, isLoading, refetch } = useConversationMessages(conversationId);
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
+    const { mutate: reactToMessage } = useReactToMessage(conversationId);
     const { user } = useAuth();
     const messages = data?.messages || [];
 
-    const chatTitle = isSelf ? '📌 Mis Recordatorios' : (otherUser?.email?.split('@')[0] || 'Chat');
+    const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email) : (otherUser?.email?.split('@')[0] || 'Chat'));
+    const avatarUrl = isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url;
+
+    // ─── Presence Channel ──────────────────────────────────────────────────
+    useEffect(() => {
+        if (!conversationId || !user) return;
+
+        const channel = supabase.channel(`presence-${conversationId}`, {
+            config: { presence: { key: user.id } },
+        });
+
+        channel
+            .on('presence', { event: 'sync' }, () => {
+                const state = channel.presenceState();
+                const activeTypers: string[] = [];
+                Object.keys(state).forEach((key) => {
+                    if (key !== user.id) {
+                        const presenceData: any = state[key][0];
+                        if (presenceData?.typing) {
+                            activeTypers.push(presenceData.email || 'Alguien');
+                        }
+                    }
+                });
+                setTypingUsers(activeTypers);
+            })
+            .subscribe();
+
+        presenceChannel.current = channel;
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [conversationId, user]);
+
+    const broadcastTyping = (isTyping: boolean) => {
+        if (!presenceChannel.current || !user) return;
+        presenceChannel.current.track({
+            email: user.email?.split('@')[0] || 'Un usuario',
+            typing: isTyping,
+        });
+    };
+
+    const handleTextChange = (newText: string) => {
+        setText(newText);
+
+        // Broadcast typing = true
+        broadcastTyping(true);
+
+        // Auto-clear typing status after 2 seconds of inactivity
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => {
+            broadcastTyping(false);
+        }, 2000);
+    };
 
     React.useLayoutEffect(() => {
-        navigation.setOptions({ title: chatTitle });
-    }, [navigation, chatTitle]);
+        navigation.setOptions({
+            headerTitle: () => (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {avatarUrl ? (
+                        <View style={{ width: 32, height: 32, borderRadius: 16, overflow: 'hidden', marginRight: 10 }}>
+                            <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                        </View>
+                    ) : null}
+                    <Text style={{ color: 'white', fontSize: 18, fontWeight: '700', paddingRight: avatarUrl ? 40 : 10 }} numberOfLines={1}>{chatTitle}</Text>
+                </View>
+            ),
+            headerRight: () => (
+                <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { conversationId, isGroup, groupMetadata, otherUser, isSelf })}>
+                    <Ionicons name="ellipsis-vertical" size={24} color="white" />
+                </TouchableOpacity>
+            ),
+            title: chatTitle, // fallback
+        });
+    }, [navigation, chatTitle, avatarUrl, conversationId, isGroup, groupMetadata, otherUser, isSelf]);
 
     // ─── Context Menu ────────────────────────────────────────────────────────
 
@@ -108,6 +151,11 @@ export default function ChatScreen({ navigation }: any) {
         const t = selectedMsg?.text || '';
         const clean = t.match(/^\[(imagen|audio|video)\]/) ? '📷 Contenido multimedia' : t;
         Clipboard.setString(clean);
+        closeMenu();
+    };
+
+    const handleReply = () => {
+        setReplyingToMsg(selectedMsg);
         closeMenu();
     };
 
@@ -199,7 +247,7 @@ export default function ChatScreen({ navigation }: any) {
 
     const handleSend = () => {
         if (!text.trim()) return;
-        sendMessage(text, { onSuccess: () => setText('') });
+        sendMessage({ text, reply_to_id: replyingToMsg?.id }, { onSuccess: () => { setText(''); setReplyingToMsg(null); } });
     };
 
     // ─── Photo/Video picker ──────────────────────────────────────────────────
@@ -211,9 +259,35 @@ export default function ChatScreen({ navigation }: any) {
             [
                 { text: '📷 Cámara (Foto o Video)', onPress: () => openCamera() },
                 { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
+                { text: '📄 Documento (PDF, Word, Excel...)', onPress: () => openDocumentPicker() },
                 { text: 'Cancelar', style: 'cancel' },
             ]
         );
+    };
+
+    const openDocumentPicker = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: '*/*',
+                copyToCacheDirectory: true,
+            });
+
+            if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+            const asset = result.assets[0];
+            setSendingMedia(true);
+            const url = await uploadToSupabase(asset.uri, 'chat-media', asset.mimeType || 'application/octet-stream', asset.name);
+            setSendingMedia(false);
+
+            if (url) {
+                sendMessage({ text: `[document=${asset.name}]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
+            } else {
+                Alert.alert('Error', 'No se pudo subir el documento.');
+            }
+        } catch (err) {
+            setSendingMedia(false);
+            Alert.alert('Error', 'Hubo un problema al seleccionar el documento.');
+        }
     };
 
     const openGallery = async () => {
@@ -253,7 +327,7 @@ export default function ChatScreen({ navigation }: any) {
         const url = await uploadToSupabase(asset.uri, 'chat-media', mimeType);
         setSendingMedia(false);
         if (url) {
-            sendMessage(`[${isVideo ? 'video' : 'imagen'}]${url}`, {});
+            sendMessage({ text: `[${isVideo ? 'video' : 'imagen'}]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
         } else {
             Alert.alert('Error', 'No se pudo subir el archivo.');
         }
@@ -270,6 +344,10 @@ export default function ChatScreen({ navigation }: any) {
                 return;
             }
             await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+
+            // Broadcast recording status
+            broadcastTyping(true);
+
             const { recording: rec } = await Audio.Recording.createAsync(
                 Audio.RecordingOptionsPresets.HIGH_QUALITY
             );
@@ -292,8 +370,9 @@ export default function ChatScreen({ navigation }: any) {
             setSendingMedia(true);
             const url = await uploadToSupabase(uri, 'chat-media', 'audio/m4a');
             setSendingMedia(false);
-            if (url) sendMessage(`[audio]${url}`, {});
-            else Alert.alert('Error', 'No se pudo subir el audio.');
+            if (url) {
+                sendMessage({ text: `[audio]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
+            } else Alert.alert('Error', 'No se pudo subir el audio.');
         } catch (e) {
             console.error('[Audio stop]', e);
             setRecording(null);
@@ -316,6 +395,10 @@ export default function ChatScreen({ navigation }: any) {
         const time = formatTime(item.created_at);
         const msgText: string = item.text || '';
 
+        if (isMe && item.message_reactions?.length > 0) {
+            // No log
+        }
+
         if (isSystem) {
             return (
                 <View style={styles.systemWrap}>
@@ -329,7 +412,20 @@ export default function ChatScreen({ navigation }: any) {
         let isImage = msgText.startsWith('[imagen]');
         const isAudio = msgText.startsWith('[audio]');
         let isVideo = msgText.startsWith('[video]');
-        const mediaUrl = isImage ? msgText.slice(8) : isAudio ? msgText.slice(7) : isVideo ? msgText.slice(7) : null;
+        const isDocument = msgText.startsWith('[document=');
+
+        let mediaUrl = null;
+        let documentName = '';
+        if (isImage) mediaUrl = msgText.slice(8);
+        else if (isAudio) mediaUrl = msgText.slice(7);
+        else if (isVideo) mediaUrl = msgText.slice(7);
+        else if (isDocument) {
+            const match = msgText.match(/^\[document=([^\]]+)\](.*)$/);
+            if (match) {
+                documentName = match[1];
+                mediaUrl = match[2];
+            }
+        }
 
         // Backward compatibility: old videos were saved as [imagen]URL.mp4
         if (isImage && mediaUrl && (mediaUrl.toLowerCase().includes('.mp4') || mediaUrl.toLowerCase().includes('.mov'))) {
@@ -342,6 +438,7 @@ export default function ChatScreen({ navigation }: any) {
             if (isMultiSelecting) { toggleSelect(item.id); return; }
             if (isImage && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'image' }); }
             if (isVideo && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'video' }); }
+            if (isDocument && mediaUrl) { Linking.openURL(mediaUrl); }
         };
 
         const handleLongPress = () => {
@@ -353,7 +450,7 @@ export default function ChatScreen({ navigation }: any) {
         };
 
         return (
-            <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}>
+            <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, (item.message_reactions?.length > 0) && { marginBottom: 24 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -361,60 +458,107 @@ export default function ChatScreen({ navigation }: any) {
                         </View>
                     </TouchableOpacity>
                 )}
-                <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handlePress}
-                    onLongPress={handleLongPress}
-                    delayLongPress={350}
-                    style={[
-                        styles.bubble,
-                        isMe ? styles.bubbleMe : styles.bubbleThem,
-                        isAudio && styles.bubbleMedia,
-                        (isImage || isVideo) && styles.bubbleImageFrame,
-                        isSelected && styles.bubbleSelected,
-                    ]}
-                >
-                    {!isMe && !isSelf && !isImage && !isAudio && !isVideo && (
-                        <Text style={styles.senderName}>
-                            {isGroup
-                                ? (item.profiles?.email?.split('@')[0] || 'Miembro')
-                                : (otherUser?.email?.split('@')[0] || 'Usuario')
-                            }
-                        </Text>
-                    )}
-                    {isImage && mediaUrl ? (
-                        <Image
-                            source={{ uri: mediaUrl }}
-                            style={styles.msgImage}
-                            resizeMode="cover"
-                            onError={() => console.warn('[Image] failed to load:', mediaUrl)}
-                        />
-                    ) : isVideo && mediaUrl ? (
-                        <View style={styles.inlineVideoWrap} pointerEvents="none">
-                            <Video
+                <View style={{ position: 'relative', maxWidth: '85%', alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
+                    <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={handlePress}
+                        onLongPress={handleLongPress}
+                        delayLongPress={350}
+                        style={[
+                            styles.bubble,
+                            isMe ? styles.bubbleMe : styles.bubbleThem,
+                            isAudio && styles.bubbleMedia,
+                            (isImage || isVideo) && styles.bubbleImageFrame,
+                            isSelected && styles.bubbleSelected,
+                            { paddingBottom: (item.message_reactions?.length > 0) ? 20 : 6 } // Space for reactions inside
+                        ]}
+                    >
+                        {/* ─── Quoted Message (Reply) ─── */}
+                        {item.reply_to ? (
+                            <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
+                                <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]}>
+                                    {item.reply_to.profiles?.email?.split('@')[0] || 'Cita'}
+                                </Text>
+                                <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
+                                    {item.reply_to.text}
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        {/* DEBUG: {item.reply_to_id ? <Text style={{fontSize:8, color:'red'}}>Has ID: {item.reply_to_id.slice(0,4)}</Text> : null} */}
+
+                        {!isMe && !isSelf && !isImage && !isAudio && !isVideo && !isDocument && (
+                            <Text style={styles.senderName}>
+                                {isGroup
+                                    ? (item.profiles?.email?.split('@')[0] || 'Miembro')
+                                    : (otherUser?.email?.split('@')[0] || 'Usuario')
+                                }
+                            </Text>
+                        )}
+                        {isImage && mediaUrl ? (
+                            <Image
                                 source={{ uri: mediaUrl }}
                                 style={styles.msgImage}
-                                useNativeControls={false}
-                                shouldPlay={false}
-                                isMuted={true}
-                                resizeMode={ResizeMode.COVER}
+                                resizeMode="cover"
                             />
-                            <View style={styles.videoPlayOverlay}>
-                                <Ionicons name="play-circle" size={48} color="white" />
+                        ) : isVideo && mediaUrl ? (
+                            <View style={styles.inlineVideoWrap} pointerEvents="none">
+                                <Video
+                                    source={{ uri: mediaUrl }}
+                                    style={styles.msgImage}
+                                    useNativeControls={false}
+                                    shouldPlay={false}
+                                    isMuted={true}
+                                    resizeMode={ResizeMode.COVER}
+                                />
+                                <View style={styles.videoPlayOverlay}>
+                                    <Ionicons name="play-circle" size={48} color="white" />
+                                </View>
                             </View>
+                        ) : isAudio && mediaUrl ? (
+                            <AudioPlayer url={mediaUrl} isMe={isMe} />
+                        ) : isDocument && mediaUrl ? (
+                            <View style={styles.documentBubble}>
+                                <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: '#e5e7eb' }]}>
+                                    <Ionicons name="document-text" size={24} color={isMe ? 'white' : '#6b7280'} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
+                                </View>
+                            </View>
+                        ) : (
+                            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
+                                {msgText}
+                            </Text>
+                        )}
+
+                        <View style={styles.metaRow}>
+                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
+                            {isMe && <Text style={styles.readTick}> ✓✓</Text>}
                         </View>
-                    ) : isAudio && mediaUrl ? (
-                        <AudioPlayer url={mediaUrl} isMe={isMe} />
-                    ) : (
-                        <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
-                            {msgText}
-                        </Text>
-                    )}
-                    <View style={styles.metaRow}>
-                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
-                        {isMe && <Text style={styles.readTick}> ✓✓</Text>}
-                    </View>
-                </TouchableOpacity>
+
+                        {/* ─── Reactions (Internal to Bubble for max visibility) ─── */}
+                        {item.message_reactions && item.message_reactions.length > 0 && (
+                            <View style={[
+                                styles.reactionsContainer,
+                                { position: 'absolute', bottom: -12, right: isMe ? 4 : undefined, left: isMe ? undefined : 4 }
+                            ]}>
+                                {(() => {
+                                    const counts = item.message_reactions.reduce((acc: any, r: any) => {
+                                        acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                        return acc;
+                                    }, {});
+                                    return Object.keys(counts).map(emoji => (
+                                        <View key={emoji} style={[styles.reactionPill, { borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' }]}>
+                                            <Text style={{ fontSize: 13 }}>{emoji}</Text>
+                                            {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
+                                        </View>
+                                    ));
+                                })()}
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </View>
             </View>
         );
     };
@@ -442,6 +586,16 @@ export default function ChatScreen({ navigation }: any) {
             keyboardVerticalOffset={90}
         >
             <StatusBar barStyle="light-content" />
+
+            {/* Typing Indicator */}
+            {typingUsers.length > 0 && (
+                <View style={styles.typingIndicatorContainer}>
+                    <Text style={styles.typingIndicatorText}>
+                        {typingUsers.join(', ')} {typingUsers.length > 1 ? 'están' : 'está'} escribiendo...
+                    </Text>
+                </View>
+            )}
+
             <View style={styles.chatBg}>
                 {isLoading ? (
                     <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
@@ -463,6 +617,30 @@ export default function ChatScreen({ navigation }: any) {
                     />
                 )}
             </View>
+
+            {/* Reply Preview */}
+            {replyingToMsg && (
+                <View style={styles.replyPreviewBar}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.replyPreviewName}>
+                            {replyingToMsg.profiles?.email?.split('@')[0] || (replyingToMsg.user_id === user?.id ? 'Tú' : 'Alguien')}
+                        </Text>
+                        <Text style={styles.replyPreviewText} numberOfLines={1}>
+                            {(() => {
+                                const t = replyingToMsg.text || '';
+                                if (t.startsWith('[imagen]')) return '📷 Imagen';
+                                if (t.startsWith('[video]')) return '📹 Video';
+                                if (t.startsWith('[audio]')) return '🎤 Audio';
+                                if (t.startsWith('[document=')) return '📄 Documento';
+                                return t;
+                            })()}
+                        </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setReplyingToMsg(null)} style={{ padding: 4 }}>
+                        <Ionicons name="close-circle" size={24} color="#9ca3af" />
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {/* Input bar */}
             <View style={styles.inputBar}>
@@ -556,44 +734,52 @@ export default function ChatScreen({ navigation }: any) {
                             </Text>
                         </View>
 
-                        {/* Actions */}
-                        <View style={styles.menuActions}>
-                            <TouchableOpacity style={styles.menuAction} onPress={handleCopy}>
-                                <View style={[styles.menuIcon, { backgroundColor: '#6366f1' }]}>
-                                    <Ionicons name="copy-outline" size={22} color="white" />
-                                </View>
-                                <Text style={styles.menuLabel}>Copiar</Text>
+                        {/* Actions List (Vertical) */}
+                        <View style={styles.menuActionsVertical}>
+                            {/* Emojis row */}
+                            <View style={styles.menuEmojiRow}>
+                                {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                    <TouchableOpacity
+                                        key={emoji}
+                                        style={styles.emojiBtn}
+                                        onPress={() => { reactToMessage({ messageId: selectedMsg.id, emoji }); closeMenu(); }}
+                                    >
+                                        <Text style={{ fontSize: 26 }}>{emoji}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
+                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleReply}>
+                                <Ionicons name="arrow-undo-outline" size={22} color="#8b5cf6" style={styles.menuActionIcon} />
+                                <Text style={styles.menuActionLabel}>Responder</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleCopy}>
+                                <Ionicons name="copy-outline" size={22} color="#6366f1" style={styles.menuActionIcon} />
+                                <Text style={styles.menuActionLabel}>Copiar</Text>
                             </TouchableOpacity>
 
                             {isMyMessage && isTextMsg && (
-                                <TouchableOpacity style={styles.menuAction} onPress={handleEdit}>
-                                    <View style={[styles.menuIcon, { backgroundColor: '#f59e0b' }]}>
-                                        <Ionicons name="pencil-outline" size={22} color="white" />
-                                    </View>
-                                    <Text style={styles.menuLabel}>Editar</Text>
+                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleEdit}>
+                                    <Ionicons name="pencil-outline" size={22} color="#f59e0b" style={styles.menuActionIcon} />
+                                    <Text style={styles.menuActionLabel}>Editar</Text>
                                 </TouchableOpacity>
                             )}
 
-                            <TouchableOpacity style={styles.menuAction} onPress={handleForward}>
-                                <View style={[styles.menuIcon, { backgroundColor: '#10b981' }]}>
-                                    <Ionicons name="arrow-redo-outline" size={22} color="white" />
-                                </View>
-                                <Text style={styles.menuLabel}>Reenviar</Text>
+                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleForward}>
+                                <Ionicons name="arrow-redo-outline" size={22} color="#10b981" style={styles.menuActionIcon} />
+                                <Text style={styles.menuActionLabel}>Reenviar</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.menuAction} onPress={handleSelect}>
-                                <View style={[styles.menuIcon, { backgroundColor: '#3b82f6' }]}>
-                                    <Ionicons name="checkmark-circle-outline" size={22} color="white" />
-                                </View>
-                                <Text style={styles.menuLabel}>Seleccionar</Text>
+                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleSelect}>
+                                <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" style={styles.menuActionIcon} />
+                                <Text style={styles.menuActionLabel}>Seleccionar</Text>
                             </TouchableOpacity>
 
                             {isMyMessage && (
-                                <TouchableOpacity style={styles.menuAction} onPress={handleDelete}>
-                                    <View style={[styles.menuIcon, { backgroundColor: '#ef4444' }]}>
-                                        <Ionicons name="trash-outline" size={22} color="white" />
-                                    </View>
-                                    <Text style={styles.menuLabel}>Eliminar</Text>
+                                <TouchableOpacity style={[styles.menuActionVertical, { borderBottomWidth: 0 }]} onPress={handleDelete}>
+                                    <Ionicons name="trash-outline" size={22} color="#ef4444" style={styles.menuActionIcon} />
+                                    <Text style={[styles.menuActionLabel, { color: '#ef4444' }]}>Eliminar</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -605,46 +791,6 @@ export default function ChatScreen({ navigation }: any) {
                 </TouchableOpacity>
             </Modal>
         </KeyboardAvoidingView>
-    );
-}
-
-// ─── Audio Player sub-component ─────────────────────────────────────────────
-
-function AudioPlayer({ url, isMe }: { url: string; isMe: boolean }) {
-    const [sound, setSound] = useState<Audio.Sound | null>(null);
-    const [playing, setPlaying] = useState(false);
-
-    const toggle = async () => {
-        if (playing && sound) {
-            await sound.stopAsync();
-            setPlaying(false);
-            return;
-        }
-        const { sound: s } = await Audio.Sound.createAsync({ uri: url });
-        setSound(s);
-        setPlaying(true);
-        await s.playAsync();
-        s.setOnPlaybackStatusUpdate((status: any) => {
-            if (status.didJustFinish) { setPlaying(false); }
-        });
-    };
-
-    useEffect(() => {
-        return () => { sound?.unloadAsync(); };
-    }, [sound]);
-
-    return (
-        <TouchableOpacity style={styles.audioPlayer} onPress={toggle}>
-            <Ionicons name={playing ? 'pause-circle' : 'play-circle'} size={32} color={isMe ? 'white' : '#1e3a5f'} />
-            <View style={styles.audioWave}>
-                {[...Array(12)].map((_, i) => (
-                    <View key={i} style={[styles.audioBar, { height: 4 + Math.random() * 14, opacity: playing ? 1 : 0.5 }, isMe ? styles.audioBarMe : styles.audioBarThem]} />
-                ))}
-            </View>
-            <Text style={[styles.audioLabel, isMe ? styles.audioLabelMe : styles.audioLabelThem]}>
-                {playing ? 'Detener' : 'Audio'}
-            </Text>
-        </TouchableOpacity>
     );
 }
 
@@ -718,6 +864,10 @@ const styles = StyleSheet.create({
     audioLabel: { fontSize: 11 },
     audioLabelMe: { color: 'rgba(255,255,255,0.75)' },
     audioLabelThem: { color: '#6b7280' },
+
+    // Document message
+    documentBubble: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, paddingVertical: 4, paddingRight: 8 },
+    docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
 
     // System messages
     systemWrap: { alignItems: 'center', marginVertical: 6 },
@@ -810,26 +960,77 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 20, elevation: 20,
     },
     menuPreview: {
-        marginHorizontal: 20, marginBottom: 16, padding: 14,
-        backgroundColor: 'white', borderRadius: 14,
+        marginHorizontal: 20, marginBottom: 12, padding: 12,
+        backgroundColor: 'white', borderRadius: 12,
         borderWidth: 1, borderColor: '#e5e7eb',
     },
-    menuPreviewText: { fontSize: 14, color: '#374151', lineHeight: 20 },
-    menuActions: {
-        flexDirection: 'row', justifyContent: 'space-around',
-        paddingHorizontal: 20, marginBottom: 12,
+    menuPreviewText: { fontSize: 13, color: '#6b7280', fontStyle: 'italic' },
+
+    menuActionsVertical: {
+        backgroundColor: 'white',
+        marginHorizontal: 20,
+        borderRadius: 16,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
     },
-    menuAction: { alignItems: 'center', gap: 6, minWidth: 64 },
-    menuIcon: {
-        width: 52, height: 52, borderRadius: 26,
-        alignItems: 'center', justifyContent: 'center',
-        shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 3,
+    menuActionVertical: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#f3f4f6',
     },
-    menuLabel: { fontSize: 12, color: '#374151', fontWeight: '500', marginTop: 4 },
+    menuActionIcon: { width: 28, marginRight: 12 },
+    menuActionLabel: { fontSize: 16, color: '#374151', fontWeight: '500' },
+
+    menuEmojiRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        backgroundColor: '#f9fafb',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9'
+    },
+    emojiBtn: { padding: 4 },
+
     menuCancel: {
-        marginHorizontal: 20, marginTop: 4, paddingVertical: 14,
-        backgroundColor: 'white', borderRadius: 14, alignItems: 'center',
+        marginHorizontal: 20, marginTop: 12, paddingVertical: 14,
+        backgroundColor: 'white', borderRadius: 12, alignItems: 'center',
         borderWidth: 1, borderColor: '#e5e7eb',
     },
-    menuCancelText: { fontSize: 16, color: '#ef4444', fontWeight: '600' },
+    menuCancelText: { fontSize: 16, color: '#111', fontWeight: '600' },
+
+    // ─── Typing Indicator ────────────────────────────────────────────────────
+    typingIndicatorContainer: {
+        backgroundColor: '#f3f4f6',
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e5e7eb',
+    },
+    typingIndicatorText: {
+        fontSize: 12,
+        color: '#6b7280',
+        fontStyle: 'italic',
+    },
+
+    replyPreviewBar: { flexDirection: 'row', backgroundColor: '#e5e7eb', padding: 10, marginHorizontal: 10, marginTop: 4, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#8b5cf6', alignItems: 'center' },
+    replyPreviewName: { fontSize: 13, fontWeight: '700', color: '#8b5cf6', marginBottom: 2 },
+    replyPreviewText: { fontSize: 13, color: '#4b5563' },
+
+    quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
+    quotedMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: 'white' },
+    quotedThem: { backgroundColor: '#f3f4f6', borderLeftColor: '#8b5cf6' },
+    quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
+    quotedText: { fontSize: 12 },
+
+    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', position: 'absolute', bottom: -10, gap: 4, zIndex: 100 },
+    reactionsMe: { right: 8 },
+    reactionsThem: { left: 8 },
+    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#e5e7eb', gap: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
+    reactionCount: { fontSize: 11, fontWeight: '700', color: '#4b5563' },
 });

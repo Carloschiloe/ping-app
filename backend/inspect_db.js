@@ -1,0 +1,32 @@
+
+const { createClient } = require('@supabase/supabase-js');
+const dotenv = require('dotenv');
+dotenv.config();
+
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+async function inspectSchema() {
+    try {
+        // Check columns of messages
+        const { data: cols, error: colError } = await supabase.rpc('get_table_columns', { table_name: 'messages' });
+        if (colError) {
+            console.log('Columns of messages (fallback):');
+            const { data: sample } = await supabase.from('messages').select('*').limit(1);
+            console.log(Object.keys(sample[0] || {}).join(', '));
+        } else {
+            console.log('Columns of messages:', cols);
+        }
+
+        // Check RLS policies if possible (via direct SQL)
+        const { data: policies, error: polError } = await supabase.from('pg_policies').select('*').in('tablename', ['messages', 'message_reactions']);
+        console.log('RLS Policies:', JSON.stringify(policies, null, 2));
+
+    } catch (e) {
+        console.error('Inspection failed:', e);
+    }
+}
+
+inspectSchema();

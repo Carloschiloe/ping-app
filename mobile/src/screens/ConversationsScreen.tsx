@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
-    ActivityIndicator, StatusBar, Platform
+    ActivityIndicator, StatusBar, Platform, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation } from '../api/queries';
@@ -46,10 +46,12 @@ export default function ConversationsScreen({ navigation }: any) {
         let displayName = 'Chat';
         let initials = '?';
         let colorStr = 'chat';
+        let avatarUrl: string | null = null;
 
         if (isGroup && groupMeta) {
             displayName = groupMeta.name;
             colorStr = groupMeta.name;
+            avatarUrl = groupMeta.avatar_url;
             // Get first letter of first two words, or just first two letters if one word
             const words = groupMeta.name.split(' ').filter((w: string) => w.length > 0);
             if (words.length >= 2) initials = (words[0][0] + words[1][0]).toUpperCase();
@@ -58,6 +60,7 @@ export default function ConversationsScreen({ navigation }: any) {
             displayName = otherUser.email.split('@')[0];
             initials = avatarInitials(otherUser.email);
             colorStr = otherUser.email;
+            avatarUrl = otherUser.avatar_url;
         }
 
         const color = avatarColor(colorStr);
@@ -69,11 +72,15 @@ export default function ConversationsScreen({ navigation }: any) {
             <TouchableOpacity
                 style={styles.row}
                 activeOpacity={0.7}
-                onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser })}
+                onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser, isGroup, groupMetadata: groupMeta })}
             >
                 {/* Avatar */}
-                <View style={[styles.avatar, { backgroundColor: color }]}>
-                    <Text style={styles.avatarText}>{initials}</Text>
+                <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
+                    {avatarUrl ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                    ) : (
+                        <Text style={styles.avatarText}>{initials}</Text>
+                    )}
                 </View>
 
                 {/* Info */}
@@ -198,7 +205,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
     },
-    avatar: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    avatar: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginRight: 14, overflow: 'hidden' },
+    avatarImage: { width: '100%', height: '100%' },
     avatarText: { color: 'white', fontWeight: '700', fontSize: 18 },
     info: { flex: 1 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },

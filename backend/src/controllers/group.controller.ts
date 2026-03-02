@@ -102,3 +102,43 @@ export const addParticipants = async (req: Request, res: Response): Promise<void
         res.status(500).json({ error: error.message });
     }
 };
+
+// DELETE /groups/:id
+export const deleteGroup = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+
+        // Verify if user is admin
+        const { data: conv, error: convError } = await supabaseAdmin
+            .from('conversations')
+            .select('admin_id, is_group')
+            .eq('id', conversationId)
+            .single();
+
+        if (convError) throw convError;
+
+        if (!conv.is_group) {
+            res.status(400).json({ error: 'This conversation is not a group' });
+            return;
+        }
+
+        if (conv.admin_id !== userId) {
+            res.status(403).json({ error: 'Only the group admin can delete the group' });
+            return;
+        }
+
+        // Delete the group (cascade will handle participants and messages)
+        const { error: delError } = await supabaseAdmin
+            .from('conversations')
+            .delete()
+            .eq('id', conversationId);
+
+        if (delError) throw delError;
+
+        res.status(200).json({ success: true });
+    } catch (error: any) {
+        console.error('[Delete Group Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+};

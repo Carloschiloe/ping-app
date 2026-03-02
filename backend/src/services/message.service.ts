@@ -4,7 +4,7 @@ import { parseDateFromText } from './date-parser.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-export const processUserMessage = async (userId: string, text: string, conversationId?: string) => {
+export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string) => {
     // 1. Insert original message
     const { data: message, error: messageError } = await supabaseAdmin
         .from('messages')
@@ -12,12 +12,22 @@ export const processUserMessage = async (userId: string, text: string, conversat
             user_id: userId,
             sender_id: userId,
             ...(conversationId ? { conversation_id: conversationId } : {}),
+            ...(replyToId ? { reply_to_id: replyToId } : {}),
             text,
         })
         .select()
         .single();
 
     if (messageError) throw messageError;
+
+    // Fetch the message again with joins to ensure frontend gets profiles and reply_to immediately
+    const { data: fullMessage } = await supabaseAdmin
+        .from('messages')
+        .select('*, profiles!sender_id(id, email), reply_to:messages!reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*)')
+        .eq('id', message.id)
+        .single();
+
+    const finalMessage = fullMessage || message;
 
     let commitmentCreated: any = null;
     let systemMessage: any = null;
@@ -82,7 +92,7 @@ export const processUserMessage = async (userId: string, text: string, conversat
         }
     }
 
-    return { userMessage: message, systemMessage, commitment: commitmentCreated };
+    return { userMessage: finalMessage, systemMessage, commitment: commitmentCreated };
 };
 
 export const getMessages = async (userId: string, limit = 50, offset = 0) => {

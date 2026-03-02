@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert, SafeAreaView, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert, SafeAreaView, Platform, KeyboardAvoidingView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useUserSearch, useCreateGroup } from '../api/queries';
+import { uploadToSupabase } from '../lib/upload';
 
 export default function NewGroupScreen({ navigation }: any) {
     const [name, setName] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [avatarUri, setAvatarUri] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     const { data: searchResults, isLoading: isSearching } = useUserSearch(searchQuery);
     const { mutate: createGroup, isPending: isCreating } = useCreateGroup();
@@ -17,7 +21,20 @@ export default function NewGroupScreen({ navigation }: any) {
         );
     };
 
-    const handleCreateGroup = () => {
+    const pickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+        });
+
+        if (!result.canceled && result.assets[0]?.uri) {
+            setAvatarUri(result.assets[0].uri);
+        }
+    };
+
+    const handleCreateGroup = async () => {
         if (!name.trim()) {
             Alert.alert('Falta el nombre', 'Por favor, dale un nombre a tu grupo.');
             return;
@@ -27,8 +44,19 @@ export default function NewGroupScreen({ navigation }: any) {
             return;
         }
 
+        let avatarUrl = null;
+        if (avatarUri) {
+            setIsUploading(true);
+            avatarUrl = await uploadToSupabase(avatarUri, 'chat-media', 'image/jpeg');
+            setIsUploading(false);
+            if (!avatarUrl) {
+                Alert.alert('Error', 'No se pudo subir la imagen del grupo.');
+                return;
+            }
+        }
+
         createGroup(
-            { name: name.trim(), participantIds: selectedIds },
+            { name: name.trim(), participantIds: selectedIds, avatarUrl: avatarUrl || undefined },
             {
                 onSuccess: (data) => {
                     // Start directly to the ChatScreen for this new group
@@ -56,14 +84,28 @@ export default function NewGroupScreen({ navigation }: any) {
             >
                 {/* Header Input Section */}
                 <View style={styles.headerSection}>
-                    <Text style={styles.label}>Nombre del Grupo</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Ej: Mantenimiento Zona Norte"
-                        placeholderTextColor="#9ca3af"
-                        value={name}
-                        onChangeText={setName}
-                    />
+                    <View style={styles.groupHeaderRow}>
+                        <TouchableOpacity onPress={pickImage} style={styles.imagePickerBtn}>
+                            {avatarUri ? (
+                                <Image source={{ uri: avatarUri }} style={styles.groupImagePreview} />
+                            ) : (
+                                <View style={styles.imagePickerPlaceholder}>
+                                    <Ionicons name="camera" size={24} color="#3b82f6" />
+                                </View>
+                            )}
+                        </TouchableOpacity>
+
+                        <View style={styles.groupNameContainer}>
+                            <Text style={styles.label}>Nombre del Grupo</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Ej: Mantenimiento..."
+                                placeholderTextColor="#9ca3af"
+                                value={name}
+                                onChangeText={setName}
+                            />
+                        </View>
+                    </View>
 
                     <Text style={[styles.label, { marginTop: 16 }]}>Invitar a...</Text>
                     <View style={styles.searchContainer}>
@@ -122,12 +164,12 @@ export default function NewGroupScreen({ navigation }: any) {
                     <TouchableOpacity
                         style={[
                             styles.createBtn,
-                            (selectedIds.length === 0 || !name.trim()) && styles.createBtnDisabled
+                            (selectedIds.length === 0 || !name.trim() || isUploading || isCreating) && styles.createBtnDisabled
                         ]}
                         onPress={handleCreateGroup}
-                        disabled={isCreating || selectedIds.length === 0 || !name.trim()}
+                        disabled={isCreating || isUploading || selectedIds.length === 0 || !name.trim()}
                     >
-                        {isCreating ? (
+                        {isCreating || isUploading ? (
                             <ActivityIndicator size="small" color="white" />
                         ) : (
                             <>
@@ -158,6 +200,32 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#374151',
         marginBottom: 8,
+    },
+    groupHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    imagePickerBtn: {
+        marginRight: 16,
+    },
+    imagePickerPlaceholder: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#eff6ff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        borderStyle: 'dashed',
+    },
+    groupImagePreview: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+    },
+    groupNameContainer: {
+        flex: 1,
     },
     input: {
         backgroundColor: '#f3f4f6',

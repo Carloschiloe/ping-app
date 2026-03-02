@@ -45,5 +45,17 @@ export const apiClient = {
             throw new Error(error.error || `Error PATCH ${endpoint}`);
         }
         return response.json();
+    },
+    delete: async (endpoint: string) => {
+        const headers = await getAuthHeaders();
+        const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'DELETE',
+            headers,
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `Error DELETE ${endpoint}`);
+        }
+        return response.json();
     }
 };

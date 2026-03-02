@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { apiClient } from './client';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Self-chat (legacy) ───────────────────────────────────────────────
 
@@ -66,6 +67,11 @@ export const useConversationMessages = (conversationId: string) => {
                 { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
                 () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
             )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'message_reactions' },
+                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+            )
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [conversationId, queryClient]);
@@ -81,8 +87,10 @@ export const useConversationMessages = (conversationId: string) => {
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: (text: string) =>
-            apiClient.post(`/conversations/${conversationId}/messages`, { text }),
+        mutationFn: (data: { text: string; reply_to_id?: string }) => {
+            console.log(`[Queries] Sending message: body=${JSON.stringify(data)}`);
+            return apiClient.post(`/conversations/${conversationId}/messages`, data);
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -125,6 +133,28 @@ export const useCreateGroup = () => {
     });
 };
 
+export const useAddGroupParticipants = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { newParticipantIds: string[] }) =>
+            apiClient.post(`/groups/${conversationId}/participants`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+        },
+    });
+};
+
+export const useDeleteGroup = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (conversationId: string) => apiClient.delete(`/groups/${conversationId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
+    });
+};
+
 // ─── User search ──────────────────────────────────────────────────────
 
 export const useUserSearch = (query: string) => {
@@ -136,6 +166,37 @@ export const useUserSearch = (query: string) => {
 };
 
 // ─── Commitments ──────────────────────────────────────────────────────
+
+export const useReactToMessage = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
+
+    return useMutation({
+        mutationFn: async ({ messageId, emoji }: { messageId: string, emoji: string }) => {
+            if (!user) return;
+            const { data: existing } = await supabase
+                .from('message_reactions')
+                .select('*')
+                .eq('message_id', messageId)
+                .eq('user_id', user.id)
+                .eq('emoji', emoji)
+                .single();
+
+            if (existing) {
+                await supabase.from('message_reactions').delete().eq('id', existing.id);
+            } else {
+                await supabase.from('message_reactions').insert({
+                    message_id: messageId,
+                    user_id: user.id,
+                    emoji,
+                });
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+        }
+    });
+};
 
 export const useCommitments = (status?: string) => {
     return useQuery({

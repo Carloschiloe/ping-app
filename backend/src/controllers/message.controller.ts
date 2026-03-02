@@ -8,14 +8,14 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
             return;
         }
         const userId = req.user.id;
-        const { text } = req.body;
+        const { text, reply_to_id } = req.body;
 
         if (!text) {
             res.status(400).json({ error: 'Message text is required' });
             return;
         }
 
-        const result = await messageService.processUserMessage(userId, text);
+        const result = await messageService.processUserMessage(userId, text, undefined, reply_to_id);
         res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

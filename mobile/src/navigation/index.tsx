@@ -10,6 +10,8 @@ import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import NewChatScreen from '../screens/NewChatScreen';
 import NewGroupScreen from '../screens/NewGroupScreen';
+import ChatInfoScreen from '../screens/ChatInfoScreen';
+import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import HoyScreen from '../screens/HoyScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -46,6 +48,28 @@ const ConversationsStack = () => (
             options={{
                 headerShown: true,
                 title: 'Nuevo Grupo',
+                headerBackTitle: 'Atrás',
+                headerStyle: { backgroundColor: '#1e3a5f' },
+                headerTintColor: 'white',
+            }}
+        />
+        <Stack.Screen
+            name="ChatInfo"
+            component={ChatInfoScreen}
+            options={{
+                headerShown: true,
+                title: 'Info del Chat',
+                headerBackTitle: 'Atrás',
+                headerStyle: { backgroundColor: '#1e3a5f' },
+                headerTintColor: 'white',
+            }}
+        />
+        <Stack.Screen
+            name="AddParticipants"
+            component={AddParticipantsScreen}
+            options={{
+                headerShown: true,
+                title: 'Añadir Integrantes',
                 headerBackTitle: 'Atrás',
                 headerStyle: { backgroundColor: '#1e3a5f' },
                 headerTintColor: 'white',

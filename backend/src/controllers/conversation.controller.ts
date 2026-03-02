@@ -231,7 +231,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         const { data: messages, error } = await supabaseAdmin
             .from('messages')
-            .select('*, profiles!sender_id(id, email)')
+            .select('*, profiles!sender_id(id, email), message_reactions(*), reply_to:messages!reply_to_id(id, text, profiles!sender_id(email))')
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: false })
             .limit(50);
@@ -248,7 +248,10 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
-        const { text } = req.body;
+        const { text, reply_to_id } = req.body;
+        const fs = require('fs');
+        const logMsg = `[${new Date().toISOString()}] body=${JSON.stringify(req.body)}, convId=${conversationId}\n`;
+        fs.appendFileSync('debug.log', logMsg);
 
         if (!text) {
             res.status(400).json({ error: 'text is required' });
@@ -268,7 +271,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        const result = await processUserMessage(userId, text, conversationId as string);
+        const result = await processUserMessage(userId, text, conversationId as string, reply_to_id);
         res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

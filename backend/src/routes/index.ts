@@ -41,6 +41,7 @@ router.post('/conversations/:id/messages', requireAuth, conversationController.s
 // Groups
 router.post('/groups', requireAuth, groupController.createGroup);
 router.post('/groups/:id/participants', requireAuth, groupController.addParticipants);
+router.delete('/groups/:id', requireAuth, groupController.deleteGroup);
 
 // Legacy self-chat message routes (kept for backward compatibility)
 router.post('/messages', requireAuth, messageController.createMessage);
