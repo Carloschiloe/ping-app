@@ -139,7 +139,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // Get all participants in these conversations (to find "the other person" or all members)
         const { data: allParticipants, error: apErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id, user_id, profiles(id, email)')
+            .select('conversation_id, user_id, profiles(id, email, full_name, avatar_url)')
             .in('conversation_id', conversationIds)
             .neq('user_id', userId);
 
@@ -231,7 +231,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         const { data: messages, error } = await supabaseAdmin
             .from('messages')
-            .select('*, profiles!sender_id(id, email), message_reactions(*, profiles:user_id(id, email)), reply_to:reply_to_id(id, text, profiles!sender_id(email))')
+            .select('*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, text, profiles!sender_id(email, full_name, avatar_url))')
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: false })
             .limit(50);

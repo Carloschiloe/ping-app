@@ -20,6 +20,7 @@ export default function ProfileScreen() {
     const [fullName, setFullName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
     const { mutateAsync: updateProfile } = useUpdateProfile();
 
     useEffect(() => {
@@ -94,6 +95,7 @@ export default function ProfileScreen() {
                 full_name: fullName || undefined,
                 avatar_url: avatarUrl || undefined,
             });
+            setIsEditing(false);
             Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
         } catch (e: any) {
             Alert.alert('Error', e.message || 'No se pudo actualizar el perfil');
@@ -113,6 +115,7 @@ export default function ProfileScreen() {
                 .eq('id', user!.id);
             if (error) throw error;
             setPhone(normalized);
+            setIsEditing(false);
             Alert.alert('✅ Guardado', 'Tu número fue actualizado.');
         } catch (e: any) {
             Alert.alert('Error', e.message);
@@ -153,32 +156,57 @@ export default function ProfileScreen() {
 
             {/* Profile Info */}
             <View style={styles.section}>
-                <Text style={styles.label}>Nombre completo</Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Tu nombre real"
-                    value={fullName}
-                    onChangeText={setFullName}
-                />
-                <TouchableOpacity style={styles.saveBtn} onPress={() => handleSaveProfile()} disabled={saving}>
-                    <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar nombre'}</Text>
-                </TouchableOpacity>
-            </View>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.label}>Información Personal</Text>
+                    {!isEditing && (
+                        <TouchableOpacity onPress={() => setIsEditing(true)}>
+                            <Text style={styles.editLink}>Editar</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
 
-            {/* Phone */}
-            <View style={styles.section}>
-                <Text style={styles.label}>Número de teléfono</Text>
-                <Text style={styles.hint}>Tus contactos te encontrarán por este número.</Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="+56912345678"
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                />
-                <TouchableOpacity style={styles.saveBtn} onPress={handleSavePhone} disabled={saving}>
-                    <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar número'}</Text>
-                </TouchableOpacity>
+                <Text style={styles.fieldLabel}>Nombre completo</Text>
+                {isEditing ? (
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Tu nombre real"
+                        value={fullName}
+                        onChangeText={setFullName}
+                    />
+                ) : (
+                    <Text style={styles.valueText}>{fullName || 'No establecido'}</Text>
+                )}
+
+                <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Número de teléfono</Text>
+                {isEditing ? (
+                    <TextInput
+                        style={styles.input}
+                        placeholder="+56912345678"
+                        value={phone}
+                        onChangeText={setPhone}
+                        keyboardType="phone-pad"
+                    />
+                ) : (
+                    <Text style={styles.valueText}>{phone || 'No establecido'}</Text>
+                )}
+
+                {isEditing && (
+                    <View style={styles.editActions}>
+                        <TouchableOpacity
+                            style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
+                            onPress={handleSaveProfile}
+                            disabled={saving}
+                        >
+                            <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.cancelBtn, { flex: 1 }]}
+                            onPress={() => setIsEditing(false)}
+                        >
+                            <Text style={styles.cancelBtnText}>Cancelar</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
 
             {/* Logout */}
@@ -201,11 +229,18 @@ const styles = StyleSheet.create({
     cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#1e3a5f', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#f9fafb' },
     email: { fontSize: 16, color: '#6b7280' },
     section: { backgroundColor: 'white', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-    label: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 4 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    label: { fontSize: 18, fontWeight: '700', color: '#111' },
+    editLink: { color: '#3b82f6', fontWeight: '600', fontSize: 15 },
+    fieldLabel: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 4 },
+    valueText: { fontSize: 16, color: '#111', marginBottom: 4 },
     hint: { fontSize: 13, color: '#9ca3af', marginBottom: 12 },
-    input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 14, borderRadius: 12, fontSize: 15, backgroundColor: '#fafafa', marginBottom: 12 },
+    input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 14, borderRadius: 12, fontSize: 15, backgroundColor: '#fafafa', marginBottom: 4 },
     saveBtn: { backgroundColor: '#3b82f6', padding: 14, borderRadius: 12, alignItems: 'center' },
     saveBtnText: { color: 'white', fontWeight: '700', fontSize: 15 },
+    cancelBtn: { backgroundColor: '#f3f4f6', padding: 14, borderRadius: 12, alignItems: 'center' },
+    cancelBtnText: { color: '#4b5563', fontWeight: '700', fontSize: 15 },
+    editActions: { flexDirection: 'row', marginTop: 20 },
     logoutBtn: { backgroundColor: 'white', borderRadius: 16, padding: 18, alignItems: 'center', borderWidth: 1.5, borderColor: '#fee2e2' },
     logoutText: { color: '#ef4444', fontWeight: '700', fontSize: 16 },
 });
