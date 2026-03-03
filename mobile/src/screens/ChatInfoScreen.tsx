@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useConversationMessages } from '../api/queries';
+import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadToSupabase } from '../lib/upload';
 import { Video, ResizeMode } from 'expo-av';
 import AudioPlayer from '../components/AudioPlayer';
 
@@ -65,6 +67,50 @@ export default function ChatInfoScreen() {
 
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
     const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
+    const { mutate: updateGroup } = useUpdateGroup(conversationId);
+
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [tempName, setTempName] = useState('');
+    const [isUpdating, setIsUpdating] = useState(false);
+
+    const handlePickGroupImage = async () => {
+        if (!isAdmin) return;
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+        });
+
+        if (!result.canceled && result.assets[0].uri) {
+            try {
+                setIsUpdating(true);
+                const publicUrl = await uploadToSupabase(result.assets[0].uri, 'chat-media', 'image/jpeg');
+                if (publicUrl) {
+                    updateGroup({ avatar_url: publicUrl });
+                    Alert.alert('✅ Foto actualizada', 'La imagen del grupo ha sido actualizada.');
+                }
+            } catch (error) {
+                Alert.alert('Error', 'No se pudo actualizar la imagen del grupo.');
+            } finally {
+                setIsUpdating(false);
+            }
+        }
+    };
+
+    const handleSaveName = () => {
+        if (!tempName.trim() || tempName === name) {
+            setIsEditingName(false);
+            return;
+        }
+        updateGroup({ name: tempName.trim() }, {
+            onSuccess: () => {
+                setIsEditingName(false);
+                Alert.alert('✅ Nombre actualizado', 'El nombre del grupo ha sido actualizado.');
+            }
+        });
+    };
 
     const handleDeleteGroup = () => {
         Alert.alert(
@@ -110,14 +156,51 @@ export default function ChatInfoScreen() {
         <View style={styles.container}>
             {/* Header / Avatar */}
             <View style={styles.header}>
-                <View style={[styles.avatarLarge, !avatarUrlStr && isSelf && { backgroundColor: '#10b981' }]}>
-                    {avatarUrlStr ? (
+                <TouchableOpacity
+                    onPress={handlePickGroupImage}
+                    disabled={!isAdmin || isUpdating}
+                    style={[styles.avatarLarge, !avatarUrlStr && isSelf && { backgroundColor: '#10b981' }]}
+                >
+                    {isUpdating ? (
+                        <ActivityIndicator color="white" />
+                    ) : avatarUrlStr ? (
                         <Image source={{ uri: avatarUrlStr }} style={{ width: '100%', height: '100%' }} />
                     ) : (
                         <Text style={styles.avatarInitialsLarge}>{initials}</Text>
                     )}
-                </View>
-                <Text style={styles.groupName}>{name}</Text>
+                    {isAdmin && (
+                        <View style={styles.cameraIconOverlay}>
+                            <Ionicons name="camera" size={20} color="white" />
+                        </View>
+                    )}
+                </TouchableOpacity>
+
+                {isEditingName ? (
+                    <View style={styles.nameEditRow}>
+                        <TextInput
+                            style={styles.nameInput}
+                            value={tempName}
+                            onChangeText={setTempName}
+                            autoFocus
+                            onSubmitEditing={handleSaveName}
+                        />
+                        <TouchableOpacity onPress={handleSaveName}>
+                            <Ionicons name="checkmark-circle" size={28} color="#10b981" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsEditingName(false)}>
+                            <Ionicons name="close-circle" size={28} color="#ef4444" />
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View style={styles.nameRow}>
+                        <Text style={styles.groupName}>{name}</Text>
+                        {isAdmin && (
+                            <TouchableOpacity onPress={() => { setTempName(name); setIsEditingName(true); }}>
+                                <Ionicons name="pencil" size={16} color="#6b7280" style={{ marginLeft: 8 }} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
                 {isGroup && <Text style={styles.memberCount}>{members.length} participantes</Text>}
             </View>
 
@@ -278,7 +361,18 @@ const styles = StyleSheet.create({
         overflow: 'hidden', marginBottom: 16,
     },
     avatarInitialsLarge: { fontSize: 36, fontWeight: '700', color: 'white' },
-    groupName: { fontSize: 24, fontWeight: '700', color: '#111827', marginBottom: 4 },
+    cameraIconOverlay: {
+        position: 'absolute', bottom: 0, right: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)', width: 32, height: 32,
+        borderRadius: 16, alignItems: 'center', justifyContent: 'center'
+    },
+    nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+    nameEditRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8, paddingHorizontal: 20 },
+    nameInput: {
+        flex: 1, fontSize: 20, fontWeight: '700', color: '#111827',
+        borderBottomWidth: 1, borderBottomColor: '#3b82f6', paddingVertical: 4
+    },
+    groupName: { fontSize: 24, fontWeight: '700', color: '#111827' },
     memberCount: { fontSize: 14, color: '#6b7280' },
 
     adminActions: {

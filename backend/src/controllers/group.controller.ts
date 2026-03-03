@@ -142,3 +142,47 @@ export const deleteGroup = async (req: Request, res: Response): Promise<void> =>
         res.status(500).json({ error: error.message });
     }
 };
+// PATCH /groups/:id
+export const updateGroup = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+        const { name, avatar_url } = req.body;
+
+        // Verify if user is admin
+        const { data: conv, error: convError } = await supabaseAdmin
+            .from('conversations')
+            .select('admin_id, is_group')
+            .eq('id', conversationId)
+            .single();
+
+        if (convError) throw convError;
+
+        if (!conv.is_group) {
+            res.status(400).json({ error: 'This conversation is not a group' });
+            return;
+        }
+
+        if (conv.admin_id !== userId) {
+            res.status(403).json({ error: 'Only the group admin can update group info' });
+            return;
+        }
+
+        const { data: updated, error: updateErr } = await supabaseAdmin
+            .from('conversations')
+            .update({
+                ...(name ? { name } : {}),
+                ...(avatar_url !== undefined ? { avatar_url } : {}),
+            })
+            .eq('id', conversationId)
+            .select()
+            .single();
+
+        if (updateErr) throw updateErr;
+
+        res.status(200).json({ success: true, group: updated });
+    } catch (error: any) {
+        console.error('[Update Group Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+};

@@ -155,6 +155,17 @@ export const useDeleteGroup = () => {
     });
 };
 
+export const useUpdateGroup = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { name?: string; avatar_url?: string }) =>
+            apiClient.patch(`/groups/${conversationId}`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
+    });
+};
+
 // ─── User search & Profile ─────────────────────────────────────────────
 export const useUpdateProfile = () => {
     const queryClient = useQueryClient();

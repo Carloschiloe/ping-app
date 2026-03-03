@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
+import { uploadToSupabase } from '../lib/upload';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -53,23 +54,9 @@ export default function ProfileScreen() {
     const uploadAvatar = async (uri: string) => {
         setSaving(true);
         try {
-            const fileName = `${user!.id}/${Date.now()}.jpg`;
+            const publicUrl = await uploadToSupabase(uri, 'chat-media', 'image/jpeg');
 
-            // Convert URI to Blob for better compatibility
-            const resp = await fetch(uri);
-            const blob = await resp.blob();
-
-            const { data, error } = await supabase.storage
-                .from('chat-media')
-                .upload(fileName, blob, {
-                    contentType: 'image/jpeg'
-                });
-
-            if (error) throw error;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('chat-media')
-                .getPublicUrl(fileName);
+            if (!publicUrl) throw new Error('No se pudo subir la imagen.');
 
             setAvatarUrl(publicUrl);
 

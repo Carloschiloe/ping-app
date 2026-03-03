@@ -41,6 +41,7 @@ router.post('/conversations/:id/messages', requireAuth, conversationController.s
 
 // Groups
 router.post('/groups', requireAuth, groupController.createGroup);
+router.patch('/groups/:id', requireAuth, groupController.updateGroup);
 router.post('/groups/:id/participants', requireAuth, groupController.addParticipants);
 router.delete('/groups/:id', requireAuth, groupController.deleteGroup);
 
