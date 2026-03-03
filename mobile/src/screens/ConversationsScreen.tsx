@@ -149,6 +149,22 @@ export default function ConversationsScreen({ navigation }: any) {
                         </View>
                     </TouchableOpacity>
 
+                    {/* AI: Preguntar a Ping */}
+                    <TouchableOpacity
+                        style={styles.aiRowEntry}
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate('PingAI')}
+                    >
+                        <View style={styles.aiAvatar}>
+                            <Text style={{ fontSize: 22 }}>🤖</Text>
+                        </View>
+                        <View style={styles.info}>
+                            <Text style={[styles.name, { color: '#2563eb' }]}>Preguntar a Ping</Text>
+                            <Text style={styles.preview}>IA que recuerda tus compromisos</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#bfceeb" />
+                    </TouchableOpacity>
+
                     {/* Separator */}
                     <View style={styles.separator}>
                         <Text style={styles.separatorText}>CONVERSACIONES</Text>
@@ -197,6 +213,15 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
     },
     selfAvatar: { backgroundColor: '#eff6ff', width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+
+    // AI Row entry
+    aiRowEntry: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 16, paddingVertical: 14,
+        backgroundColor: '#f0f7ff',
+        borderBottomWidth: 1, borderBottomColor: '#dbeafe',
+    },
+    aiAvatar: { backgroundColor: 'white', width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginRight: 14, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
 
     // Section separator
     separator: {

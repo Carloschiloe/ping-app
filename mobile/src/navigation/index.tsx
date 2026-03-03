@@ -15,6 +15,7 @@ import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import HoyScreen from '../screens/HoyScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import PingAIScreen from '../screens/PingAIScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -74,6 +75,11 @@ const ConversationsStack = () => (
                 headerStyle: { backgroundColor: '#1e3a5f' },
                 headerTintColor: 'white',
             }}
+        />
+        <Stack.Screen
+            name="PingAI"
+            component={PingAIScreen}
+            options={{ headerShown: false }}
         />
     </Stack.Navigator>
 );

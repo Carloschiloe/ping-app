@@ -16,13 +16,25 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Search messages
+        // 1. Get user's conversation IDs
+        const { data: participations } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('user_id', userId);
+
+        const convIds = (participations || []).map(p => p.conversation_id);
+
+        // 2. Search messages in those conversations
         const { data: messages, error: msgError } = await supabaseAdmin
             .from('messages')
-            .select('*')
-            .eq('user_id', userId)
+            .select(`
+                *,
+                sender:profiles!messages_sender_id_fkey(full_name, avatar_url, email)
+            `)
+            .in('conversation_id', convIds)
             .ilike('text', `%${q}%`)
-            .limit(20);
+            .order('created_at', { ascending: false })
+            .limit(30);
 
         if (msgError) throw msgError;
 

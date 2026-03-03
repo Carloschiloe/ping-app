@@ -63,3 +63,47 @@ export const extractCommitment = async (
         return { hasCommitment: false, title: null, dueAt: null, replyText: null };
     }
 };
+
+export const askPing = async (
+    query: string,
+    nowIso: string,
+    context: { commitments: any[] }
+): Promise<string> => {
+    if (!process.env.OPENAI_API_KEY) {
+        return 'Lo siento, no tengo acceso a mi cerebro de IA en este momento.';
+    }
+
+    const commitmentsText = context.commitments.length > 0
+        ? context.commitments.map(c => `- ${c.title} (Para el ${new Date(c.due_at).toLocaleString('es-CL')})${c.status === 'completed' ? ' [COMPLETADO]' : ''}`).join('\n')
+        : 'No hay compromisos registrados aún.';
+
+    const systemPrompt = `Eres "Ping", el asistente inteligente del chat. Tu lema es "El chat que recuerda".
+Tienes acceso a los compromisos y tareas del usuario para responder sus dudas.
+
+Contexto Actual (${nowIso}):
+COMPROMISOS DEL USUARIO:
+${commitmentsText}
+
+Reglas:
+1. Responde de forma amable, breve y natural (estilo chileno si es apropiado, pero profesional).
+2. Si te preguntan por algo que NO está en el contexto, di que no lo recuerdas o no lo tienes anotado.
+3. Si te piden agendar algo, recuérdales que pueden hacerlo simplemente escribiendo el compromiso en cualquier chat.
+4. Usa formato Markdown suave (negritas para fechas o títulos).`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: query }
+            ],
+            temperature: 0.7,
+            max_tokens: 500,
+        });
+
+        return response.choices[0]?.message?.content || 'No supe qué responder, intenta de nuevo.';
+    } catch (err) {
+        console.error('[AI] askPing failed:', err);
+        return 'Hubo un error al consultar a la IA.';
+    }
+};

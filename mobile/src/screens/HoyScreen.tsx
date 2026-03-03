@@ -2,11 +2,28 @@ import React from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { useCommitments, useMarkCommitmentDone } from '../api/queries';
 import { useNavigation } from '@react-navigation/native';
+import { useEffect } from 'react';
+import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
     const { mutate: markDone } = useMarkCommitmentDone();
     const navigation = useNavigation<any>();
+
+    useEffect(() => {
+        if (commitments && commitments.length > 0) {
+            commitments.forEach((c: any) => {
+                if (c.status === 'pending' && c.due_at) {
+                    scheduleCommitmentReminder(c);
+                }
+            });
+        }
+    }, [commitments]);
+
+    const handleMarkDone = (id: string) => {
+        markDone(id);
+        cancelCommitmentReminder(id);
+    };
 
     const renderItem = ({ item }: { item: any }) => (
         <View style={styles.card}>
@@ -31,7 +48,7 @@ export default function HoyScreen() {
                     </TouchableOpacity>
                 )}
             </View>
-            <TouchableOpacity style={styles.doneBtn} onPress={() => markDone(item.id)}>
+            <TouchableOpacity style={styles.doneBtn} onPress={() => handleMarkDone(item.id)}>
                 <Text style={styles.doneBtnText}>✓</Text>
             </TouchableOpacity>
         </View>

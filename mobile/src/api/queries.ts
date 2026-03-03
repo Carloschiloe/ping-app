@@ -27,6 +27,12 @@ export const useSendMessage = () => {
     });
 };
 
+export const useAskPing = () => {
+    return useMutation({
+        mutationFn: (query: string) => apiClient.post('/ai/ask', { query }),
+    });
+};
+
 // ─── Conversations ────────────────────────────────────────────────────
 
 export const useConversations = () => {

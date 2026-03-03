@@ -7,6 +7,7 @@ import * as pushController from '../controllers/push.controller';
 import * as conversationController from '../controllers/conversation.controller';
 import * as userController from '../controllers/user.controller';
 import * as groupController from '../controllers/group.controller';
+import * as aiController from '../controllers/ai.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 export const router = Router();
@@ -55,3 +56,6 @@ router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitm
 
 // Search
 router.get('/search', requireAuth, searchController.search);
+
+// AI
+router.post('/ai/ask', requireAuth, aiController.askPing);

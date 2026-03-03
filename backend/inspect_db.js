@@ -13,9 +13,13 @@ async function inspectSchema() {
         // Check columns of messages
         const { data: cols, error: colError } = await supabase.rpc('get_table_columns', { table_name: 'messages' });
         if (colError) {
-            console.log('Columns of messages (fallback):');
-            const { data: sample } = await supabase.from('messages').select('*').limit(1);
-            console.log(Object.keys(sample[0] || {}).join(', '));
+            console.log('\n--- Columns of messages (fallback): ---');
+            const { data: mS } = await supabase.from('messages').select('*').limit(1);
+            console.log(Object.keys(mS[0] || {}).join(', '));
+
+            console.log('\n--- Columns of commitments: ---');
+            const { data: cS } = await supabase.from('commitments').select('*').limit(1);
+            console.log(Object.keys(cS[0] || {}).join(', '));
         } else {
             console.log('Columns of messages:', cols);
         }
