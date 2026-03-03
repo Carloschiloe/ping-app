@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
 
     // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' },
+    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '70%', width: '100%' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
     modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
     calendarItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
@@ -273,5 +273,5 @@ const styles = StyleSheet.create({
     calendarSource: { fontSize: 12, color: '#6b7280', marginTop: 2 },
     sectionLabel: { fontSize: 13, fontWeight: '700', color: '#8b5cf6', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#f5f3ff', textTransform: 'uppercase', letterSpacing: 0.5 },
     cloudSection: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-    localSection: { paddingBottom: 20 },
+    localSection: { paddingBottom: 40 },
 });
