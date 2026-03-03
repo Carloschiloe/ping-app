@@ -23,7 +23,7 @@ export const processUserMessage = async (userId: string, text: string, conversat
     // Fetch the message again with joins to ensure frontend gets profiles and reply_to immediately
     const { data: fullMessage } = await supabaseAdmin
         .from('messages')
-        .select('*, profiles!sender_id(id, email), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*)')
+        .select('*, profiles!sender_id(id, email), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
         .eq('id', message.id)
         .single();
 

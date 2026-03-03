@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard, Linking
+    StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard, Linking, ScrollView
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -55,6 +55,8 @@ export default function ChatScreen({ navigation }: any) {
     const { data, isLoading, refetch } = useConversationMessages(conversationId);
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
+    const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
+
     const { user } = useAuth();
     const messages = data?.messages || [];
 
@@ -549,16 +551,64 @@ export default function ChatScreen({ navigation }: any) {
                                     return acc;
                                 }, {});
                                 return Object.keys(counts).map(emoji => (
-                                    <View key={emoji} style={styles.reactionPill}>
+                                    <TouchableOpacity
+                                        key={emoji}
+                                        style={styles.reactionPill}
+                                        onPress={() => setViewingReactionsMsg(item)}
+                                    >
                                         <Text style={{ fontSize: 13 }}>{emoji}</Text>
                                         {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
-                                    </View>
+                                    </TouchableOpacity>
                                 ));
                             })()}
                         </View>
                     )}
                 </View>
             </View>
+        );
+    };
+
+    const renderReactionDetailsModal = () => {
+        if (!viewingReactionsMsg) return null;
+
+        return (
+            <Modal
+                transparent
+                visible={!!viewingReactionsMsg}
+                animationType="fade"
+                onRequestClose={() => setViewingReactionsMsg(null)}
+            >
+                <TouchableOpacity
+                    style={styles.menuBackdrop}
+                    activeOpacity={1}
+                    onPress={() => setViewingReactionsMsg(null)}
+                >
+                    <View style={[styles.menuSheet, { maxHeight: '60%' }]}>
+                        <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e3a5f' }}>Reacciones</Text>
+                        </View>
+                        <ScrollView style={{ paddingHorizontal: 20 }}>
+                            {viewingReactionsMsg.message_reactions.map((r: any, idx: number) => (
+                                <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f1f5f9' }}>
+                                    <Text style={{ fontSize: 24, marginRight: 15 }}>{r.emoji}</Text>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151' }}>
+                                            {r.profiles?.email?.split('@')[0] || 'Usuario'}
+                                        </Text>
+                                        <Text style={{ fontSize: 13, color: '#6b7280' }}>{r.profiles?.email}</Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </ScrollView>
+                        <TouchableOpacity
+                            style={styles.menuCancel}
+                            onPress={() => setViewingReactionsMsg(null)}
+                        >
+                            <Text style={styles.menuCancelText}>Cerrar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         );
     };
 
@@ -594,6 +644,8 @@ export default function ChatScreen({ navigation }: any) {
                     </Text>
                 </View>
             )}
+
+            {renderReactionDetailsModal()}
 
             <View style={styles.chatBg}>
                 {isLoading ? (
