@@ -57,14 +57,14 @@ export default function ConversationsScreen({ navigation }: any) {
             else initials = groupMeta.name.substring(0, 2).toUpperCase();
         } else if (otherUser) {
             // Priority: full_name > email split
-            displayName = otherUser.full_name || otherUser.email.split('@')[0];
-            colorStr = otherUser.email;
+            displayName = otherUser.full_name || otherUser.email?.split('@')[0] || 'Usuario';
+            colorStr = otherUser.email || 'user';
             avatarUrl = otherUser.avatar_url;
 
             if (otherUser.full_name) {
-                const parts = otherUser.full_name.trim().split(/\s+/);
+                const parts = otherUser.full_name.trim().split(/\s+/).filter((p: string) => p.length > 0);
                 if (parts.length >= 2) initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                else initials = parts[0].substring(0, 2).toUpperCase();
+                else if (parts.length === 1) initials = parts[0].substring(0, 2).toUpperCase();
             } else {
                 initials = avatarInitials(otherUser.email);
             }

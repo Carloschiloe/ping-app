@@ -69,7 +69,7 @@ export default function ChatScreen({ navigation }: any) {
     const { user } = useAuth();
     const messages = data?.messages || [];
 
-    const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email) : (otherUser?.email?.split('@')[0] || 'Chat'));
+    const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));
     const avatarUrl = isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url;
 
     // ─── Presence Channel ──────────────────────────────────────────────────
