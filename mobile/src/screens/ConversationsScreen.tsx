@@ -52,15 +52,22 @@ export default function ConversationsScreen({ navigation }: any) {
             displayName = groupMeta.name;
             colorStr = groupMeta.name;
             avatarUrl = groupMeta.avatar_url;
-            // Get first letter of first two words, or just first two letters if one word
             const words = groupMeta.name.split(' ').filter((w: string) => w.length > 0);
             if (words.length >= 2) initials = (words[0][0] + words[1][0]).toUpperCase();
             else initials = groupMeta.name.substring(0, 2).toUpperCase();
         } else if (otherUser) {
-            displayName = otherUser.email.split('@')[0];
-            initials = avatarInitials(otherUser.email);
+            // Priority: full_name > email split
+            displayName = otherUser.full_name || otherUser.email.split('@')[0];
             colorStr = otherUser.email;
             avatarUrl = otherUser.avatar_url;
+
+            if (otherUser.full_name) {
+                const parts = otherUser.full_name.trim().split(/\s+/);
+                if (parts.length >= 2) initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                else initials = parts[0].substring(0, 2).toUpperCase();
+            } else {
+                initials = avatarInitials(otherUser.email);
+            }
         }
 
         const color = avatarColor(colorStr);

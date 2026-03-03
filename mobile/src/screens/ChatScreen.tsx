@@ -31,6 +31,13 @@ function formatDateDivider(iso: string) {
 }
 import { uploadToSupabase } from '../lib/upload';
 
+const COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a', '#32ade6'];
+function avatarColor(str: string) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    return COLORS[Math.abs(hash) % COLORS.length];
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatScreen({ navigation }: any) {
@@ -519,6 +526,36 @@ export default function ChatScreen({ navigation }: any) {
                     </TouchableOpacity>
                 )}
 
+                {!isMe && !isSystem && (
+                    <View style={styles.senderAvatarContainer}>
+                        {(() => {
+                            const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
+                            const avatarUrl = p?.avatar_url;
+                            const email = p?.email || '';
+                            const fullName = p?.full_name;
+
+                            let initialsString = '?';
+                            if (fullName) {
+                                const parts = fullName.trim().split(/\s+/);
+                                if (parts.length >= 2) initialsString = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                                else initialsString = parts[0].substring(0, 2).toUpperCase();
+                            } else {
+                                initialsString = email.substring(0, 2).toUpperCase();
+                            }
+
+                            const color = avatarColor(email || 'user');
+
+                            return avatarUrl ? (
+                                <Image source={{ uri: avatarUrl }} style={styles.senderAvatar} />
+                            ) : (
+                                <View style={[styles.senderAvatar, { backgroundColor: color, justifyContent: 'center', alignItems: 'center' }]}>
+                                    <Text style={styles.senderAvatarText}>{initialsString}</Text>
+                                </View>
+                            );
+                        })()}
+                    </View>
+                )}
+
                 <View style={{ maxWidth: '80%', position: 'relative' }}>
                     <TouchableOpacity
                         activeOpacity={0.85}
@@ -539,7 +576,7 @@ export default function ChatScreen({ navigation }: any) {
                                 <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
                                     {(() => {
                                         const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
-                                        return (p?.email || 'Usuario').split('@')[0];
+                                        return p?.full_name || (p?.email || 'Usuario').split('@')[0];
                                     })()}
                                 </Text>
                                 <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
@@ -548,12 +585,12 @@ export default function ChatScreen({ navigation }: any) {
                             </View>
                         )}
 
-                        {!isMe && !isSystem && !isImage && !isAudio && !isVideo && !isDocument && (
+                        {!isMe && !isSystem && isGroup && (
                             <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
-                                {isGroup
-                                    ? (item.profiles?.email?.split('@')[0] || 'Miembro')
-                                    : (otherUser?.email?.split('@')[0] || 'Usuario')
-                                }
+                                {(() => {
+                                    const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
+                                    return p?.full_name || (p?.email || 'Miembro').split('@')[0];
+                                })()}
                             </Text>
                         )}
 
@@ -933,6 +970,23 @@ const styles = StyleSheet.create({
     },
     bubbleMe: { backgroundColor: BUBBLE_BLUE, borderBottomRightRadius: 4 },
     bubbleThem: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
+    senderAvatarContainer: {
+        width: 32,
+        height: 32,
+        marginRight: 8,
+        alignSelf: 'flex-end',
+        marginBottom: 2,
+    },
+    senderAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+    },
+    senderAvatarText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: '700',
+    },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
     bubbleImage: {
         backgroundColor: 'transparent',
