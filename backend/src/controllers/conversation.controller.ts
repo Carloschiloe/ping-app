@@ -231,7 +231,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         const { data: messages, error } = await supabaseAdmin
             .from('messages')
-            .select('*, profiles!sender_id(id, email), message_reactions(*), reply_to:messages!reply_to_id(id, text, profiles!sender_id(email))')
+            .select('*, profiles!sender_id(id, email), message_reactions(*), reply_to:reply_to_id(id, text, profiles!sender_id(email))')
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: false })
             .limit(50);

@@ -474,19 +474,19 @@ export default function ChatScreen({ navigation }: any) {
                         ]}
                     >
                         {/* ─── Quoted Message (Reply) ─── */}
-                        {item.reply_to && (
+                        {item.reply_to && !Array.isArray(item.reply_to) && (
                             <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
                                 <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
-                                    {item.reply_to.profiles?.email?.split('@')[0] || 'Usuario'}
+                                    {(item.reply_to.profiles?.email || 'Usuario').split('@')[0]}
                                 </Text>
                                 <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
-                                    {item.reply_to.text}
+                                    {item.reply_to.text || 'Sin texto'}
                                 </Text>
                             </View>
                         )}
 
                         {!isMe && !isSystem && !isImage && !isAudio && !isVideo && !isDocument && (
-                            <Text style={styles.senderName} numberOfLines={1}>
+                            <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
                                 {isGroup
                                     ? (item.profiles?.email?.split('@')[0] || 'Miembro')
                                     : (otherUser?.email?.split('@')[0] || 'Usuario')
