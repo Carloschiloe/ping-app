@@ -1,8 +1,26 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { extractCommitment } from './ai.service';
+import { extractCommitment, transcribeAudio } from './ai.service';
 import { parseDateFromText } from './date-parser.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+async function downloadFile(url: string, targetPath: string) {
+    const writer = fs.createWriteStream(targetPath);
+    const response = await axios({
+        url,
+        method: 'GET',
+        responseType: 'stream'
+    });
+    response.data.pipe(writer);
+    return new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
+}
 
 export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string) => {
     // 1. Insert original message
@@ -38,9 +56,29 @@ export const processUserMessage = async (userId: string, text: string, conversat
     let dueAt: Date | null = null;
     let replyText: string | null = null;
 
+    let processingText = text;
+
+    // 2.1 Handle Audio Transcription
+    if (text.startsWith('[audio]')) {
+        const audioUrl = text.slice(7);
+        try {
+            const tempFile = path.join(os.tmpdir(), `ping_audio_${Date.now()}.m4a`);
+            await downloadFile(audioUrl, tempFile);
+            const transcript = await transcribeAudio(tempFile);
+            if (transcript) {
+                processingText = transcript;
+                // Optional: Update message text with transcript? 
+                // For now, only use it for extraction context.
+            }
+            fs.unlinkSync(tempFile);
+        } catch (err) {
+            console.error('[Audio Processing] Failed:', err);
+        }
+    }
+
     if (process.env.OPENAI_API_KEY) {
         // AI path
-        const ai = await extractCommitment(text, nowIso);
+        const ai = await extractCommitment(processingText, nowIso);
         if (ai.hasCommitment && ai.dueAt) {
             title = ai.title;
             dueAt = new Date(ai.dueAt);

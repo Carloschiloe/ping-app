@@ -17,6 +17,7 @@
   "description": "",
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
+    "axios": "^1.13.6",
     "chrono-node": "^2.9.0",
     "cors": "^2.8.6",
     "date-fns": "^4.1.0",
