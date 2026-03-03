@@ -15,13 +15,19 @@ declare global {
 
 export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+        let token = '';
         const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            res.status(401).json({ error: 'Missing or invalid Authorization header' });
-            return;
+
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.replace('Bearer ', '');
+        } else if (req.query.token) {
+            token = req.query.token as string;
         }
 
-        const token = authHeader.replace('Bearer ', '');
+        if (!token) {
+            res.status(401).json({ error: 'Missing or invalid Authorization header or token' });
+            return;
+        }
 
         // We use the Supabase Admin client to get the user from the token
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);

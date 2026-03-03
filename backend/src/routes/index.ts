@@ -8,6 +8,7 @@ import * as conversationController from '../controllers/conversation.controller'
 import * as userController from '../controllers/user.controller';
 import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
+import * as calendarController from '../controllers/calendar.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 export const router = Router();
@@ -61,3 +62,12 @@ router.get('/search', requireAuth, searchController.search);
 router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize'] }));
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
+
+// Cloud Calendar OAuth & Sync
+router.get('/calendar/auth/google', requireAuth, calendarController.getGoogleAuth);
+router.get('/calendar/auth/google/callback', calendarController.googleCallback);
+router.get('/calendar/auth/outlook', requireAuth, calendarController.getMsAuth);
+router.get('/calendar/auth/outlook/callback', calendarController.msCallback);
+router.get('/calendar/accounts', requireAuth, calendarController.listAccounts);
+router.delete('/calendar/accounts/:id', requireAuth, calendarController.disconnectAccount);
+router.post('/calendar/sync', requireAuth, calendarController.syncCommitment);

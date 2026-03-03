@@ -9,6 +9,8 @@ import { uploadToSupabase } from '../lib/upload';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking } from 'react-native';
+import { apiClient, API_URL } from '../api/client';
+import { useIsFocused } from '@react-navigation/native';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -30,6 +32,8 @@ export default function ProfileScreen() {
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
     const [hiddenCalendars, setHiddenCalendars] = useState<string[]>([]);
     const [loadingCals, setLoadingCals] = useState(false);
+    const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
+    const isFocused = useIsFocused();
 
     useEffect(() => {
         if (!user) return;
@@ -46,7 +50,42 @@ export default function ProfileScreen() {
 
         checkCalendars();
         loadHiddenCalendars();
-    }, [user]);
+        fetchCloudAccounts();
+    }, [user, isFocused]);
+
+    const fetchCloudAccounts = async () => {
+        try {
+            const data = await apiClient.get('/calendar/accounts');
+            setCloudAccounts(data);
+        } catch (e) {
+            console.error('[Profile] Fetch Cloud Accounts Error:', e);
+        }
+    };
+
+    const handleConnectCloud = async (provider: 'google' | 'outlook') => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const url = `${API_URL}/calendar/auth/${provider}?token=${session.access_token}`;
+        Linking.openURL(url);
+    };
+
+    const handleDisconnectCloud = async (id: string, email: string) => {
+        Alert.alert('Desconectar cuenta', `¿Estás seguro de quitar ${email}?`, [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+                text: 'Desconectar',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await apiClient.delete(`/calendar/accounts/${id}`);
+                        fetchCloudAccounts();
+                    } catch (e: any) {
+                        Alert.alert('Error', e.message);
+                    }
+                }
+            }
+        ]);
+    };
 
     const loadHiddenCalendars = async () => {
         const stored = await AsyncStorage.getItem('ping_hidden_calendars');
@@ -242,25 +281,60 @@ export default function ProfileScreen() {
                     <Ionicons name="calendar-outline" size={20} color="#6b7280" />
                 </View>
                 <Text style={styles.hint}>
-                    Ping sincroniza con los calendarios de tu dispositivo. Para añadir una cuenta de **Google**, **Outlook** o **iCloud**, ve a los Ajustes de tu teléfono.
+                    Conecta tus cuentas directamente para que Ping guarde compromisos automáticamente sin depender de los ajustes del teléfono.
                 </Text>
 
-                <TouchableOpacity
-                    style={styles.connectMainBtn}
-                    onPress={() => {
-                        Alert.alert(
-                            'Vincular Cuenta',
-                            'Para añadir una nueva cuenta (Gmail, Outlook, etc.):\n\n1. Abre Ajustes del Sistema.\n2. Ve a Calendario > Cuentas.\n3. Añade tu cuenta.\n\n¿Quieres abrir los Ajustes ahora?',
-                            [
-                                { text: 'Cancelar', style: 'cancel' },
-                                { text: 'Abrir Ajustes', onPress: () => Linking.openSettings() }
-                            ]
-                        );
-                    }}
-                >
-                    <Ionicons name="add-circle-outline" size={20} color="white" />
-                    <Text style={styles.connectMainBtnText}>Vincular nueva cuenta (Google/Outlook)</Text>
-                </TouchableOpacity>
+                {cloudAccounts.length > 0 && (
+                    <View style={styles.cloudAccountsList}>
+                        {cloudAccounts.map(acc => (
+                            <View key={acc.id} style={styles.cloudAccRow}>
+                                <Ionicons
+                                    name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
+                                    size={20}
+                                    color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
+                                />
+                                <View style={{ flex: 1, marginLeft: 10 }}>
+                                    <Text style={styles.cloudAccEmail}>{acc.email}</Text>
+                                    <Text style={styles.cloudAccMeta}>Conectado vía Cloud</Text>
+                                </View>
+                                <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
+                                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                                </TouchableOpacity>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                <View style={styles.cloudActions}>
+                    {!cloudAccounts.find(a => a.provider === 'google') && (
+                        <TouchableOpacity
+                            style={[styles.connectCloudBtn, { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' }]}
+                            onPress={() => handleConnectCloud('google')}
+                        >
+                            <Ionicons name="logo-google" size={20} color="#4285F4" />
+                            <Text style={[styles.connectCloudBtnText, { color: '#444' }]}>Conectar Google Calendar</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {!cloudAccounts.find(a => a.provider === 'outlook') && (
+                        <TouchableOpacity
+                            style={[styles.connectCloudBtn, { backgroundColor: '#0078d4' }]}
+                            onPress={() => handleConnectCloud('outlook')}
+                        >
+                            <Ionicons name="logo-microsoft" size={20} color="white" />
+                            <Text style={styles.connectCloudBtnText}>Conectar Outlook (365)</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                <View style={[styles.divider, { marginVertical: 20 }]} />
+
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.subLabel}>Calendarios del Sistema (Local)</Text>
+                    <TouchableOpacity onPress={checkCalendars}>
+                        <Ionicons name="refresh" size={18} color="#3b82f6" />
+                    </TouchableOpacity>
+                </View>
 
                 {loadingCals ? (
                     <ActivityIndicator size="small" color="#3b82f6" />
@@ -335,6 +409,14 @@ const styles = StyleSheet.create({
     calSource: { fontSize: 12, color: '#6b7280' },
     permissionBtn: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 12, alignItems: 'center' },
     permissionBtnText: { color: '#3b82f6', fontWeight: '700' },
-    connectMainBtn: { backgroundColor: '#8b5cf6', padding: 14, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20, gap: 8 },
     connectMainBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
+    cloudAccountsList: { marginBottom: 20 },
+    cloudAccRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', padding: 12, borderRadius: 12, marginBottom: 8 },
+    cloudAccEmail: { fontSize: 14, fontWeight: '600', color: '#111' },
+    cloudAccMeta: { fontSize: 11, color: '#6b7280' },
+    cloudActions: { gap: 10 },
+    connectCloudBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, gap: 10 },
+    connectCloudBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
+    divider: { height: 1, backgroundColor: '#f3f4f6' },
+    subLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
 });

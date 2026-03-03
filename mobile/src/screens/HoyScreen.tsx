@@ -8,6 +8,8 @@ import * as Calendar from 'expo-calendar';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiClient } from '../api/client';
+import { useIsFocused } from '@react-navigation/native';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
@@ -15,9 +17,11 @@ export default function HoyScreen() {
     const navigation = useNavigation<any>();
 
     const [calendars, setCalendars] = React.useState<Calendar.Calendar[]>([]);
+    const [cloudAccounts, setCloudAccounts] = React.useState<any[]>([]);
     const [isCalendarModalVisible, setIsCalendarModalVisible] = React.useState(false);
     const [selectedCommitment, setSelectedCommitment] = React.useState<any>(null);
     const [isLoadingCalendars, setIsLoadingCalendars] = React.useState(false);
+    const isFocused = useIsFocused();
 
     useEffect(() => {
         if (commitments && commitments.length > 0) {
@@ -28,6 +32,19 @@ export default function HoyScreen() {
             });
         }
     }, [commitments]);
+
+    useEffect(() => {
+        fetchCloudAccounts();
+    }, [isFocused]);
+
+    const fetchCloudAccounts = async () => {
+        try {
+            const data = await apiClient.get('/calendar/accounts');
+            setCloudAccounts(data);
+        } catch (e) {
+            console.error('[Hoy] Fetch Cloud Accounts Error:', e);
+        }
+    };
 
     const handleMarkDone = (id: string) => {
         markDone(id);
@@ -79,10 +96,27 @@ export default function HoyScreen() {
             });
 
             setIsCalendarModalVisible(false);
-            Alert.alert('Ping', `✅ Agregado a tu calendario: "${calendarTitle}"`);
+            Alert.alert('Ping', `✅ Agregado a tu calendario local: "${calendarTitle}"`);
         } catch (e) {
             console.error(e);
-            Alert.alert('Ping', 'Hubo un error al agregar el evento.');
+            Alert.alert('Ping', 'Hubo un error al agregar el evento local.');
+        }
+    };
+
+    const handleCloudSync = async (provider: string, email: string) => {
+        if (!selectedCommitment) return;
+        setIsLoadingCalendars(true);
+        try {
+            await apiClient.post('/calendar/sync', {
+                commitmentId: selectedCommitment.id,
+                provider
+            });
+            setIsCalendarModalVisible(false);
+            Alert.alert('Ping', `✅ Sincronizado directamente con tu ${provider === 'google' ? 'Google' : 'Outlook'} Calendar (${email})`);
+        } catch (e: any) {
+            Alert.alert('Error Cloud Sync', e.message);
+        } finally {
+            setIsLoadingCalendars(false);
         }
     };
 
@@ -152,24 +186,55 @@ export default function HoyScreen() {
                         {isLoadingCalendars ? (
                             <ActivityIndicator size="large" color="#3b82f6" style={{ margin: 40 }} />
                         ) : (
-                            <FlatList
-                                data={calendars}
-                                keyExtractor={item => item.id}
-                                contentContainerStyle={{ paddingBottom: 20 }}
-                                renderItem={({ item }) => (
-                                    <TouchableOpacity
-                                        style={styles.calendarItem}
-                                        onPress={() => confirmAddToCalendar(item.id, item.title)}
-                                    >
-                                        <View style={[styles.calendarColor, { backgroundColor: item.color }]} />
-                                        <View style={styles.calendarInfo}>
-                                            <Text style={styles.calendarName}>{item.title}</Text>
-                                            <Text style={styles.calendarSource}>{item.source.name}</Text>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                                    </TouchableOpacity>
+                            <View style={{ flex: 1 }}>
+                                {cloudAccounts.length > 0 && (
+                                    <View style={styles.cloudSection}>
+                                        <Text style={styles.sectionLabel}>Cuentas en la Nube (Directo)</Text>
+                                        {cloudAccounts.map(acc => (
+                                            <TouchableOpacity
+                                                key={acc.id}
+                                                style={styles.calendarItem}
+                                                onPress={() => handleCloudSync(acc.provider, acc.email)}
+                                            >
+                                                <Ionicons
+                                                    name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
+                                                    size={18}
+                                                    color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
+                                                />
+                                                <View style={styles.calendarInfo}>
+                                                    <Text style={styles.calendarName}>{acc.email}</Text>
+                                                    <Text style={styles.calendarSource}>Sincronización Automática</Text>
+                                                </View>
+                                                <Ionicons name="cloud-upload-outline" size={20} color="#8b5cf6" />
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
                                 )}
-                            />
+
+                                <View style={styles.localSection}>
+                                    <Text style={[styles.sectionLabel, { marginTop: cloudAccounts.length > 0 ? 10 : 0 }]}>
+                                        Calendarios del Teléfono
+                                    </Text>
+                                    <FlatList
+                                        data={calendars}
+                                        keyExtractor={item => item.id}
+                                        scrollEnabled={false}
+                                        renderItem={({ item }) => (
+                                            <TouchableOpacity
+                                                style={styles.calendarItem}
+                                                onPress={() => confirmAddToCalendar(item.id, item.title)}
+                                            >
+                                                <View style={[styles.calendarColor, { backgroundColor: item.color }]} />
+                                                <View style={styles.calendarInfo}>
+                                                    <Text style={styles.calendarName}>{item.title}</Text>
+                                                    <Text style={styles.calendarSource}>{item.source.name}</Text>
+                                                </View>
+                                                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                </View>
+                            </View>
                         )}
                     </SafeAreaView>
                 </View>
@@ -204,4 +269,7 @@ const styles = StyleSheet.create({
     calendarInfo: { flex: 1 },
     calendarName: { fontSize: 16, fontWeight: '600', color: '#111827' },
     calendarSource: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+    sectionLabel: { fontSize: 13, fontWeight: '700', color: '#8b5cf6', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#f5f3ff', textTransform: 'uppercase', letterSpacing: 0.5 },
+    cloudSection: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+    localSection: { paddingBottom: 20 },
 });

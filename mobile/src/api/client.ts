@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { Alert } from 'react-native';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 console.warn(`[DEBUG] API_URL: ${API_URL}`);
 
 export const getAuthHeaders = async () => {
@@ -15,12 +15,28 @@ export const getAuthHeaders = async () => {
 export const apiClient = {
     get: async (endpoint: string) => {
         const headers = await getAuthHeaders();
-        const response = await fetch(`${API_URL}${endpoint}`, { headers });
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
+        const response = await fetch(url, { headers });
+        const responseText = await response.text();
         if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.error || `Error GET ${endpoint}`);
+            throw new Error(`Error GET ${url} (${response.status})`);
         }
-        return response.json();
+        try {
+            return JSON.parse(responseText);
+        } catch (e) {
+            throw new Error('El servidor devolvió un formato inválido (no JSON).');
+        }
+    },
+    delete: async (endpoint: string) => {
+        const headers = await getAuthHeaders();
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
+        const response = await fetch(url, { method: 'DELETE', headers });
+        if (!response.ok) {
+            throw new Error(`Error DELETE ${url} (${response.status})`);
+        }
+        return response.json().catch(() => ({ ok: true }));
     },
     post: async (endpoint: string, body: any) => {
         const headers = await getAuthHeaders();
