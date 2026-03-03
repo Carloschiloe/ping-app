@@ -105,7 +105,7 @@ export const processUserMessage = async (userId: string, text: string, conversat
                 title,
                 due_at: dueAt.toISOString(),
                 status: 'pending',
-                source_message_id: message.id
+                message_id: message.id
             })
             .select()
             .single();

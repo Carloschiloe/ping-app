@@ -13,9 +13,6 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- 3. We use the 'meta' JSONB in commitments for:
--- - synced_to: 'google' | 'outlook'
--- - cloud_event_id: string
--- - external_event_url: string (Direct link to calendar event)
--- - conflict_detected: boolean
--- - sync_status: 'synced' | 'pending' | 'failed'
+-- 3. Add meta JSONB to commitments for sync tracking
+ALTER TABLE commitments 
+ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb;

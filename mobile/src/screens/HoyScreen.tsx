@@ -159,13 +159,13 @@ export default function HoyScreen() {
                     {item.due_at ? new Date(item.due_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Sin fecha'}
                 </Text>
 
-                {item.source_message_id && (
+                {item.message_id && (
                     <TouchableOpacity
                         style={styles.linkBtn}
                         onPress={() => navigation.navigate('Chats', {
                             screen: 'Chat',
                             params: {
-                                scrollToMessageId: item.source_message_id
+                                scrollToMessageId: item.message_id
                             }
                         })}
                     >

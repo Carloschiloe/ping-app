@@ -89,7 +89,7 @@ export const listAccounts = async (req: Request, res: Response) => {
         const userId = req.user!.id;
         const { data, error } = await supabaseAdmin
             .from('user_calendar_accounts')
-            .select('id, provider, email, created_at')
+            .select('id, provider, email, created_at, is_auto_sync_enabled')
             .eq('user_id', userId);
 
         if (error) throw error;
