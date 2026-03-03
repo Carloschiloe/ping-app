@@ -24,8 +24,10 @@ export const apiClient = {
     },
     post: async (endpoint: string, body: any) => {
         const headers = await getAuthHeaders();
-        const url = `${API_URL}${endpoint}`;
-        console.log(`[apiClient] POST ${url}`, body);
+        // Ensure no double slashes and prefix is correct
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
+        console.warn(`[apiClient] POST ${url}`, body);
         const response = await fetch(url, {
             method: 'POST',
             headers,
@@ -37,7 +39,7 @@ export const apiClient = {
         // console.log(`[apiClient] Response Body: ${responseText.substring(0, 200)}...`);
 
         if (!response.ok) {
-            let errorMsg = `Error POST ${endpoint} (${response.status})`;
+            let errorMsg = `Error POST ${url} (${response.status})`;
             try {
                 const errorJson = JSON.parse(responseText);
                 errorMsg = errorJson.error || errorMsg;

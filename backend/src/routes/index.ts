@@ -58,5 +58,6 @@ router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitm
 router.get('/search', requireAuth, searchController.search);
 
 // AI
+router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize'] }));
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.post('/ai/summarize', requireAuth, aiController.summarize);

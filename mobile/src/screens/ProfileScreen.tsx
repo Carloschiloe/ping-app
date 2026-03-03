@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Linking } from 'react-native';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -241,8 +242,25 @@ export default function ProfileScreen() {
                     <Ionicons name="calendar-outline" size={20} color="#6b7280" />
                 </View>
                 <Text style={styles.hint}>
-                    Ping sincroniza con los calendarios de tu dispositivo. Asegúrate de que tus cuentas (Google, Outlook, iCloud) estén configuradas en los ajustes del sistema.
+                    Ping sincroniza con los calendarios de tu dispositivo. Para añadir una cuenta de **Google**, **Outlook** o **iCloud**, ve a los Ajustes de tu teléfono.
                 </Text>
+
+                <TouchableOpacity
+                    style={styles.connectMainBtn}
+                    onPress={() => {
+                        Alert.alert(
+                            'Vincular Cuenta',
+                            'Para añadir una nueva cuenta (Gmail, Outlook, etc.):\n\n1. Abre Ajustes del Sistema.\n2. Ve a Calendario > Cuentas.\n3. Añade tu cuenta.\n\n¿Quieres abrir los Ajustes ahora?',
+                            [
+                                { text: 'Cancelar', style: 'cancel' },
+                                { text: 'Abrir Ajustes', onPress: () => Linking.openSettings() }
+                            ]
+                        );
+                    }}
+                >
+                    <Ionicons name="add-circle-outline" size={20} color="white" />
+                    <Text style={styles.connectMainBtnText}>Vincular nueva cuenta (Google/Outlook)</Text>
+                </TouchableOpacity>
 
                 {loadingCals ? (
                     <ActivityIndicator size="small" color="#3b82f6" />
@@ -317,4 +335,6 @@ const styles = StyleSheet.create({
     calSource: { fontSize: 12, color: '#6b7280' },
     permissionBtn: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 12, alignItems: 'center' },
     permissionBtnText: { color: '#3b82f6', fontWeight: '700' },
+    connectMainBtn: { backgroundColor: '#8b5cf6', padding: 14, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20, gap: 8 },
+    connectMainBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
 });
