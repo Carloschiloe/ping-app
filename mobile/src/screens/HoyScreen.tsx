@@ -1,15 +1,12 @@
-import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert } from 'react-native';
 import { useCommitments, useMarkCommitmentDone } from '../api/queries';
-import { useNavigation } from '@react-navigation/native';
-import { useEffect } from 'react';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';
 import * as Calendar from 'expo-calendar';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../api/client';
-import { useIsFocused } from '@react-navigation/native';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
@@ -61,6 +58,9 @@ export default function HoyScreen() {
         setIsLoadingCalendars(true);
         setSelectedCommitment(item);
         setIsCalendarModalVisible(true);
+
+        // Refresh cloud accounts every time we open the modal
+        fetchCloudAccounts();
 
         try {
             const allCalendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
@@ -186,13 +186,13 @@ export default function HoyScreen() {
                         {isLoadingCalendars ? (
                             <ActivityIndicator size="large" color="#3b82f6" style={{ margin: 40 }} />
                         ) : (
-                            <View style={{ flex: 1 }}>
+                            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                                 {cloudAccounts.length > 0 && (
                                     <View style={styles.cloudSection}>
                                         <Text style={styles.sectionLabel}>Cuentas en la Nube (Directo)</Text>
-                                        {cloudAccounts.map(acc => (
+                                        {cloudAccounts.map((acc, index) => (
                                             <TouchableOpacity
-                                                key={acc.id}
+                                                key={acc.id || index}
                                                 style={styles.calendarItem}
                                                 onPress={() => handleCloudSync(acc.provider, acc.email)}
                                             >
@@ -203,7 +203,7 @@ export default function HoyScreen() {
                                                 />
                                                 <View style={styles.calendarInfo}>
                                                     <Text style={styles.calendarName}>{acc.email}</Text>
-                                                    <Text style={styles.calendarSource}>Sincronización Automática</Text>
+                                                    <Text style={styles.calendarSource}>Sincronización Directa</Text>
                                                 </View>
                                                 <Ionicons name="cloud-upload-outline" size={20} color="#8b5cf6" />
                                             </TouchableOpacity>
@@ -213,28 +213,30 @@ export default function HoyScreen() {
 
                                 <View style={styles.localSection}>
                                     <Text style={[styles.sectionLabel, { marginTop: cloudAccounts.length > 0 ? 10 : 0 }]}>
-                                        Calendarios del Teléfono
+                                        Calendarios del Teléfono (Local)
                                     </Text>
-                                    <FlatList
-                                        data={calendars}
-                                        keyExtractor={item => item.id}
-                                        scrollEnabled={false}
-                                        renderItem={({ item }) => (
+                                    {calendars.length === 0 ? (
+                                        <View style={{ padding: 20, alignItems: 'center' }}>
+                                            <Text style={{ color: '#9ca3af' }}>No se encontraron calendarios locales.</Text>
+                                        </View>
+                                    ) : (
+                                        calendars.map(item => (
                                             <TouchableOpacity
+                                                key={item.id}
                                                 style={styles.calendarItem}
                                                 onPress={() => confirmAddToCalendar(item.id, item.title)}
                                             >
                                                 <View style={[styles.calendarColor, { backgroundColor: item.color }]} />
                                                 <View style={styles.calendarInfo}>
                                                     <Text style={styles.calendarName}>{item.title}</Text>
-                                                    <Text style={styles.calendarSource}>{item.source.name}</Text>
+                                                    <Text style={styles.calendarSource}>{item.source?.name || 'Local'}</Text>
                                                 </View>
                                                 <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                                             </TouchableOpacity>
-                                        )}
-                                    />
+                                        ))
+                                    )}
                                 </View>
-                            </View>
+                            </ScrollView>
                         )}
                     </SafeAreaView>
                 </View>
