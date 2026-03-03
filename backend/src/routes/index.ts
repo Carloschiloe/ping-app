@@ -59,3 +59,4 @@ router.get('/search', requireAuth, searchController.search);
 
 // AI
 router.post('/ai/ask', requireAuth, aiController.askPing);
+router.post('/ai/summarize', requireAuth, aiController.summarize);

@@ -29,7 +29,9 @@ export default function PingAIScreen({ navigation }: any) {
         const userMsg = {
             id: Date.now().toString(),
             text: messageToSend.startsWith('[audio]') ? '🎤 Audio enviado...' : messageToSend.trim(),
-            isAi: false
+            isAi: false,
+            // Store the raw audio tag if it's there
+            rawText: messageToSend.startsWith('[audio]') ? messageToSend : undefined
         };
         setMessages(prev => [...prev, userMsg]);
 
@@ -102,8 +104,8 @@ export default function PingAIScreen({ navigation }: any) {
     }, [messages]);
 
     const renderItem = ({ item }: { item: any }) => {
-        const isAudio = item.text?.startsWith('[audio]');
-        const audioUrl = isAudio ? item.text.slice(7) : null;
+        const audioUrl = (item.rawText?.startsWith('[audio]') ? item.rawText.slice(7) : (item.text?.startsWith('[audio]') ? item.text.slice(7) : null));
+        const isAudio = !!audioUrl;
 
         return (
             <View style={[styles.messageRow, item.isAi ? styles.aiRow : styles.userRow]}>
@@ -111,7 +113,7 @@ export default function PingAIScreen({ navigation }: any) {
                     {item.isAi && item.transcript && (
                         <Text style={styles.transcriptText}>Transcripción: "{item.transcript}"</Text>
                     )}
-                    {isAudio && audioUrl ? (
+                    {isAudio ? (
                         <AudioPlayer url={audioUrl} isMe={!item.isAi} />
                     ) : (
                         <Text style={[styles.messageText, !item.isAi && { color: 'white' }]}>

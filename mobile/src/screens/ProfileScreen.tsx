@@ -6,6 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
+import * as Calendar from 'expo-calendar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -24,6 +26,10 @@ export default function ProfileScreen() {
     const [isEditing, setIsEditing] = useState(false);
     const { mutateAsync: updateProfile } = useUpdateProfile();
 
+    const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
+    const [hiddenCalendars, setHiddenCalendars] = useState<string[]>([]);
+    const [loadingCals, setLoadingCals] = useState(false);
+
     useEffect(() => {
         if (!user) return;
         supabase
@@ -36,7 +42,39 @@ export default function ProfileScreen() {
                 if (data?.full_name) setFullName(data.full_name);
                 if (data?.avatar_url) setAvatarUrl(data.avatar_url);
             });
+
+        checkCalendars();
+        loadHiddenCalendars();
     }, [user]);
+
+    const loadHiddenCalendars = async () => {
+        const stored = await AsyncStorage.getItem('ping_hidden_calendars');
+        if (stored) setHiddenCalendars(JSON.parse(stored));
+    };
+
+    const toggleCalendarVisibility = async (id: string) => {
+        const updated = hiddenCalendars.includes(id)
+            ? hiddenCalendars.filter(cid => cid !== id)
+            : [...hiddenCalendars, id];
+
+        setHiddenCalendars(updated);
+        await AsyncStorage.setItem('ping_hidden_calendars', JSON.stringify(updated));
+    };
+
+    const checkCalendars = async () => {
+        const { status } = await Calendar.getCalendarPermissionsAsync();
+        if (status === 'granted') {
+            setLoadingCals(true);
+            try {
+                const all = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+                setCalendars(all.filter(c => c.allowsModifications));
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoadingCals(false);
+            }
+        }
+    };
 
     const handlePickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -196,6 +234,49 @@ export default function ProfileScreen() {
                 )}
             </View>
 
+            {/* Calendars Section */}
+            <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.label}>Calendarios Disponibles</Text>
+                    <Ionicons name="calendar-outline" size={20} color="#6b7280" />
+                </View>
+                <Text style={styles.hint}>
+                    Ping sincroniza con los calendarios de tu dispositivo. Asegúrate de que tus cuentas (Google, Outlook, iCloud) estén configuradas en los ajustes del sistema.
+                </Text>
+
+                {loadingCals ? (
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                ) : calendars.length > 0 ? (
+                    calendars.map(cal => {
+                        const isVisible = !hiddenCalendars.includes(cal.id);
+                        return (
+                            <TouchableOpacity
+                                key={cal.id}
+                                style={[styles.calRow, !isVisible && { opacity: 0.5 }]}
+                                onPress={() => toggleCalendarVisibility(cal.id)}
+                            >
+                                <View style={[styles.calDot, { backgroundColor: cal.color }]} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.calTitle, !isVisible && { textDecorationLine: 'line-through' }]}>
+                                        {cal.title}
+                                    </Text>
+                                    <Text style={styles.calSource}>{cal.source.name}</Text>
+                                </View>
+                                <Ionicons
+                                    name={isVisible ? "eye" : "eye-off"}
+                                    size={18}
+                                    color={isVisible ? "#10b981" : "#9ca3af"}
+                                />
+                            </TouchableOpacity>
+                        );
+                    })
+                ) : (
+                    <TouchableOpacity style={styles.permissionBtn} onPress={checkCalendars}>
+                        <Text style={styles.permissionBtnText}>Habilitar Calendarios</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
             {/* Logout */}
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
                 <Text style={styles.logoutText}>Cerrar sesión</Text>
@@ -230,4 +311,10 @@ const styles = StyleSheet.create({
     editActions: { flexDirection: 'row', marginTop: 20 },
     logoutBtn: { backgroundColor: 'white', borderRadius: 16, padding: 18, alignItems: 'center', borderWidth: 1.5, borderColor: '#fee2e2' },
     logoutText: { color: '#ef4444', fontWeight: '700', fontSize: 16 },
+    calRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingVertical: 4 },
+    calDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
+    calTitle: { fontSize: 15, fontWeight: '600', color: '#111' },
+    calSource: { fontSize: 12, color: '#6b7280' },
+    permissionBtn: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 12, alignItems: 'center' },
+    permissionBtnText: { color: '#3b82f6', fontWeight: '700' },
 });

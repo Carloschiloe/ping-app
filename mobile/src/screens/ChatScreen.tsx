@@ -13,6 +13,7 @@ import { useConversationMessages, useSendConversationMessage, useReactToMessage 
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AudioPlayer from '../components/AudioPlayer';
+import { apiClient } from '../api/client';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ export default function ChatScreen({ navigation }: any) {
     const [selectedMsg, setSelectedMsg] = useState<any>(null);      // context menu
     const [replyingToMsg, setReplyingToMsg] = useState<any>(null);  // reply state
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null); // fullscreen
+    const [summary, setSummary] = useState<string | null>(null);     // AI summary
+    const [isSummarizing, setIsSummarizing] = useState(false);       // loading state
     const [multiSelect, setMultiSelect] = useState<string[]>([]);   // bulk select IDs
     const isMultiSelecting = multiSelect.length > 0;
     const menuAnim = useRef(new Animated.Value(300)).current;
@@ -193,13 +196,48 @@ export default function ChatScreen({ navigation }: any) {
                 </View>
             ),
             headerRight: () => (
-                <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { conversationId, isGroup, groupMetadata, otherUser, isSelf })}>
-                    <Ionicons name="ellipsis-vertical" size={24} color="white" />
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 8 }}>
+                    {isGroup && (
+                        <TouchableOpacity
+                            onPress={handleSummarize}
+                            style={styles.headerActionBtn}
+                            disabled={isSummarizing}
+                        >
+                            {isSummarizing ? (
+                                <ActivityIndicator size="small" color="white" />
+                            ) : (
+                                <View style={styles.summarizeBtnInner}>
+                                    <Ionicons name="sparkles" size={16} color="#8b5cf6" />
+                                    <Text style={styles.summarizeBtnText}>Resumir</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { conversationId, isGroup, groupMetadata, otherUser, isSelf })}>
+                        <Ionicons name="ellipsis-vertical" size={24} color="white" />
+                    </TouchableOpacity>
+                </View>
             ),
-            title: chatTitle, // fallback
         });
-    }, [navigation, chatTitle, avatarUrl, conversationId, isGroup, groupMetadata, otherUser, isSelf]);
+    }, [navigation, chatTitle, avatarUrl, isGroup, isSummarizing]);
+
+    const handleSummarize = async () => {
+        setIsSummarizing(true);
+        try {
+            const result = await apiClient.post('/ai/summarize', { conversationId });
+
+            if (result.summary) {
+                setSummary(result.summary);
+            } else {
+                Alert.alert('Ping', 'No pude generar el resumen en este momento.');
+            }
+        } catch (err) {
+            console.error('[Summarize]', err);
+            Alert.alert('Error', 'Hubo un problema al conectar con el servidor.');
+        } finally {
+            setIsSummarizing(false);
+        }
+    };
 
     // ─── Context Menu ────────────────────────────────────────────────────────
 
@@ -834,12 +872,6 @@ export default function ChatScreen({ navigation }: any) {
                 </View>
             )}
 
-            {isRecording && (
-                <View style={styles.recordingBar}>
-                    <Text style={styles.recordingText}>🎤 Grabando... suelta para enviar</Text>
-                </View>
-            )}
-
             {/* ─── Fullscreen Media Viewer ────────────────────────── */}
             <Modal visible={!!viewerMedia} transparent animationType="fade" onRequestClose={() => setViewerMedia(null)}>
                 <View style={styles.viewerBackdrop}>
@@ -863,6 +895,29 @@ export default function ChatScreen({ navigation }: any) {
                     <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
                         <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
                     </TouchableOpacity>
+                </View>
+            </Modal>
+
+            {/* AI Summary Modal */}
+            <Modal visible={!!summary} transparent animationType="slide" onRequestClose={() => setSummary(null)}>
+                <View style={styles.summaryBackdrop}>
+                    <View style={styles.summarySheet}>
+                        <View style={styles.summaryHeader}>
+                            <Ionicons name="sparkles" size={24} color="#8b5cf6" />
+                            <Text style={styles.summaryTitle}>Resumen de la Conversación</Text>
+                            <TouchableOpacity onPress={() => setSummary(null)} style={styles.summaryClosePulse}>
+                                <Ionicons name="close" size={24} color="#6b7280" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.summaryScroll} showsVerticalScrollIndicator={false}>
+                            <Text style={styles.summaryContent}>{summary}</Text>
+                        </ScrollView>
+
+                        <TouchableOpacity style={styles.summaryDoneBtn} onPress={() => setSummary(null)}>
+                            <Text style={styles.summaryDoneText}>Entendido, gracias Ping!</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </Modal>
 
@@ -938,8 +993,8 @@ export default function ChatScreen({ navigation }: any) {
                         </TouchableOpacity>
                     </Animated.View>
                 </TouchableOpacity>
-            </Modal>
-        </KeyboardAvoidingView>
+            </Modal >
+        </KeyboardAvoidingView >
     );
 }
 
@@ -1196,4 +1251,42 @@ const styles = StyleSheet.create({
     reactionsThem: { left: 8 },
     reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#e5e7eb', gap: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
     reactionCount: { fontSize: 11, fontWeight: '700', color: '#4b5563' },
+
+    // Header Actions
+    headerActionBtn: {
+        backgroundColor: '#f3f4f6',
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+    },
+    summarizeBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    summarizeBtnText: { fontSize: 12, fontWeight: '700', color: '#8b5cf6' },
+
+    // Summary Modal
+    summaryBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    summarySheet: {
+        backgroundColor: 'white',
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        paddingTop: 20,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+        maxHeight: '80%',
+        paddingHorizontal: 24,
+        shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 15, elevation: 10,
+    },
+    summaryHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
+    summaryTitle: { fontSize: 20, fontWeight: '800', color: '#1e3a5f', flex: 1 },
+    summaryClosePulse: { padding: 4 },
+    summaryScroll: { marginBottom: 20 },
+    summaryContent: { fontSize: 16, color: '#374151', lineHeight: 24 },
+    summaryDoneBtn: {
+        backgroundColor: '#8b5cf6',
+        borderRadius: 16,
+        paddingVertical: 14,
+        alignItems: 'center',
+        shadowColor: '#8b5cf6', shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
+    },
+    summaryDoneText: { color: 'white', fontWeight: '800', fontSize: 16 },
 });

@@ -74,3 +74,37 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
         res.status(500).json({ error: error.message });
     }
 };
+
+export const summarize = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId, limit = 50 } = req.body;
+
+        if (!conversationId) {
+            res.status(400).json({ error: 'Conversation ID is required' });
+            return;
+        }
+
+        // 1. Fetch last N messages with sender info
+        const { data: messages, error: msgError } = await supabaseAdmin
+            .from('messages')
+            .select('*, profiles!sender_id(full_name, email)')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (msgError) throw msgError;
+
+        if (!messages || messages.length === 0) {
+            res.status(200).json({ summary: 'No hay mensajes para resumir.' });
+            return;
+        }
+
+        // 2. Call AI Service (reverse to keep chronological order for the AI)
+        const summary = await aiService.summarizeConversation([...messages].reverse());
+
+        res.status(200).json({ summary });
+    } catch (error: any) {
+        console.error('[AI Summarize] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

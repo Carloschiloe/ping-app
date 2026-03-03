@@ -23,7 +23,27 @@ async function downloadFile(url: string, targetPath: string) {
 }
 
 export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string) => {
-    // 1. Insert original message
+    // 1. Determine if it moves to transcription first
+    let processingText = text;
+    let meta: any = {};
+
+    if (text.startsWith('[audio]')) {
+        const audioUrl = text.slice(7);
+        try {
+            const tempFile = path.join(os.tmpdir(), `ping_audio_${Date.now()}.m4a`);
+            await downloadFile(audioUrl, tempFile);
+            const transcript = await transcribeAudio(tempFile);
+            if (transcript) {
+                processingText = transcript;
+                meta.transcript = transcript;
+            }
+            fs.unlinkSync(tempFile);
+        } catch (err) {
+            console.error('[Audio Processing] Failed:', err);
+        }
+    }
+
+    // 2. Insert message
     const { data: message, error: messageError } = await supabaseAdmin
         .from('messages')
         .insert({
@@ -32,13 +52,14 @@ export const processUserMessage = async (userId: string, text: string, conversat
             ...(conversationId ? { conversation_id: conversationId } : {}),
             ...(replyToId ? { reply_to_id: replyToId } : {}),
             text,
+            meta,
         })
         .select()
         .single();
 
     if (messageError) throw messageError;
 
-    // Fetch the message again with joins to ensure frontend gets profiles and reply_to immediately
+    // Fetch the message again with joins
     const { data: fullMessage } = await supabaseAdmin
         .from('messages')
         .select('*, profiles!sender_id(id, email), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
@@ -56,26 +77,6 @@ export const processUserMessage = async (userId: string, text: string, conversat
     let dueAt: Date | null = null;
     let replyText: string | null = null;
 
-    let processingText = text;
-
-    // 2.1 Handle Audio Transcription
-    if (text.startsWith('[audio]')) {
-        const audioUrl = text.slice(7);
-        try {
-            const tempFile = path.join(os.tmpdir(), `ping_audio_${Date.now()}.m4a`);
-            await downloadFile(audioUrl, tempFile);
-            const transcript = await transcribeAudio(tempFile);
-            if (transcript) {
-                processingText = transcript;
-                // Optional: Update message text with transcript? 
-                // For now, only use it for extraction context.
-            }
-            fs.unlinkSync(tempFile);
-        } catch (err) {
-            console.error('[Audio Processing] Failed:', err);
-        }
-    }
-
     if (process.env.OPENAI_API_KEY) {
         // AI path
         const ai = await extractCommitment(processingText, nowIso);
@@ -86,9 +87,9 @@ export const processUserMessage = async (userId: string, text: string, conversat
         }
     } else {
         // Fallback: regex date parser
-        const parsed = parseDateFromText(text);
+        const parsed = parseDateFromText(processingText);
         if (parsed) {
-            title = `Recordatorio: "${text.substring(0, 40)}..."`;
+            title = `Recordatorio: "${processingText.substring(0, 40)}..."`;
             dueAt = parsed.date;
             const formattedDate = format(dueAt, "EEEE d 'de' MMMM 'a las' HH:mm", { locale: es });
             replyText = `⏰ Te lo recordaré el ${formattedDate}.`;
@@ -101,36 +102,38 @@ export const processUserMessage = async (userId: string, text: string, conversat
             .from('commitments')
             .insert({
                 owner_user_id: userId,
-                message_id: message.id,
                 title,
                 due_at: dueAt.toISOString(),
+                status: 'pending',
+                source_message_id: message.id
             })
             .select()
             .single();
 
         if (commError) {
-            console.error('[Commitment] Error:', commError);
+            console.error('Error creating commitment:', commError);
         } else {
             commitmentCreated = commitment;
 
-            // 4. Save system reply in the same conversation
-            const { data: sysMsg, error: sysError } = await supabaseAdmin
-                .from('messages')
-                .insert({
-                    user_id: userId,
-                    sender_id: null,
-                    ...(conversationId ? { conversation_id: conversationId } : {}),
-                    text: replyText || '✅ Compromiso guardado.',
-                    meta: { isSystem: true, relatedCommitmentId: commitment.id }
-                })
-                .select()
-                .single();
-
-            if (!sysError) systemMessage = sysMsg;
+            // Send reply if we have a title
+            if (replyText) {
+                const { data: sysMsg } = await supabaseAdmin
+                    .from('messages')
+                    .insert({
+                        conversation_id: conversationId,
+                        user_id: userId,
+                        sender_id: userId, // System replies as sender for now or we could use a dedicated bot id
+                        text: replyText,
+                        meta: { isSystem: true, related_commitment_id: commitment.id }
+                    })
+                    .select('*, profiles!sender_id(id, email)')
+                    .single();
+                systemMessage = sysMsg;
+            }
         }
     }
 
-    return { userMessage: finalMessage, systemMessage, commitment: commitmentCreated };
+    return { message: finalMessage, commitment: commitmentCreated, systemMessage };
 };
 
 export const getMessages = async (userId: string, limit = 50, offset = 0) => {

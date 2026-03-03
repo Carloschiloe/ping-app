@@ -1,14 +1,23 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView } from 'react-native';
 import { useCommitments, useMarkCommitmentDone } from '../api/queries';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect } from 'react';
 import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';
+import * as Calendar from 'expo-calendar';
+import { Ionicons } from '@expo/vector-icons';
+import { Platform, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
     const { mutate: markDone } = useMarkCommitmentDone();
     const navigation = useNavigation<any>();
+
+    const [calendars, setCalendars] = React.useState<Calendar.Calendar[]>([]);
+    const [isCalendarModalVisible, setIsCalendarModalVisible] = React.useState(false);
+    const [selectedCommitment, setSelectedCommitment] = React.useState<any>(null);
+    const [isLoadingCalendars, setIsLoadingCalendars] = React.useState(false);
 
     useEffect(() => {
         if (commitments && commitments.length > 0) {
@@ -23,6 +32,58 @@ export default function HoyScreen() {
     const handleMarkDone = (id: string) => {
         markDone(id);
         cancelCommitmentReminder(id);
+    };
+
+    const handleCalendarPress = async (item: any) => {
+        const { status } = await Calendar.requestCalendarPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Ping', 'Necesitamos permisos para acceder a tu calendario.');
+            return;
+        }
+
+        setIsLoadingCalendars(true);
+        setSelectedCommitment(item);
+        setIsCalendarModalVisible(true);
+
+        try {
+            const allCalendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+            const writableCalendars = allCalendars.filter(cal => cal.allowsModifications);
+
+            // Apply filtering from Profile preferences
+            const stored = await AsyncStorage.getItem('ping_hidden_calendars');
+            const hiddenIds: string[] = stored ? JSON.parse(stored) : [];
+            const visibleCalendars = writableCalendars.filter(cal => !hiddenIds.includes(cal.id));
+
+            setCalendars(visibleCalendars);
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Ping', 'No se pudieron cargar los calendarios.');
+        } finally {
+            setIsLoadingCalendars(false);
+        }
+    };
+
+    const confirmAddToCalendar = async (calendarId: string, calendarTitle: string) => {
+        if (!selectedCommitment) return;
+
+        const startDate = new Date(selectedCommitment.due_at);
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
+
+        try {
+            await Calendar.createEventAsync(calendarId, {
+                title: `Ping: ${selectedCommitment.title}`,
+                startDate,
+                endDate,
+                notes: `Compromiso detectado por Ping.`,
+                timeZone: 'GMT',
+            });
+
+            setIsCalendarModalVisible(false);
+            Alert.alert('Ping', `✅ Agregado a tu calendario: "${calendarTitle}"`);
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Ping', 'Hubo un error al agregar el evento.');
+        }
     };
 
     const renderItem = ({ item }: { item: any }) => (
@@ -48,9 +109,14 @@ export default function HoyScreen() {
                     </TouchableOpacity>
                 )}
             </View>
-            <TouchableOpacity style={styles.doneBtn} onPress={() => handleMarkDone(item.id)}>
-                <Text style={styles.doneBtnText}>✓</Text>
-            </TouchableOpacity>
+            <View style={styles.actionColumn}>
+                <TouchableOpacity style={styles.calendarBtn} onPress={() => handleCalendarPress(item)}>
+                    <Ionicons name="calendar-outline" size={20} color="#8b5cf6" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.doneBtn} onPress={() => handleMarkDone(item.id)}>
+                    <Text style={styles.doneBtnText}>✓</Text>
+                </TouchableOpacity>
+            </View>
         </View>
     );
 
@@ -71,6 +137,43 @@ export default function HoyScreen() {
                     showsVerticalScrollIndicator={false}
                 />
             )}
+
+            {/* Calendar Selection Modal */}
+            <Modal visible={isCalendarModalVisible} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <SafeAreaView style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Selecciona un Calendario</Text>
+                            <TouchableOpacity onPress={() => setIsCalendarModalVisible(false)}>
+                                <Ionicons name="close" size={24} color="#6b7280" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {isLoadingCalendars ? (
+                            <ActivityIndicator size="large" color="#3b82f6" style={{ margin: 40 }} />
+                        ) : (
+                            <FlatList
+                                data={calendars}
+                                keyExtractor={item => item.id}
+                                contentContainerStyle={{ paddingBottom: 20 }}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={styles.calendarItem}
+                                        onPress={() => confirmAddToCalendar(item.id, item.title)}
+                                    >
+                                        <View style={[styles.calendarColor, { backgroundColor: item.color }]} />
+                                        <View style={styles.calendarInfo}>
+                                            <Text style={styles.calendarName}>{item.title}</Text>
+                                            <Text style={styles.calendarSource}>{item.source.name}</Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </SafeAreaView>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -86,6 +189,19 @@ const styles = StyleSheet.create({
     linkBtnText: { color: '#3b82f6', fontSize: 13, fontWeight: '600' },
     doneBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
     doneBtnText: { color: '#22c55e', fontSize: 18, fontWeight: 'bold' },
+    actionColumn: { alignItems: 'center', gap: 12 },
+    calendarBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f5f3ff', alignItems: 'center', justifyContent: 'center' },
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyText: { color: '#9ca3af', fontSize: 16 },
+
+    // Modal Styles
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+    modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
+    calendarItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+    calendarColor: { width: 12, height: 12, borderRadius: 6, marginRight: 12 },
+    calendarInfo: { flex: 1 },
+    calendarName: { fontSize: 16, fontWeight: '600', color: '#111827' },
+    calendarSource: { fontSize: 12, color: '#6b7280', marginTop: 2 },
 });
