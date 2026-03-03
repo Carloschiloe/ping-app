@@ -20,7 +20,7 @@ export default function ProfileScreen() {
     const [fullName, setFullName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-    const { mutate: updateProfile } = useUpdateProfile();
+    const { mutateAsync: updateProfile } = useUpdateProfile();
 
     useEffect(() => {
         if (!user) return;
@@ -53,16 +53,16 @@ export default function ProfileScreen() {
         setSaving(true);
         try {
             const fileName = `${user!.id}/${Date.now()}.jpg`;
-            const formData = new FormData();
-            formData.append('file', {
-                uri,
-                name: fileName,
-                type: 'image/jpeg',
-            } as any);
+
+            // Convert URI to Blob for better compatibility
+            const resp = await fetch(uri);
+            const blob = await resp.blob();
 
             const { data, error } = await supabase.storage
                 .from('chat-media')
-                .upload(fileName, formData);
+                .upload(fileName, blob, {
+                    contentType: 'image/jpeg'
+                });
 
             if (error) throw error;
 
@@ -71,28 +71,32 @@ export default function ProfileScreen() {
                 .getPublicUrl(fileName);
 
             setAvatarUrl(publicUrl);
-            await handleSaveProfile(null, publicUrl);
+
+            // We await the profile update here
+            await updateProfile({
+                avatar_url: publicUrl,
+            });
+
+            Alert.alert('✅ Foto actualizada', 'Tu foto de perfil se ha guardado correctamente.');
         } catch (e: any) {
-            Alert.alert('Error al subir imagen', e.message);
+            console.error('[Profile] Upload error:', e);
+            Alert.alert('Error', e.message || 'No se pudo subir la imagen');
         } finally {
             setSaving(false);
         }
     };
 
-    const handleSaveProfile = async (nameOverride?: string | null, avatarOverride?: string | null) => {
+    const handleSaveProfile = async () => {
+        if (!user) return;
         setSaving(true);
         try {
-            updateProfile({
-                full_name: nameOverride !== undefined ? (nameOverride || undefined) : fullName,
-                avatar_url: avatarOverride !== undefined ? (avatarOverride || undefined) : (avatarUrl || undefined),
-            }, {
-                onSuccess: () => {
-                    Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
-                },
-                onError: (err: any) => {
-                    Alert.alert('Error', err.message);
-                }
+            await updateProfile({
+                full_name: fullName || undefined,
+                avatar_url: avatarUrl || undefined,
             });
+            Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
+        } catch (e: any) {
+            Alert.alert('Error', e.message || 'No se pudo actualizar el perfil');
         } finally {
             setSaving(false);
         }
