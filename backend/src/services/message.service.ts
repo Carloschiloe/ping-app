@@ -115,6 +115,25 @@ export const processUserMessage = async (userId: string, text: string, conversat
         } else {
             commitmentCreated = commitment;
 
+            // --- Phase 15: Autonomous Sync ---
+            let syncNotice = '';
+            try {
+                const { syncCommitmentToCloud } = require('./calendar_sync.service');
+                const syncResults = await syncCommitmentToCloud(userId, commitment);
+
+                if (syncResults && syncResults.length > 0) {
+                    const hasConflict = syncResults.some((r: any) => r.hasConflict);
+                    if (hasConflict) {
+                        syncNotice = '\n\n⚠️ ¡Ojo! Tienes otro evento a esa misma hora en tu calendario.';
+                    } else {
+                        syncNotice = '\n\n🌐 Sincronizado automáticamente con tu nube.';
+                    }
+                }
+            } catch (syncErr) {
+                console.error('[Auto-Sync Trigger] Error:', syncErr);
+            }
+            // ----------------------------------
+
             // Send reply if we have a title
             if (replyText) {
                 const { data: sysMsg } = await supabaseAdmin
@@ -122,8 +141,8 @@ export const processUserMessage = async (userId: string, text: string, conversat
                     .insert({
                         conversation_id: conversationId,
                         user_id: userId,
-                        sender_id: userId, // System replies as sender for now or we could use a dedicated bot id
-                        text: replyText,
+                        sender_id: userId,
+                        text: replyText + syncNotice,
                         meta: { isSystem: true, related_commitment_id: commitment.id }
                     })
                     .select('*, profiles!sender_id(id, email)')

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert, Linking } from 'react-native';
 import { useCommitments, useMarkCommitmentDone } from '../api/queries';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';
@@ -120,22 +120,52 @@ export default function HoyScreen() {
         }
     };
 
+    const handleOpenExternalCalendar = (url: string) => {
+        if (!url) {
+            Alert.alert('Ping', 'Este evento no tiene un link directo guardado.');
+            return;
+        }
+        Linking.openURL(url).catch(err => {
+            console.error('Failed to open URL:', err);
+            Alert.alert('Ping', 'No se pudo abrir la aplicación de calendario.');
+        });
+    };
+
     const renderItem = ({ item }: { item: any }) => (
-        <View style={styles.card}>
+        <View style={[styles.card, item.meta?.conflict_detected && styles.cardConflict]}>
             <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>{item.title}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Text style={[styles.cardTitle, item.meta?.conflict_detected && { color: '#92400e' }]}>
+                        {item.title}
+                    </Text>
+                    {item.meta?.synced_to && (
+                        <TouchableOpacity
+                            style={[styles.syncBadge, item.meta.conflict_detected && styles.syncBadgeConflict]}
+                            onPress={() => item.meta.external_event_url && handleOpenExternalCalendar(item.meta.external_event_url)}
+                        >
+                            <Ionicons
+                                name={item.meta.synced_to === 'google' ? "logo-google" : "logo-microsoft"}
+                                size={12}
+                                color={item.meta.conflict_detected ? "#b45309" : "#059669"}
+                            />
+                            <Text style={[styles.syncBadgeText, { color: item.meta.conflict_detected ? "#b45309" : "#059669" }]}>
+                                {item.meta.conflict_detected ? '¡Conflicto!' : 'En la Nube'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+
                 <Text style={styles.cardDate}>
                     {item.due_at ? new Date(item.due_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Sin fecha'}
                 </Text>
 
-                {item.message_id && (
+                {item.source_message_id && (
                     <TouchableOpacity
                         style={styles.linkBtn}
                         onPress={() => navigation.navigate('Chats', {
                             screen: 'Chat',
                             params: {
-                                conversationId: item.message?.conversation_id, // We'll need to join this in backend or handle it
-                                scrollToMessageId: item.message_id
+                                scrollToMessageId: item.source_message_id
                             }
                         })}
                     >
@@ -144,8 +174,15 @@ export default function HoyScreen() {
                 )}
             </View>
             <View style={styles.actionColumn}>
-                <TouchableOpacity style={styles.calendarBtn} onPress={() => handleCalendarPress(item)}>
-                    <Ionicons name="calendar-outline" size={20} color="#8b5cf6" />
+                <TouchableOpacity
+                    style={[styles.calendarBtn, item.meta?.synced_to && { backgroundColor: '#f0fdf4' }]}
+                    onPress={() => handleCalendarPress(item)}
+                >
+                    <Ionicons
+                        name={item.meta?.synced_to ? "cloud-done-outline" : "calendar-outline"}
+                        size={20}
+                        color={item.meta?.synced_to ? "#10b981" : "#8b5cf6"}
+                    />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.doneBtn} onPress={() => handleMarkDone(item.id)}>
                     <Text style={styles.doneBtnText}>✓</Text>
@@ -249,9 +286,13 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f9fafb', paddingTop: 64 },
     heading: { fontSize: 28, fontWeight: 'bold', paddingHorizontal: 16, marginBottom: 16 },
     card: { backgroundColor: 'white', padding: 16, marginHorizontal: 16, marginVertical: 8, borderRadius: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+    cardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7', borderWidth: 1 },
     cardContent: { flex: 1, paddingRight: 16 },
     cardTitle: { fontWeight: '600', fontSize: 16 },
     cardDate: { color: '#6b7280', marginTop: 4, fontSize: 13 },
+    syncBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 8, gap: 4 },
+    syncBadgeConflict: { backgroundColor: '#fef3c7' },
+    syncBadgeText: { fontSize: 10, fontWeight: '700' },
     linkBtn: { marginTop: 8 },
     linkBtnText: { color: '#3b82f6', fontSize: 13, fontWeight: '600' },
     doneBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },

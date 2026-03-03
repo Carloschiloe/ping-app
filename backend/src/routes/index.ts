@@ -69,5 +69,6 @@ router.get('/calendar/auth/google/callback', calendarController.googleCallback);
 router.get('/calendar/auth/outlook', requireAuth, calendarController.getMsAuth);
 router.get('/calendar/auth/outlook/callback', calendarController.msCallback);
 router.get('/calendar/accounts', requireAuth, calendarController.listAccounts);
+router.patch('/calendar/accounts/:id', requireAuth, calendarController.updateAccount);
 router.delete('/calendar/accounts/:id', requireAuth, calendarController.disconnectAccount);
 router.post('/calendar/sync', requireAuth, calendarController.syncCommitment);

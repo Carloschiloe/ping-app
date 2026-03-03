@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator, Switch, Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { useUpdateProfile } from '../api/queries';
+import { useUpdateProfile, useCalendarAccounts, useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Linking } from 'react-native';
 import { apiClient, API_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 
@@ -32,8 +31,12 @@ export default function ProfileScreen() {
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
     const [hiddenCalendars, setHiddenCalendars] = useState<string[]>([]);
     const [loadingCals, setLoadingCals] = useState(false);
-    const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
     const isFocused = useIsFocused();
+
+    // Cloud Accounts Queries
+    const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
+    const { mutate: updateAccount } = useUpdateCalendarAccount();
+    const { mutate: disconnectAccount } = useDisconnectCalendarAccount();
 
     useEffect(() => {
         if (!user) return;
@@ -50,17 +53,8 @@ export default function ProfileScreen() {
 
         checkCalendars();
         loadHiddenCalendars();
-        fetchCloudAccounts();
+        refetchAccounts();
     }, [user, isFocused]);
-
-    const fetchCloudAccounts = async () => {
-        try {
-            const data = await apiClient.get('/calendar/accounts');
-            setCloudAccounts(data);
-        } catch (e) {
-            console.error('[Profile] Fetch Cloud Accounts Error:', e);
-        }
-    };
 
     const handleConnectCloud = async (provider: 'google' | 'outlook') => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -76,15 +70,14 @@ export default function ProfileScreen() {
                 text: 'Desconectar',
                 style: 'destructive',
                 onPress: async () => {
-                    try {
-                        await apiClient.delete(`/calendar/accounts/${id}`);
-                        fetchCloudAccounts();
-                    } catch (e: any) {
-                        Alert.alert('Error', e.message);
-                    }
+                    disconnectAccount(id);
                 }
             }
         ]);
+    };
+
+    const handleToggleAutoSync = (id: string, current: boolean) => {
+        updateAccount({ id, is_auto_sync_enabled: !current });
     };
 
     const loadHiddenCalendars = async () => {
@@ -286,27 +279,44 @@ export default function ProfileScreen() {
 
                 {cloudAccounts.length > 0 && (
                     <View style={styles.cloudAccountsList}>
-                        {cloudAccounts.map(acc => (
-                            <View key={acc.id} style={styles.cloudAccRow}>
-                                <Ionicons
-                                    name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
-                                    size={20}
-                                    color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
-                                />
-                                <View style={{ flex: 1, marginLeft: 10 }}>
-                                    <Text style={styles.cloudAccEmail}>{acc.email}</Text>
-                                    <Text style={styles.cloudAccMeta}>Conectado vía Cloud</Text>
+                        {cloudAccounts.map((acc: any) => (
+                            <View key={acc.id} style={styles.cloudAccCard}>
+                                <View style={styles.cloudAccRow}>
+                                    <Ionicons
+                                        name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
+                                        size={20}
+                                        color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
+                                    />
+                                    <View style={{ flex: 1, marginLeft: 10 }}>
+                                        <Text style={styles.cloudAccEmail}>{acc.email}</Text>
+                                        <Text style={styles.cloudAccMeta}>Sincronización Cloud</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
+                                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                                    </TouchableOpacity>
                                 </View>
-                                <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
-                                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                                </TouchableOpacity>
+
+                                <View style={styles.autoSyncRow}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.autoSyncTitle}>Sincronización Automática</Text>
+                                        <Text style={styles.autoSyncDesc}>
+                                            Agenda compromisos del chat sin preguntar.
+                                        </Text>
+                                    </View>
+                                    <Switch
+                                        value={!!acc.is_auto_sync_enabled}
+                                        onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
+                                        trackColor={{ false: '#d1d5db', true: '#8b5cf6' }}
+                                        thumbColor="#ffffff"
+                                    />
+                                </View>
                             </View>
                         ))}
                     </View>
                 )}
 
                 <View style={styles.cloudActions}>
-                    {!cloudAccounts.find(a => a.provider === 'google') && (
+                    {!cloudAccounts.find((a: any) => a.provider === 'google') && (
                         <TouchableOpacity
                             style={[styles.connectCloudBtn, { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' }]}
                             onPress={() => handleConnectCloud('google')}
@@ -316,7 +326,7 @@ export default function ProfileScreen() {
                         </TouchableOpacity>
                     )}
 
-                    {!cloudAccounts.find(a => a.provider === 'outlook') && (
+                    {!cloudAccounts.find((a: any) => a.provider === 'outlook') && (
                         <TouchableOpacity
                             style={[styles.connectCloudBtn, { backgroundColor: '#0078d4' }]}
                             onPress={() => handleConnectCloud('outlook')}
@@ -339,7 +349,7 @@ export default function ProfileScreen() {
                 {loadingCals ? (
                     <ActivityIndicator size="small" color="#3b82f6" />
                 ) : calendars.length > 0 ? (
-                    calendars.map(cal => {
+                    calendars.map((cal: any) => {
                         const isVisible = !hiddenCalendars.includes(cal.id);
                         return (
                             <TouchableOpacity
@@ -411,9 +421,13 @@ const styles = StyleSheet.create({
     permissionBtnText: { color: '#3b82f6', fontWeight: '700' },
     connectMainBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
     cloudAccountsList: { marginBottom: 20 },
-    cloudAccRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', padding: 12, borderRadius: 12, marginBottom: 8 },
+    cloudAccCard: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#f3f4f6' },
+    cloudAccRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
     cloudAccEmail: { fontSize: 14, fontWeight: '600', color: '#111' },
     cloudAccMeta: { fontSize: 11, color: '#6b7280' },
+    autoSyncRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+    autoSyncTitle: { fontSize: 13, fontWeight: '600', color: '#111' },
+    autoSyncDesc: { fontSize: 11, color: '#9ca3af' },
     cloudActions: { gap: 10 },
     connectCloudBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, gap: 10 },
     connectCloudBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },

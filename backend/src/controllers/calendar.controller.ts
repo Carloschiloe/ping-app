@@ -99,6 +99,27 @@ export const listAccounts = async (req: Request, res: Response) => {
     }
 };
 
+export const updateAccount = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const { id } = req.params;
+        const { is_auto_sync_enabled } = req.body;
+
+        const { data, error } = await supabaseAdmin
+            .from('user_calendar_accounts')
+            .update({ is_auto_sync_enabled })
+            .eq('id', id)
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export const disconnectAccount = async (req: Request, res: Response) => {
     try {
         const userId = req.user!.id;

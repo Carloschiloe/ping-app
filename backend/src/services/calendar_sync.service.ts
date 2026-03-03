@@ -181,3 +181,104 @@ export const createMsEvent = async (accessToken: string, event: any) => {
     });
     return response.data;
 };
+
+export const checkConflictsGoogle = async (accessToken: string, startIso: string, endIso: string) => {
+    const response = await axios.get('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+            timeMin: startIso,
+            timeMax: endIso,
+            singleEvents: true,
+        }
+    });
+    return response.data.items && response.data.items.length > 0;
+};
+
+export const checkConflictsMs = async (accessToken: string, startIso: string, endIso: string) => {
+    const response = await axios.get('https://graph.microsoft.com/v1.0/me/calendarview', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+            startDateTime: startIso,
+            endDateTime: endIso,
+        }
+    });
+    return response.data.value && response.data.value.length > 0;
+};
+
+export const syncCommitmentToCloud = async (userId: string, commitment: any) => {
+    try {
+        // 1. Find connected accounts with auto-sync enabled
+        const { data: accounts, error } = await supabaseAdmin
+            .from('user_calendar_accounts')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('is_auto_sync_enabled', true);
+
+        if (error || !accounts || accounts.length === 0) return null;
+
+        const results = [];
+        for (const account of accounts) {
+            const provider = account.provider;
+            const accessToken = await getValidAccessToken(userId, provider);
+
+            const startDate = new Date(commitment.due_at);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            const startIso = startDate.toISOString();
+            const endIso = endDate.toISOString();
+
+            // 2. Check Conflicts
+            let hasConflict = false;
+            if (provider === 'google') {
+                hasConflict = await checkConflictsGoogle(accessToken, startIso, endIso);
+            } else if (provider === 'outlook') {
+                hasConflict = await checkConflictsMs(accessToken, startIso, endIso);
+            }
+
+            // 3. Create Event with Rich Description
+            const description = `Ping: Compromiso detectado automáticamente.\n\nDetalles: ${commitment.title}\nAcordado el: ${new Date(commitment.created_at || Date.now()).toLocaleString('es-CL')}\n\nPing - El chat que recuerda. 🕵️‍♂️📝`;
+
+            let result;
+            let eventUrl = '';
+
+            if (provider === 'google') {
+                result = await createGoogleEvent(accessToken, {
+                    summary: `Ping: ${commitment.title}`,
+                    description,
+                    start: { dateTime: startIso },
+                    end: { dateTime: endIso },
+                });
+                eventUrl = result.htmlLink;
+            } else if (provider === 'outlook') {
+                result = await createMsEvent(accessToken, {
+                    subject: `Ping: ${commitment.title}`,
+                    body: { contentType: 'HTML', content: description.replace(/\n/g, '<br/>') },
+                    start: { dateTime: startIso, timeZone: 'UTC' },
+                    end: { dateTime: endIso, timeZone: 'UTC' },
+                });
+                eventUrl = result.webLink;
+            }
+
+            // 4. Update commitment meta
+            await supabaseAdmin
+                .from('commitments')
+                .update({
+                    meta: {
+                        ...commitment.meta,
+                        synced_to: provider,
+                        cloud_event_id: result.id,
+                        external_event_url: eventUrl,
+                        conflict_detected: hasConflict,
+                        sync_status: 'synced',
+                        last_sync_at: new Date().toISOString()
+                    }
+                })
+                .eq('id', commitment.id);
+
+            results.push({ provider, hasConflict, eventUrl });
+        }
+        return results;
+    } catch (err) {
+        console.error('[Autonomous Sync] Error:', err);
+        throw err;
+    }
+};
