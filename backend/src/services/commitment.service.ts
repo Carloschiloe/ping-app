@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 export const getCommitments = async (userId: string, status?: string) => {
     let query = supabaseAdmin
         .from('commitments')
-        .select('*')
+        .select('*, message:message_id(id, conversation_id)')
         .eq('owner_user_id', userId)
         .order('due_at', { ascending: true });
 

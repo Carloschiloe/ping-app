@@ -155,7 +155,19 @@ export const useDeleteGroup = () => {
     });
 };
 
-// ─── User search ──────────────────────────────────────────────────────
+// ─── User search & Profile ─────────────────────────────────────────────
+export const useUpdateProfile = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { full_name?: string; avatar_url?: string }) =>
+            apiClient.patch('/user/profile', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            // Profiles are usually fetched via Supabase directly or joined in other queries,
+            // but we might want to invalidate any specific profile queries if we had them.
+        },
+    });
+};
 
 export const useUserSearch = (query: string) => {
     return useQuery({

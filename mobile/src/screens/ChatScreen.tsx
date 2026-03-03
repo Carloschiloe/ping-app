@@ -56,6 +56,8 @@ export default function ChatScreen({ navigation }: any) {
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
+    const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+    const listRef = useRef<FlatList>(null);
 
     const { user } = useAuth();
     const messages = data?.messages || [];
@@ -114,6 +116,41 @@ export default function ChatScreen({ navigation }: any) {
             reactionsChannel.unsubscribe();
         };
     }, [conversationId, user, refetch]);
+
+    // ─── Build flat list with date dividers ───
+    const flatData: any[] = [];
+    (() => {
+        const reversed = [...messages].reverse();
+        let currentDate = '';
+        for (const msg of reversed) {
+            const dateKey = new Date(msg.created_at).toDateString();
+            if (dateKey !== currentDate) {
+                currentDate = dateKey;
+                flatData.push({ type: 'divider', date: formatDateDivider(msg.created_at), id: `d-${msg.created_at}` });
+            }
+            flatData.push({ ...msg, type: 'message' });
+        }
+        flatData.reverse();
+    })();
+
+    // ─── Scroll to Message ──────────────────────────────────────────────────
+    useEffect(() => {
+        if (route.params?.scrollToMessageId && messages.length > 0 && flatData.length > 0) {
+            const index = flatData.findIndex(msg => msg.id === route.params.scrollToMessageId);
+            if (index !== -1) {
+                setHighlightedMsgId(route.params.scrollToMessageId);
+                setTimeout(() => {
+                    listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+                }, 100);
+
+                // Clear highlights and params after some time
+                setTimeout(() => {
+                    setHighlightedMsgId(null);
+                    navigation.setParams({ scrollToMessageId: undefined });
+                }, 3000);
+            }
+        }
+    }, [route.params?.scrollToMessageId, messages.length, flatData.length]);
 
     const broadcastTyping = (isTyping: boolean) => {
         if (!presenceChannel.current || !user) return;
@@ -588,6 +625,9 @@ export default function ChatScreen({ navigation }: any) {
                         </View>
                     )}
                 </View>
+                {highlightedMsgId === item.id && (
+                    <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
+                )}
             </View>
         );
     };
@@ -642,19 +682,6 @@ export default function ChatScreen({ navigation }: any) {
         );
     };
 
-    // Build flat list with date dividers
-    const flatData: any[] = [];
-    const reversed = [...messages].reverse();
-    let currentDate = '';
-    for (const msg of reversed) {
-        const dateKey = new Date(msg.created_at).toDateString();
-        if (dateKey !== currentDate) {
-            currentDate = dateKey;
-            flatData.push({ type: 'divider', date: formatDateDivider(msg.created_at), id: `d-${msg.created_at}` });
-        }
-        flatData.push({ ...msg, type: 'message' });
-    }
-    flatData.reverse();
 
     // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -689,12 +716,16 @@ export default function ChatScreen({ navigation }: any) {
                     </View>
                 ) : (
                     <FlatList
+                        ref={listRef}
                         data={flatData}
                         inverted
                         keyExtractor={(item) => item.id}
                         renderItem={renderMessage}
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
+                        onScrollToIndexFailed={(info) => {
+                            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+                        }}
                     />
                 )}
             </View>

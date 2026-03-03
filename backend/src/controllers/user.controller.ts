@@ -53,3 +53,25 @@ export const syncContacts = async (req: Request, res: Response): Promise<void> =
     }
 };
 
+// PATCH /api/user/profile — update full_name or avatar_url
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { full_name, avatar_url } = req.body as { full_name?: string; avatar_url?: string };
+
+        const { data, error } = await supabaseAdmin
+            .from('profiles')
+            .update({
+                ...(full_name !== undefined ? { full_name } : {}),
+                ...(avatar_url !== undefined ? { avatar_url } : {}),
+            })
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json({ user: data });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};

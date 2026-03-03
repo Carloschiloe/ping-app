@@ -28,6 +28,7 @@ router.post('/push/token', requireAuth, pushController.saveToken);
 // Users
 router.get('/users', requireAuth, userController.search);
 router.post('/users/sync-contacts', requireAuth, userController.syncContacts);
+router.patch('/user/profile', requireAuth, userController.updateProfile);
 
 
 // Conversations

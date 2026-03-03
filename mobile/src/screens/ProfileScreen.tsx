@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { useUpdateProfile } from '../api/queries';
+import * as ImagePicker from 'expo-image-picker';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -14,19 +17,86 @@ function normalizePhone(raw: string): string {
 export default function ProfileScreen() {
     const { user } = useAuth();
     const [phone, setPhone] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    const { mutate: updateProfile } = useUpdateProfile();
 
     useEffect(() => {
         if (!user) return;
         supabase
             .from('profiles')
-            .select('phone')
+            .select('phone, full_name, avatar_url')
             .eq('id', user.id)
             .single()
             .then(({ data }) => {
                 if (data?.phone) setPhone(data.phone);
+                if (data?.full_name) setFullName(data.full_name);
+                if (data?.avatar_url) setAvatarUrl(data.avatar_url);
             });
     }, [user]);
+
+    const handlePickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+        });
+
+        if (!result.canceled && result.assets[0].uri) {
+            uploadAvatar(result.assets[0].uri);
+        }
+    };
+
+    const uploadAvatar = async (uri: string) => {
+        setSaving(true);
+        try {
+            const fileName = `${user!.id}/${Date.now()}.jpg`;
+            const formData = new FormData();
+            formData.append('file', {
+                uri,
+                name: fileName,
+                type: 'image/jpeg',
+            } as any);
+
+            const { data, error } = await supabase.storage
+                .from('chat-media')
+                .upload(fileName, formData);
+
+            if (error) throw error;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('chat-media')
+                .getPublicUrl(fileName);
+
+            setAvatarUrl(publicUrl);
+            await handleSaveProfile(null, publicUrl);
+        } catch (e: any) {
+            Alert.alert('Error al subir imagen', e.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSaveProfile = async (nameOverride?: string | null, avatarOverride?: string | null) => {
+        setSaving(true);
+        try {
+            updateProfile({
+                full_name: nameOverride !== undefined ? (nameOverride || undefined) : fullName,
+                avatar_url: avatarOverride !== undefined ? (avatarOverride || undefined) : (avatarUrl || undefined),
+            }, {
+                onSuccess: () => {
+                    Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
+                },
+                onError: (err: any) => {
+                    Alert.alert('Error', err.message);
+                }
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
 
     const handleSavePhone = async () => {
         if (!phone.trim()) return;
@@ -58,14 +128,37 @@ export default function ProfileScreen() {
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <Text style={styles.heading}>Perfil</Text>
 
-            {/* Avatar */}
+            {/* Avatar Section */}
             <View style={styles.avatarWrap}>
-                <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                        {user?.email?.substring(0, 2).toUpperCase() || '??'}
-                    </Text>
-                </View>
+                <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
+                    {avatarUrl ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                    ) : (
+                        <View style={styles.avatarPlaceholder}>
+                            <Text style={styles.avatarText}>
+                                {fullName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?'}
+                            </Text>
+                        </View>
+                    )}
+                    <View style={styles.cameraBadge}>
+                        <Ionicons name="camera" size={16} color="white" />
+                    </View>
+                </TouchableOpacity>
                 <Text style={styles.email}>{user?.email}</Text>
+            </View>
+
+            {/* Profile Info */}
+            <View style={styles.section}>
+                <Text style={styles.label}>Nombre completo</Text>
+                <TextInput
+                    style={styles.input}
+                    placeholder="Tu nombre real"
+                    value={fullName}
+                    onChangeText={setFullName}
+                />
+                <TouchableOpacity style={styles.saveBtn} onPress={() => handleSaveProfile()} disabled={saving}>
+                    <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar nombre'}</Text>
+                </TouchableOpacity>
             </View>
 
             {/* Phone */}
@@ -97,8 +190,11 @@ const styles = StyleSheet.create({
     content: { padding: 24, paddingTop: 64 },
     heading: { fontSize: 28, fontWeight: '700', marginBottom: 28, color: '#111' },
     avatarWrap: { alignItems: 'center', marginBottom: 32 },
-    avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#3b82f6', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-    avatarText: { color: 'white', fontSize: 28, fontWeight: '700' },
+    avatarContainer: { width: 100, height: 100, borderRadius: 50, marginBottom: 12, position: 'relative' },
+    avatarImage: { width: 100, height: 100, borderRadius: 50 },
+    avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#3b82f6', alignItems: 'center', justifyContent: 'center' },
+    avatarText: { color: 'white', fontSize: 36, fontWeight: '700' },
+    cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#1e3a5f', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#f9fafb' },
     email: { fontSize: 16, color: '#6b7280' },
     section: { backgroundColor: 'white', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
     label: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 4 },
