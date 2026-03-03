@@ -249,9 +249,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
         const { text, reply_to_id } = req.body;
-        const fs = require('fs');
-        const logMsg = `[${new Date().toISOString()}] body=${JSON.stringify(req.body)}, convId=${conversationId}\n`;
-        fs.appendFileSync('debug.log', logMsg);
+        console.log(`[API] SendMessage: text="${text.substring(0, 20)}...", reply_to_id=${reply_to_id}`);
 
         if (!text) {
             res.status(400).json({ error: 'text is required' });

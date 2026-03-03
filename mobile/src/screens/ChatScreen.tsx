@@ -450,7 +450,7 @@ export default function ChatScreen({ navigation }: any) {
         };
 
         return (
-            <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, (item.message_reactions?.length > 0) && { marginBottom: 24 }]}>
+            <View key={item.id} style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -458,7 +458,8 @@ export default function ChatScreen({ navigation }: any) {
                         </View>
                     </TouchableOpacity>
                 )}
-                <View style={{ position: 'relative', maxWidth: '85%', alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
+
+                <View style={{ maxWidth: '80%', position: 'relative' }}>
                     <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={handlePress}
@@ -467,34 +468,32 @@ export default function ChatScreen({ navigation }: any) {
                         style={[
                             styles.bubble,
                             isMe ? styles.bubbleMe : styles.bubbleThem,
-                            isAudio && styles.bubbleMedia,
-                            (isImage || isVideo) && styles.bubbleImageFrame,
+                            (isImage || isVideo || isAudio) && styles.bubbleMedia,
                             isSelected && styles.bubbleSelected,
-                            { paddingBottom: (item.message_reactions?.length > 0) ? 20 : 6 } // Space for reactions inside
+                            { overflow: 'hidden' }
                         ]}
                     >
                         {/* ─── Quoted Message (Reply) ─── */}
-                        {item.reply_to ? (
+                        {item.reply_to && (
                             <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
-                                <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]}>
-                                    {item.reply_to.profiles?.email?.split('@')[0] || 'Cita'}
+                                <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
+                                    {item.reply_to.profiles?.email?.split('@')[0] || 'Usuario'}
                                 </Text>
                                 <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
                                     {item.reply_to.text}
                                 </Text>
                             </View>
-                        ) : null}
+                        )}
 
-                        {/* DEBUG: {item.reply_to_id ? <Text style={{fontSize:8, color:'red'}}>Has ID: {item.reply_to_id.slice(0,4)}</Text> : null} */}
-
-                        {!isMe && !isSelf && !isImage && !isAudio && !isVideo && !isDocument && (
-                            <Text style={styles.senderName}>
+                        {!isMe && !isSystem && !isImage && !isAudio && !isVideo && !isDocument && (
+                            <Text style={styles.senderName} numberOfLines={1}>
                                 {isGroup
                                     ? (item.profiles?.email?.split('@')[0] || 'Miembro')
                                     : (otherUser?.email?.split('@')[0] || 'Usuario')
                                 }
                             </Text>
                         )}
+
                         {isImage && mediaUrl ? (
                             <Image
                                 source={{ uri: mediaUrl }}
@@ -524,6 +523,7 @@ export default function ChatScreen({ navigation }: any) {
                                 </View>
                                 <View style={{ flex: 1 }}>
                                     <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
+                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontSize: 10 }]}>Documento</Text>
                                 </View>
                             </View>
                         ) : (
@@ -533,31 +533,30 @@ export default function ChatScreen({ navigation }: any) {
                         )}
 
                         <View style={styles.metaRow}>
+                            {/* Pro-active Debug Info: R for ReplyTo, RT for Reactions Count */}
+                            {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                             {isMe && <Text style={styles.readTick}> ✓✓</Text>}
                         </View>
-
-                        {/* ─── Reactions (Internal to Bubble for max visibility) ─── */}
-                        {item.message_reactions && item.message_reactions.length > 0 && (
-                            <View style={[
-                                styles.reactionsContainer,
-                                { position: 'absolute', bottom: -12, right: isMe ? 4 : undefined, left: isMe ? undefined : 4 }
-                            ]}>
-                                {(() => {
-                                    const counts = item.message_reactions.reduce((acc: any, r: any) => {
-                                        acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                                        return acc;
-                                    }, {});
-                                    return Object.keys(counts).map(emoji => (
-                                        <View key={emoji} style={[styles.reactionPill, { borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' }]}>
-                                            <Text style={{ fontSize: 13 }}>{emoji}</Text>
-                                            {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
-                                        </View>
-                                    ));
-                                })()}
-                            </View>
-                        )}
                     </TouchableOpacity>
+
+                    {/* ─── Reactions (Pinned to bubble corner) ─── */}
+                    {item.message_reactions && item.message_reactions.length > 0 && (
+                        <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
+                            {(() => {
+                                const counts = item.message_reactions.reduce((acc: any, r: any) => {
+                                    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                    return acc;
+                                }, {});
+                                return Object.keys(counts).map(emoji => (
+                                    <View key={emoji} style={styles.reactionPill}>
+                                        <Text style={{ fontSize: 13 }}>{emoji}</Text>
+                                        {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
+                                    </View>
+                                ));
+                            })()}
+                        </View>
+                    )}
                 </View>
             </View>
         );
@@ -815,19 +814,16 @@ const styles = StyleSheet.create({
     msgRowMe: { justifyContent: 'flex-end' },
     msgRowThem: { justifyContent: 'flex-start' },
     bubble: {
-        maxWidth: '78%', borderRadius: 16, paddingHorizontal: 12,
+        borderRadius: 16, paddingHorizontal: 12,
         paddingTop: 8, paddingBottom: 6,
         shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 2, elevation: 1,
     },
     bubbleMe: { backgroundColor: BUBBLE_BLUE, borderBottomRightRadius: 4 },
     bubbleThem: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
-    bubbleMedia: { padding: 4 },
+    bubbleMedia: { padding: 3, overflow: 'hidden' },
     bubbleImage: {
         backgroundColor: 'transparent',
         padding: 0,
-        paddingHorizontal: 0,
-        paddingTop: 0,
-        paddingBottom: 0,
         overflow: 'hidden',
     },
     senderName: { fontSize: 12, fontWeight: '700', color: BUBBLE_BLUE, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
@@ -845,10 +841,10 @@ const styles = StyleSheet.create({
     timeThem: { color: '#9ca3af' },
     readTick: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginLeft: 2 },
 
-    // Image message — minimal 1px frame
-    msgImage: { width: 160, height: 160, borderRadius: 10 },
+    // Image message — responsive
+    msgImage: { width: 220, height: 220, borderRadius: 10 },
     bubbleImageFrame: { padding: 1, paddingBottom: 1 },
-    inlineVideoWrap: { position: 'relative', width: 160, height: 160, borderRadius: 10, overflow: 'hidden' },
+    inlineVideoWrap: { position: 'relative', width: 220, height: 220, borderRadius: 10, overflow: 'hidden' },
     videoPlayOverlay: {
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.3)',
