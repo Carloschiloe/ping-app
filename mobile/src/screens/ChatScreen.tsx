@@ -89,10 +89,31 @@ export default function ChatScreen({ navigation }: any) {
 
         presenceChannel.current = channel;
 
+        // ─── Reactions & Messages Realtime ───
+        const reactionsChannel = supabase
+            .channel(`reactions-${conversationId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'message_reactions'
+            }, () => {
+                refetch(); // Invalidate and refetch everything when any reaction changes
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'messages',
+                filter: `conversation_id=eq.${conversationId}`
+            }, () => {
+                refetch();
+            })
+            .subscribe();
+
         return () => {
             channel.unsubscribe();
+            reactionsChannel.unsubscribe();
         };
-    }, [conversationId, user]);
+    }, [conversationId, user, refetch]);
 
     const broadcastTyping = (isTyping: boolean) => {
         if (!presenceChannel.current || !user) return;
@@ -479,7 +500,10 @@ export default function ChatScreen({ navigation }: any) {
                         {item.reply_to && !Array.isArray(item.reply_to) && (
                             <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
                                 <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
-                                    {(item.reply_to.profiles?.email || 'Usuario').split('@')[0]}
+                                    {(() => {
+                                        const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
+                                        return (p?.email || 'Usuario').split('@')[0];
+                                    })()}
                                 </Text>
                                 <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
                                     {item.reply_to.text || 'Sin texto'}
@@ -588,17 +612,23 @@ export default function ChatScreen({ navigation }: any) {
                             <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e3a5f' }}>Reacciones</Text>
                         </View>
                         <ScrollView style={{ paddingHorizontal: 20 }}>
-                            {viewingReactionsMsg.message_reactions.map((r: any, idx: number) => (
-                                <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f1f5f9' }}>
-                                    <Text style={{ fontSize: 24, marginRight: 15 }}>{r.emoji}</Text>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151' }}>
-                                            {r.profiles?.email?.split('@')[0] || 'Usuario'}
-                                        </Text>
-                                        <Text style={{ fontSize: 13, color: '#6b7280' }}>{r.profiles?.email}</Text>
+                            {viewingReactionsMsg.message_reactions.map((r: any, idx: number) => {
+                                const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+                                const email = profile?.email || '';
+                                const name = email ? email.split('@')[0] : 'Usuario';
+
+                                return (
+                                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f1f5f9' }}>
+                                        <Text style={{ fontSize: 24, marginRight: 15 }}>{r.emoji}</Text>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151' }}>
+                                                {name}
+                                            </Text>
+                                            {email ? <Text style={{ fontSize: 13, color: '#6b7280' }}>{email}</Text> : null}
+                                        </View>
                                     </View>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </ScrollView>
                         <TouchableOpacity
                             style={styles.menuCancel}
