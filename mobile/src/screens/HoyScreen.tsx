@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../api/client';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { es } from 'date-fns/locale/es';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
@@ -119,12 +119,23 @@ export default function HoyScreen() {
         }
     };
 
-    const handleOpenExternalCalendar = (url: string) => {
-        if (!url) return;
-        Linking.openURL(url).catch(err => {
+    const handleOpenExternalCalendar = async (url: string) => {
+        if (!url) {
+            Alert.alert('Ping', 'El enlace directo al evento no está disponible.\nIntenta sincronizar nuevamente.');
+            return;
+        }
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (supported) {
+                await Linking.openURL(url);
+            } else {
+                Alert.alert('Ping', `No sabemos cómo abrir este enlace en tu dispositivo.`);
+            }
+        } catch (err) {
             console.error('Failed to open URL:', err);
-            Alert.alert('Ping', 'No se pudo abrir la aplicación de calendario.');
-        });
+            Alert.alert('Ping', 'No se pudo abrir la aplicación de calendario externa.');
+        }
     };
 
     // --- Dynamic Calendar UI Logic ---
@@ -185,10 +196,17 @@ export default function HoyScreen() {
                     {item.message_id && (
                         <TouchableOpacity
                             style={styles.chatLinkBtn}
-                            onPress={() => navigation.navigate('Chats', {
-                                screen: 'Chat',
-                                params: { scrollToMessageId: item.message_id }
-                            })}
+                            onPress={() => {
+                                const conversationId = item.message?.conversation_id || item.conversation_id;
+                                navigation.navigate('Chats', {
+                                    screen: 'Chat',
+                                    params: {
+                                        conversationId: conversationId,
+                                        isSelf: !conversationId,
+                                        scrollToMessageId: item.message_id
+                                    }
+                                });
+                            }}
                         >
                             <Ionicons name="chatbubble-ellipses-outline" size={14} color="#3b82f6" />
                             <Text style={styles.chatLinkText}>Ver contexto de la conversación</Text>
