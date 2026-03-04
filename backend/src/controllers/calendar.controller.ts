@@ -164,6 +164,7 @@ export const syncCommitment = async (req: Request, res: Response) => {
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
 
         let result;
+        let eventUrl = '';
         if (provider === 'google') {
             result = await calendarService.createGoogleEvent(accessToken, {
                 summary: `Ping: ${commitment.title}`,
@@ -171,6 +172,7 @@ export const syncCommitment = async (req: Request, res: Response) => {
                 start: { dateTime: startDate.toISOString() },
                 end: { dateTime: endDate.toISOString() },
             });
+            eventUrl = result.htmlLink;
         } else if (provider === 'outlook') {
             result = await calendarService.createMsEvent(accessToken, {
                 subject: `Ping: ${commitment.title}`,
@@ -178,6 +180,7 @@ export const syncCommitment = async (req: Request, res: Response) => {
                 start: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
                 end: { dateTime: endDate.toISOString(), timeZone: 'UTC' },
             });
+            eventUrl = result.webLink;
         }
 
         // 4. Update commitment with sync info
@@ -188,6 +191,9 @@ export const syncCommitment = async (req: Request, res: Response) => {
                     ...commitment.meta,
                     synced_to: provider,
                     cloud_event_id: result.id,
+                    external_event_url: eventUrl,
+                    sync_status: 'synced',
+                    last_sync_at: new Date().toISOString()
                 }
             })
             .eq('id', commitmentId);
