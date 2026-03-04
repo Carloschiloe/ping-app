@@ -10,6 +10,8 @@ import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { validateRequest } from '../middleware/validate';
+import * as groupSchema from '../schemas/group.schema';
 
 export const router = Router();
 
@@ -42,10 +44,10 @@ router.get('/conversations/:id/messages', requireAuth, conversationController.ge
 router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
 
 // Groups
-router.post('/groups', requireAuth, groupController.createGroup);
-router.patch('/groups/:id', requireAuth, groupController.updateGroup);
-router.post('/groups/:id/participants', requireAuth, groupController.addParticipants);
-router.delete('/groups/:id', requireAuth, groupController.deleteGroup);
+router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
+router.patch('/groups/:id', requireAuth, validateRequest(groupSchema.updateGroupSchema), groupController.updateGroup);
+router.post('/groups/:id/participants', requireAuth, validateRequest(groupSchema.addParticipantsSchema), groupController.addParticipants);
+router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 
 // Legacy self-chat message routes (kept for backward compatibility)
 router.post('/messages', requireAuth, messageController.createMessage);

@@ -1,21 +1,13 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { AppError } from '../utils/AppError';
 
 // POST /groups
-export const createGroup = async (req: Request, res: Response): Promise<void> => {
+export const createGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
+        // Types are guaranteed correct by Zod
         const { name, participantIds, avatarUrl } = req.body;
-
-        if (!name || typeof name !== 'string') {
-            res.status(400).json({ error: 'Group name is required' });
-            return;
-        }
-
-        if (!participantIds || !Array.isArray(participantIds)) {
-            res.status(400).json({ error: 'participantIds must be an array of user UUIDs' });
-            return;
-        }
 
         // Include the creator in the participants
         const allParticipantIds = Array.from(new Set([...participantIds, userId]));
@@ -32,10 +24,10 @@ export const createGroup = async (req: Request, res: Response): Promise<void> =>
             .select()
             .single();
 
-        if (convError) throw convError;
+        if (convError) throw new AppError(convError.message, 500);
 
         // Prepare participants rows
-        const participantsData = allParticipantIds.map(id => ({
+        const participantsData = allParticipantIds.map((id: string) => ({
             conversation_id: conv.id,
             user_id: id
         }));
@@ -45,26 +37,20 @@ export const createGroup = async (req: Request, res: Response): Promise<void> =>
             .from('conversation_participants')
             .insert(participantsData);
 
-        if (partError) throw partError;
+        if (partError) throw new AppError(partError.message, 500);
 
         res.status(201).json({ conversationId: conv.id, isGroup: true, name: conv.name });
-    } catch (error: any) {
-        console.error('[Create Group Error]', error);
-        res.status(500).json({ error: error.message });
+    } catch (error) {
+        next(error);
     }
 };
 
 // POST /groups/:id/participants
-export const addParticipants = async (req: Request, res: Response): Promise<void> => {
+export const addParticipants = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
         const { newParticipantIds } = req.body;
-
-        if (!newParticipantIds || !Array.isArray(newParticipantIds)) {
-            res.status(400).json({ error: 'newParticipantIds must be an array of user UUIDs' });
-            return;
-        }
 
         // Verify if user is admin
         const { data: conv, error: convError } = await supabaseAdmin
@@ -73,19 +59,17 @@ export const addParticipants = async (req: Request, res: Response): Promise<void
             .eq('id', conversationId)
             .single();
 
-        if (convError) throw convError;
+        if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
         if (!conv.is_group) {
-            res.status(400).json({ error: 'This conversation is not a group' });
-            return;
+            throw new AppError('This conversation is not a group', 400);
         }
 
         if (conv.admin_id !== userId) {
-            res.status(403).json({ error: 'Only the group admin can add participants' });
-            return;
+            throw new AppError('Only the group admin can add participants', 403);
         }
 
-        const participantsData = newParticipantIds.map(id => ({
+        const participantsData = newParticipantIds.map((id: string) => ({
             conversation_id: conversationId,
             user_id: id
         }));
@@ -94,17 +78,16 @@ export const addParticipants = async (req: Request, res: Response): Promise<void
             .from('conversation_participants')
             .insert(participantsData);
 
-        if (partError) throw partError;
+        if (partError) throw new AppError(partError.message, 500);
 
         res.status(200).json({ success: true });
-    } catch (error: any) {
-        console.error('[Add Participants Error]', error);
-        res.status(500).json({ error: error.message });
+    } catch (error) {
+        next(error);
     }
 };
 
 // DELETE /groups/:id
-export const deleteGroup = async (req: Request, res: Response): Promise<void> => {
+export const deleteGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
@@ -116,16 +99,14 @@ export const deleteGroup = async (req: Request, res: Response): Promise<void> =>
             .eq('id', conversationId)
             .single();
 
-        if (convError) throw convError;
+        if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
         if (!conv.is_group) {
-            res.status(400).json({ error: 'This conversation is not a group' });
-            return;
+            throw new AppError('This conversation is not a group', 400);
         }
 
         if (conv.admin_id !== userId) {
-            res.status(403).json({ error: 'Only the group admin can delete the group' });
-            return;
+            throw new AppError('Only the group admin can delete the group', 403);
         }
 
         // Delete the group (cascade will handle participants and messages)
@@ -134,16 +115,16 @@ export const deleteGroup = async (req: Request, res: Response): Promise<void> =>
             .delete()
             .eq('id', conversationId);
 
-        if (delError) throw delError;
+        if (delError) throw new AppError(delError.message, 500);
 
         res.status(200).json({ success: true });
-    } catch (error: any) {
-        console.error('[Delete Group Error]', error);
-        res.status(500).json({ error: error.message });
+    } catch (error) {
+        next(error);
     }
 };
+
 // PATCH /groups/:id
-export const updateGroup = async (req: Request, res: Response): Promise<void> => {
+export const updateGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
@@ -156,16 +137,14 @@ export const updateGroup = async (req: Request, res: Response): Promise<void> =>
             .eq('id', conversationId)
             .single();
 
-        if (convError) throw convError;
+        if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
         if (!conv.is_group) {
-            res.status(400).json({ error: 'This conversation is not a group' });
-            return;
+            throw new AppError('This conversation is not a group', 400);
         }
 
         if (conv.admin_id !== userId) {
-            res.status(403).json({ error: 'Only the group admin can update group info' });
-            return;
+            throw new AppError('Only the group admin can update group info', 403);
         }
 
         const { data: updated, error: updateErr } = await supabaseAdmin
@@ -178,11 +157,10 @@ export const updateGroup = async (req: Request, res: Response): Promise<void> =>
             .select()
             .single();
 
-        if (updateErr) throw updateErr;
+        if (updateErr) throw new AppError(updateErr.message, 500);
 
         res.status(200).json({ success: true, group: updated });
-    } catch (error: any) {
-        console.error('[Update Group Error]', error);
-        res.status(500).json({ error: error.message });
+    } catch (error) {
+        next(error);
     }
 };

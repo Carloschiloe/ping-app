@@ -14,6 +14,8 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AudioPlayer from '../components/AudioPlayer';
 import { apiClient } from '../api/client';
+import { useMediaPicker } from '../hooks/useMediaPicker';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -45,8 +47,6 @@ export default function ChatScreen({ navigation }: any) {
     const route = useRoute<any>();
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
     const [text, setText] = useState('');
-    const [recording, setRecording] = useState<Audio.Recording | null>(null);
-    const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
     const [selectedMsg, setSelectedMsg] = useState<any>(null);      // context menu
     const [replyingToMsg, setReplyingToMsg] = useState<any>(null);  // reply state
@@ -355,134 +355,24 @@ export default function ChatScreen({ navigation }: any) {
         sendMessage({ text, reply_to_id: replyingToMsg?.id }, { onSuccess: () => { setText(''); setReplyingToMsg(null); } });
     };
 
-    // ─── Photo/Video picker ──────────────────────────────────────────────────
+    // ─── Photo/Video picker & Audio (Handled by Custom Hooks) ────────────────
 
-    const pickMediaSource = () => {
-        Alert.alert(
-            'Enviar archivo',
-            '¿Qué quieres enviar?',
-            [
-                { text: '📷 Cámara (Foto o Video)', onPress: () => openCamera() },
-                { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
-                { text: '📄 Documento (PDF, Word, Excel...)', onPress: () => openDocumentPicker() },
-                { text: 'Cancelar', style: 'cancel' },
-            ]
-        );
-    };
+    const { pickMediaSource, openDocumentPicker, openGallery, openCamera } = useMediaPicker({
+        onMediaSent: (textStr: string) => {
+            sendMessage({ text: textStr, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
+        },
+        setSendingMedia
+    });
 
-    const openDocumentPicker = async () => {
-        try {
-            const result = await DocumentPicker.getDocumentAsync({
-                type: '*/*',
-                copyToCacheDirectory: true,
-            });
-
-            if (result.canceled || !result.assets || result.assets.length === 0) return;
-
-            const asset = result.assets[0];
-            setSendingMedia(true);
-            const url = await uploadToSupabase(asset.uri, 'chat-media', asset.mimeType || 'application/octet-stream', asset.name);
-            setSendingMedia(false);
-
-            if (url) {
-                sendMessage({ text: `[document=${asset.name}]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
-            } else {
-                Alert.alert('Error', 'No se pudo subir el documento.');
-            }
-        } catch (err) {
-            setSendingMedia(false);
-            Alert.alert('Error', 'Hubo un problema al seleccionar el documento.');
-        }
-    };
-
-    const openGallery = async () => {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería.');
-            return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
-            quality: 0.7,
-            videoMaxDuration: 120,
-        });
-        if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendMedia(result.assets[0]);
-    };
-
-    const openCamera = async () => {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara.');
-            return;
-        }
-        const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
-            quality: 0.7,
-            videoMaxDuration: 120,
-        });
-        if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendMedia(result.assets[0]);
-    };
-
-    const uploadAndSendMedia = async (asset: any) => {
-        setSendingMedia(true);
-        const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
-        const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
-        const url = await uploadToSupabase(asset.uri, 'chat-media', mimeType);
-        setSendingMedia(false);
-        if (url) {
-            sendMessage({ text: `[${isVideo ? 'video' : 'imagen'}]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
-        } else {
-            Alert.alert('Error', 'No se pudo subir el archivo.');
-        }
-    };
-
-    // ─── Audio recorder ──────────────────────────────────────────────────────
-
-    const startRecording = async () => {
-        if (isRecording || recording) return; // guard: only one at a time
-        try {
-            const { status } = await Audio.requestPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
-                return;
-            }
-            await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-
-            // Broadcast recording status
-            broadcastTyping(true);
-
-            const { recording: rec } = await Audio.Recording.createAsync(
-                Audio.RecordingOptionsPresets.HIGH_QUALITY
-            );
-            setRecording(rec);
-            setIsRecording(true);
-        } catch (e) {
-            console.error('[Audio]', e);
-            setIsRecording(false);
-        }
-    };
-
-    const stopRecording = async () => {
-        if (!recording || !isRecording) return;
-        setIsRecording(false);
-        try {
-            await recording.stopAndUnloadAsync();
-            const uri = recording.getURI();
-            setRecording(null);
-            if (!uri) return;
-            setSendingMedia(true);
-            const url = await uploadToSupabase(uri, 'chat-media', 'audio/m4a');
-            setSendingMedia(false);
-            if (url) {
-                sendMessage({ text: `[audio]${url}`, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
-            } else Alert.alert('Error', 'No se pudo subir el audio.');
-        } catch (e) {
-            console.error('[Audio stop]', e);
-            setRecording(null);
-        }
-    };
+    const { startRecording, stopRecording, isRecording, recording } = useAudioRecorder({
+        onAudioSent: (textStr: string) => {
+            sendMessage({ text: textStr, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
+        },
+        onRecordingStateChange: (recordingState: boolean) => {
+            if (recordingState) broadcastTyping(true);
+        },
+        setSendingMedia
+    });
 
     // ─── Render message ──────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { router } from './routes';
+import { globalErrorHandler } from './middleware/errorHandler';
 
 dotenv.config();
 
@@ -17,3 +18,6 @@ app.use('/api', router);
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Global Error Handler
+app.use(globalErrorHandler as any);

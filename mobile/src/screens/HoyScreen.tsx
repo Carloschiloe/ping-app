@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert, Linking } from 'react-native';
 import { useCommitments, useMarkCommitmentDone } from '../api/queries';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -7,17 +7,20 @@ import * as Calendar from 'expo-calendar';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../api/client';
+import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
     const { mutate: markDone } = useMarkCommitmentDone();
     const navigation = useNavigation<any>();
 
-    const [calendars, setCalendars] = React.useState<Calendar.Calendar[]>([]);
-    const [cloudAccounts, setCloudAccounts] = React.useState<any[]>([]);
-    const [isCalendarModalVisible, setIsCalendarModalVisible] = React.useState(false);
-    const [selectedCommitment, setSelectedCommitment] = React.useState<any>(null);
-    const [isLoadingCalendars, setIsLoadingCalendars] = React.useState(false);
+    const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
+    const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
+    const [isCalendarModalVisible, setIsCalendarModalVisible] = useState(false);
+    const [selectedCommitment, setSelectedCommitment] = useState<any>(null);
+    const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(new Date());
     const isFocused = useIsFocused();
 
     useEffect(() => {
@@ -58,15 +61,11 @@ export default function HoyScreen() {
         setIsLoadingCalendars(true);
         setSelectedCommitment(item);
         setIsCalendarModalVisible(true);
-
-        // Refresh cloud accounts every time we open the modal
         fetchCloudAccounts();
 
         try {
             const allCalendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
             const writableCalendars = allCalendars.filter(cal => cal.allowsModifications);
-
-            // Apply filtering from Profile preferences
             const stored = await AsyncStorage.getItem('ping_hidden_calendars');
             const hiddenIds: string[] = stored ? JSON.parse(stored) : [];
             const visibleCalendars = writableCalendars.filter(cal => !hiddenIds.includes(cal.id));
@@ -84,7 +83,7 @@ export default function HoyScreen() {
         if (!selectedCommitment) return;
 
         const startDate = new Date(selectedCommitment.due_at);
-        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
 
         try {
             await Calendar.createEventAsync(calendarId, {
@@ -121,91 +120,129 @@ export default function HoyScreen() {
     };
 
     const handleOpenExternalCalendar = (url: string) => {
-        if (!url) {
-            Alert.alert('Ping', 'Este evento no tiene un link directo guardado.');
-            return;
-        }
+        if (!url) return;
         Linking.openURL(url).catch(err => {
             console.error('Failed to open URL:', err);
             Alert.alert('Ping', 'No se pudo abrir la aplicación de calendario.');
         });
     };
 
-    const renderItem = ({ item }: { item: any }) => (
-        <View style={[styles.card, item.meta?.conflict_detected && styles.cardConflict]}>
-            <View style={styles.cardContent}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Text style={[styles.cardTitle, item.meta?.conflict_detected && { color: '#92400e' }]}>
-                        {item.title}
-                    </Text>
-                    {item.meta?.synced_to && (
+    // --- Dynamic Calendar UI Logic ---
+    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 }); // Starts Monday
+    const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+
+    const filteredCommitments = useMemo(() => {
+        if (!commitments) return [];
+        return commitments.filter((c: any) => {
+            if (!c.due_at) return false;
+            return isSameDay(new Date(c.due_at), selectedDate);
+        }).sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
+    }, [commitments, selectedDate]);
+
+    const renderItem = ({ item }: { item: any }) => {
+        const timeString = item.due_at ? format(new Date(item.due_at), 'HH:mm') : '--:--';
+        const isConflict = item.meta?.conflict_detected;
+        const isSynced = !!item.meta?.synced_to;
+
+        return (
+            <View style={styles.agendaRow}>
+                <View style={styles.timeColumn}>
+                    <Text style={styles.timeText}>{timeString}</Text>
+                    <View style={styles.timeLine} />
+                </View>
+
+                <View style={[styles.eventCard, isConflict && styles.eventCardConflict]}>
+                    <View style={styles.eventHeader}>
+                        <Text style={[styles.eventTitle, isConflict && { color: '#92400e' }]}>
+                            {item.title}
+                        </Text>
+                        <TouchableOpacity style={styles.completeBtn} onPress={() => handleMarkDone(item.id)}>
+                            <Ionicons name="checkmark-circle" size={24} color="#d1d5db" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {isSynced ? (
                         <TouchableOpacity
-                            style={[styles.syncBadge, item.meta.conflict_detected && styles.syncBadgeConflict]}
-                            onPress={() => item.meta.external_event_url && handleOpenExternalCalendar(item.meta.external_event_url)}
+                            style={[styles.syncBtn, isConflict && styles.syncBtnConflict]}
+                            onPress={() => handleOpenExternalCalendar(item.meta.external_event_url)}
                         >
                             <Ionicons
                                 name={item.meta.synced_to === 'google' ? "logo-google" : "logo-microsoft"}
-                                size={12}
-                                color={item.meta.conflict_detected ? "#b45309" : "#059669"}
+                                size={16}
+                                color="white"
                             />
-                            <Text style={[styles.syncBadgeText, { color: item.meta.conflict_detected ? "#b45309" : "#059669" }]}>
-                                {item.meta.conflict_detected ? '¡Conflicto!' : 'En la Nube'}
+                            <Text style={styles.syncBtnText}>
+                                {isConflict ? `Ver Conflicto en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}` : `Abrir en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}`}
                             </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={styles.localSyncBtn} onPress={() => handleCalendarPress(item)}>
+                            <Ionicons name="calendar-outline" size={14} color="#6b7280" />
+                            <Text style={styles.localSyncText}>Agendar en Calendario</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {item.message_id && (
+                        <TouchableOpacity
+                            style={styles.chatLinkBtn}
+                            onPress={() => navigation.navigate('Chats', {
+                                screen: 'Chat',
+                                params: { scrollToMessageId: item.message_id }
+                            })}
+                        >
+                            <Ionicons name="chatbubble-ellipses-outline" size={14} color="#3b82f6" />
+                            <Text style={styles.chatLinkText}>Ver contexto de la conversación</Text>
                         </TouchableOpacity>
                     )}
                 </View>
-
-                <Text style={styles.cardDate}>
-                    {item.due_at ? new Date(item.due_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Sin fecha'}
-                </Text>
-
-                {item.message_id && (
-                    <TouchableOpacity
-                        style={styles.linkBtn}
-                        onPress={() => navigation.navigate('Chats', {
-                            screen: 'Chat',
-                            params: {
-                                scrollToMessageId: item.message_id
-                            }
-                        })}
-                    >
-                        <Text style={styles.linkBtnText}>Ir al mensaje →</Text>
-                    </TouchableOpacity>
-                )}
             </View>
-            <View style={styles.actionColumn}>
-                <TouchableOpacity
-                    style={[styles.calendarBtn, item.meta?.synced_to && { backgroundColor: '#f0fdf4' }]}
-                    onPress={() => handleCalendarPress(item)}
-                >
-                    <Ionicons
-                        name={item.meta?.synced_to ? "cloud-done-outline" : "calendar-outline"}
-                        size={20}
-                        color={item.meta?.synced_to ? "#10b981" : "#8b5cf6"}
-                    />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.doneBtn} onPress={() => handleMarkDone(item.id)}>
-                    <Text style={styles.doneBtnText}>✓</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <View style={styles.container}>
-            <Text style={styles.heading}>Compromisos</Text>
+            <View style={styles.header}>
+                <Text style={styles.monthLabel}>
+                    {format(selectedDate, 'MMMM yyyy', { locale: es }).replace(/^\w/, c => c.toUpperCase())}
+                </Text>
+
+                <View style={styles.weekContainer}>
+                    {weekDays.map((day, idx) => {
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isToday = isSameDay(day, new Date());
+                        return (
+                            <TouchableOpacity
+                                key={idx}
+                                style={[styles.dayCard, isSelected && styles.dayCardSelected]}
+                                onPress={() => setSelectedDate(day)}
+                            >
+                                <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>
+                                    {format(day, 'EEE', { locale: es }).toUpperCase()}
+                                </Text>
+                                <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected]}>
+                                    {format(day, 'd')}
+                                </Text>
+                                {isToday && !isSelected && <View style={styles.todayDot} />}
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </View>
+
             {isLoading ? (
-                <ActivityIndicator size="large" color="#3b82f6" />
-            ) : commitments?.length === 0 ? (
+                <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 40 }} />
+            ) : filteredCommitments.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No tienes compromisos pendientes.</Text>
+                    <Ionicons name="calendar-clear-outline" size={64} color="#e5e7eb" />
+                    <Text style={styles.emptyText}>Día libre, no hay compromisos.</Text>
                 </View>
             ) : (
                 <FlatList
-                    data={commitments}
+                    data={filteredCommitments}
                     keyExtractor={c => c.id}
                     renderItem={renderItem}
                     showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.agendaList}
                 />
             )}
 
@@ -214,7 +251,7 @@ export default function HoyScreen() {
                 <View style={styles.modalOverlay}>
                     <SafeAreaView style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Selecciona un Calendario</Text>
+                            <Text style={styles.modalTitle}>Sincronizar Evento</Text>
                             <TouchableOpacity onPress={() => setIsCalendarModalVisible(false)}>
                                 <Ionicons name="close" size={24} color="#6b7280" />
                             </TouchableOpacity>
@@ -226,7 +263,7 @@ export default function HoyScreen() {
                             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                                 {cloudAccounts.length > 0 && (
                                     <View style={styles.cloudSection}>
-                                        <Text style={styles.sectionLabel}>Cuentas en la Nube (Directo)</Text>
+                                        <Text style={styles.sectionLabel}>Cuentas en la Nube (Recomendado)</Text>
                                         {cloudAccounts.map((acc, index) => (
                                             <TouchableOpacity
                                                 key={acc.id || index}
@@ -240,7 +277,7 @@ export default function HoyScreen() {
                                                 />
                                                 <View style={styles.calendarInfo}>
                                                     <Text style={styles.calendarName}>{acc.email}</Text>
-                                                    <Text style={styles.calendarSource}>Sincronización Directa</Text>
+                                                    <Text style={styles.calendarSource}>Sincronización Directa API</Text>
                                                 </View>
                                                 <Ionicons name="cloud-upload-outline" size={20} color="#8b5cf6" />
                                             </TouchableOpacity>
@@ -250,11 +287,11 @@ export default function HoyScreen() {
 
                                 <View style={styles.localSection}>
                                     <Text style={[styles.sectionLabel, { marginTop: cloudAccounts.length > 0 ? 10 : 0 }]}>
-                                        Calendarios del Teléfono (Local)
+                                        Calendarios del Dispositivo
                                     </Text>
                                     {calendars.length === 0 ? (
                                         <View style={{ padding: 20, alignItems: 'center' }}>
-                                            <Text style={{ color: '#9ca3af' }}>No se encontraron calendarios locales.</Text>
+                                            <Text style={{ color: '#9ca3af' }}>No se encontraron calendarios locales con permisos de escritura.</Text>
                                         </View>
                                     ) : (
                                         calendars.map(item => (
@@ -283,24 +320,45 @@ export default function HoyScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb', paddingTop: 64 },
-    heading: { fontSize: 28, fontWeight: 'bold', paddingHorizontal: 16, marginBottom: 16 },
-    card: { backgroundColor: 'white', padding: 16, marginHorizontal: 16, marginVertical: 8, borderRadius: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-    cardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7', borderWidth: 1 },
-    cardContent: { flex: 1, paddingRight: 16 },
-    cardTitle: { fontWeight: '600', fontSize: 16 },
-    cardDate: { color: '#6b7280', marginTop: 4, fontSize: 13 },
-    syncBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 8, gap: 4 },
-    syncBadgeConflict: { backgroundColor: '#fef3c7' },
-    syncBadgeText: { fontSize: 10, fontWeight: '700' },
-    linkBtn: { marginTop: 8 },
-    linkBtnText: { color: '#3b82f6', fontSize: 13, fontWeight: '600' },
-    doneBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
-    doneBtnText: { color: '#22c55e', fontSize: 18, fontWeight: 'bold' },
-    actionColumn: { alignItems: 'center', gap: 12 },
-    calendarBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f5f3ff', alignItems: 'center', justifyContent: 'center' },
-    emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    emptyText: { color: '#9ca3af', fontSize: 16 },
+    container: { flex: 1, backgroundColor: '#f9fafb' },
+
+    // Header & Week Slider
+    header: { backgroundColor: 'white', paddingTop: 60, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+    monthLabel: { fontSize: 22, fontWeight: 'bold', paddingHorizontal: 20, marginBottom: 16, color: '#111827', marginLeft: 20 },
+    weekContainer: { flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 10 },
+    dayCard: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10, width: 44, borderRadius: 22 },
+    dayCardSelected: { backgroundColor: '#3b82f6' },
+    dayName: { fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 4 },
+    dayNameSelected: { color: '#bfdbfe' },
+    dayNumber: { fontSize: 18, fontWeight: '600', color: '#111827' },
+    dayNumberSelected: { color: 'white' },
+    todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#3b82f6', marginTop: 4 },
+
+    // Agenda List
+    agendaList: { padding: 20, paddingBottom: 100 },
+    emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 80 },
+    emptyText: { color: '#9ca3af', fontSize: 16, marginTop: 16, fontWeight: '500' },
+
+    agendaRow: { flexDirection: 'row', marginBottom: 20 },
+    timeColumn: { width: 60, alignItems: 'center', marginRight: 10 },
+    timeText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
+    timeLine: { width: 2, flex: 1, backgroundColor: '#e5e7eb', marginTop: 8, borderRadius: 1 },
+
+    eventCard: { flex: 1, backgroundColor: 'white', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#f3f4f6' },
+    eventCardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7' },
+    eventHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+    eventTitle: { fontSize: 16, fontWeight: '700', color: '#111827', flex: 1, marginRight: 12, lineHeight: 22 },
+    completeBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+
+    syncBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 10, gap: 8, marginBottom: 10 },
+    syncBtnConflict: { backgroundColor: '#f59e0b' },
+    syncBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+
+    localSyncBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 10 },
+    localSyncText: { fontSize: 12, fontWeight: '600', color: '#4b5563', marginLeft: 6 },
+
+    chatLinkBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
+    chatLinkText: { color: '#3b82f6', fontSize: 13, fontWeight: '600', marginLeft: 4 },
 
     // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
