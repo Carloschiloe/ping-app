@@ -42,7 +42,21 @@ export const useConversations = () => {
     useEffect(() => {
         const channel = supabase
             .channel('conversations-list')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
+                const newMsg = payload.new as any;
+                // If we receive a message from someone else and it's just 'sent', mark it 'delivered'
+                if (newMsg && newMsg.status === 'sent') {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const currentUserId = session?.user?.id;
+                    const isMe = currentUserId && (newMsg.sender_id === currentUserId || newMsg.user_id === currentUserId);
+                    if (!isMe && !newMsg.meta?.isSystem) {
+                        try {
+                            await apiClient.patch(`/messages/${newMsg.id}/status`, { status: 'delivered' });
+                        } catch (e) {
+                            console.error('[Delivered Receipt Error]', e);
+                        }
+                    }
+                }
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {

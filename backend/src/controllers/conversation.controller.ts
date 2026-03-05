@@ -154,6 +154,21 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 
         if (lmErr) throw lmErr;
 
+        // NEW: Get unread count for each conversation
+        const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin
+            .from('messages')
+            .select('conversation_id')
+            .in('conversation_id', conversationIds)
+            .neq('sender_id', userId)
+            .neq('status', 'read');
+
+        if (unreadErr) throw unreadErr;
+
+        const unreadCounts = unreadCountsData.reduce((acc: Record<string, number>, msg) => {
+            acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
+            return acc;
+        }, {});
+
         // Build response
         const lastMsgMap: Record<string, any> = {};
         lastMessages?.forEach(m => {
@@ -197,6 +212,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
                 otherUser,
                 groupMetadata,
                 lastMessage: lastMsgMap[id] || null,
+                unreadCount: unreadCounts[id] || 0,
             };
         }).sort((a, b) => {
             const timeA = a.lastMessage?.created_at || '';

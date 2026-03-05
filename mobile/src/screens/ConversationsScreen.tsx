@@ -41,7 +41,8 @@ export default function ConversationsScreen({ navigation }: any) {
 
         const isSystem = lastMsg?.meta?.isSystem;
         const isByMe = lastMsg && (lastMsg.sender_id === user?.id || lastMsg.user_id === user?.id);
-        const isUnread = lastMsg && !isByMe && !isSystem && lastMsg.status !== 'read';
+        const unreadCount = item.unreadCount || 0;
+        const isUnread = unreadCount > 0;
 
         // Compute Name and Initials based on whether it is a Group or 1-on-1
         let displayName = 'Chat';
@@ -110,7 +111,7 @@ export default function ConversationsScreen({ navigation }: any) {
                         <Text style={[styles.preview, isUnread && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>{preview}</Text>
                         {isUnread && (
                             <View style={styles.unreadBadge}>
-                                <Text style={styles.unreadText}>1</Text>
+                                <Text style={styles.unreadText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                             </View>
                         )}
                     </View>
