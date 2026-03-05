@@ -5,10 +5,10 @@ import {
     StatusBar, Image, Alert, Pressable, Modal, Share, Animated, Clipboard, Linking, ScrollView
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -119,6 +119,7 @@ export default function ChatScreen({ navigation }: any) {
     const listRef = useRef<FlatList>(null);
 
     const { user } = useAuth();
+    const isFocused = useIsFocused();
     const messages = data?.messages || [];
 
     const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));
@@ -210,7 +211,7 @@ export default function ChatScreen({ navigation }: any) {
 
     // ─── Read Receipts ───────────────────────────────────────────────────────
     useEffect(() => {
-        if (!messages || messages.length === 0 || !user) return;
+        if (!messages || messages.length === 0 || !user || !isFocused) return;
 
         // Check if there are any unread messages from the OTHER person
         const hasUnread = messages.some((msg: any) => {
