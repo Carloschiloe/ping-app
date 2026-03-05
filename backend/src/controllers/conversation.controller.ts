@@ -148,7 +148,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // Get last message for each conversation
         const { data: lastMessages, error: lmErr } = await supabaseAdmin
             .from('messages')
-            .select('conversation_id, text, created_at, meta')
+            .select('conversation_id, text, created_at, meta, status, sender_id, user_id')
             .in('conversation_id', conversationIds)
             .order('created_at', { ascending: false });
 
@@ -271,6 +271,41 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
 
         const result = await processUserMessage(userId, text, conversationId as string, reply_to_id);
         res.status(201).json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// PATCH /conversations/:id/read
+export const markAsRead = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+
+        // Verify participation
+        const { data: part } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('user_id')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!part) {
+            res.status(403).json({ error: 'Not a participant' });
+            return;
+        }
+
+        // Mark all messages from OTHER users in this conversation as 'read'
+        const { error: updateErr } = await supabaseAdmin
+            .from('messages')
+            .update({ status: 'read' })
+            .eq('conversation_id', conversationId)
+            .neq('sender_id', userId)
+            .neq('status', 'read');
+
+        if (updateErr) throw updateErr;
+
+        res.json({ success: true });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

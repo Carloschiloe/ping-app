@@ -4,7 +4,7 @@ import { Alert } from 'react-native';
 import { uploadToSupabase } from '../lib/upload';
 
 interface UseAudioRecorderProps {
-    onAudioSent: (text: string) => void;
+    onAudioSent: (textStr: string) => void;
     onRecordingStateChange?: (isRecording: boolean) => void;
     setSendingMedia: (sending: boolean) => void;
 }
@@ -12,6 +12,7 @@ interface UseAudioRecorderProps {
 export function useAudioRecorder({ onAudioSent, onRecordingStateChange, setSendingMedia }: UseAudioRecorderProps) {
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
+    const [recordingUri, setRecordingUri] = useState<string | null>(null);
 
     const startRecording = async () => {
         if (isRecording || recording) return;
@@ -49,15 +50,8 @@ export function useAudioRecorder({ onAudioSent, onRecordingStateChange, setSendi
 
             if (!uri) return;
 
-            setSendingMedia(true);
-            const url = await uploadToSupabase(uri, 'chat-media', 'audio/m4a');
-            setSendingMedia(false);
-
-            if (url) {
-                onAudioSent(`[audio]${url}`);
-            } else {
-                Alert.alert('Error', 'No se pudo subir el audio.');
-            }
+            // Set the URI for preview instead of auto-uploading
+            setRecordingUri(uri);
         } catch (e) {
             console.error('[Audio stop]', e);
             setRecording(null);
@@ -65,10 +59,36 @@ export function useAudioRecorder({ onAudioSent, onRecordingStateChange, setSendi
         }
     };
 
+    const cancelAudio = () => {
+        setRecordingUri(null);
+    };
+
+    const uploadAudio = async () => {
+        if (!recordingUri) return;
+        setSendingMedia(true);
+        try {
+            const url = await uploadToSupabase(recordingUri, 'chat-media', 'audio/m4a');
+            if (url) {
+                onAudioSent(`[audio]${url}`);
+                setRecordingUri(null);
+            } else {
+                Alert.alert('Error', 'No se pudo subir el audio.');
+            }
+        } catch (e) {
+            console.error('[Audio upload]', e);
+            Alert.alert('Error', 'No se pudo subir el audio.');
+        } finally {
+            setSendingMedia(false);
+        }
+    };
+
     return {
         isRecording,
         recording,
+        recordingUri,
         startRecording,
-        stopRecording
+        stopRecording,
+        cancelAudio,
+        uploadAudio
     };
 }

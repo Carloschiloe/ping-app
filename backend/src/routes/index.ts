@@ -42,6 +42,7 @@ router.post('/conversations', requireAuth, conversationController.createOrFind);
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
 router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
+router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 
 // Groups
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
@@ -52,10 +53,12 @@ router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGrou
 // Legacy self-chat message routes (kept for backward compatibility)
 router.post('/messages', requireAuth, messageController.createMessage);
 router.get('/messages', requireAuth, messageController.getMessages);
+router.patch('/messages/:id/status', requireAuth, messageController.updateMessageStatus);
 
 // Commitments
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
+router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 
 // Search
 router.get('/search', requireAuth, searchController.search);

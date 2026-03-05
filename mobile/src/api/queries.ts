@@ -45,6 +45,9 @@ export const useConversations = () => {
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [queryClient]);
@@ -71,6 +74,11 @@ export const useConversationMessages = (conversationId: string) => {
             .on(
                 'postgres_changes',
                 { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+            )
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
                 () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
             )
             .on(
@@ -102,6 +110,24 @@ export const useSendConversationMessage = (conversationId: string) => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
         },
+    });
+};
+
+export const useUpdateMessageStatus = (conversationId: string) => {
+    return useMutation({
+        mutationFn: async ({ messageId, status }: { messageId: string, status: string }) =>
+            apiClient.patch(`/messages/${messageId}/status`, { status })
+    });
+};
+
+export const useMarkConversationAsRead = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () => apiClient.patch(`/conversations/${conversationId}/read`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+        }
     });
 };
 
@@ -240,7 +266,17 @@ export const useCommitments = (status?: string) => {
 export const useMarkCommitmentDone = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (id: string) => apiClient.patch(`/commitments/${id}`, { status: 'done' }),
+        mutationFn: async (id: string) => apiClient.patch(`/commitments/${id}`, { status: 'completed' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+        },
+    });
+};
+
+export const useDeleteCommitment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.delete(`/commitments/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
         },

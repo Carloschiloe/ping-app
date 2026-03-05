@@ -1,26 +1,38 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert, Linking } from 'react-native';
-import { useCommitments, useMarkCommitmentDone } from '../api/queries';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert, Linking, Dimensions } from 'react-native';
+import { useCommitments, useMarkCommitmentDone, useDeleteCommitment } from '../api/queries';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';
 import * as Calendar from 'expo-calendar';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../api/client';
-import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, getYear, getMonth, startOfMonth, endOfMonth, isToday } from 'date-fns';
 import { es } from 'date-fns/locale/es';
+import { useQueryClient } from '@tanstack/react-query';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+type ViewMode = 'year' | 'month' | 'agenda';
 
 export default function HoyScreen() {
     const { data: commitments, isLoading } = useCommitments('pending');
     const { mutate: markDone } = useMarkCommitmentDone();
+    const { mutate: deleteCommitment } = useDeleteCommitment();
     const navigation = useNavigation<any>();
+    const queryClient = useQueryClient();
 
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
     const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
     const [isCalendarModalVisible, setIsCalendarModalVisible] = useState(false);
     const [selectedCommitment, setSelectedCommitment] = useState<any>(null);
     const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
+
+    // UI states
+    const [viewMode, setViewMode] = useState<ViewMode>('agenda');
     const [selectedDate, setSelectedDate] = useState(new Date());
+    const [displayYear, setDisplayYear] = useState(getYear(new Date()));
+    const [displayMonth, setDisplayMonth] = useState(getMonth(new Date())); // 0-11
+
     const isFocused = useIsFocused();
 
     useEffect(() => {
@@ -49,6 +61,24 @@ export default function HoyScreen() {
     const handleMarkDone = (id: string) => {
         markDone(id);
         cancelCommitmentReminder(id);
+    };
+
+    const handleDelete = (id: string, title: string) => {
+        Alert.alert(
+            'Eliminar Compromiso',
+            `¿Seguro que quieres eliminar "${title}"?\nEsto también lo borrará de tu calendario en la nube si está habilitada la sincronización.`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar',
+                    style: 'destructive',
+                    onPress: () => {
+                        deleteCommitment(id);
+                        cancelCommitmentReminder(id);
+                    }
+                }
+            ]
+        );
     };
 
     const handleCalendarPress = async (item: any) => {
@@ -112,6 +142,7 @@ export default function HoyScreen() {
             });
             setIsCalendarModalVisible(false);
             Alert.alert('Ping', `✅ Sincronizado directamente con tu ${provider === 'google' ? 'Google' : 'Outlook'} Calendar (${email})`);
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
         } catch (e: any) {
             Alert.alert('Error Cloud Sync', e.message);
         } finally {
@@ -138,19 +169,205 @@ export default function HoyScreen() {
         }
     };
 
-    // --- Dynamic Calendar UI Logic ---
-    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 }); // Starts Monday
-    const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+    const hasCommitmentsOnDate = (date: Date) => {
+        if (!commitments) return false;
+        return commitments.some((c: any) => c.due_at && isSameDay(new Date(c.due_at), date));
+    };
 
-    const filteredCommitments = useMemo(() => {
-        if (!commitments) return [];
-        return commitments.filter((c: any) => {
+    // --- Sub-components logic ---
+    const MiniMonthGrid = ({ date }: { date: Date }) => {
+        const start = startOfWeek(startOfMonth(date), { weekStartsOn: 1 });
+        const end = endOfMonth(date);
+        const days = [];
+        let cur = start;
+        while (cur <= end || days.length % 7 !== 0) {
+            days.push(cur);
+            cur = addDays(cur, 1);
+        }
+
+        return (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', width: '100%', marginTop: 4 }}>
+                {days.map((d, i) => {
+                    const isCurrentMonth = getMonth(d) === getMonth(date);
+                    return (
+                        <View key={i} style={{ width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 7, color: isCurrentMonth ? '#111827' : 'transparent', fontWeight: '500' }}>
+                                {format(d, 'd')}
+                            </Text>
+                        </View>
+                    );
+                })}
+            </View>
+        );
+    };
+
+    const renderYearView = () => {
+        const months = Array.from({ length: 12 }).map((_, i) => i);
+        return (
+            <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
+                    <TouchableOpacity onPress={() => setDisplayYear(y => y - 1)}>
+                        <Ionicons name="chevron-back" size={28} color="#0a84ff" />
+                    </TouchableOpacity>
+                    <Text style={[styles.largeRedTitle, { marginBottom: 0 }]}>{displayYear}</Text>
+                    <TouchableOpacity onPress={() => setDisplayYear(y => y + 1)}>
+                        <Ionicons name="chevron-forward" size={28} color="#0a84ff" />
+                    </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 10 }}>
+                    {months.map(m => {
+                        const monthDate = new Date(displayYear, m, 1);
+                        return (
+                            <TouchableOpacity
+                                key={m}
+                                style={{ width: (SCREEN_WIDTH - 60) / 3, marginBottom: 24 }}
+                                onPress={() => { setDisplayMonth(m); setViewMode('month'); }}
+                            >
+                                <Text style={styles.miniMonthTitle}>{format(monthDate, 'MMM.', { locale: es }).replace(/^\w/, c => c.toUpperCase())}</Text>
+                                <MiniMonthGrid date={monthDate} />
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </ScrollView>
+        );
+    };
+
+    const renderMonthView = () => {
+        const monthDate = new Date(displayYear, displayMonth, 1);
+        const start = startOfWeek(startOfMonth(monthDate), { weekStartsOn: 1 });
+        const end = endOfMonth(monthDate);
+        const days = [];
+        let cur = start;
+        while (cur <= end || days.length % 7 !== 0) {
+            days.push(cur);
+            cur = addDays(cur, 1);
+        }
+
+        return (
+            <ScrollView contentContainerStyle={{ paddingTop: 50, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.monthHeaderRow}>
+                    <TouchableOpacity onPress={() => setViewMode('year')} style={styles.backBtn}>
+                        <Ionicons name="chevron-back" size={26} color="#0a84ff" />
+                        <Text style={styles.backBtnText}>{displayYear}</Text>
+                    </TouchableOpacity>
+                </View>
+                <Text style={styles.hugeMonthTitle}>{format(monthDate, 'MMMM', { locale: es }).replace(/^\w/, c => c.toUpperCase())}</Text>
+
+                <View style={styles.weekDaysHeader}>
+                    {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+                        <Text key={i} style={styles.weekDayText}>{d}</Text>
+                    ))}
+                </View>
+                <View style={styles.gridDivider} />
+
+                <View style={styles.daysGrid}>
+                    {days.map((d, i) => {
+                        const isCurrentMonth = getMonth(d) === displayMonth;
+                        const hasEvent = hasCommitmentsOnDate(d);
+                        const isSel = isSameDay(d, selectedDate);
+                        const today = isToday(d);
+
+                        return (
+                            <TouchableOpacity
+                                key={i}
+                                style={styles.dayCell}
+                                onPress={() => {
+                                    setSelectedDate(d);
+                                    if (!isCurrentMonth) {
+                                        setDisplayMonth(getMonth(d));
+                                        setDisplayYear(getYear(d));
+                                    }
+                                    setViewMode('agenda');
+                                }}
+                            >
+                                <View style={[styles.dayCircle, isSel && styles.dayCircleSelected, today && !isSel && styles.dayCircleToday]}>
+                                    <Text style={[styles.dayCellText, !isCurrentMonth && { opacity: 0.3 }, isSel && { color: 'white' }, today && !isSel && { color: '#0a84ff' }]}>
+                                        {format(d, 'd')}
+                                    </Text>
+                                </View>
+                                {hasEvent && <View style={[styles.eventDot, isSel && { backgroundColor: '#0a84ff' }]} />}
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </ScrollView>
+        );
+    };
+
+    const renderAgendaView = () => {
+        const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+        const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+
+        const filteredCommitments = commitments?.filter((c: any) => {
             if (!c.due_at) return false;
             return isSameDay(new Date(c.due_at), selectedDate);
-        }).sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
-    }, [commitments, selectedDate]);
+        }).sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime()) || [];
 
-    const renderItem = ({ item }: { item: any }) => {
+        return (
+            <View style={{ flex: 1, backgroundColor: 'white' }}>
+                <View style={styles.agendaHeader}>
+                    <TouchableOpacity onPress={() => setViewMode('month')} style={styles.backBtn}>
+                        <Ionicons name="chevron-back" size={26} color="#0a84ff" />
+                        <Text style={styles.backBtnText}>{format(new Date(displayYear, displayMonth, 1), 'MMM', { locale: es }).replace(/^\w/, c => c.toUpperCase())}</Text>
+                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
+                        <TouchableOpacity onPress={() => { setViewMode('agenda'); setSelectedDate(new Date()); setDisplayMonth(getMonth(new Date())); setDisplayYear(getYear(new Date())); }}>
+                            <Ionicons name="today-outline" size={24} color="#0a84ff" />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+                <View style={styles.agendaTopSection}>
+                    <Text style={styles.monthLabel}>
+                        {format(selectedDate, 'MMMM yyyy', { locale: es }).replace(/^\w/, c => c.toUpperCase())}
+                    </Text>
+
+                    <View style={styles.weekContainer}>
+                        {weekDays.map((day, idx) => {
+                            const isSelected = isSameDay(day, selectedDate);
+                            const isTodayDay = isSameDay(day, new Date());
+                            return (
+                                <TouchableOpacity
+                                    key={idx}
+                                    style={[styles.dayCard, isSelected && styles.dayCardSelected, isTodayDay && !isSelected && { backgroundColor: 'transparent' }]}
+                                    onPress={() => setSelectedDate(day)}
+                                >
+                                    <View style={[styles.dayNameCircle, isSelected && styles.dayCardSelected]}>
+                                        <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>
+                                            {format(day, 'EEE', { locale: es }).substring(0, 1).toUpperCase()}
+                                        </Text>
+                                    </View>
+                                    <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected, isTodayDay && !isSelected && styles.dayNumberToday]}>
+                                        {format(day, 'd')}
+                                    </Text>
+                                    {hasCommitmentsOnDate(day) && !isSelected && <View style={[styles.eventDot, { marginTop: 4, width: 4, height: 4, opacity: 0.5 }]} />}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {isLoading ? (
+                    <ActivityIndicator size="large" color="#0a84ff" style={{ marginTop: 40 }} />
+                ) : filteredCommitments.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                        <Ionicons name="calendar-clear-outline" size={64} color="#f3f4f6" />
+                        <Text style={styles.emptyText}>Día libre, no hay eventos.</Text>
+                    </View>
+                ) : (
+                    <FlatList
+                        data={filteredCommitments}
+                        keyExtractor={c => c.id}
+                        renderItem={renderEventCard}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.agendaList}
+                    />
+                )}
+            </View>
+        );
+    };
+
+    const renderEventCard = ({ item }: { item: any }) => {
         const timeString = item.due_at ? format(new Date(item.due_at), 'HH:mm') : '--:--';
         const isConflict = item.meta?.conflict_detected;
         const isSynced = !!item.meta?.synced_to;
@@ -167,25 +384,40 @@ export default function HoyScreen() {
                         <Text style={[styles.eventTitle, isConflict && { color: '#92400e' }]}>
                             {item.title}
                         </Text>
-                        <TouchableOpacity style={styles.completeBtn} onPress={() => handleMarkDone(item.id)}>
-                            <Ionicons name="checkmark-circle" size={24} color="#d1d5db" />
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                            <TouchableOpacity style={styles.actionBtn} onPress={() => handleDelete(item.id, item.title)}>
+                                <Ionicons name="trash-outline" size={24} color="#ef4444" />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarkDone(item.id)}>
+                                <Ionicons name="checkmark-circle-outline" size={26} color="#0a84ff" />
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     {isSynced ? (
-                        <TouchableOpacity
-                            style={[styles.syncBtn, isConflict && styles.syncBtnConflict]}
-                            onPress={() => handleOpenExternalCalendar(item.meta.external_event_url)}
-                        >
-                            <Ionicons
-                                name={item.meta.synced_to === 'google' ? "logo-google" : "logo-microsoft"}
-                                size={16}
-                                color="white"
-                            />
-                            <Text style={styles.syncBtnText}>
-                                {isConflict ? `Ver Conflicto en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}` : `Abrir en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}`}
-                            </Text>
-                        </TouchableOpacity>
+                        item.meta.external_event_url ? (
+                            <TouchableOpacity
+                                style={[styles.syncBtn, isConflict && styles.syncBtnConflict, { backgroundColor: '#0a84ff' }]}
+                                onPress={() => handleOpenExternalCalendar(item.meta.external_event_url)}
+                            >
+                                <Ionicons
+                                    name={item.meta.synced_to === 'google' ? "logo-google" : "logo-microsoft"}
+                                    size={16}
+                                    color="white"
+                                />
+                                <Text style={styles.syncBtnText}>
+                                    {isConflict ? `Ver Conflicto en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}` : `Abrir en ${item.meta.synced_to === 'google' ? 'Google' : 'Outlook'}`}
+                                </Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity
+                                style={[styles.syncBtn, isConflict && styles.syncBtnConflict, { backgroundColor: '#0a84ff' }]}
+                                onPress={() => { setSelectedCommitment(item); setIsCalendarModalVisible(true); fetchCloudAccounts(); }}
+                            >
+                                <Ionicons name="refresh" size={16} color="white" />
+                                <Text style={styles.syncBtnText}>Volver a Sincronizar</Text>
+                            </TouchableOpacity>
+                        )
                     ) : (
                         <TouchableOpacity style={styles.localSyncBtn} onPress={() => handleCalendarPress(item)}>
                             <Ionicons name="calendar-outline" size={14} color="#6b7280" />
@@ -219,52 +451,10 @@ export default function HoyScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.monthLabel}>
-                    {format(selectedDate, 'MMMM yyyy', { locale: es }).replace(/^\w/, c => c.toUpperCase())}
-                </Text>
+            {viewMode === 'year' && renderYearView()}
+            {viewMode === 'month' && renderMonthView()}
+            {viewMode === 'agenda' && renderAgendaView()}
 
-                <View style={styles.weekContainer}>
-                    {weekDays.map((day, idx) => {
-                        const isSelected = isSameDay(day, selectedDate);
-                        const isToday = isSameDay(day, new Date());
-                        return (
-                            <TouchableOpacity
-                                key={idx}
-                                style={[styles.dayCard, isSelected && styles.dayCardSelected]}
-                                onPress={() => setSelectedDate(day)}
-                            >
-                                <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>
-                                    {format(day, 'EEE', { locale: es }).toUpperCase()}
-                                </Text>
-                                <Text style={[styles.dayNumber, isSelected && styles.dayNumberSelected]}>
-                                    {format(day, 'd')}
-                                </Text>
-                                {isToday && !isSelected && <View style={styles.todayDot} />}
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            </View>
-
-            {isLoading ? (
-                <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 40 }} />
-            ) : filteredCommitments.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                    <Ionicons name="calendar-clear-outline" size={64} color="#e5e7eb" />
-                    <Text style={styles.emptyText}>Día libre, no hay compromisos.</Text>
-                </View>
-            ) : (
-                <FlatList
-                    data={filteredCommitments}
-                    keyExtractor={c => c.id}
-                    renderItem={renderItem}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={styles.agendaList}
-                />
-            )}
-
-            {/* Calendar Selection Modal */}
             <Modal visible={isCalendarModalVisible} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                     <SafeAreaView style={styles.modalContent}>
@@ -276,7 +466,7 @@ export default function HoyScreen() {
                         </View>
 
                         {isLoadingCalendars ? (
-                            <ActivityIndicator size="large" color="#3b82f6" style={{ margin: 40 }} />
+                            <ActivityIndicator size="large" color="#0a84ff" style={{ margin: 40 }} />
                         ) : (
                             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                                 {cloudAccounts.length > 0 && (
@@ -338,45 +528,67 @@ export default function HoyScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb' },
+    container: { flex: 1, backgroundColor: 'white' },
 
-    // Header & Week Slider
-    header: { backgroundColor: 'white', paddingTop: 60, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-    monthLabel: { fontSize: 22, fontWeight: 'bold', paddingHorizontal: 20, marginBottom: 16, color: '#111827', marginLeft: 20 },
+    // iOS Calendar Text & Headers
+    largeRedTitle: { fontSize: 34, fontWeight: '800', color: '#0a84ff', marginBottom: 20 },
+    hugeMonthTitle: { fontSize: 34, fontWeight: '800', color: '#111827', paddingHorizontal: 20, marginTop: 10, marginBottom: 16 },
+    miniMonthTitle: { fontSize: 16, fontWeight: '600', color: '#0a84ff', marginBottom: 4 },
+    backBtn: { flexDirection: 'row', alignItems: 'center' },
+    backBtnText: { fontSize: 17, color: '#0a84ff', marginLeft: -4 },
+    monthHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
+
+    // Month Grid
+    weekDaysHeader: { flexDirection: 'row', paddingHorizontal: 10, marginBottom: 8 },
+    weekDayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '600', color: '#9ca3af' },
+    gridDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#e5e7eb', marginHorizontal: 10, marginBottom: 10 },
+    daysGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10 },
+    dayCell: { width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', height: 50 },
+    dayCircle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+    dayCircleSelected: { backgroundColor: '#0a84ff' },
+    dayCircleToday: { backgroundColor: 'transparent' },
+    dayCellText: { fontSize: 20, color: '#111827', fontWeight: '400' },
+    eventDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#d1d5db', position: 'absolute', bottom: 2 },
+
+    // Agenda Header
+    agendaHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 50, paddingHorizontal: 10, paddingBottom: 10 },
+    agendaTopSection: { backgroundColor: '#f9fafb', paddingBottom: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
+    monthLabel: { fontSize: 20, fontWeight: '700', paddingHorizontal: 20, marginTop: 10, marginBottom: 14, color: '#111827' },
     weekContainer: { flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 10 },
-    dayCard: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10, width: 44, borderRadius: 22 },
-    dayCardSelected: { backgroundColor: '#3b82f6' },
-    dayName: { fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 4 },
-    dayNameSelected: { color: '#bfdbfe' },
-    dayNumber: { fontSize: 18, fontWeight: '600', color: '#111827' },
-    dayNumberSelected: { color: 'white' },
-    todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#3b82f6', marginTop: 4 },
+    dayCard: { alignItems: 'center', justifyContent: 'center', paddingVertical: 8, width: 44, borderRadius: 22 },
+    dayCardSelected: { backgroundColor: 'transparent' },
+    dayNameCircle: { marginBottom: 4, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    dayName: { fontSize: 11, fontWeight: '600', color: '#6b7280' },
+    dayNameSelected: { color: 'white' },
+    dayNumber: { fontSize: 20, fontWeight: '400', color: '#111827' },
+    dayNumberSelected: { color: '#0a84ff', fontWeight: '600' },
+    dayNumberToday: { color: '#0a84ff' },
 
     // Agenda List
-    agendaList: { padding: 20, paddingBottom: 100 },
+    agendaList: { padding: 20, paddingTop: 16, paddingBottom: 100 },
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 80 },
     emptyText: { color: '#9ca3af', fontSize: 16, marginTop: 16, fontWeight: '500' },
 
     agendaRow: { flexDirection: 'row', marginBottom: 20 },
-    timeColumn: { width: 60, alignItems: 'center', marginRight: 10 },
-    timeText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
-    timeLine: { width: 2, flex: 1, backgroundColor: '#e5e7eb', marginTop: 8, borderRadius: 1 },
+    timeColumn: { width: 50, alignItems: 'flex-end', marginRight: 15, paddingRight: 5 },
+    timeText: { fontSize: 12, fontWeight: '600', color: '#6b7280', marginTop: 2 },
+    timeLine: { width: 2, height: '100%', backgroundColor: '#e5e7eb', marginTop: 16, marginRight: 14 },
 
-    eventCard: { flex: 1, backgroundColor: 'white', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#f3f4f6' },
-    eventCardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7' },
+    eventCard: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 12, padding: 14 },
+    eventCardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7', borderWidth: 1 },
     eventHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-    eventTitle: { fontSize: 16, fontWeight: '700', color: '#111827', flex: 1, marginRight: 12, lineHeight: 22 },
-    completeBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+    eventTitle: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1, marginRight: 12, lineHeight: 22 },
+    actionBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
 
-    syncBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 10, gap: 8, marginBottom: 10 },
+    syncBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a84ff', paddingVertical: 10, borderRadius: 8, gap: 8, marginBottom: 10 },
     syncBtnConflict: { backgroundColor: '#f59e0b' },
-    syncBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+    syncBtnText: { color: 'white', fontSize: 13, fontWeight: '700' },
 
-    localSyncBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 10 },
+    localSyncBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e5e7eb', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 10 },
     localSyncText: { fontSize: 12, fontWeight: '600', color: '#4b5563', marginLeft: 6 },
 
     chatLinkBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-    chatLinkText: { color: '#3b82f6', fontSize: 13, fontWeight: '600', marginLeft: 4 },
+    chatLinkText: { color: '#0a84ff', fontSize: 12, fontWeight: '600', marginLeft: 4 },
 
     // Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -388,7 +600,7 @@ const styles = StyleSheet.create({
     calendarInfo: { flex: 1 },
     calendarName: { fontSize: 16, fontWeight: '600', color: '#111827' },
     calendarSource: { fontSize: 12, color: '#6b7280', marginTop: 2 },
-    sectionLabel: { fontSize: 13, fontWeight: '700', color: '#8b5cf6', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#f5f3ff', textTransform: 'uppercase', letterSpacing: 0.5 },
+    sectionLabel: { fontSize: 13, fontWeight: '700', color: '#0a84ff', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#e0f2fe', textTransform: 'uppercase', letterSpacing: 0.5 },
     cloudSection: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
     localSection: { paddingBottom: 40 },
 });

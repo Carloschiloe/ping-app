@@ -41,6 +41,7 @@ export default function ConversationsScreen({ navigation }: any) {
 
         const isSystem = lastMsg?.meta?.isSystem;
         const isByMe = lastMsg && (lastMsg.sender_id === user?.id || lastMsg.user_id === user?.id);
+        const isUnread = lastMsg && !isByMe && !isSystem && lastMsg.status !== 'read';
 
         // Compute Name and Initials based on whether it is a Group or 1-on-1
         let displayName = 'Chat';
@@ -93,16 +94,25 @@ export default function ConversationsScreen({ navigation }: any) {
                 {/* Info */}
                 <View style={styles.info}>
                     <View style={styles.topRow}>
-                        <Text style={styles.name} numberOfLines={1}>
+                        <Text style={[styles.name, isUnread && { fontWeight: '800' }]} numberOfLines={1}>
                             {displayName}
                         </Text>
                         {lastMsg && (
-                            <Text style={styles.time}>{formatTime(lastMsg.created_at)}</Text>
+                            <Text style={[styles.time, isUnread && { color: '#0a84ff', fontWeight: '700' }]}>{formatTime(lastMsg.created_at)}</Text>
                         )}
                     </View>
                     <View style={styles.bottomRow}>
-                        {isByMe && <Text style={styles.myTick}>✓✓ </Text>}
-                        <Text style={styles.preview} numberOfLines={1}>{preview}</Text>
+                        {isByMe && (
+                            <Text style={[styles.myTick, lastMsg.status === 'read' ? { color: '#34b7f1' } : { color: '#9ca3af' }]}>
+                                {lastMsg.status === 'sent' || !lastMsg.status ? '✓ ' : '✓✓ '}
+                            </Text>
+                        )}
+                        <Text style={[styles.preview, isUnread && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>{preview}</Text>
+                        {isUnread && (
+                            <View style={styles.unreadBadge}>
+                                <Text style={styles.unreadText}>1</Text>
+                            </View>
+                        )}
                     </View>
                 </View>
             </TouchableOpacity>
@@ -245,8 +255,10 @@ const styles = StyleSheet.create({
     bottomRow: { flexDirection: 'row', alignItems: 'center' },
     name: { fontSize: 16, fontWeight: '600', color: '#111', flex: 1 },
     time: { fontSize: 12, color: '#9ca3af', marginLeft: 8 },
-    preview: { fontSize: 14, color: '#6b7280', flex: 1 },
-    myTick: { fontSize: 13, color: '#0a84ff' },
+    preview: { fontSize: 14, color: '#6b7280', flex: 1, paddingRight: 8 },
+    myTick: { fontSize: 13, color: '#0a84ff', letterSpacing: -1 },
+    unreadBadge: { backgroundColor: '#0a84ff', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 20, alignItems: 'center', justifyContent: 'center' },
+    unreadText: { color: 'white', fontSize: 11, fontWeight: '800' },
 
     // Empty state
     empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingBottom: 80 },

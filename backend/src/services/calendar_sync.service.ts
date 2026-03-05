@@ -282,3 +282,58 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
         throw err;
     }
 };
+
+export const deleteCloudEvent = async (userId: string, provider: string, eventId: string) => {
+    try {
+        const accessToken = await getValidAccessToken(userId, provider);
+
+        if (provider === 'google') {
+            await axios.delete(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+        } else if (provider === 'outlook') {
+            await axios.delete(`https://graph.microsoft.com/v1.0/me/events/${eventId}`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+        }
+        return true;
+    } catch (err) {
+        console.error(`[Cloud Sync] Error deleting event ${eventId} on ${provider}:`, err);
+        // We don't throw because if the event was already deleted externally, it's fine.
+        return false;
+    }
+};
+
+export const updateCloudEventStatus = async (userId: string, provider: string, eventId: string, currentTitle: string, isCompleted: boolean) => {
+    try {
+        const accessToken = await getValidAccessToken(userId, provider);
+        const prefix = '[COMPLETADA] ';
+        let newTitle = currentTitle;
+
+        if (isCompleted && !currentTitle.startsWith(prefix)) {
+            newTitle = prefix + currentTitle;
+        } else if (!isCompleted && currentTitle.startsWith(prefix)) {
+            newTitle = currentTitle.replace(prefix, '');
+        }
+
+        if (provider === 'google') {
+            await axios.patch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+                summary: newTitle,
+                transparency: isCompleted ? 'transparent' : 'opaque' // free/busy
+            }, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+        } else if (provider === 'outlook') {
+            await axios.patch(`https://graph.microsoft.com/v1.0/me/events/${eventId}`, {
+                subject: newTitle,
+                showAs: isCompleted ? 'free' : 'busy'
+            }, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+        }
+        return true;
+    } catch (err) {
+        console.error(`[Cloud Sync] Error updating event status ${eventId} on ${provider}:`, err);
+        return false;
+    }
+};

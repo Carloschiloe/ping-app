@@ -29,3 +29,16 @@ export const updateCommitment = async (userId: string, commitmentId: string, upd
     if (error) throw error;
     return data;
 };
+
+export const deleteCommitment = async (userId: string, commitmentId: string) => {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .delete()
+        .eq('id', commitmentId)
+        .eq('owner_user_id', userId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};

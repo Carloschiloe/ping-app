@@ -300,7 +300,7 @@ export default function ProfileScreen() {
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.autoSyncTitle}>Sincronización Automática</Text>
                                         <Text style={styles.autoSyncDesc}>
-                                            Agenda compromisos del chat sin preguntar.
+                                            Agenda, completa o elimina eventos en tu nube automáticamente.
                                         </Text>
                                     </View>
                                     <Switch

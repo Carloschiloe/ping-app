@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversationMessages, useSendConversationMessage, useReactToMessage } from '../api/queries';
+import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AudioPlayer from '../components/AudioPlayer';
@@ -43,6 +43,54 @@ function avatarColor(str: string) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+const TypingIndicator = () => {
+    const dot1 = useRef(new Animated.Value(0)).current;
+    const dot2 = useRef(new Animated.Value(0)).current;
+    const dot3 = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        const createAnimation = (anim: Animated.Value, delay: number) => {
+            return Animated.sequence([
+                Animated.delay(delay),
+                Animated.loop(
+                    Animated.sequence([
+                        Animated.timing(anim, { toValue: 1, duration: 300, useNativeDriver: true }),
+                        Animated.timing(anim, { toValue: 0, duration: 300, useNativeDriver: true }),
+                        Animated.delay(600) // pause between loops
+                    ])
+                )
+            ]);
+        };
+
+        Animated.parallel([
+            createAnimation(dot1, 0),
+            createAnimation(dot2, 200),
+            createAnimation(dot3, 400),
+        ]).start();
+    }, []);
+
+    const getDotStyle = (anim: Animated.Value) => ({
+        transform: [{
+            translateY: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -5]
+            })
+        }],
+        opacity: anim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.4, 1]
+        })
+    });
+
+    return (
+        <View style={styles.typingBubble}>
+            <Animated.View style={[styles.typingDot, getDotStyle(dot1)]} />
+            <Animated.View style={[styles.typingDot, getDotStyle(dot2)]} />
+            <Animated.View style={[styles.typingDot, getDotStyle(dot3)]} />
+        </View>
+    );
+};
+
 export default function ChatScreen({ navigation }: any) {
     const route = useRoute<any>();
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
@@ -65,6 +113,7 @@ export default function ChatScreen({ navigation }: any) {
     const { data, isLoading, refetch } = useConversationMessages(conversationId);
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
+    const { mutate: markAsRead } = useMarkConversationAsRead(conversationId);
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
     const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
     const listRef = useRef<FlatList>(null);
@@ -83,23 +132,38 @@ export default function ChatScreen({ navigation }: any) {
             config: { presence: { key: user.id } },
         });
 
+        let isSubscribed = false;
+
         channel
             .on('presence', { event: 'sync' }, () => {
                 const state = channel.presenceState();
                 const activeTypers: string[] = [];
                 Object.keys(state).forEach((key) => {
                     if (key !== user.id) {
-                        const presenceData: any = state[key][0];
-                        if (presenceData?.typing) {
-                            activeTypers.push(presenceData.email || 'Alguien');
+                        const sessions: any[] = state[key];
+                        const isTyping = sessions.some(s => s.typing === true);
+                        if (isTyping) {
+                            const pData = sessions[0];
+                            activeTypers.push(pData.name || pData.email || 'Alguien');
                         }
                     }
                 });
                 setTypingUsers(activeTypers);
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    isSubscribed = true;
+                }
+            });
 
-        presenceChannel.current = channel;
+        presenceChannel.current = {
+            channel,
+            track: async (data: any) => {
+                if (isSubscribed) {
+                    await channel.track(data);
+                }
+            }
+        };
 
         // ─── Reactions & Messages Realtime ───
         const reactionsChannel = supabase
@@ -124,6 +188,7 @@ export default function ChatScreen({ navigation }: any) {
         return () => {
             channel.unsubscribe();
             reactionsChannel.unsubscribe();
+            presenceChannel.current = null;
         };
     }, [conversationId, user, refetch]);
 
@@ -143,6 +208,22 @@ export default function ChatScreen({ navigation }: any) {
         flatData.reverse();
     })();
 
+    // ─── Read Receipts ───────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!messages || messages.length === 0 || !user) return;
+
+        // Check if there are any unread messages from the OTHER person
+        const hasUnread = messages.some((msg: any) => {
+            const isSystem = msg.meta?.isSystem;
+            const isMe = (msg.sender_id || msg.user_id) === user.id;
+            return !isMe && !isSystem && msg.status !== 'read';
+        });
+
+        if (hasUnread) {
+            markAsRead();
+        }
+    }, [messages, user, markAsRead]);
+
     // ─── Scroll to Message ──────────────────────────────────────────────────
     useEffect(() => {
         if (route.params?.scrollToMessageId && messages.length > 0 && flatData.length > 0) {
@@ -156,15 +237,30 @@ export default function ChatScreen({ navigation }: any) {
                 // Clear highlights and params after some time
                 setTimeout(() => {
                     setHighlightedMsgId(null);
-                    navigation.setParams({ scrollToMessageId: undefined });
+                    if (navigation.isFocused()) {
+                        navigation.setParams({ scrollToMessageId: undefined });
+                    }
                 }, 3000);
             }
         }
     }, [route.params?.scrollToMessageId, messages.length, flatData.length]);
 
+    // Ref to debounce track calls to avoid hitting 10 events/sec rate limit
+    let lastTypingTime = useRef<number>(0);
+
     const broadcastTyping = (isTyping: boolean) => {
         if (!presenceChannel.current || !user) return;
+
+        const now = Date.now();
+        if (isTyping && now - lastTypingTime.current < 1500) {
+            // Drop track call to avoid rate limits when spamming keys
+            return;
+        }
+        if (isTyping) lastTypingTime.current = now;
+
         presenceChannel.current.track({
+            user_id: user.id,
+            name: (user as any).full_name?.split(' ')[0],
             email: user.email?.split('@')[0] || 'Un usuario',
             typing: isTyping,
         });
@@ -173,14 +269,13 @@ export default function ChatScreen({ navigation }: any) {
     const handleTextChange = (newText: string) => {
         setText(newText);
 
-        // Broadcast typing = true
         broadcastTyping(true);
 
-        // Auto-clear typing status after 2 seconds of inactivity
+        // Auto-clear typing status after 3 seconds of inactivity
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
         typingTimeout.current = setTimeout(() => {
             broadcastTyping(false);
-        }, 2000);
+        }, 3000);
     };
 
     React.useLayoutEffect(() => {
@@ -364,7 +459,7 @@ export default function ChatScreen({ navigation }: any) {
         setSendingMedia
     });
 
-    const { startRecording, stopRecording, isRecording, recording } = useAudioRecorder({
+    const { startRecording, stopRecording, isRecording, recording, recordingUri, cancelAudio, uploadAudio } = useAudioRecorder({
         onAudioSent: (textStr: string) => {
             sendMessage({ text: textStr, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
         },
@@ -484,7 +579,7 @@ export default function ChatScreen({ navigation }: any) {
                     </View>
                 )}
 
-                <View style={{ maxWidth: '80%', position: 'relative' }}>
+                <View style={{ maxWidth: '75%', position: 'relative' }}>
                     <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={handlePress}
@@ -564,7 +659,14 @@ export default function ChatScreen({ navigation }: any) {
                             {/* Pro-active Debug Info: R for ReplyTo, RT for Reactions Count */}
                             {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
-                            {isMe && <Text style={styles.readTick}> ✓✓</Text>}
+                            {isMe && (
+                                <Text style={[
+                                    styles.readTick,
+                                    item.status === 'read' ? { color: '#34b7f1' } : {}
+                                ]}>
+                                    {item.status === 'sent' || !item.status ? '✓' : '✓✓'}
+                                </Text>
+                            )}
                         </View>
                     </TouchableOpacity>
 
@@ -661,9 +763,12 @@ export default function ChatScreen({ navigation }: any) {
             {/* Typing Indicator */}
             {typingUsers.length > 0 && (
                 <View style={styles.typingIndicatorContainer}>
-                    <Text style={styles.typingIndicatorText}>
-                        {typingUsers.join(', ')} {typingUsers.length > 1 ? 'están' : 'está'} escribiendo...
-                    </Text>
+                    <View style={styles.typingRow}>
+                        <TypingIndicator />
+                        <Text style={styles.typingIndicatorText} numberOfLines={1}>
+                            {typingUsers.join(', ')} {typingUsers.length > 1 ? 'están' : 'está'} escribiendo...
+                        </Text>
+                    </View>
                 </View>
             )}
 
@@ -720,30 +825,46 @@ export default function ChatScreen({ navigation }: any) {
             )}
 
             {/* Input bar */}
-            <View style={styles.inputBar}>
-                <TouchableOpacity style={styles.mediaBtn} onPress={pickMediaSource} disabled={sendingMedia || isPending}>
-                    <Ionicons name="image-outline" size={24} color="#6b7280" />
-                </TouchableOpacity>
-                <TextInput
-                    style={styles.input}
-                    placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
-                    placeholderTextColor="#9ca3af"
-                    value={text}
-                    onChangeText={setText}
-                    multiline
-                />
-                {text.trim() ? (
-                    <TouchableOpacity style={[styles.sendBtn, isPending && styles.sendDisabled]} onPress={handleSend} disabled={isPending}>
-                        {isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
+            {recordingUri ? (
+                <View style={styles.inputBar}>
+                    <TouchableOpacity style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]} onPress={cancelAudio} disabled={sendingMedia || isPending}>
+                        <Ionicons name="trash-outline" size={24} color="#ef4444" />
                     </TouchableOpacity>
-                ) : sendingMedia ? (
-                    <View style={styles.sendBtn}><ActivityIndicator size="small" color="white" /></View>
-                ) : (
-                    <Pressable style={[styles.sendBtn, isRecording && styles.recordingBtn]} onPressIn={startRecording} onPressOut={stopRecording}>
-                        <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color="white" />
-                    </Pressable>
-                )}
-            </View>
+                    <View style={{ flex: 1, paddingHorizontal: 4 }}>
+                        <View style={{ backgroundColor: 'white', borderRadius: 24, paddingVertical: 4, paddingHorizontal: 12 }}>
+                            <AudioPlayer url={recordingUri} isMe={false} />
+                        </View>
+                    </View>
+                    <TouchableOpacity style={[styles.sendBtn, (sendingMedia || isPending) && styles.sendDisabled]} onPress={uploadAudio} disabled={sendingMedia || isPending}>
+                        {sendingMedia || isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <View style={styles.inputBar}>
+                    <TouchableOpacity style={styles.mediaBtn} onPress={pickMediaSource} disabled={sendingMedia || isPending}>
+                        <Ionicons name="image-outline" size={24} color="#6b7280" />
+                    </TouchableOpacity>
+                    <TextInput
+                        style={styles.input}
+                        placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
+                        placeholderTextColor="#9ca3af"
+                        value={text}
+                        onChangeText={setText}
+                        multiline
+                    />
+                    {text.trim() ? (
+                        <TouchableOpacity style={[styles.sendBtn, isPending && styles.sendDisabled]} onPress={handleSend} disabled={isPending}>
+                            {isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
+                        </TouchableOpacity>
+                    ) : sendingMedia ? (
+                        <View style={styles.sendBtn}><ActivityIndicator size="small" color="white" /></View>
+                    ) : (
+                        <Pressable style={[styles.sendBtn, isRecording && styles.recordingBtn]} onPressIn={startRecording} onPressOut={stopRecording}>
+                            <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color="white" />
+                        </Pressable>
+                    )}
+                </View>
+            )}
 
             {/* Multi-select top bar */}
             {isMultiSelecting && (
@@ -891,7 +1012,7 @@ export default function ChatScreen({ navigation }: any) {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const BLUE = '#1e3a5f';
-const BUBBLE_BLUE = '#0a84ff';
+const BUBBLE_BLUE = '#005c4b'; // Sobrio verde oscuro estilo WhatsApp
 const BG_CHAT = '#ECE5DD';
 
 const styles = StyleSheet.create({
@@ -951,7 +1072,7 @@ const styles = StyleSheet.create({
     timeText: { fontSize: 11 },
     timeMe: { color: 'rgba(255,255,255,0.7)' },
     timeThem: { color: '#9ca3af' },
-    readTick: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginLeft: 2 },
+    readTick: { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginLeft: 4, marginRight: 2, letterSpacing: -1.5 },
 
     // Image message — responsive
     msgImage: { width: 220, height: 220, borderRadius: 10 },
@@ -1113,17 +1234,41 @@ const styles = StyleSheet.create({
 
     // ─── Typing Indicator ────────────────────────────────────────────────────
     typingIndicatorContainer: {
-        backgroundColor: '#f3f4f6',
+        backgroundColor: '#ECE5DD',
         paddingHorizontal: 16,
-        paddingVertical: 6,
+        paddingTop: 8,
+        alignItems: 'flex-start',
+    },
+    typingRow: {
+        flexDirection: 'row',
         alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e5e7eb',
+        backgroundColor: 'white',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 16,
+        borderBottomLeftRadius: 4,
+        shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
+        marginBottom: 2,
+    },
+    typingBubble: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+        marginRight: 8,
+        height: 16,
+    },
+    typingDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#9ca3af',
     },
     typingIndicatorText: {
         fontSize: 12,
         color: '#6b7280',
         fontStyle: 'italic',
+        maxWidth: 200,
     },
 
     replyPreviewBar: { flexDirection: 'row', backgroundColor: '#e5e7eb', padding: 10, marginHorizontal: 10, marginTop: 4, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#8b5cf6', alignItems: 'center' },

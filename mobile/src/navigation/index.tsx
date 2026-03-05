@@ -102,8 +102,8 @@ const MainTabs = () => (
                 let iconName: any;
                 if (route.name === 'Chats') {
                     iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else if (route.name === 'Hoy') {
-                    iconName = focused ? 'today' : 'today-outline';
+                } else if (route.name === 'Agenda') {
+                    iconName = focused ? 'calendar' : 'calendar-outline';
                 } else if (route.name === 'Search') {
                     iconName = focused ? 'search' : 'search-outline';
                 } else if (route.name === 'Perfil') {
@@ -114,7 +114,7 @@ const MainTabs = () => (
         })}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
-        <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
+        <Tab.Screen name="Agenda" component={HoyScreen} options={{ title: 'Agenda' }} />
         <Tab.Screen name="Search" component={SearchScreen} options={{ title: 'Buscar' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
