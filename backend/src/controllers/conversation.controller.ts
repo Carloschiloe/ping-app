@@ -157,15 +157,18 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // NEW: Get unread count for each conversation
         const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin
             .from('messages')
-            .select('conversation_id')
+            .select('conversation_id, sender_id, user_id, meta')
             .in('conversation_id', conversationIds)
-            .neq('sender_id', userId)
             .neq('status', 'read');
 
         if (unreadErr) throw unreadErr;
 
         const unreadCounts = unreadCountsData.reduce((acc: Record<string, number>, msg) => {
-            acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
+            const isMe = msg.sender_id === userId || msg.user_id === userId;
+            const isSystem = msg.meta && msg.meta.isSystem;
+            if (!isMe && !isSystem) {
+                acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
+            }
             return acc;
         }, {});
 

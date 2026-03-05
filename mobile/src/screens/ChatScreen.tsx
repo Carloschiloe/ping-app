@@ -660,12 +660,13 @@ export default function ChatScreen({ navigation }: any) {
                             {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                             {isMe && (
-                                <Text style={[
-                                    styles.readTick,
-                                    item.status === 'read' ? { color: '#34b7f1' } : {}
-                                ]}>
-                                    {item.status === 'sent' || !item.status ? '✓' : '✓✓'}
-                                </Text>
+                                <View style={{ marginLeft: 4 }}>
+                                    <Ionicons
+                                        name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
+                                        size={14}
+                                        color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? '#9ca3af' : 'rgba(255,255,255,0.7)')}
+                                    />
+                                </View>
                             )}
                         </View>
                     </TouchableOpacity>
