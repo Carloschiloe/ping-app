@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { processUserMessage } from '../services/message.service';
+import { NotificationService } from '../services/notification.service';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -289,6 +290,47 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
         }
 
         const result = await processUserMessage(userId, text, conversationId as string, reply_to_id);
+
+        // --- Phase 21: Push Notifications ---
+        try {
+            // 1. Get recipients (all participants except sender)
+            const { data: recipients } = await supabaseAdmin
+                .from('conversation_participants')
+                .select('user_id, profiles!inner(expo_push_token)')
+                .eq('conversation_id', conversationId)
+                .neq('user_id', userId);
+
+            const pushTokens = recipients
+                ?.map((r: any) => r.profiles?.expo_push_token)
+                .filter((token: string | null | undefined) => !!token);
+
+            if (pushTokens && pushTokens.length > 0) {
+                // 2. Get sender profile for the title
+                const { data: senderProfile } = await supabaseAdmin
+                    .from('profiles')
+                    .select('full_name, email')
+                    .eq('id', userId)
+                    .single();
+
+                const senderName = senderProfile?.full_name || senderProfile?.email?.split('@')[0] || 'Ping User';
+                let pushBody = text;
+                if (text.startsWith('[audio]')) pushBody = '🎤 Mensaje de voz';
+                else if (text.startsWith('[imagen]')) pushBody = '📷 Imagen';
+                else if (text.startsWith('[document=')) pushBody = '📁 Documento';
+
+                // 3. Send via Expo
+                await NotificationService.sendPushNotifications({
+                    to: pushTokens,
+                    title: senderName,
+                    body: pushBody,
+                    data: { conversationId },
+                    sound: 'default'
+                });
+            }
+        } catch (pushErr) {
+            console.error('[Push Notification Error]', pushErr);
+        }
+
         res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
