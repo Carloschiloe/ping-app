@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { generateMorningSummary } from './ai.service';
+import { generateMorningSummary, generateWeeklyReview } from './ai.service';
 import { sendPushNotification } from './push.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -107,6 +107,61 @@ async function runMorningRoutine() {
     console.log('[MorningRoutine] ✅ Morning routine completed.');
 }
 
+/**
+ * Phase 27: Weekly Review — every Friday at 6:00 PM
+ */
+async function runWeeklyReview() {
+    console.log('[WeeklyReview] 📋 Starting weekly review...');
+
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Get all unique users with commitments this week
+    const { data: allCommitments } = await supabaseAdmin
+        .from('commitments')
+        .select('owner_user_id, status, title, profiles!inner(full_name, expo_push_token)')
+        .gte('created_at', weekAgo.toISOString())
+        .lte('created_at', now.toISOString());
+
+    if (!allCommitments || allCommitments.length === 0) {
+        console.log('[WeeklyReview] No commitments this week.');
+        return;
+    }
+
+    // Group by user
+    const userMap: { [userId: string]: { name: string; pushToken: string | null; completed: number; pending: string[] } } = {};
+    for (const c of allCommitments) {
+        const userId = c.owner_user_id;
+        if (!userMap[userId]) {
+            const profile = c.profiles as any;
+            userMap[userId] = { name: profile?.full_name || 'Amigo', pushToken: profile?.expo_push_token || null, completed: 0, pending: [] };
+        }
+        if (c.status === 'done') {
+            userMap[userId].completed++;
+        } else {
+            userMap[userId].pending.push(c.title);
+        }
+    }
+
+    for (const [userId, data] of Object.entries(userMap)) {
+        try {
+            const aiMessage = await generateWeeklyReview(data.name, data.completed, data.pending.length, data.pending);
+            await supabaseAdmin.from('messages').insert({
+                user_id: userId, text: aiMessage, conversation_id: null, sender_id: null, status: 'sent',
+                meta: { is_weekly_review: true }
+            });
+            if (data.pushToken) {
+                await sendPushNotification(data.pushToken, '📋 Tu resumen semanal de Ping', `Esta semana: ${data.completed} completado(s), ${data.pending.length} pendiente(s).`);
+            }
+            console.log(`[WeeklyReview] ✅ Sent weekly review to ${data.name}`);
+        } catch (err) {
+            console.error(`[WeeklyReview] ❌ Error for ${userId}:`, err);
+        }
+    }
+
+    console.log('[WeeklyReview] ✅ Weekly review completed.');
+}
+
 export function startMorningRoutineCron() {
     // Run every day at 8:00 AM (server/UTC time - adjust as needed)
     cron.schedule('0 8 * * *', () => {
@@ -115,4 +170,12 @@ export function startMorningRoutineCron() {
         timezone: 'America/Santiago' // Chilean timezone
     });
     console.log('[MorningRoutine] 📅 Cron job scheduled for 8:00 AM (Santiago).');
+
+    // Phase 27: Weekly review every Friday at 6:00 PM (Santiago)
+    cron.schedule('0 18 * * 5', () => {
+        runWeeklyReview().catch(console.error);
+    }, {
+        timezone: 'America/Santiago'
+    });
+    console.log('[WeeklyReview] 📋 Cron job scheduled for Fridays at 6:00 PM (Santiago).');
 }

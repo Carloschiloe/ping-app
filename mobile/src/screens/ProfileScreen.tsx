@@ -40,6 +40,10 @@ export default function ProfileScreen() {
     const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
     const [lastSeenEnabled, setLastSeenEnabled] = useState(true);
 
+    // Phase 28: Focus Mode State  
+    const [focusActive, setFocusActive] = useState(false);
+    const [focusRemainingLabel, setFocusRemainingLabel] = useState('');
+
     // Cloud Accounts Queries
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
     const { mutate: updateAccount } = useUpdateCalendarAccount();
@@ -77,6 +81,21 @@ export default function ProfileScreen() {
                 }
             });
         }
+
+        // Load Focus Mode state
+        AsyncStorage.getItem('ping_focus_until').then(val => {
+            if (val) {
+                const until = new Date(val);
+                const remaining = until.getTime() - Date.now();
+                if (remaining > 0) {
+                    setFocusActive(true);
+                    const mins = Math.ceil(remaining / 60000);
+                    setFocusRemainingLabel(mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}min` : `${mins}min`);
+                } else {
+                    AsyncStorage.removeItem('ping_focus_until');
+                }
+            }
+        });
     }, [user, isFocused]);
 
     const handleToggleBiometric = async (value: boolean) => {
@@ -103,6 +122,20 @@ export default function ProfileScreen() {
         setLastSeenEnabled(value);
         await supabase.from('profiles').update({ privacy_last_seen: value }).eq('id', user!.id);
     };
+
+    const handleActivateFocus = async (minutes: number) => {
+        const until = new Date(Date.now() + minutes * 60000);
+        await AsyncStorage.setItem('ping_focus_until', until.toISOString());
+        setFocusActive(true);
+        const label = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
+        setFocusRemainingLabel(label);
+    };
+
+    const handleCancelFocus = async () => {
+        await AsyncStorage.removeItem('ping_focus_until');
+        setFocusActive(false);
+        setFocusRemainingLabel('');
+    };;
 
     const handleConnectCloud = async (provider: 'google' | 'outlook') => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -482,6 +515,44 @@ export default function ProfileScreen() {
                 </View>
             </View>
 
+            {/* Phase 28: Focus Mode Section */}
+            <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.label}>🎯 Modo Foco</Text>
+                    <Ionicons name="timer-outline" size={20} color="#6b7280" />
+                </View>
+
+                {focusActive ? (
+                    <View>
+                        <View style={styles.focusActiveBadge}>
+                            <Ionicons name="timer" size={18} color="#f59e0b" />
+                            <Text style={styles.focusActiveText}>Activo — {focusRemainingLabel} restante(s)</Text>
+                        </View>
+                        <Text style={styles.hint}>Las notificaciones no críticas están silenciadas.</Text>
+                        <TouchableOpacity style={styles.cancelFocusBtn} onPress={handleCancelFocus}>
+                            <Text style={styles.cancelFocusBtnText}>Cancelar Modo Foco</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View>
+                        <Text style={styles.hint}>Silencia notificaciones no críticas durante un tiempo determinado.</Text>
+                        <View style={styles.focusOptions}>
+                            {[15, 30, 60, 120].map(mins => (
+                                <TouchableOpacity
+                                    key={mins}
+                                    style={styles.focusChip}
+                                    onPress={() => handleActivateFocus(mins)}
+                                >
+                                    <Text style={styles.focusChipText}>
+                                        {mins < 60 ? `${mins}min` : `${mins / 60}h`}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                )}
+            </View>
+
             {/* Logout */}
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
                 <Text style={styles.logoutText}>Cerrar sesión</Text>
@@ -539,4 +610,11 @@ const styles = StyleSheet.create({
     settingsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
     settingsTitle: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 2 },
     settingsDesc: { fontSize: 12, color: '#6b7280' },
+    focusActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fef9c3', borderRadius: 10, padding: 10, marginBottom: 8 },
+    focusActiveText: { color: '#92400e', fontWeight: '600', fontSize: 14 },
+    cancelFocusBtn: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 8 },
+    cancelFocusBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 14 },
+    focusOptions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 8 },
+    focusChip: { backgroundColor: '#f3f4f6', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: '#e5e7eb' },
+    focusChipText: { fontWeight: '700', color: '#374151', fontSize: 14 },
 });

@@ -84,6 +84,31 @@ export const processUserMessage = async (userId: string, text: string, conversat
             title = ai.title;
             dueAt = new Date(ai.dueAt);
             replyText = ai.replyText;
+
+            // --- Phase 26: Resolve assignee name to user ID ---
+            if (ai.assignedToName && conversationId) {
+                try {
+                    const { data: participants } = await supabaseAdmin
+                        .from('conversation_participants')
+                        .select('user_id, profiles!inner(full_name)')
+                        .eq('conversation_id', conversationId);
+
+                    const match = (participants || []).find((p: any) => {
+                        const name = (p.profiles?.full_name || '').toLowerCase();
+                        const detected = ai.assignedToName!.toLowerCase();
+                        return name.includes(detected) || detected.includes(name.split(' ')[0]);
+                    });
+
+                    if (match) {
+                        (title as any) = title; // keep title
+                        // Store the resolved ID in a closure var
+                        (message as any)._assignedToUserId = match.user_id;
+                    }
+                } catch (err) {
+                    console.error('[Phase26] Error resolving assignee:', err);
+                }
+            }
+            // --------------------------------------------------
         }
     } else {
         // Fallback: regex date parser
@@ -105,7 +130,13 @@ export const processUserMessage = async (userId: string, text: string, conversat
                 title,
                 due_at: dueAt.toISOString(),
                 status: 'pending',
-                message_id: message.id
+                message_id: message.id,
+                // Phase 26: group task fields
+                ...(conversationId ? { group_conversation_id: conversationId } : {}),
+                ...((message as any)._assignedToUserId ? {
+                    assigned_to_user_id: (message as any)._assignedToUserId,
+                    is_group_task: true,
+                } : {}),
             })
             .select()
             .single();

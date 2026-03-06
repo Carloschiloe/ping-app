@@ -16,6 +16,7 @@ import HoyScreen from '../screens/HoyScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PingAIScreen from '../screens/PingAIScreen';
+import QuickCaptureScreen from '../screens/QuickCaptureScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -80,6 +81,11 @@ const ConversationsStack = () => (
             name="PingAI"
             component={PingAIScreen}
             options={{ headerShown: false }}
+        />
+        <Stack.Screen
+            name="QuickCapture"
+            component={QuickCaptureScreen}
+            options={{ headerShown: false, presentation: 'modal' }}
         />
     </Stack.Navigator>
 );

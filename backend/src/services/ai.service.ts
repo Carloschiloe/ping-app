@@ -8,6 +8,7 @@ export interface CommitmentExtraction {
     title: string | null;
     dueAt: string | null;       // ISO 8601 string or null
     replyText: string | null;   // confirmation message for the user
+    assignedToName: string | null; // Phase 26: name of the person responsible (if mentioned)
 }
 
 const SYSTEM_PROMPT = `Eres un asistente de productividad personal en español (Chile). Analizas mensajes de chat e identificas si el mensaje contiene un compromiso, tarea, recordatorio o evento con fecha/hora.
@@ -17,6 +18,7 @@ Extrae la siguiente información en JSON:
 - title (string | null): título corto y claro del compromiso (máx 60 caracteres)
 - dueAt (string | null): fecha y hora en formato ISO 8601 (ej: 2026-03-05T15:00:00), calculada desde la fecha de hoy
 - replyText (string | null): mensaje de confirmación amigable en español, confirmando el recordatorio
+- assignedToName (string | null): nombre de la persona mencionada como responsable de la tarea (ej: si el mensaje dice "Carlos va a hacer X", el valor es "Carlos"). Si el que habla es el responsable o no se menciona a nadie, devuelve null.
 
 Reglas:
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
@@ -33,7 +35,7 @@ export const extractCommitment = async (
     nowIso: string
 ): Promise<CommitmentExtraction> => {
     if (!process.env.OPENAI_API_KEY) {
-        return { hasCommitment: false, title: null, dueAt: null, replyText: null };
+        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null };
     }
 
     try {
@@ -58,10 +60,11 @@ export const extractCommitment = async (
             title: parsed.title || null,
             dueAt: parsed.dueAt || null,
             replyText: parsed.replyText || null,
+            assignedToName: parsed.assignedToName || null,
         };
     } catch (err) {
         console.error('[AI] extractCommitment failed:', err);
-        return { hasCommitment: false, title: null, dueAt: null, replyText: null };
+        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null };
     }
 };
 
@@ -192,5 +195,42 @@ Usando un tono cálido, en español chileno. No uses markdown, solo texto plano.
     } catch (err) {
         console.error('[AI] generateMorningSummary failed:', err);
         return `¡Buenos días, ${userName}! Tienes ${commitments.length} compromiso(s) para hoy. ¡Tú puedes! 💪`;
+    }
+};
+
+/**
+ * Phase 27: Generates the Weekly Review message for Friday evening.
+ */
+export const generateWeeklyReview = async (
+    userName: string,
+    completedCount: number,
+    pendingCount: number,
+    pendingTitles: string[]
+): Promise<string> => {
+    if (!process.env.OPENAI_API_KEY) {
+        return `📋 Resumen semanal para ${userName}: ✅ ${completedCount} completado(s), ⏳ ${pendingCount} pendiente(s). ¡Buen trabajo esta semana!`;
+    }
+
+    const pendingList = pendingTitles.slice(0, 5).map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const prompt = `Eres Ping, el asistente de productividad personal de ${userName}. Es viernes por la noche.
+Escribe un mensaje de resumen semanal muy corto y motivador (máx 5 oraciones) en español chileno.
+Datos de la semana:
+- Compromisos completados: ${completedCount}
+- Compromisos pendientes: ${pendingCount}
+${pendingCount > 0 ? `Los pendientes son:\n${pendingList}` : ''}
+
+Tono: cálido, honesto, motivador. Celebra los logros. Si hay pendientes, anímalos a la próxima semana. No uses markdown, solo texto plano con emojis.`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.8,
+            max_tokens: 250,
+        });
+        return response.choices[0]?.message?.content || `📋 Semana cerrada, ${userName}. ✅ ${completedCount} logros esta semana. ¡Hasta el lunes!`;
+    } catch (err) {
+        console.error('[AI] generateWeeklyReview failed:', err);
+        return `📋 ¡Hola ${userName}! Esta semana: ✅ ${completedCount} completado(s), ⏳ ${pendingCount} pendiente(s). ¡Tú puedes la próxima semana! 🚀`;
     }
 };
