@@ -17,6 +17,7 @@ import { apiClient } from '../api/client';
 import { useMediaPicker } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -820,263 +821,265 @@ export default function ChatScreen({ navigation }: any) {
     // ─── Render ──────────────────────────────────────────────────────────────
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.container}
-            keyboardVerticalOffset={90}
-        >
-            <StatusBar barStyle="light-content" />
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.container}
+                keyboardVerticalOffset={90}
+            >
+                <StatusBar barStyle="light-content" />
 
-            {renderReactionDetailsModal()}
+                {renderReactionDetailsModal()}
 
-            <View style={styles.chatBg}>
-                {isLoading ? (
-                    <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
-                ) : messages.length === 0 ? (
-                    <View style={styles.emptyChat}>
-                        <Text style={styles.emptyChatIcon}>💬</Text>
-                        <Text style={styles.emptyChatText}>
-                            {isSelf ? 'Anota tus recordatorios aquí' : 'Empieza la conversación'}
-                        </Text>
-                    </View>
-                ) : (
-                    <FlatList
-                        ref={listRef}
-                        data={flatData}
-                        inverted
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderMessage}
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
-                        onScrollToIndexFailed={(info) => {
-                            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
-                        }}
-                    />
-                )}
-            </View>
-
-            {/* Typing Indicator */}
-            {activeTypers.length > 0 && (
-                <View style={styles.typingIndicatorContainer}>
-                    <View style={styles.typingRow}>
-                        {activeTypers.some(t => t.isRecording) ? (
-                            <Ionicons name="mic" size={16} color="#6b7280" />
-                        ) : (
-                            <TypingIndicator />
-                        )}
-                        <Text style={styles.typingIndicatorText} numberOfLines={1}>
-                            {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando un audio...' : 'escribiendo...'}
-                        </Text>
-                    </View>
-                </View>
-            )}
-
-            {/* Reply Preview */}
-            {replyingToMsg && (
-                <View style={styles.replyPreviewBar}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.replyPreviewName}>
-                            {replyingToMsg.profiles?.email?.split('@')[0] || (replyingToMsg.user_id === user?.id ? 'Tú' : 'Alguien')}
-                        </Text>
-                        <Text style={styles.replyPreviewText} numberOfLines={1}>
-                            {(() => {
-                                const t = replyingToMsg.text || '';
-                                if (t.startsWith('[imagen]')) return '📷 Imagen';
-                                if (t.startsWith('[video]')) return '📹 Video';
-                                if (t.startsWith('[audio]')) return '🎤 Audio';
-                                if (t.startsWith('[document=')) return '📄 Documento';
-                                return t;
-                            })()}
-                        </Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setReplyingToMsg(null)} style={{ padding: 4 }}>
-                        <Ionicons name="close-circle" size={24} color="#9ca3af" />
-                    </TouchableOpacity>
-                </View>
-            )}
-
-            {/* Input bar */}
-            {recordingUri ? (
-                <View style={styles.inputBar}>
-                    <TouchableOpacity style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]} onPress={cancelAudio} disabled={sendingMedia || isPending}>
-                        <Ionicons name="trash-outline" size={24} color="#ef4444" />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, paddingHorizontal: 4 }}>
-                        <View style={{ backgroundColor: 'white', borderRadius: 24, paddingVertical: 4, paddingHorizontal: 12 }}>
-                            <AudioPlayer url={recordingUri} isMe={false} />
+                <View style={styles.chatBg}>
+                    {isLoading ? (
+                        <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
+                    ) : messages.length === 0 ? (
+                        <View style={styles.emptyChat}>
+                            <Text style={styles.emptyChatIcon}>💬</Text>
+                            <Text style={styles.emptyChatText}>
+                                {isSelf ? 'Anota tus recordatorios aquí' : 'Empieza la conversación'}
+                            </Text>
                         </View>
-                    </View>
-                    <TouchableOpacity style={[styles.sendBtn, (sendingMedia || isPending) && styles.sendDisabled]} onPress={uploadAudio} disabled={sendingMedia || isPending}>
-                        {sendingMedia || isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
-                    </TouchableOpacity>
-                </View>
-            ) : (
-                <View style={styles.inputBar}>
-                    <TouchableOpacity style={styles.mediaBtn} onPress={pickMediaSource} disabled={sendingMedia || isPending}>
-                        <Ionicons name="image-outline" size={24} color="#6b7280" />
-                    </TouchableOpacity>
-                    <TextInput
-                        style={styles.input}
-                        placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
-                        placeholderTextColor="#9ca3af"
-                        value={text}
-                        onChangeText={handleTextChange}
-                        multiline
-                    />
-                    {text.trim() ? (
-                        <TouchableOpacity style={[styles.sendBtn, isPending && styles.sendDisabled]} onPress={handleSend} disabled={isPending}>
-                            {isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
-                        </TouchableOpacity>
-                    ) : sendingMedia ? (
-                        <View style={styles.sendBtn}><ActivityIndicator size="small" color="white" /></View>
                     ) : (
-                        <Pressable style={[styles.sendBtn, isRecording && styles.recordingBtn]} onPressIn={startRecording} onPressOut={stopRecording}>
-                            <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color="white" />
-                        </Pressable>
-                    )}
-                </View>
-            )}
-
-            {/* Multi-select top bar */}
-            {isMultiSelecting && (
-                <View style={styles.selectBar}>
-                    <TouchableOpacity onPress={cancelMultiSelect} style={styles.selectBarBtn}>
-                        <Ionicons name="close" size={22} color="white" />
-                    </TouchableOpacity>
-                    <Text style={styles.selectBarText}>{multiSelect.length} seleccionado(s)</Text>
-                    <TouchableOpacity onPress={forwardSelected} style={styles.selectBarForward}>
-                        <Ionicons name="arrow-redo" size={18} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={deleteSelected} style={styles.selectBarDelete}>
-                        <Ionicons name="trash" size={20} color="white" />
-                        <Text style={styles.selectBarDeleteText}>Eliminar</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-
-            {/* ─── Fullscreen Media Viewer ────────────────────────── */}
-            <Modal visible={!!viewerMedia} transparent animationType="fade" onRequestClose={() => setViewerMedia(null)}>
-                <View style={styles.viewerBackdrop}>
-                    {viewerMedia?.type === 'video' ? (
-                        <Video
-                            source={{ uri: viewerMedia.url }}
-                            style={styles.viewerImage}
-                            useNativeControls
-                            shouldPlay
-                            resizeMode={ResizeMode.CONTAIN}
+                        <FlatList
+                            ref={listRef}
+                            data={flatData}
+                            inverted
+                            keyExtractor={(item) => item.id}
+                            renderItem={renderMessage}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
+                            onScrollToIndexFailed={(info) => {
+                                listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+                            }}
                         />
-                    ) : (
-                        <TouchableOpacity style={{ flex: 1, width: '100%' }} activeOpacity={1} onPress={() => setViewerMedia(null)}>
-                            <Image
-                                source={{ uri: viewerMedia?.url || '' }}
-                                style={styles.viewerImage}
-                                resizeMode="contain"
-                            />
-                        </TouchableOpacity>
                     )}
-                    <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
-                        <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
-                    </TouchableOpacity>
                 </View>
-            </Modal>
 
-            {/* AI Summary Modal */}
-            <Modal visible={!!summary} transparent animationType="slide" onRequestClose={() => setSummary(null)}>
-                <View style={styles.summaryBackdrop}>
-                    <View style={styles.summarySheet}>
-                        <View style={styles.summaryHeader}>
-                            <Ionicons name="sparkles" size={24} color="#8b5cf6" />
-                            <Text style={styles.summaryTitle}>Resumen de la Conversación</Text>
-                            <TouchableOpacity onPress={() => setSummary(null)} style={styles.summaryClosePulse}>
-                                <Ionicons name="close" size={24} color="#6b7280" />
-                            </TouchableOpacity>
+                {/* Typing Indicator */}
+                {activeTypers.length > 0 && (
+                    <View style={styles.typingIndicatorContainer}>
+                        <View style={styles.typingRow}>
+                            {activeTypers.some(t => t.isRecording) ? (
+                                <Ionicons name="mic" size={16} color="#6b7280" />
+                            ) : (
+                                <TypingIndicator />
+                            )}
+                            <Text style={styles.typingIndicatorText} numberOfLines={1}>
+                                {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando un audio...' : 'escribiendo...'}
+                            </Text>
                         </View>
-
-                        <ScrollView style={styles.summaryScroll} showsVerticalScrollIndicator={false}>
-                            <Text style={styles.summaryContent}>{summary}</Text>
-                        </ScrollView>
-
-                        <TouchableOpacity style={styles.summaryDoneBtn} onPress={() => setSummary(null)}>
-                            <Text style={styles.summaryDoneText}>Entendido, gracias Ping!</Text>
-                        </TouchableOpacity>
                     </View>
-                </View>
-            </Modal>
+                )}
 
-            {/* ─── Context Menu Modal ──────────────────────────────── */}
-            <Modal visible={!!selectedMsg} transparent animationType="none" onRequestClose={closeMenu}>
-                <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu}>
-                    <Animated.View style={[styles.menuSheet, { transform: [{ translateY: menuAnim }] }]}>
-                        {/* Message preview */}
-                        <View style={styles.menuPreview}>
-                            <Text style={styles.menuPreviewText} numberOfLines={2}>
+                {/* Reply Preview */}
+                {replyingToMsg && (
+                    <View style={styles.replyPreviewBar}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.replyPreviewName}>
+                                {replyingToMsg.profiles?.email?.split('@')[0] || (replyingToMsg.user_id === user?.id ? 'Tú' : 'Alguien')}
+                            </Text>
+                            <Text style={styles.replyPreviewText} numberOfLines={1}>
                                 {(() => {
-                                    const t = selectedMsg?.text || '';
+                                    const t = replyingToMsg.text || '';
                                     if (t.startsWith('[imagen]')) return '📷 Imagen';
                                     if (t.startsWith('[video]')) return '📹 Video';
                                     if (t.startsWith('[audio]')) return '🎤 Audio';
+                                    if (t.startsWith('[document=')) return '📄 Documento';
                                     return t;
                                 })()}
                             </Text>
                         </View>
+                        <TouchableOpacity onPress={() => setReplyingToMsg(null)} style={{ padding: 4 }}>
+                            <Ionicons name="close-circle" size={24} color="#9ca3af" />
+                        </TouchableOpacity>
+                    </View>
+                )}
 
-                        {/* Actions List (Vertical) */}
-                        <View style={styles.menuActionsVertical}>
-                            {/* Emojis row */}
-                            <View style={styles.menuEmojiRow}>
-                                {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                                    <TouchableOpacity
-                                        key={emoji}
-                                        style={styles.emojiBtn}
-                                        onPress={() => { reactToMessage({ messageId: selectedMsg.id, emoji }); closeMenu(); }}
-                                    >
-                                        <Text style={{ fontSize: 26 }}>{emoji}</Text>
-                                    </TouchableOpacity>
-                                ))}
+                {/* Input bar */}
+                {recordingUri ? (
+                    <View style={styles.inputBar}>
+                        <TouchableOpacity style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]} onPress={cancelAudio} disabled={sendingMedia || isPending}>
+                            <Ionicons name="trash-outline" size={24} color="#ef4444" />
+                        </TouchableOpacity>
+                        <View style={{ flex: 1, paddingHorizontal: 4 }}>
+                            <View style={{ backgroundColor: 'white', borderRadius: 24, paddingVertical: 4, paddingHorizontal: 12 }}>
+                                <AudioPlayer url={recordingUri} isMe={false} />
+                            </View>
+                        </View>
+                        <TouchableOpacity style={[styles.sendBtn, (sendingMedia || isPending) && styles.sendDisabled]} onPress={uploadAudio} disabled={sendingMedia || isPending}>
+                            {sendingMedia || isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View style={styles.inputBar}>
+                        <TouchableOpacity style={styles.mediaBtn} onPress={pickMediaSource} disabled={sendingMedia || isPending}>
+                            <Ionicons name="image-outline" size={24} color="#6b7280" />
+                        </TouchableOpacity>
+                        <TextInput
+                            style={styles.input}
+                            placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
+                            placeholderTextColor="#9ca3af"
+                            value={text}
+                            onChangeText={handleTextChange}
+                            multiline
+                        />
+                        {text.trim() ? (
+                            <TouchableOpacity style={[styles.sendBtn, isPending && styles.sendDisabled]} onPress={handleSend} disabled={isPending}>
+                                {isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={18} color="white" />}
+                            </TouchableOpacity>
+                        ) : sendingMedia ? (
+                            <View style={styles.sendBtn}><ActivityIndicator size="small" color="white" /></View>
+                        ) : (
+                            <Pressable style={[styles.sendBtn, isRecording && styles.recordingBtn]} onPressIn={startRecording} onPressOut={stopRecording}>
+                                <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color="white" />
+                            </Pressable>
+                        )}
+                    </View>
+                )}
+
+                {/* Multi-select top bar */}
+                {isMultiSelecting && (
+                    <View style={styles.selectBar}>
+                        <TouchableOpacity onPress={cancelMultiSelect} style={styles.selectBarBtn}>
+                            <Ionicons name="close" size={22} color="white" />
+                        </TouchableOpacity>
+                        <Text style={styles.selectBarText}>{multiSelect.length} seleccionado(s)</Text>
+                        <TouchableOpacity onPress={forwardSelected} style={styles.selectBarForward}>
+                            <Ionicons name="arrow-redo" size={18} color="white" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={deleteSelected} style={styles.selectBarDelete}>
+                            <Ionicons name="trash" size={20} color="white" />
+                            <Text style={styles.selectBarDeleteText}>Eliminar</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* ─── Fullscreen Media Viewer ────────────────────────── */}
+                <Modal visible={!!viewerMedia} transparent animationType="fade" onRequestClose={() => setViewerMedia(null)}>
+                    <View style={styles.viewerBackdrop}>
+                        {viewerMedia?.type === 'video' ? (
+                            <Video
+                                source={{ uri: viewerMedia.url }}
+                                style={styles.viewerImage}
+                                useNativeControls
+                                shouldPlay
+                                resizeMode={ResizeMode.CONTAIN}
+                            />
+                        ) : (
+                            <TouchableOpacity style={{ flex: 1, width: '100%' }} activeOpacity={1} onPress={() => setViewerMedia(null)}>
+                                <Image
+                                    source={{ uri: viewerMedia?.url || '' }}
+                                    style={styles.viewerImage}
+                                    resizeMode="contain"
+                                />
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
+                            <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
+                        </TouchableOpacity>
+                    </View>
+                </Modal>
+
+                {/* AI Summary Modal */}
+                <Modal visible={!!summary} transparent animationType="slide" onRequestClose={() => setSummary(null)}>
+                    <View style={styles.summaryBackdrop}>
+                        <View style={styles.summarySheet}>
+                            <View style={styles.summaryHeader}>
+                                <Ionicons name="sparkles" size={24} color="#8b5cf6" />
+                                <Text style={styles.summaryTitle}>Resumen de la Conversación</Text>
+                                <TouchableOpacity onPress={() => setSummary(null)} style={styles.summaryClosePulse}>
+                                    <Ionicons name="close" size={24} color="#6b7280" />
+                                </TouchableOpacity>
                             </View>
 
-                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleReply}>
-                                <Ionicons name="arrow-undo-outline" size={22} color="#8b5cf6" style={styles.menuActionIcon} />
-                                <Text style={styles.menuActionLabel}>Responder</Text>
+                            <ScrollView style={styles.summaryScroll} showsVerticalScrollIndicator={false}>
+                                <Text style={styles.summaryContent}>{summary}</Text>
+                            </ScrollView>
+
+                            <TouchableOpacity style={styles.summaryDoneBtn} onPress={() => setSummary(null)}>
+                                <Text style={styles.summaryDoneText}>Entendido, gracias Ping!</Text>
                             </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleCopy}>
-                                <Ionicons name="copy-outline" size={22} color="#6366f1" style={styles.menuActionIcon} />
-                                <Text style={styles.menuActionLabel}>Copiar</Text>
-                            </TouchableOpacity>
-
-                            {isMyMessage && isTextMsg && (
-                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleEdit}>
-                                    <Ionicons name="pencil-outline" size={22} color="#f59e0b" style={styles.menuActionIcon} />
-                                    <Text style={styles.menuActionLabel}>Editar</Text>
-                                </TouchableOpacity>
-                            )}
-
-                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleForward}>
-                                <Ionicons name="arrow-redo-outline" size={22} color="#10b981" style={styles.menuActionIcon} />
-                                <Text style={styles.menuActionLabel}>Reenviar</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.menuActionVertical} onPress={handleSelect}>
-                                <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" style={styles.menuActionIcon} />
-                                <Text style={styles.menuActionLabel}>Seleccionar</Text>
-                            </TouchableOpacity>
-
-                            {isMyMessage && (
-                                <TouchableOpacity style={[styles.menuActionVertical, { borderBottomWidth: 0 }]} onPress={handleDelete}>
-                                    <Ionicons name="trash-outline" size={22} color="#ef4444" style={styles.menuActionIcon} />
-                                    <Text style={[styles.menuActionLabel, { color: '#ef4444' }]}>Eliminar</Text>
-                                </TouchableOpacity>
-                            )}
                         </View>
+                    </View>
+                </Modal>
 
-                        <TouchableOpacity style={styles.menuCancel} onPress={closeMenu}>
-                            <Text style={styles.menuCancelText}>Cancelar</Text>
-                        </TouchableOpacity>
-                    </Animated.View>
-                </TouchableOpacity>
-            </Modal >
-        </KeyboardAvoidingView >
+                {/* ─── Context Menu Modal ──────────────────────────────── */}
+                <Modal visible={!!selectedMsg} transparent animationType="none" onRequestClose={closeMenu}>
+                    <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu}>
+                        <Animated.View style={[styles.menuSheet, { transform: [{ translateY: menuAnim }] }]}>
+                            {/* Message preview */}
+                            <View style={styles.menuPreview}>
+                                <Text style={styles.menuPreviewText} numberOfLines={2}>
+                                    {(() => {
+                                        const t = selectedMsg?.text || '';
+                                        if (t.startsWith('[imagen]')) return '📷 Imagen';
+                                        if (t.startsWith('[video]')) return '📹 Video';
+                                        if (t.startsWith('[audio]')) return '🎤 Audio';
+                                        return t;
+                                    })()}
+                                </Text>
+                            </View>
+
+                            {/* Actions List (Vertical) */}
+                            <View style={styles.menuActionsVertical}>
+                                {/* Emojis row */}
+                                <View style={styles.menuEmojiRow}>
+                                    {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                        <TouchableOpacity
+                                            key={emoji}
+                                            style={styles.emojiBtn}
+                                            onPress={() => { reactToMessage({ messageId: selectedMsg.id, emoji }); closeMenu(); }}
+                                        >
+                                            <Text style={{ fontSize: 26 }}>{emoji}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleReply}>
+                                    <Ionicons name="arrow-undo-outline" size={22} color="#8b5cf6" style={styles.menuActionIcon} />
+                                    <Text style={styles.menuActionLabel}>Responder</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleCopy}>
+                                    <Ionicons name="copy-outline" size={22} color="#6366f1" style={styles.menuActionIcon} />
+                                    <Text style={styles.menuActionLabel}>Copiar</Text>
+                                </TouchableOpacity>
+
+                                {isMyMessage && isTextMsg && (
+                                    <TouchableOpacity style={styles.menuActionVertical} onPress={handleEdit}>
+                                        <Ionicons name="pencil-outline" size={22} color="#f59e0b" style={styles.menuActionIcon} />
+                                        <Text style={styles.menuActionLabel}>Editar</Text>
+                                    </TouchableOpacity>
+                                )}
+
+                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleForward}>
+                                    <Ionicons name="arrow-redo-outline" size={22} color="#10b981" style={styles.menuActionIcon} />
+                                    <Text style={styles.menuActionLabel}>Reenviar</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.menuActionVertical} onPress={handleSelect}>
+                                    <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" style={styles.menuActionIcon} />
+                                    <Text style={styles.menuActionLabel}>Seleccionar</Text>
+                                </TouchableOpacity>
+
+                                {isMyMessage && (
+                                    <TouchableOpacity style={[styles.menuActionVertical, { borderBottomWidth: 0 }]} onPress={handleDelete}>
+                                        <Ionicons name="trash-outline" size={22} color="#ef4444" style={styles.menuActionIcon} />
+                                        <Text style={[styles.menuActionLabel, { color: '#ef4444' }]}>Eliminar</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+
+                            <TouchableOpacity style={styles.menuCancel} onPress={closeMenu}>
+                                <Text style={styles.menuCancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+                        </Animated.View>
+                    </TouchableOpacity>
+                </Modal >
+            </KeyboardAvoidingView >
+        </GestureHandlerRootView>
     );
 }
 
