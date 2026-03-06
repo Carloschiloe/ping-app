@@ -656,6 +656,7 @@ export default function ChatScreen({ navigation }: any) {
                                 isMe ? styles.bubbleMe : styles.bubbleThem,
                                 (isImage || isVideo || isAudio) && styles.bubbleMedia,
                                 isSelected && styles.bubbleSelected,
+                                item.id === highlightedMsgId && styles.bubbleHighlighted,
                                 { overflow: 'hidden' }
                             ]}
                         >
@@ -1109,6 +1110,7 @@ const styles = StyleSheet.create({
     },
     bubbleMe: { backgroundColor: BUBBLE_BLUE, borderBottomRightRadius: 4 },
     bubbleThem: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
+    bubbleHighlighted: { backgroundColor: '#bfdbfe' }, // Light blue highlight
     senderAvatarContainer: {
         width: 32,
         height: 32,

@@ -235,6 +235,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
+        const scrollToMessageId = req.query.scrollToMessageId as string | undefined;
 
         // Verify participation
         const { data: part } = await supabaseAdmin
@@ -249,15 +250,55 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        const { data: messages, error } = await supabaseAdmin
-            .from('messages')
-            .select('*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, text, profiles!sender_id(email, full_name, avatar_url))')
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: false })
-            .limit(50);
+        const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, text, profiles!sender_id(email, full_name, avatar_url))';
+        let finalMessages: any[] = [];
 
-        if (error) throw error;
-        res.json({ messages: messages || [] });
+        if (scrollToMessageId) {
+            // Find the target message date
+            const { data: targetMsg } = await supabaseAdmin
+                .from('messages')
+                .select('created_at')
+                .eq('id', scrollToMessageId)
+                .single();
+
+            if (targetMsg) {
+                // Fetch 30 older messages (including the target)
+                const { data: older } = await supabaseAdmin
+                    .from('messages')
+                    .select(selectQuery)
+                    .eq('conversation_id', conversationId)
+                    .lte('created_at', targetMsg.created_at)
+                    .order('created_at', { ascending: false })
+                    .limit(30);
+
+                // Fetch 30 newer messages
+                const { data: newer } = await supabaseAdmin
+                    .from('messages')
+                    .select(selectQuery)
+                    .eq('conversation_id', conversationId)
+                    .gt('created_at', targetMsg.created_at)
+                    .order('created_at', { ascending: true }) // ASC to get the ones right after
+                    .limit(30);
+
+                // Combine: newer reversed (so newest is first, matching order desc) + older
+                finalMessages = [...(newer || []).reverse(), ...(older || [])];
+            }
+        }
+
+        // Fallback or default load (last 50 messages)
+        if (!finalMessages.length) {
+            const { data: messages, error } = await supabaseAdmin
+                .from('messages')
+                .select(selectQuery)
+                .eq('conversation_id', conversationId)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (error) throw error;
+            finalMessages = messages || [];
+        }
+
+        res.json({ messages: finalMessages });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

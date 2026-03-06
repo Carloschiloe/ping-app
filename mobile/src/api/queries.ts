@@ -72,7 +72,7 @@ export const useConversations = () => {
     });
 };
 
-export const useConversationMessages = (conversationId: string) => {
+export const useConversationMessages = (conversationId: string, scrollToMessageId?: string) => {
     const queryClient = useQueryClient();
 
     // Realtime: instantly append new messages in this conversation
@@ -105,8 +105,8 @@ export const useConversationMessages = (conversationId: string) => {
     }, [conversationId, queryClient]);
 
     return useQuery({
-        queryKey: ['conversation-messages', conversationId],
-        queryFn: () => apiClient.get(`/conversations/${conversationId}/messages`),
+        queryKey: ['conversation-messages', conversationId, scrollToMessageId],
+        queryFn: () => apiClient.get(`/conversations/${conversationId}/messages${scrollToMessageId ? `?scrollToMessageId=${scrollToMessageId}` : ''}`),
         enabled: !!conversationId,
     });
 };

@@ -23,6 +23,25 @@ const useSearch = (query: string) => {
     });
 };
 
+const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
+    if (!highlight.trim()) {
+        return <Text style={style} numberOfLines={numberOfLines}>{text}</Text>;
+    }
+    const regex = new RegExp(`(${highlight})`, 'gi');
+    const parts = text.split(regex);
+    return (
+        <Text style={style} numberOfLines={numberOfLines}>
+            {parts.map((part: string, i: number) =>
+                regex.test(part) ? (
+                    <Text key={i} style={{ backgroundColor: '#fef08a', color: '#854d0e', fontWeight: '800' }}>{part}</Text>
+                ) : (
+                    <Text key={i}>{part}</Text>
+                )
+            )}
+        </Text>
+    );
+};
+
 export default function SearchScreen() {
     const [query, setQuery] = useState('');
     const { data, isLoading } = useSearch(query);
@@ -63,7 +82,7 @@ export default function SearchScreen() {
                     <Text style={styles.cardLabel}>{label}</Text>
                     {senderName && <Text style={styles.senderLabel}> • {senderName}</Text>}
                 </View>
-                <Text style={styles.cardText} numberOfLines={2}>{title}</Text>
+                <HighlightText text={title} highlight={query} style={styles.cardText} numberOfLines={2} />
                 {item.created_at && (
                     <Text style={styles.dateLabel}>
                         {new Date(item.created_at).toLocaleDateString()}
