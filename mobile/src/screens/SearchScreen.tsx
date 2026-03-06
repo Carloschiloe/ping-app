@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversations } from '../api/queries';
+import { useConversations, useGetOrCreateSelfConversation } from '../api/queries';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -49,6 +49,7 @@ export default function SearchScreen() {
     const navigation = useNavigation<any>();
     const { data: convData } = useConversations();
     const conversations = convData?.conversations || [];
+    const { mutateAsync: getSelfConversation } = useGetOrCreateSelfConversation();
 
     const renderItem = ({ item }: { item: any }) => {
         const isCommitment = !!item.title;
@@ -63,15 +64,28 @@ export default function SearchScreen() {
         return (
             <TouchableOpacity
                 style={styles.card}
-                onPress={() => {
-                    // For self-chats (reminders), conversationId will be null or undefined.
+                onPress={async () => {
                     const isSelfChat = !conversationId || conv?.isSelf;
+                    let targetConversationId = conversationId;
+
+                    // If it's a self-chat but we don't have the ID, fetch/create it
+                    if (!targetConversationId && isSelfChat) {
+                        try {
+                            const res = await getSelfConversation();
+                            if (res && res.conversationId) {
+                                targetConversationId = res.conversationId;
+                            }
+                        } catch (e) {
+                            console.error('Failed to init self chat', e);
+                            return;
+                        }
+                    }
 
                     navigation.navigate('Chats', {
                         screen: 'Chat',
                         initial: false,
                         params: {
-                            conversationId: conversationId || null,
+                            conversationId: targetConversationId,
                             scrollToMessageId: isCommitment ? item.message_id : item.id,
                             isGroup: conv?.isGroup,
                             otherUser: conv?.otherUser,

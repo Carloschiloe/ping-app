@@ -41,7 +41,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         // Search commitments
         const { data: commitments, error: commError } = await supabaseAdmin
             .from('commitments')
-            .select('*')
+            .select('*, message:message_id(id, conversation_id)')
             .eq('owner_user_id', userId)
             .ilike('title', `%${q}%`)
             .limit(20);
