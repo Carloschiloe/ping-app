@@ -106,7 +106,7 @@ export default function ChatScreen({ navigation }: any) {
     const menuAnim = useRef(new Animated.Value(300)).current;
 
     // Presence state
-    const [typingUsers, setTypingUsers] = useState<string[]>([]);
+    const [activeTypers, setActiveTypers] = useState<{ name: string, isRecording: boolean }[]>([]);
     const presenceChannel = useRef<any>(null);
     let typingTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -138,18 +138,22 @@ export default function ChatScreen({ navigation }: any) {
         channel
             .on('presence', { event: 'sync' }, () => {
                 const state = channel.presenceState();
-                const activeTypers: string[] = [];
+                const active: { name: string, isRecording: boolean }[] = [];
                 Object.keys(state).forEach((key) => {
                     if (key !== user.id) {
                         const sessions: any[] = state[key];
                         const isTyping = sessions.some(s => s.typing === true);
-                        if (isTyping) {
+                        const isRec = sessions.some(s => s.recording === true);
+                        if (isTyping || isRec) {
                             const pData = sessions[0];
-                            activeTypers.push(pData.name || pData.email || 'Alguien');
+                            active.push({
+                                name: pData.name || pData.email || 'Alguien',
+                                isRecording: isRec
+                            });
                         }
                     }
                 });
-                setTypingUsers(activeTypers);
+                setActiveTypers(active);
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
@@ -264,6 +268,18 @@ export default function ChatScreen({ navigation }: any) {
             name: (user as any).full_name?.split(' ')[0],
             email: user.email?.split('@')[0] || 'Un usuario',
             typing: isTyping,
+            recording: false
+        });
+    };
+
+    const broadcastRecording = (isRec: boolean) => {
+        if (!presenceChannel.current || !user) return;
+        presenceChannel.current.track({
+            user_id: user.id,
+            name: (user as any).full_name?.split(' ')[0],
+            email: user.email?.split('@')[0] || 'Un usuario',
+            typing: false,
+            recording: isRec
         });
     };
 
@@ -465,7 +481,7 @@ export default function ChatScreen({ navigation }: any) {
             sendMessage({ text: textStr, reply_to_id: replyingToMsg?.id }, { onSuccess: () => setReplyingToMsg(null) });
         },
         onRecordingStateChange: (recordingState: boolean) => {
-            if (recordingState) broadcastTyping(true);
+            broadcastRecording(recordingState);
         },
         setSendingMedia
     });
@@ -763,12 +779,16 @@ export default function ChatScreen({ navigation }: any) {
             <StatusBar barStyle="light-content" />
 
             {/* Typing Indicator */}
-            {typingUsers.length > 0 && (
+            {activeTypers.length > 0 && (
                 <View style={styles.typingIndicatorContainer}>
                     <View style={styles.typingRow}>
-                        <TypingIndicator />
+                        {activeTypers.some(t => t.isRecording) ? (
+                            <Ionicons name="mic" size={16} color="#6b7280" />
+                        ) : (
+                            <TypingIndicator />
+                        )}
                         <Text style={styles.typingIndicatorText} numberOfLines={1}>
-                            {typingUsers.join(', ')} {typingUsers.length > 1 ? 'están' : 'está'} escribiendo...
+                            {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando un audio...' : 'escribiendo...'}
                         </Text>
                     </View>
                 </View>
