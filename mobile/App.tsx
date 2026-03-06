@@ -55,9 +55,16 @@ const AppContent = () => {
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
 
+    const handleUnlock = () => {
+        setIsLocked(false);
+    };
+
     useEffect(() => {
         const checkBiometricPreference = async (nextAppState: AppStateStatus) => {
-            if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+            // Only trigger LockScreen when returning from true 'background' (user left the app).
+            // Do NOT trigger on 'inactive', because OS-level modals like the FaceID/Fingerprint prompt 
+            // put the app in 'inactive' state, which would cause an infinite loop!
+            if (appState.current === 'background' && nextAppState === 'active') {
                 const biometricEnabled = await AsyncStorage.getItem('ping_biometric_lock');
                 if (biometricEnabled === 'true') {
                     setIsLocked(true);
@@ -80,7 +87,7 @@ const AppContent = () => {
             <BackendBanner />
             <AppNavigator />
             <StatusBar style="auto" />
-            {isLocked && <LockScreen onUnlock={() => setIsLocked(false)} />}
+            {isLocked && <LockScreen onUnlock={handleUnlock} />}
         </>
     );
 };
