@@ -165,8 +165,14 @@ export default function ChatScreen({ navigation }: any) {
             channel,
             track: async (data: any) => {
                 if (isSubscribed) {
-                    await channel.track(data);
+                    try {
+                        await channel.track(data);
+                        return true;
+                    } catch (e) {
+                        return false;
+                    }
                 }
+                return false;
             }
         };
 
@@ -253,7 +259,7 @@ export default function ChatScreen({ navigation }: any) {
     // Ref to debounce track calls to avoid hitting 10 events/sec rate limit
     let lastTypingTime = useRef<number>(0);
 
-    const broadcastTyping = (isTyping: boolean) => {
+    const broadcastTyping = async (isTyping: boolean) => {
         if (!presenceChannel.current || !user) return;
 
         const now = Date.now();
@@ -261,20 +267,24 @@ export default function ChatScreen({ navigation }: any) {
             // Drop track call to avoid rate limits when spamming keys
             return;
         }
-        if (isTyping) lastTypingTime.current = now;
 
-        presenceChannel.current.track({
+        const success = await presenceChannel.current.track({
             user_id: user.id,
             name: (user as any).full_name?.split(' ')[0],
             email: user.email?.split('@')[0] || 'Un usuario',
             typing: isTyping,
             recording: false
         });
+
+        // Only block future calls if we actually successfully sent this one
+        if (isTyping && success) {
+            lastTypingTime.current = Date.now();
+        }
     };
 
-    const broadcastRecording = (isRec: boolean) => {
+    const broadcastRecording = async (isRec: boolean) => {
         if (!presenceChannel.current || !user) return;
-        presenceChannel.current.track({
+        await presenceChannel.current.track({
             user_id: user.id,
             name: (user as any).full_name?.split(' ')[0],
             email: user.email?.split('@')[0] || 'Un usuario',
@@ -778,22 +788,6 @@ export default function ChatScreen({ navigation }: any) {
         >
             <StatusBar barStyle="light-content" />
 
-            {/* Typing Indicator */}
-            {activeTypers.length > 0 && (
-                <View style={styles.typingIndicatorContainer}>
-                    <View style={styles.typingRow}>
-                        {activeTypers.some(t => t.isRecording) ? (
-                            <Ionicons name="mic" size={16} color="#6b7280" />
-                        ) : (
-                            <TypingIndicator />
-                        )}
-                        <Text style={styles.typingIndicatorText} numberOfLines={1}>
-                            {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando un audio...' : 'escribiendo...'}
-                        </Text>
-                    </View>
-                </View>
-            )}
-
             {renderReactionDetailsModal()}
 
             <View style={styles.chatBg}>
@@ -821,6 +815,22 @@ export default function ChatScreen({ navigation }: any) {
                     />
                 )}
             </View>
+
+            {/* Typing Indicator */}
+            {activeTypers.length > 0 && (
+                <View style={styles.typingIndicatorContainer}>
+                    <View style={styles.typingRow}>
+                        {activeTypers.some(t => t.isRecording) ? (
+                            <Ionicons name="mic" size={16} color="#6b7280" />
+                        ) : (
+                            <TypingIndicator />
+                        )}
+                        <Text style={styles.typingIndicatorText} numberOfLines={1}>
+                            {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando un audio...' : 'escribiendo...'}
+                        </Text>
+                    </View>
+                </View>
+            )}
 
             {/* Reply Preview */}
             {replyingToMsg && (
@@ -1256,9 +1266,10 @@ const styles = StyleSheet.create({
 
     // ─── Typing Indicator ────────────────────────────────────────────────────
     typingIndicatorContainer: {
-        backgroundColor: '#ECE5DD',
+        backgroundColor: '#f9fafb',
         paddingHorizontal: 16,
-        paddingTop: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
         alignItems: 'flex-start',
     },
     typingRow: {
