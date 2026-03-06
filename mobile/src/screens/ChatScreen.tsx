@@ -16,6 +16,8 @@ import AudioPlayer from '../components/AudioPlayer';
 import { apiClient } from '../api/client';
 import { useMediaPicker } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
+import * as Haptics from 'expo-haptics';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -117,7 +119,7 @@ export default function ChatScreen({ navigation }: any) {
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
     const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
     const listRef = useRef<FlatList>(null);
-
+    const swipeableRowRefs = useRef(new Map());
     const { user } = useAuth();
     const isFocused = useIsFocused();
     const messages = data?.messages || [];
@@ -566,6 +568,26 @@ export default function ChatScreen({ navigation }: any) {
             }
         };
 
+        const closeSwipeable = () => {
+            if (item.id && swipeableRowRefs.current.has(item.id)) {
+                swipeableRowRefs.current.get(item.id)?.close();
+            }
+        };
+
+        const renderLeftActions = (progress: any, dragX: any) => {
+            const trans = dragX.interpolate({
+                inputRange: [0, 50, 100, 101],
+                outputRange: [-20, 0, 0, 1],
+            });
+            return (
+                <View style={{ width: 60, justifyContent: 'center', alignItems: 'center' }}>
+                    <Animated.View style={{ transform: [{ translateX: trans }], width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="arrow-undo" size={18} color="#6b7280" />
+                    </Animated.View>
+                </View>
+            );
+        };
+
         return (
             <View key={item.id} style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
                 {isMultiSelecting && (
@@ -607,96 +629,113 @@ export default function ChatScreen({ navigation }: any) {
                 )}
 
                 <View style={{ maxWidth: '75%', position: 'relative' }}>
-                    <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={handlePress}
-                        onLongPress={handleLongPress}
-                        delayLongPress={350}
-                        style={[
-                            styles.bubble,
-                            isMe ? styles.bubbleMe : styles.bubbleThem,
-                            (isImage || isVideo || isAudio) && styles.bubbleMedia,
-                            isSelected && styles.bubbleSelected,
-                            { overflow: 'hidden' }
-                        ]}
+                    <Swipeable
+                        ref={ref => {
+                            if (ref && !swipeableRowRefs.current.has(item.id)) {
+                                swipeableRowRefs.current.set(item.id, ref);
+                            }
+                        }}
+                        friction={2}
+                        rightThreshold={40}
+                        leftThreshold={40}
+                        renderLeftActions={renderLeftActions}
+                        onSwipeableOpen={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setReplyingToMsg(item);
+                            closeSwipeable();
+                        }}
                     >
-                        {/* ─── Quoted Message (Reply) ─── */}
-                        {item.reply_to && !Array.isArray(item.reply_to) && (
-                            <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
-                                <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
-                                    {(() => {
-                                        const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
-                                        return p?.full_name || (p?.email || 'Usuario').split('@')[0];
-                                    })()}
-                                </Text>
-                                <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
-                                    {item.reply_to.text || 'Sin texto'}
-                                </Text>
-                            </View>
-                        )}
-
-                        {!isMe && !isSystem && isGroup && (
-                            <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
-                                {(() => {
-                                    const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-                                    return p?.full_name || (p?.email || 'Miembro').split('@')[0];
-                                })()}
-                            </Text>
-                        )}
-
-                        {isImage && mediaUrl ? (
-                            <Image
-                                source={{ uri: mediaUrl }}
-                                style={styles.msgImage}
-                                resizeMode="cover"
-                            />
-                        ) : isVideo && mediaUrl ? (
-                            <View style={styles.inlineVideoWrap} pointerEvents="none">
-                                <Video
-                                    source={{ uri: mediaUrl }}
-                                    style={styles.msgImage}
-                                    useNativeControls={false}
-                                    shouldPlay={false}
-                                    isMuted={true}
-                                    resizeMode={ResizeMode.COVER}
-                                />
-                                <View style={styles.videoPlayOverlay}>
-                                    <Ionicons name="play-circle" size={48} color="white" />
-                                </View>
-                            </View>
-                        ) : isAudio && mediaUrl ? (
-                            <AudioPlayer url={mediaUrl} isMe={isMe} />
-                        ) : isDocument && mediaUrl ? (
-                            <View style={styles.documentBubble}>
-                                <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: '#e5e7eb' }]}>
-                                    <Ionicons name="document-text" size={24} color={isMe ? 'white' : '#6b7280'} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
-                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontSize: 10 }]}>Documento</Text>
-                                </View>
-                            </View>
-                        ) : (
-                            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
-                                {msgText}
-                            </Text>
-                        )}
-
-                        <View style={styles.metaRow}>
-                            {/* Pro-active Debug Info: R for ReplyTo, RT for Reactions Count */}
-                            {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
-                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
-                            {isMe && (
-                                <View style={{ marginLeft: 4 }}>
-                                    <Ionicons
-                                        name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
-                                        size={14}
-                                        color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? '#9ca3af' : 'rgba(255,255,255,0.7)')}
-                                    />
+                        <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={handlePress}
+                            onLongPress={handleLongPress}
+                            delayLongPress={350}
+                            style={[
+                                styles.bubble,
+                                isMe ? styles.bubbleMe : styles.bubbleThem,
+                                (isImage || isVideo || isAudio) && styles.bubbleMedia,
+                                isSelected && styles.bubbleSelected,
+                                { overflow: 'hidden' }
+                            ]}
+                        >
+                            {/* ─── Quoted Message (Reply) ─── */}
+                            {item.reply_to && !Array.isArray(item.reply_to) && (
+                                <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
+                                    <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
+                                        {(() => {
+                                            const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
+                                            return p?.full_name || (p?.email || 'Usuario').split('@')[0];
+                                        })()}
+                                    </Text>
+                                    <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
+                                        {item.reply_to.text || 'Sin texto'}
+                                    </Text>
                                 </View>
                             )}
-                        </View>
-                    </TouchableOpacity>
+
+                            {!isMe && !isSystem && isGroup && (
+                                <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
+                                    {(() => {
+                                        const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
+                                        return p?.full_name || (p?.email || 'Miembro').split('@')[0];
+                                    })()}
+                                </Text>
+                            )}
+
+                            {isImage && mediaUrl ? (
+                                <Image
+                                    source={{ uri: mediaUrl }}
+                                    style={styles.msgImage}
+                                    resizeMode="cover"
+                                />
+                            ) : isVideo && mediaUrl ? (
+                                <View style={styles.inlineVideoWrap} pointerEvents="none">
+                                    <Video
+                                        source={{ uri: mediaUrl }}
+                                        style={styles.msgImage}
+                                        useNativeControls={false}
+                                        shouldPlay={false}
+                                        isMuted={true}
+                                        resizeMode={ResizeMode.COVER}
+                                    />
+                                    <View style={styles.videoPlayOverlay}>
+                                        <Ionicons name="play-circle" size={48} color="white" />
+                                    </View>
+                                </View>
+                            ) : isAudio && mediaUrl ? (
+                                <AudioPlayer url={mediaUrl} isMe={isMe} />
+                            ) : isDocument && mediaUrl ? (
+                                <View style={styles.documentBubble}>
+                                    <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: '#e5e7eb' }]}>
+                                        <Ionicons name="document-text" size={24} color={isMe ? 'white' : '#6b7280'} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
+                                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontSize: 10 }]}>Documento</Text>
+                                    </View>
+                                </View>
+                            ) : (
+                                <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
+                                    {msgText}
+                                </Text>
+                            )}
+
+                            <View style={styles.metaRow}>
+                                {/* Pro-active Debug Info: R for ReplyTo, RT for Reactions Count */}
+                                {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
+                                <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
+                                {isMe && (
+                                    <View style={{ marginLeft: 4 }}>
+                                        <Ionicons
+                                            name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
+                                            size={14}
+                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? '#9ca3af' : 'rgba(255,255,255,0.7)')}
+                                        />
+                                    </View>
+                                )}
+                            </View>
+                        </TouchableOpacity>
+                    </Swipeable>
 
                     {/* ─── Reactions (Pinned to bubble corner) ─── */}
                     {item.message_reactions && item.message_reactions.length > 0 && (
