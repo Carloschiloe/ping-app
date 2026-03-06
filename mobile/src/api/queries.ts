@@ -283,6 +283,8 @@ export const useMarkCommitmentDone = () => {
         mutationFn: async (id: string) => apiClient.patch(`/commitments/${id}`, { status: 'completed' }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
     });
 };

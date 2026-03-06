@@ -9,10 +9,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead } from '../api/queries';
+import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead, useConversationGroupTasks } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AudioPlayer from '../components/AudioPlayer';
+import GroupTaskCard from '../components/GroupTaskCard';
 import { apiClient } from '../api/client';
 import { useMediaPicker } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -124,6 +125,7 @@ export default function ChatScreen({ navigation }: any) {
     const { user } = useAuth();
     const isFocused = useIsFocused();
     const messages = data?.messages || [];
+    const { data: groupTasks = [] } = useConversationGroupTasks(isGroup ? conversationId : null);
 
     const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));
     const avatarUrl = isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url;
@@ -763,6 +765,13 @@ export default function ChatScreen({ navigation }: any) {
                         <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
                     )}
                 </View>
+
+                {/* Phase 26: Group Task Card — shown beneath the triggering message */}
+                {isGroup && (() => {
+                    const task = groupTasks.find((t: any) => t.message_id === item.id && t.is_group_task);
+                    return task ? <GroupTaskCard key={task.id} commitment={task} /> : null;
+                })()}
+
             </Swipeable>
         );
     };
