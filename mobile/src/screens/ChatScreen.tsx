@@ -881,7 +881,7 @@ export default function ChatScreen({ navigation }: any) {
                         placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
                         placeholderTextColor="#9ca3af"
                         value={text}
-                        onChangeText={setText}
+                        onChangeText={handleTextChange}
                         multiline
                     />
                     {text.trim() ? (
