@@ -590,62 +590,62 @@ export default function ChatScreen({ navigation }: any) {
         };
 
         return (
-            <View key={item.id} style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
-                {isMultiSelecting && (
-                    <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
-                        <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
-                            {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
+            <Swipeable
+                key={item.id}
+                ref={ref => {
+                    if (ref && !swipeableRowRefs.current.has(item.id)) {
+                        swipeableRowRefs.current.set(item.id, ref);
+                    }
+                }}
+                friction={2}
+                leftThreshold={40}
+                renderLeftActions={renderLeftActions}
+                onSwipeableOpen={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setReplyingToMsg(item);
+                    closeSwipeable();
+                }}
+            >
+                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
+                    {isMultiSelecting && (
+                        <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
+                            <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
+                                {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
+                            </View>
+                        </TouchableOpacity>
+                    )}
+
+                    {!isMe && !isSystem && (
+                        <View style={styles.senderAvatarContainer}>
+                            {(() => {
+                                const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
+                                const avatarUrl = p?.avatar_url;
+                                const email = p?.email || '';
+                                const fullName = p?.full_name;
+
+                                let initialsString = '?';
+                                if (fullName) {
+                                    const parts = fullName.trim().split(/\s+/);
+                                    if (parts.length >= 2) initialsString = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                                    else initialsString = parts[0].substring(0, 2).toUpperCase();
+                                } else {
+                                    initialsString = email.substring(0, 2).toUpperCase();
+                                }
+
+                                const color = avatarColor(email || 'user');
+
+                                return avatarUrl ? (
+                                    <Image source={{ uri: avatarUrl }} style={styles.senderAvatar} />
+                                ) : (
+                                    <View style={[styles.senderAvatar, { backgroundColor: color, justifyContent: 'center', alignItems: 'center' }]}>
+                                        <Text style={styles.senderAvatarText}>{initialsString}</Text>
+                                    </View>
+                                );
+                            })()}
                         </View>
-                    </TouchableOpacity>
-                )}
+                    )}
 
-                {!isMe && !isSystem && (
-                    <View style={styles.senderAvatarContainer}>
-                        {(() => {
-                            const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-                            const avatarUrl = p?.avatar_url;
-                            const email = p?.email || '';
-                            const fullName = p?.full_name;
-
-                            let initialsString = '?';
-                            if (fullName) {
-                                const parts = fullName.trim().split(/\s+/);
-                                if (parts.length >= 2) initialsString = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                                else initialsString = parts[0].substring(0, 2).toUpperCase();
-                            } else {
-                                initialsString = email.substring(0, 2).toUpperCase();
-                            }
-
-                            const color = avatarColor(email || 'user');
-
-                            return avatarUrl ? (
-                                <Image source={{ uri: avatarUrl }} style={styles.senderAvatar} />
-                            ) : (
-                                <View style={[styles.senderAvatar, { backgroundColor: color, justifyContent: 'center', alignItems: 'center' }]}>
-                                    <Text style={styles.senderAvatarText}>{initialsString}</Text>
-                                </View>
-                            );
-                        })()}
-                    </View>
-                )}
-
-                <View style={{ maxWidth: '75%', position: 'relative' }}>
-                    <Swipeable
-                        ref={ref => {
-                            if (ref && !swipeableRowRefs.current.has(item.id)) {
-                                swipeableRowRefs.current.set(item.id, ref);
-                            }
-                        }}
-                        friction={2}
-                        rightThreshold={40}
-                        leftThreshold={40}
-                        renderLeftActions={renderLeftActions}
-                        onSwipeableOpen={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            setReplyingToMsg(item);
-                            closeSwipeable();
-                        }}
-                    >
+                    <View style={{ maxWidth: '75%', position: 'relative' }}>
                         <TouchableOpacity
                             activeOpacity={0.85}
                             onPress={handlePress}
@@ -736,34 +736,33 @@ export default function ChatScreen({ navigation }: any) {
                                 )}
                             </View>
                         </TouchableOpacity>
-                    </Swipeable>
-
-                    {/* ─── Reactions (Pinned to bubble corner) ─── */}
-                    {item.message_reactions && item.message_reactions.length > 0 && (
-                        <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
-                            {(() => {
-                                const counts = item.message_reactions.reduce((acc: any, r: any) => {
-                                    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                                    return acc;
-                                }, {});
-                                return Object.keys(counts).map(emoji => (
-                                    <TouchableOpacity
-                                        key={emoji}
-                                        style={styles.reactionPill}
-                                        onPress={() => setViewingReactionsMsg(item)}
-                                    >
-                                        <Text style={{ fontSize: 13 }}>{emoji}</Text>
-                                        {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
-                                    </TouchableOpacity>
-                                ));
-                            })()}
-                        </View>
+                        {/* ─── Reactions (Pinned to bubble corner) ─── */}
+                        {item.message_reactions && item.message_reactions.length > 0 && (
+                            <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
+                                {(() => {
+                                    const counts = item.message_reactions.reduce((acc: any, r: any) => {
+                                        acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                        return acc;
+                                    }, {});
+                                    return Object.keys(counts).map(emoji => (
+                                        <TouchableOpacity
+                                            key={emoji}
+                                            style={styles.reactionPill}
+                                            onPress={() => setViewingReactionsMsg(item)}
+                                        >
+                                            <Text style={{ fontSize: 13 }}>{emoji}</Text>
+                                            {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
+                                        </TouchableOpacity>
+                                    ));
+                                })()}
+                            </View>
+                        )}
+                    </View>
+                    {highlightedMsgId === item.id && (
+                        <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
                     )}
                 </View>
-                {highlightedMsgId === item.id && (
-                    <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
-                )}
-            </View>
+            </Swipeable>
         );
     };
 
