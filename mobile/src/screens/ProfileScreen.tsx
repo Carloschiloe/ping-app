@@ -10,6 +10,7 @@ import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, API_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 function normalizePhone(raw: string): string {
     let cleaned = raw.replace(/[^\d+]/g, '');
@@ -33,6 +34,10 @@ export default function ProfileScreen() {
     const [loadingCals, setLoadingCals] = useState(false);
     const isFocused = useIsFocused();
 
+    // Privacy States
+    const [hasBiometricHw, setHasBiometricHw] = useState(false);
+    const [biometricEnabled, setBiometricEnabled] = useState(false);
+
     // Cloud Accounts Queries
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
     const { mutate: updateAccount } = useUpdateCalendarAccount();
@@ -54,7 +59,28 @@ export default function ProfileScreen() {
         checkCalendars();
         loadHiddenCalendars();
         refetchAccounts();
+
+        // Check Biometrics
+        LocalAuthentication.hasHardwareAsync().then(hasHw => setHasBiometricHw(hasHw));
+        AsyncStorage.getItem('ping_biometric_lock').then(val => {
+            if (val === 'true') setBiometricEnabled(true);
+        });
     }, [user, isFocused]);
+
+    const handleToggleBiometric = async (value: boolean) => {
+        if (value) {
+            // Verify identity before enabling
+            const result = await LocalAuthentication.authenticateAsync({
+                promptMessage: 'Autentícate para habilitar el Bloqueo',
+                cancelLabel: 'Cancelar',
+                disableDeviceFallback: false,
+            });
+            if (!result.success) return; // Discard toggle if user cancels
+        }
+
+        setBiometricEnabled(value);
+        await AsyncStorage.setItem('ping_biometric_lock', value ? 'true' : 'false');
+    };
 
     const handleConnectCloud = async (provider: 'google' | 'outlook') => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -379,6 +405,31 @@ export default function ProfileScreen() {
                 )}
             </View>
 
+            {/* Privacy Section */}
+            <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.label}>Privacidad y Seguridad</Text>
+                    <Ionicons name="shield-checkmark-outline" size={20} color="#6b7280" />
+                </View>
+
+                {hasBiometricHw ? (
+                    <View style={styles.settingsRow}>
+                        <View style={{ flex: 1, paddingRight: 12 }}>
+                            <Text style={styles.settingsTitle}>Bloqueo de Aplicación</Text>
+                            <Text style={styles.settingsDesc}>Requerir FaceID / Huella Dactilar para abrir Ping o retornar desde el fondo.</Text>
+                        </View>
+                        <Switch
+                            value={biometricEnabled}
+                            onValueChange={handleToggleBiometric}
+                            trackColor={{ false: '#d1d5db', true: '#8b5cf6' }}
+                            thumbColor="#ffffff"
+                        />
+                    </View>
+                ) : (
+                    <Text style={styles.hint}>Tu dispositivo no soporta autenticación biométrica.</Text>
+                )}
+            </View>
+
             {/* Logout */}
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
                 <Text style={styles.logoutText}>Cerrar sesión</Text>
@@ -433,4 +484,7 @@ const styles = StyleSheet.create({
     connectCloudBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
     divider: { height: 1, backgroundColor: '#f3f4f6' },
     subLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+    settingsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+    settingsTitle: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 2 },
+    settingsDesc: { fontSize: 12, color: '#6b7280' },
 });

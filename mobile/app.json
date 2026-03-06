@@ -38,6 +38,12 @@
           }
         }
       ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Ping necesita FaceID para proteger la privacidad de tus chats y recordatorios."
+        }
+      ],
       "expo-secure-store"
     ],
     "experiments": {
