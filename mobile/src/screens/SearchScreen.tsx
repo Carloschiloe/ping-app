@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useConversations } from '../api/queries';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -46,6 +47,8 @@ export default function SearchScreen() {
     const [query, setQuery] = useState('');
     const { data, isLoading } = useSearch(query);
     const navigation = useNavigation<any>();
+    const { data: convData } = useConversations();
+    const conversations = convData?.conversations || [];
 
     const renderItem = ({ item }: { item: any }) => {
         const isCommitment = !!item.title;
@@ -54,27 +57,27 @@ export default function SearchScreen() {
         const title = isCommitment ? item.title : item.text;
         const senderName = !isCommitment && item.sender ? (item.sender.full_name || item.sender.email?.split('@')[0]) : null;
 
+        const conversationId = isCommitment ? (item.conversation_id || item.message?.conversation_id) : item.conversation_id;
+        const conv = conversations.find((c: any) => c.id === conversationId);
+
         return (
             <TouchableOpacity
                 style={styles.card}
                 onPress={() => {
-                    if (isCommitment && item.message_id) {
-                        navigation.navigate('Chats', {
-                            screen: 'Chat',
-                            params: {
-                                conversationId: item.conversation_id || item.message?.conversation_id,
-                                scrollToMessageId: item.message_id
-                            }
-                        });
-                    } else if (!isCommitment) {
-                        navigation.navigate('Chats', {
-                            screen: 'Chat',
-                            params: {
-                                conversationId: item.conversation_id,
-                                scrollToMessageId: item.id
-                            }
-                        });
-                    }
+                    if (!conversationId) return;
+
+                    navigation.navigate('Chats', {
+                        screen: 'Chat',
+                        initial: false,
+                        params: {
+                            conversationId,
+                            scrollToMessageId: isCommitment ? item.message_id : item.id,
+                            isGroup: conv?.isGroup,
+                            otherUser: conv?.otherUser,
+                            groupMetadata: conv?.groupMetadata,
+                            isSelf: conv?.isSelf
+                        }
+                    });
                 }}
             >
                 <View style={styles.cardHeader}>
