@@ -90,3 +90,23 @@ export const checkDueCommitments = async () => {
         console.error('[Push] checkDueCommitments error:', err);
     }
 };
+
+/**
+ * Phase 24: Standalone helper to send a single push notification to a token.
+ */
+export const sendPushNotification = async (pushToken: string, title: string, body: string) => {
+    if (!Expo.isExpoPushToken(pushToken)) {
+        console.warn('[Push] Invalid push token:', pushToken);
+        return;
+    }
+    try {
+        await expo.sendPushNotificationsAsync([{
+            to: pushToken,
+            sound: 'default',
+            title,
+            body,
+        }]);
+    } catch (err) {
+        console.error('[Push] sendPushNotification error:', err);
+    }
+};

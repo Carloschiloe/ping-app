@@ -160,3 +160,37 @@ Responde de forma ejecutiva, usando emojis y formato Markdown (negritas, listas)
         return 'Error al generar el resumen.';
     }
 };
+
+/**
+ * Phase 24: Generates a friendly morning summary message for the user.
+ */
+export const generateMorningSummary = async (
+    userName: string,
+    dayName: string,
+    commitments: string[]
+): Promise<string> => {
+    if (!process.env.OPENAI_API_KEY) {
+        return `¡Buenos días, ${userName}! Tienes ${commitments.length} compromiso(s) pendiente(s) para hoy.`;
+    }
+
+    const commitmentsList = commitments.map((c, i) => `${i + 1}. ${c}`).join('\n');
+    const prompt = `Eres Ping, el asistente de productividad personal de ${userName}. Hoy es ${dayName}.
+Redacta un mensaje de buenos días corto, amigable y motivador (máx 4 oraciones) para ${userName}, incluyendo un resumen de sus compromisos de hoy:
+
+${commitmentsList}
+
+Usando un tono cálido, en español chileno. No uses markdown, solo texto plano. Incluye algún emoji apropiado.`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.85,
+            max_tokens: 200,
+        });
+        return response.choices[0]?.message?.content || `¡Buenos días, ${userName}! ¿Listo para el día? Tienes ${commitments.length} cosa(s) pendiente(s).`;
+    } catch (err) {
+        console.error('[AI] generateMorningSummary failed:', err);
+        return `¡Buenos días, ${userName}! Tienes ${commitments.length} compromiso(s) para hoy. ¡Tú puedes! 💪`;
+    }
+};

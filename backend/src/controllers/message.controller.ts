@@ -57,6 +57,24 @@ export const updateMessageStatus = async (req: Request, res: Response): Promise<
             return;
         }
 
+        // --- Phase 23: Privacy - Read Receipts ---
+        // If the current user has privacy_read_receipts = false, skip 'read' updates.
+        // This means the original sender will never see blue ticks.
+        if (status === 'read') {
+            const { data: profile } = await supabaseAdmin
+                .from('profiles')
+                .select('privacy_read_receipts')
+                .eq('id', req.user!.id)
+                .single();
+
+            if (profile && profile.privacy_read_receipts === false) {
+                console.log(`[updateMessageStatus] Skipped 'read' due to privacy preference for user ${req.user!.id}`);
+                res.json({ success: true, status: 'skipped' });
+                return;
+            }
+        }
+        // -----------------------------------------
+
         const { data: message, error: fetchErr } = await supabaseAdmin
             .from('messages')
             .select('status')

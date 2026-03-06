@@ -37,6 +37,8 @@ export default function ProfileScreen() {
     // Privacy States
     const [hasBiometricHw, setHasBiometricHw] = useState(false);
     const [biometricEnabled, setBiometricEnabled] = useState(false);
+    const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
+    const [lastSeenEnabled, setLastSeenEnabled] = useState(true);
 
     // Cloud Accounts Queries
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
@@ -65,6 +67,16 @@ export default function ProfileScreen() {
         AsyncStorage.getItem('ping_biometric_lock').then(val => {
             if (val === 'true') setBiometricEnabled(true);
         });
+
+        // Load Privacy Prefs from profiles
+        if (user?.id) {
+            supabase.from('profiles').select('privacy_read_receipts, privacy_last_seen').eq('id', user.id).single().then(({ data }) => {
+                if (data) {
+                    setReadReceiptsEnabled(data.privacy_read_receipts ?? true);
+                    setLastSeenEnabled(data.privacy_last_seen ?? true);
+                }
+            });
+        }
     }, [user, isFocused]);
 
     const handleToggleBiometric = async (value: boolean) => {
@@ -80,6 +92,16 @@ export default function ProfileScreen() {
 
         setBiometricEnabled(value);
         await AsyncStorage.setItem('ping_biometric_lock', value ? 'true' : 'false');
+    };
+
+    const handleToggleReadReceipts = async (value: boolean) => {
+        setReadReceiptsEnabled(value);
+        await supabase.from('profiles').update({ privacy_read_receipts: value }).eq('id', user!.id);
+    };
+
+    const handleToggleLastSeen = async (value: boolean) => {
+        setLastSeenEnabled(value);
+        await supabase.from('profiles').update({ privacy_last_seen: value }).eq('id', user!.id);
     };
 
     const handleConnectCloud = async (provider: 'google' | 'outlook') => {
@@ -428,6 +450,36 @@ export default function ProfileScreen() {
                 ) : (
                     <Text style={styles.hint}>Tu dispositivo no soporta autenticación biométrica.</Text>
                 )}
+
+                <View style={[styles.divider, { marginVertical: 16 }]} />
+
+                <View style={styles.settingsRow}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                        <Text style={styles.settingsTitle}>Confirmaciones de Lectura</Text>
+                        <Text style={styles.settingsDesc}>Cuando está activo, los demás verán palomitas azules al leer tus mensajes.</Text>
+                    </View>
+                    <Switch
+                        value={readReceiptsEnabled}
+                        onValueChange={handleToggleReadReceipts}
+                        trackColor={{ false: '#d1d5db', true: '#34b7f1' }}
+                        thumbColor="#ffffff"
+                    />
+                </View>
+
+                <View style={[styles.divider, { marginVertical: 16 }]} />
+
+                <View style={styles.settingsRow}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                        <Text style={styles.settingsTitle}>Última Vez en Línea</Text>
+                        <Text style={styles.settingsDesc}>Cuando está activo, los demás pueden ver cuándo fue tu última conexión.</Text>
+                    </View>
+                    <Switch
+                        value={lastSeenEnabled}
+                        onValueChange={handleToggleLastSeen}
+                        trackColor={{ false: '#d1d5db', true: '#10b981' }}
+                        thumbColor="#ffffff"
+                    />
+                </View>
             </View>
 
             {/* Logout */}

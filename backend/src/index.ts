@@ -1,5 +1,6 @@
 import { app } from './app';
 import { checkDueCommitments } from './services/push.service';
+import { startMorningRoutineCron } from './services/morningRoutine.service';
 
 const PORT = process.env.PORT || 3000;
 
@@ -18,6 +19,9 @@ if (missingEnvs.length > 0) {
 setInterval(() => {
     checkDueCommitments().catch(console.error);
 }, 60000);
+
+// Phase 24: Start morning routine cron job (runs daily at 8 AM Santiago time)
+startMorningRoutineCron();
 
 app.listen(PORT, () => {
     console.log(`✅ PING Backend listening on port ${PORT}`);
