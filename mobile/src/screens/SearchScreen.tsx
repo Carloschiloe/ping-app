@@ -64,18 +64,19 @@ export default function SearchScreen() {
             <TouchableOpacity
                 style={styles.card}
                 onPress={() => {
-                    if (!conversationId) return;
+                    // For self-chats (reminders), conversationId will be null or undefined.
+                    const isSelfChat = !conversationId || conv?.isSelf;
 
                     navigation.navigate('Chats', {
                         screen: 'Chat',
                         initial: false,
                         params: {
-                            conversationId,
+                            conversationId: conversationId || null,
                             scrollToMessageId: isCommitment ? item.message_id : item.id,
                             isGroup: conv?.isGroup,
                             otherUser: conv?.otherUser,
                             groupMetadata: conv?.groupMetadata,
-                            isSelf: conv?.isSelf
+                            isSelf: isSelfChat
                         }
                     });
                 }}
