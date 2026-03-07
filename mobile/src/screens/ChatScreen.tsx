@@ -133,25 +133,30 @@ export default function ChatScreen({ navigation }: any) {
     const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = popup closed
     const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
 
-    // Load group participants once
+    // Load group participants once — fires whenever we're in any group-like conversation
     useEffect(() => {
-        if (!isGroup || !conversationId) return;
+        if (!conversationId) return;
+        // Detect group context: isGroup flag OR groupMetadata present (navigation may omit isGroup)
+        const looksLikeGroup = isGroup || !!groupMetadata;
+        if (!looksLikeGroup) return;
         supabase
             .from('conversation_participants')
             .select('user_id, profiles!inner(full_name, email)')
             .eq('conversation_id', conversationId)
-            .then(({ data: parts }) => {
+            .then(({ data: parts, error }) => {
+                if (error) { console.warn('[Mention] participant query error:', error.message); return; }
                 if (!parts) return;
-                const filtered = parts
+                const mapped = parts
                     .filter((p: any) => p.user_id !== user?.id)
                     .map((p: any) => ({
                         id: p.user_id,
                         full_name: p.profiles?.full_name || '',
                         email: p.profiles?.email || '',
                     }));
-                setGroupParticipants(filtered);
+                console.log('[Mention] participants loaded:', mapped.length, mapped.map((p: any) => p.full_name));
+                setGroupParticipants(mapped);
             });
-    }, [conversationId, isGroup, user?.id]);
+    }, [conversationId, isGroup, groupMetadata, user?.id]);
     // ────────────────────────────────────────────────────────────────────────
 
     const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));
@@ -331,19 +336,22 @@ export default function ChatScreen({ navigation }: any) {
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
         typingTimeout.current = setTimeout(() => { broadcastTyping(false); }, 3000);
 
-        // @Mention detection (Phase 26)
-        if (isGroup) {
+        // @Mention detection (Phase 26) — trigger when @ is typed in a group
+        const isGroupOrHasParticipants = isGroup || groupParticipants.length > 0;
+        if (isGroupOrHasParticipants) {
             const atIndex = newText.lastIndexOf('@');
             if (atIndex !== -1) {
                 const query = newText.slice(atIndex + 1).toLowerCase();
-                // Only show if the @ is at the very end or followed by letters (no space yet)
+                // Show popup if the @ is at the end or followed only by letters (no space after @)
                 if (!query.includes(' ')) {
-                    const filtered = groupParticipants.filter(p =>
-                        p.full_name.toLowerCase().includes(query) ||
-                        p.email.toLowerCase().includes(query)
-                    );
+                    const filtered = query === ''
+                        ? groupParticipants
+                        : groupParticipants.filter(p =>
+                            p.full_name.toLowerCase().includes(query) ||
+                            p.email.toLowerCase().includes(query)
+                        );
                     setMentionQuery(query);
-                    setFilteredParticipants(filtered);
+                    setFilteredParticipants(filtered.length > 0 ? filtered : groupParticipants);
                     return;
                 }
             }
