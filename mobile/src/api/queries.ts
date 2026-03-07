@@ -115,7 +115,7 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: (data: { text: string; reply_to_id?: string }) => {
+        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string }) => {
             console.log(`[Queries] Sending message: body=${JSON.stringify(data)}`);
             return apiClient.post(`/conversations/${conversationId}/messages`, data);
         },
@@ -123,6 +123,7 @@ export const useSendConversationMessage = (conversationId: string) => {
             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
     });
 };

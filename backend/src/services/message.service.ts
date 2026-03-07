@@ -22,7 +22,7 @@ async function downloadFile(url: string, targetPath: string) {
     });
 }
 
-export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string) => {
+export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string, mentionedUserId?: string) => {
     // 1. Determine if it moves to transcription first
     let processingText = text;
     let meta: any = {};
@@ -85,8 +85,11 @@ export const processUserMessage = async (userId: string, text: string, conversat
             dueAt = new Date(ai.dueAt);
             replyText = ai.replyText;
 
-            // --- Phase 26: Resolve assignee name to user ID ---
-            if (ai.assignedToName && conversationId) {
+            // --- Phase 26: Use explicit @mentioned_user_id instead of AI name matching ---
+            if (mentionedUserId && conversationId) {
+                (message as any)._assignedToUserId = mentionedUserId;
+            } else if (ai.assignedToName && conversationId) {
+                // Fallback: AI-based name match (for messages without @mention)
                 try {
                     const { data: participants } = await supabaseAdmin
                         .from('conversation_participants')
@@ -100,8 +103,6 @@ export const processUserMessage = async (userId: string, text: string, conversat
                     });
 
                     if (match) {
-                        (title as any) = title; // keep title
-                        // Store the resolved ID in a closure var
                         (message as any)._assignedToUserId = match.user_id;
                     }
                 } catch (err) {

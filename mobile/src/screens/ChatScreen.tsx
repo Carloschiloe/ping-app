@@ -127,6 +127,33 @@ export default function ChatScreen({ navigation }: any) {
     const messages = data?.messages || [];
     const { data: groupTasks = [] } = useConversationGroupTasks(isGroup ? conversationId : null);
 
+    // ─── @Mention State (Phase 26) ──────────────────────────────────────────
+    const [mentionedUserId, setMentionedUserId] = useState<string | null>(null);
+    const [groupParticipants, setGroupParticipants] = useState<{ id: string; full_name: string; email: string }[]>([]);
+    const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = popup closed
+    const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
+
+    // Load group participants once
+    useEffect(() => {
+        if (!isGroup || !conversationId) return;
+        supabase
+            .from('conversation_participants')
+            .select('user_id, profiles!inner(full_name, email)')
+            .eq('conversation_id', conversationId)
+            .then(({ data: parts }) => {
+                if (!parts) return;
+                const filtered = parts
+                    .filter((p: any) => p.user_id !== user?.id)
+                    .map((p: any) => ({
+                        id: p.user_id,
+                        full_name: p.profiles?.full_name || '',
+                        email: p.profiles?.email || '',
+                    }));
+                setGroupParticipants(filtered);
+            });
+    }, [conversationId, isGroup, user?.id]);
+    // ────────────────────────────────────────────────────────────────────────
+
     const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));
     const avatarUrl = isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url;
 
@@ -300,14 +327,28 @@ export default function ChatScreen({ navigation }: any) {
 
     const handleTextChange = (newText: string) => {
         setText(newText);
-
         broadcastTyping(true);
-
-        // Auto-clear typing status after 3 seconds of inactivity
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
-        typingTimeout.current = setTimeout(() => {
-            broadcastTyping(false);
-        }, 3000);
+        typingTimeout.current = setTimeout(() => { broadcastTyping(false); }, 3000);
+
+        // @Mention detection (Phase 26)
+        if (isGroup) {
+            const atIndex = newText.lastIndexOf('@');
+            if (atIndex !== -1) {
+                const query = newText.slice(atIndex + 1).toLowerCase();
+                // Only show if the @ is at the very end or followed by letters (no space yet)
+                if (!query.includes(' ')) {
+                    const filtered = groupParticipants.filter(p =>
+                        p.full_name.toLowerCase().includes(query) ||
+                        p.email.toLowerCase().includes(query)
+                    );
+                    setMentionQuery(query);
+                    setFilteredParticipants(filtered);
+                    return;
+                }
+            }
+            setMentionQuery(null);
+        }
     };
 
     React.useLayoutEffect(() => {
@@ -479,7 +520,21 @@ export default function ChatScreen({ navigation }: any) {
 
     const handleSend = () => {
         if (!text.trim()) return;
-        sendMessage({ text, reply_to_id: replyingToMsg?.id }, { onSuccess: () => { setText(''); setReplyingToMsg(null); } });
+        sendMessage(
+            { text, reply_to_id: replyingToMsg?.id, mentioned_user_id: mentionedUserId ?? undefined },
+            { onSuccess: () => { setText(''); setReplyingToMsg(null); setMentionedUserId(null); setMentionQuery(null); } }
+        );
+    };
+
+    // @Mention: select a participant from the popup
+    const handleSelectMention = (participant: { id: string; full_name: string; email: string }) => {
+        const atIndex = text.lastIndexOf('@');
+        const displayName = participant.full_name || participant.email.split('@')[0];
+        const newText = text.slice(0, atIndex) + `@${displayName} `;
+        setText(newText);
+        setMentionedUserId(participant.id);
+        setMentionQuery(null);
+        setFilteredParticipants([]);
     };
 
     // ─── Photo/Video picker & Audio (Handled by Custom Hooks) ────────────────
@@ -903,6 +958,29 @@ export default function ChatScreen({ navigation }: any) {
                         <TouchableOpacity onPress={() => setReplyingToMsg(null)} style={{ padding: 4 }}>
                             <Ionicons name="close-circle" size={24} color="#9ca3af" />
                         </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* @Mention Popup — appears above input when @ is typed in a group */}
+                {isGroup && mentionQuery !== null && filteredParticipants.length > 0 && (
+                    <View style={styles.mentionPopup}>
+                        {filteredParticipants.map(p => (
+                            <TouchableOpacity
+                                key={p.id}
+                                style={styles.mentionItem}
+                                onPress={() => handleSelectMention(p)}
+                            >
+                                <View style={styles.mentionAvatar}>
+                                    <Text style={styles.mentionAvatarLetter}>
+                                        {(p.full_name || p.email)[0].toUpperCase()}
+                                    </Text>
+                                </View>
+                                <View>
+                                    <Text style={styles.mentionName}>{p.full_name || p.email.split('@')[0]}</Text>
+                                    <Text style={styles.mentionEmail}>{p.email}</Text>
+                                </View>
+                            </TouchableOpacity>
+                        ))}
                     </View>
                 )}
 
@@ -1409,4 +1487,34 @@ const styles = StyleSheet.create({
         shadowColor: '#8b5cf6', shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
     },
     summaryDoneText: { color: 'white', fontWeight: '800', fontSize: 16 },
+
+    // @Mention Popup (Phase 26)
+    mentionPopup: {
+        backgroundColor: 'white',
+        marginHorizontal: 8,
+        marginBottom: 4,
+        borderRadius: 16,
+        shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
+        borderWidth: 1, borderColor: '#e5e7eb',
+        overflow: 'hidden',
+        maxHeight: 200,
+    },
+    mentionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        gap: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+    },
+    mentionAvatar: {
+        width: 36, height: 36, borderRadius: 18,
+        backgroundColor: '#6366f1',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    mentionAvatarLetter: { color: 'white', fontWeight: '700', fontSize: 15 },
+    mentionName: { fontSize: 14, fontWeight: '700', color: '#111827' },
+    mentionEmail: { fontSize: 12, color: '#6b7280' },
 });
+
