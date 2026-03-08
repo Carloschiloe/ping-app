@@ -57,7 +57,7 @@ export default function TaskDashboardScreen() {
             <View style={styles.tabsContainer}>
                 {renderTab('pending', 'Tablero', 'checkbox')}
                 {renderTab('proposed', 'Nuevas', 'mail-unread')}
-                {renderTab('sent', 'Delegadas', 'paper-plane')}
+                {renderTab('sent', 'Asignadas', 'paper-plane')}
                 {renderTab('rejected', 'Rechazadas', 'close-circle')}
             </View>
 

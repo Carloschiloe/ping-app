@@ -170,11 +170,13 @@ export const getMessages = async (userId: string, limit = 50, offset = 0) => {
     return { messages: data, count };
 };
 
-export const insertSystemMessage = async (conversationId: string, text: string) => {
+export const insertSystemMessage = async (conversationId: string, text: string, userId?: string) => {
     const { data, error } = await supabaseAdmin
         .from('messages')
         .insert({
             conversation_id: conversationId,
+            user_id: userId || null, // If null, it will fail if not nullable, but we'll try to provide it
+            sender_id: userId || null,
             text,
             meta: { isSystem: true },
             status: 'sent'

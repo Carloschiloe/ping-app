@@ -41,7 +41,7 @@ export const acceptCommitment = async (userId: string, commitmentId: string) => 
 
     if (data && data.group_conversation_id) {
         const name = data.assignee?.full_name || 'Alguien';
-        await insertSystemMessage(data.group_conversation_id, `✅ ${name} ha aceptado la tarea: "${data.title}"`);
+        await insertSystemMessage(data.group_conversation_id, `✅ ${name} ha aceptado la tarea: "${data.title}"`, userId);
     }
 
     return data;
@@ -63,7 +63,7 @@ export const rejectCommitment = async (userId: string, commitmentId: string, rea
 
     if (data && data.group_conversation_id) {
         const name = data.assignee?.full_name || 'Alguien';
-        await insertSystemMessage(data.group_conversation_id, `❌ ${name} ha rechazado la tarea: "${data.title}"\nMotivo: ${reason}`);
+        await insertSystemMessage(data.group_conversation_id, `❌ ${name} ha rechazado la tarea: "${data.title}"\nMotivo: ${reason}`, userId);
     }
 
     return data;
@@ -86,7 +86,7 @@ export const postponeCommitment = async (userId: string, commitmentId: string, n
     if (data && data.group_conversation_id) {
         const name = data.assignee?.full_name || 'Alguien';
         const formattedDate = format(new Date(newDate), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
-        await insertSystemMessage(data.group_conversation_id, `⏳ ${name} ha pospuesto la tarea: "${data.title}"\nNueva propuesta: ${formattedDate}`);
+        await insertSystemMessage(data.group_conversation_id, `⏳ ${name} ha pospuesto la tarea: "${data.title}"\nNueva propuesta: ${formattedDate}`, userId);
     }
 
     return data;
