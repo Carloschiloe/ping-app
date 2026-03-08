@@ -1,5 +1,13 @@
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-// import { schedulePushNotification } from './push-notification.service'; 
+const SELECT_WITH_ASSIGNEE = `
+    *,
+    assignee:assigned_to_user_id (
+        id,
+        full_name,
+        avatar_url,
+        email
+    ),
+    message:message_id(id, conversation_id)
+`;
 
 export const createCommitment = async (userId: string, data: any) => {
     const { data: commitment, error } = await supabaseAdmin
@@ -9,7 +17,7 @@ export const createCommitment = async (userId: string, data: any) => {
             owner_user_id: userId,
             status: 'proposed' // Always start as proposed for negotiation
         })
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
@@ -22,7 +30,7 @@ export const acceptCommitment = async (userId: string, commitmentId: string) => 
         .update({ status: 'accepted' })
         .eq('id', commitmentId)
         .eq('assigned_to_user_id', userId)
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
@@ -38,7 +46,7 @@ export const rejectCommitment = async (userId: string, commitmentId: string, rea
         })
         .eq('id', commitmentId)
         .eq('assigned_to_user_id', userId)
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
@@ -54,7 +62,7 @@ export const postponeCommitment = async (userId: string, commitmentId: string, n
         })
         .eq('id', commitmentId)
         .eq('assigned_to_user_id', userId)
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
@@ -62,10 +70,11 @@ export const postponeCommitment = async (userId: string, commitmentId: string, n
 };
 
 export const getCommitments = async (userId: string, status?: string) => {
+    // We want tasks where user is EITHER owner OR assignee
     let query = supabaseAdmin
         .from('commitments')
-        .select('*, message:message_id(id, conversation_id)')
-        .eq('owner_user_id', userId)
+        .select(SELECT_WITH_ASSIGNEE)
+        .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
         .order('due_at', { ascending: true });
 
     if (status) {
@@ -98,7 +107,7 @@ export const updateCommitment = async (userId: string, commitmentId: string, upd
         .from('commitments')
         .update(updates)
         .eq('id', commitmentId)
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
@@ -111,7 +120,7 @@ export const deleteCommitment = async (userId: string, commitmentId: string) => 
         .delete()
         .eq('id', commitmentId)
         .eq('owner_user_id', userId)
-        .select()
+        .select(SELECT_WITH_ASSIGNEE)
         .single();
 
     if (error) throw error;
