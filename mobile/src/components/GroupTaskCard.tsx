@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
-import { useMarkCommitmentDone } from '../api/queries';
+import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { apiClient } from '../api/client';
 
@@ -64,7 +64,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 {
                     text: 'Rechazar',
                     style: 'destructive',
-                    onPress: (reason) => {
+                    onPress: (reason?: string) => {
                         if (!reason) return Alert.alert('Error', 'Debes indicar un motivo');
                         reject({ id: commitment.id, reason });
                     }
