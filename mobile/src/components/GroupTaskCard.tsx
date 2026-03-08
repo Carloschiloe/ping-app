@@ -147,8 +147,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 </View>
             </View>
 
-            {/* Small debug info */}
-            <Text style={{ fontSize: 8, color: '#ccc', alignSelf: 'flex-end', marginTop: -10 }}>{debugInfo}</Text>
+            {/* Small debug info - made more visible for diagnosis */}
+            <View style={{ backgroundColor: '#f0f0f0', padding: 2, borderRadius: 4, marginTop: -10, alignSelf: 'flex-end' }}>
+                <Text style={{ fontSize: 7, color: '#999' }}>{debugInfo} S:{status} H:{isAssignee ? 'Y' : 'N'}</Text>
+            </View>
 
             <View style={styles.actions}>
                 {isAssignee && isProposed && (

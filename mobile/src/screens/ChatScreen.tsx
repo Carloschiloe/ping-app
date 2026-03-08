@@ -8,6 +8,7 @@ import { useRoute } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
 import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead, useConversationGroupTasks, useCreateCommitment } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
@@ -88,6 +89,7 @@ export default function ChatScreen({ navigation }: any) {
     const { mutate: markAsRead } = useMarkConversationAsRead(conversationId);
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
     const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+    const queryClient = useQueryClient();
     const listRef = useRef<FlatList>(null);
     const swipeableRowRefs = useRef(new Map());
     const { user } = useAuth();
@@ -182,25 +184,32 @@ export default function ChatScreen({ navigation }: any) {
             }
         };
 
-        // ─── Reactions & Messages Realtime ───
-        const reactionsChannel = supabase
-            .channel(`reactions-${conversationId}`)
+        // ─── Reactions, Messages & Commitments Realtime ───
+        const realtimeChannel = supabase
+            .channel(`realtime-${conversationId}`)
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'message_reactions'
             }, () => {
-                // queryClient's logic in queries.ts handles specific table updates, 
-                // but reactions are still partially handled by invalidation there.
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'commitments'
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['commitments'] });
             })
             .subscribe();
 
         return () => {
             channel.unsubscribe();
-            reactionsChannel.unsubscribe();
+            realtimeChannel.unsubscribe();
             presenceChannel.current = null;
         };
-    }, [conversationId, user]);
+    }, [conversationId, user, queryClient]);
 
     // ─── Build flat list with date dividers ───
     const flatData: any[] = [];
