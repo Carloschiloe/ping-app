@@ -10,6 +10,12 @@ const SELECT_WITH_ASSIGNEE = `
         avatar_url,
         email
     ),
+    owner:profiles!owner_user_id (
+        id,
+        full_name,
+        avatar_url,
+        email
+    ),
     message:messages!message_id(id, conversation_id)
 `;
 

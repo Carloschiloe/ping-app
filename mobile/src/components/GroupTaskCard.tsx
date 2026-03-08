@@ -136,9 +136,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
             )}
 
             {isCounter && commitment.proposed_due_at && (
-                <View style={[styles.rejectionBox, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }]}>
-                    <Text style={[styles.rejectionText, { color: '#3730a3' }]}>
-                        Nueva propuesta: {format(new Date(commitment.proposed_due_at), "EEE d MMM 'a las' HH:mm", { locale: es })}
+                <View style={[styles.rejectionBox, { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }]}>
+                    <Text style={[styles.rejectionText, { color: '#4338ca' }]}>
+                        💡 Contrapropuesta: {format(new Date(commitment.proposed_due_at), "HH:mm", { locale: es })}
                     </Text>
                 </View>
             )}
@@ -153,7 +153,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 )}
                 <View>
                     <Text style={styles.assigneeName}>{assigneeName}</Text>
-                    {dueDateStr && <Text style={styles.dueDate}>📅 {dueDateStr}</Text>}
+                    {dueDateStr && <Text style={styles.dueDate}>⏰ {format(new Date(commitment.due_at), "HH:mm", { locale: es })}</Text>}
                 </View>
             </View>
 

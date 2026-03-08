@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { format, addDays, isSameDay, startOfDay } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 
-type Tab = 'pending' | 'proposed' | 'sent' | 'rejected';
+type FilterType = 'mine' | 'team';
+type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'done';
 
 export default function TaskDashboardScreen() {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<Tab>('pending');
+    const [filterType, setFilterType] = useState<FilterType>('mine');
+    const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
@@ -19,47 +25,163 @@ export default function TaskDashboardScreen() {
         }
     });
 
-    const filteredData = commitments.filter((c: any) => {
-        if (activeTab === 'pending') {
-            return c.assigned_to_user_id === user?.id && (c.status === 'accepted' || c.status === 'pending');
-        }
-        if (activeTab === 'proposed') {
-            return c.assigned_to_user_id === user?.id && c.status === 'proposed';
-        }
-        if (activeTab === 'sent') {
-            return c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id && c.status !== 'rejected';
-        }
-        if (activeTab === 'rejected') {
-            return (c.owner_user_id === user?.id || c.assigned_to_user_id === user?.id) && c.status === 'rejected';
-        }
-        return false;
-    });
+    // Generate 14 days for the scroller
+    const dates = useMemo(() => {
+        return Array.from({ length: 14 }).map((_, i) => addDays(startOfDay(new Date()), i));
+    }, []);
 
-    const renderTab = (id: Tab, label: string, icon: any) => (
+    // Get unique team members from commitments
+    const teamMembers = useMemo(() => {
+        const membersMap = new Map();
+        commitments.forEach((c: any) => {
+            // Add assignee if present and not current user
+            if (c.assignee && c.assignee.id !== user?.id) {
+                membersMap.set(c.assignee.id, c.assignee);
+            }
+            // Add owner if present and not current user
+            if (c.owner && c.owner.id !== user?.id) {
+                membersMap.set(c.owner.id, c.owner);
+            }
+        });
+        return Array.from(membersMap.values());
+    }, [commitments, user?.id]);
+
+    const filteredData = useMemo(() => {
+        return commitments.filter((c: any) => {
+            const taskDate = c.due_at ? startOfDay(new Date(c.due_at)) : null;
+
+            // 1. Filter by Date
+            if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
+
+            // 2. Filter by Type (Mine vs Team)
+            if (filterType === 'mine') {
+                const isMine = c.assigned_to_user_id === user?.id || c.owner_user_id === user?.id;
+                if (!isMine) return false;
+            } else {
+                // In Team mode, if someone is selected, show only their tasks
+                if (selectedUserId && c.assigned_to_user_id !== selectedUserId) return false;
+            }
+
+            // 3. Filter by Status
+            if (statusFilter !== 'all') {
+                if (statusFilter === 'proposed' && c.status !== 'proposed') return false;
+                if (statusFilter === 'accepted' && (c.status !== 'accepted' && c.status !== 'pending' && c.status !== 'in_progress')) return false;
+                if (statusFilter === 'rejected' && c.status !== 'rejected') return false;
+                if (statusFilter === 'done' && c.status !== 'done') return false;
+            }
+
+            return true;
+        });
+    }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
+
+    const renderDateItem = (date: Date) => {
+        const isSelected = isSameDay(date, selectedDate);
+        const dayName = format(date, 'EEE', { locale: es }).replace('.', '');
+        const dayNum = format(date, 'dd');
+
+        return (
+            <TouchableOpacity
+                key={date.toISOString()}
+                style={[styles.dateItem, isSelected && styles.dateItemActive]}
+                onPress={() => setSelectedDate(date)}
+            >
+                <Text style={[styles.dateDay, isSelected && styles.dateTextActive]}>{dayName}</Text>
+                <Text style={[styles.dateNum, isSelected && styles.dateTextActive]}>{dayNum}</Text>
+                {isSelected && <View style={styles.dateDot} />}
+            </TouchableOpacity>
+        );
+    };
+
+    const StatusChip = ({ label, value, icon }: { label: string, value: StatusFilter, icon: any }) => (
         <TouchableOpacity
-            style={[styles.tab, activeTab === id && styles.activeTab]}
-            onPress={() => setActiveTab(id)}
+            style={[styles.chip, statusFilter === value && styles.chipActive]}
+            onPress={() => setStatusFilter(value)}
         >
-            <Ionicons name={icon} size={18} color={activeTab === id ? '#6366f1' : '#6b7280'} />
-            <Text style={[styles.tabText, activeTab === id && styles.activeTabText, { fontSize: 10 }]}>{label}</Text>
-            {activeTab === id && <View style={styles.tabIndicator} />}
+            <Ionicons name={icon} size={14} color={statusFilter === value ? 'white' : '#6b7280'} />
+            <Text style={[styles.chipText, statusFilter === value && styles.chipTextActive]}>{label}</Text>
         </TouchableOpacity>
     );
 
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="dark-content" />
+
+            {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Tu Tablero Ping</Text>
-                <Text style={styles.headerSubtitle}>Gestiona tus compromisos y delegaciones</Text>
+                <View style={styles.headerTop}>
+                    <Text style={styles.headerTitle}>Tareas</Text>
+                    <TouchableOpacity style={styles.calendarBtn}>
+                        <Ionicons name="calendar-outline" size={24} color="#6366f1" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Level Selector */}
+                <View style={styles.toggleContainer}>
+                    <TouchableOpacity
+                        style={[styles.toggleBtn, filterType === 'mine' && styles.toggleBtnActive]}
+                        onPress={() => { setFilterType('mine'); setSelectedUserId(null); }}
+                    >
+                        <Text style={[styles.toggleText, filterType === 'mine' && styles.toggleTextActive]}>Mis Tareas</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.toggleBtn, filterType === 'team' && styles.toggleBtnActive]}
+                        onPress={() => setFilterType('team')}
+                    >
+                        <Text style={[styles.toggleText, filterType === 'team' && styles.toggleTextActive]}>Equipo</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
-            <View style={styles.tabsContainer}>
-                {renderTab('pending', 'Tablero', 'checkbox')}
-                {renderTab('proposed', 'Nuevas', 'mail-unread')}
-                {renderTab('sent', 'Asignadas', 'paper-plane')}
-                {renderTab('rejected', 'Rechazadas', 'close-circle')}
+            {/* Date Scroller */}
+            <View style={styles.scrollerContainer}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroller}>
+                    {dates.map(renderDateItem)}
+                </ScrollView>
             </View>
+
+            {/* Filters Bar */}
+            <View style={styles.filtersContainer}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+                    <StatusChip label="Todas" value="all" icon="layers-outline" />
+                    <StatusChip label="Nuevas" value="proposed" icon="mail-unread-outline" />
+                    <StatusChip label="Activas" value="accepted" icon="flash-outline" />
+                    <StatusChip label="Completas" value="done" icon="checkmark-circle-outline" />
+                    <StatusChip label="Rechazadas" value="rejected" icon="close-circle-outline" />
+                </ScrollView>
+            </View>
+
+            {/* Team Bar (Conditional) */}
+            {filterType === 'team' && teamMembers.length > 0 && (
+                <View style={styles.teamContainer}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamRow}>
+                        <TouchableOpacity
+                            style={[styles.memberAvatar, !selectedUserId && styles.memberAvatarActive]}
+                            onPress={() => setSelectedUserId(null)}
+                        >
+                            <View style={styles.allMembersCircle}>
+                                <Ionicons name="people" size={20} color={!selectedUserId ? 'white' : '#6366f1'} />
+                            </View>
+                            <Text style={styles.memberName}>Todos</Text>
+                        </TouchableOpacity>
+                        {teamMembers.map((member: any) => (
+                            <TouchableOpacity
+                                key={member.id}
+                                style={[styles.memberAvatar, selectedUserId === member.id && styles.memberAvatarActive]}
+                                onPress={() => setSelectedUserId(member.id)}
+                            >
+                                {member.avatar_url ? (
+                                    <Image source={{ uri: member.avatar_url }} style={styles.avatarImg} />
+                                ) : (
+                                    <View style={styles.avatarFallback}>
+                                        <Text style={styles.avatarLetter}>{member.full_name?.[0] || '?'}</Text>
+                                    </View>
+                                )}
+                                <Text style={styles.memberName} numberOfLines={1}>{member.full_name?.split(' ')[0]}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
 
             <FlatList
                 data={filteredData}
@@ -71,7 +193,8 @@ export default function TaskDashboardScreen() {
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
                         <Ionicons name="folder-open-outline" size={64} color="#d1d5db" />
-                        <Text style={styles.emptyText}>No hay tareas en esta sección</Text>
+                        <Text style={styles.emptyText}>No hay tareas para este filtro</Text>
+                        <Text style={styles.emptySubtext}>Cambia de día o filtro para ver más</Text>
                     </View>
                 }
             />
@@ -82,70 +205,200 @@ export default function TaskDashboardScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f9fafb',
+        backgroundColor: '#f8fafc',
     },
     header: {
-        padding: 20,
+        paddingHorizontal: 20,
+        paddingTop: 10,
         backgroundColor: 'white',
+    },
+    headerTop: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 15,
     },
     headerTitle: {
-        fontSize: 24,
-        fontWeight: '800',
-        color: '#111827',
+        fontSize: 28,
+        fontWeight: '900',
+        color: '#0f172a',
+        letterSpacing: -0.5,
     },
-    headerSubtitle: {
-        fontSize: 14,
-        color: '#6b7280',
-        marginTop: 4,
+    calendarBtn: {
+        padding: 8,
+        backgroundColor: '#f1f5f9',
+        borderRadius: 12,
     },
-    tabsContainer: {
+    toggleContainer: {
         flexDirection: 'row',
-        backgroundColor: 'white',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
-        paddingHorizontal: 8,
+        backgroundColor: '#f1f5f9',
+        borderRadius: 14,
+        padding: 4,
+        marginBottom: 15,
     },
-    tab: {
+    toggleBtn: {
         flex: 1,
+        paddingVertical: 10,
         alignItems: 'center',
-        paddingVertical: 14,
-        gap: 4,
-        position: 'relative',
+        borderRadius: 11,
     },
-    activeTab: {
-        // ...
+    toggleBtnActive: {
+        backgroundColor: 'white',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    tabText: {
-        fontSize: 12,
+    toggleText: {
+        fontSize: 14,
         fontWeight: '600',
-        color: '#6b7280',
+        color: '#64748b',
     },
-    activeTabText: {
+    toggleTextActive: {
         color: '#6366f1',
     },
-    tabIndicator: {
-        position: 'absolute',
-        bottom: 0,
-        left: '20%',
-        right: '20%',
-        height: 3,
+    scrollerContainer: {
+        backgroundColor: 'white',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    dateScroller: {
+        paddingHorizontal: 15,
+        gap: 12,
+    },
+    dateItem: {
+        width: 50,
+        height: 70,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 15,
+        backgroundColor: '#f8fafc',
+    },
+    dateItemActive: {
         backgroundColor: '#6366f1',
-        borderTopLeftRadius: 3,
-        borderTopRightRadius: 3,
+    },
+    dateDay: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+    },
+    dateNum: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#1e293b',
+        marginTop: 2,
+    },
+    dateTextActive: {
+        color: 'white',
+    },
+    dateDot: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: 'white',
+        marginTop: 4,
+    },
+    filtersContainer: {
+        paddingVertical: 12,
+    },
+    chipsRow: {
+        paddingHorizontal: 20,
+        gap: 8,
+    },
+    chip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: 'white',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        gap: 6,
+    },
+    chipActive: {
+        backgroundColor: '#6366f1',
+        borderColor: '#6366f1',
+    },
+    chipText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    chipTextActive: {
+        color: 'white',
+    },
+    teamContainer: {
+        paddingBottom: 12,
+    },
+    teamRow: {
+        paddingHorizontal: 20,
+        gap: 15,
+    },
+    memberAvatar: {
+        alignItems: 'center',
+        gap: 6,
+    },
+    memberAvatarActive: {
+        // ...
+    },
+    allMembersCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 2,
+        borderColor: '#6366f1',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarImg: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    avatarFallback: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarLetter: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#64748b',
+    },
+    memberName: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: '#64748b',
     },
     listContent: {
-        paddingVertical: 12,
         paddingBottom: 40,
     },
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 80,
+        marginTop: 60,
+        paddingHorizontal: 40,
     },
     emptyText: {
         marginTop: 16,
         fontSize: 16,
-        color: '#9ca3af',
-        fontWeight: '500',
+        color: '#475569',
+        fontWeight: '700',
+    },
+    emptySubtext: {
+        marginTop: 6,
+        fontSize: 13,
+        color: '#94a3b8',
+        textAlign: 'center',
     }
 });
