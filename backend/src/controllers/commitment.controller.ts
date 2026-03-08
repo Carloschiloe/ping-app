@@ -12,19 +12,68 @@ export const createCommitment = async (req: Request, res: Response): Promise<voi
         const commitmentData = req.body;
 
         const data = await commitmentService.createCommitment(userId, commitmentData);
-
-        // --- Phase 15.2: Sync to Cloud (Assigned User) ---
-        // If assigned_to_user_id is present, sync to THAT user's calendar
-        const targetSyncUserId = data.assigned_to_user_id || userId;
-
-        try {
-            await calendarSyncService.syncCommitmentToCloud(targetSyncUserId, data);
-        } catch (syncError) {
-            console.error('[Create Commitment] Cloud sync failed (non-blocking):', syncError);
-        }
-        // ------------------------------------------------
+        // Note: No auto-sync here. Sync happens on 'accept'.
 
         res.status(201).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const acceptCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const id = req.params.id as string;
+
+        const data = await commitmentService.acceptCommitment(userId, id);
+
+        // --- Phase 15.2: Sync to Cloud ON ACCEPT ---
+        try {
+            await calendarSyncService.syncCommitmentToCloud(userId, data);
+        } catch (syncError) {
+            console.error('[Accept Commitment] Cloud sync failed:', syncError);
+        }
+        // -------------------------------------------
+
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const rejectCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const id = req.params.id as string;
+        const { reason } = req.body;
+
+        const data = await commitmentService.rejectCommitment(userId, id, reason);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const postponeCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const id = req.params.id as string;
+        const { newDate } = req.body;
+
+        const data = await commitmentService.postponeCommitment(userId, id, newDate);
+        res.status(200).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

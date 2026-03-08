@@ -7,13 +7,58 @@ export const createCommitment = async (userId: string, data: any) => {
         .insert({
             ...data,
             owner_user_id: userId,
-            status: 'pending'
+            status: 'proposed' // Always start as proposed for negotiation
         })
         .select()
         .single();
 
     if (error) throw error;
     return commitment;
+};
+
+export const acceptCommitment = async (userId: string, commitmentId: string) => {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .update({ status: 'accepted' })
+        .eq('id', commitmentId)
+        .eq('assigned_to_user_id', userId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
+export const rejectCommitment = async (userId: string, commitmentId: string, reason: string) => {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .update({
+            status: 'rejected',
+            rejection_reason: reason
+        })
+        .eq('id', commitmentId)
+        .eq('assigned_to_user_id', userId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
+export const postponeCommitment = async (userId: string, commitmentId: string, newDate: string) => {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .update({
+            status: 'counter_proposal',
+            proposed_due_at: newDate
+        })
+        .eq('id', commitmentId)
+        .eq('assigned_to_user_id', userId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
 };
 
 export const getCommitments = async (userId: string, status?: string) => {

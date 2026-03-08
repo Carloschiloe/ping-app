@@ -58,6 +58,9 @@ router.patch('/messages/:id/status', requireAuth, messageController.updateMessag
 // Commitments
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.post('/commitments', requireAuth, commitmentController.createCommitment);
+router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
+router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
+router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
 router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 
