@@ -87,8 +87,14 @@ export const analyzeAndSuggestTask = async (
     conversationId?: string
 ) => {
     const timestamp = new Date().toISOString();
-    // Smart Triggers (for automatic flow, manual flow skips this)
-    const hasKeywords = /\b(agenda|tarea|hacer|reunion|reunión|recordar|mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|hoy|tienes|tengo)\b/i.test(text);
+    // Smart Triggers: detect natural language indicators for tasks or schedules
+    const taskKeywords = [
+        'agenda', 'tarea', 'hacer', 'reunion', 'reunión', 'recordar', 'mañana', 'lunes', 'martes', 'miercoles',
+        'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo', 'hoy', 'tienes', 'tengo', 'cita',
+        'mantencion', 'mantención', 'llamado', 'llamar', 'enviar', 'pago', 'pagar', 'vence', 'vencimiento',
+        'reunamos', 'vemos', 'juntamos', 'juntémonos'
+    ];
+    const hasKeywords = new RegExp(`\\b(${taskKeywords.join('|')})\\b`, 'i').test(text);
     const isTriggered = !!mentionedUserId || hasKeywords || (imageUrl && text.trim().length > 0);
 
     // If text is empty and no image, nothing to do
@@ -123,10 +129,23 @@ export const analyzeAndSuggestTask = async (
                 replyText: ai.replyText
             };
 
-            console.log(`[AI] Saving suggestion ONLY to message ${messageId}: ${ai.title}`);
+            console.log(`[AI] Saving suggestion to message ${messageId}: ${ai.title}`);
+
+            // Fetch current meta to avoid overwriting (e.g. transcript or image info)
+            const { data: currentMsg } = await supabaseAdmin
+                .from('messages')
+                .select('meta')
+                .eq('id', messageId)
+                .single();
+
+            const updatedMeta = {
+                ...(currentMsg?.meta || {}),
+                suggestedTask
+            };
+
             const { data: updated } = await supabaseAdmin
                 .from('messages')
-                .update({ meta: { suggestedTask } })
+                .update({ meta: updatedMeta })
                 .eq('id', messageId)
                 .select()
                 .single();

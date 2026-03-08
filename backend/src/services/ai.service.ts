@@ -19,15 +19,15 @@ Extrae la siguiente información en JSON:
 - hasCommitment (boolean): true si hay un compromiso, tarea o evento con fecha/hora implícita o explícita
 - title (string | null): título corto y claro del compromiso (máx 60 caracteres)
 - dueAt (string | null): fecha y hora en formato ISO 8601 (ej: 2026-03-05T15:00:00), calculada desde la fecha de hoy
-- replyText (string | null): NO usar para confirmación. Genera un resumen muy corto para el chip (ej: "reunión mañana").
-- assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor, devuelve null.
+- replyText (string | null): Texto para el botón de acción UI. Debe ser muy corto y directo (ej: "Agendar reunión", "Guardar recordatorio", "Asignar tarea"). MÁXIMO 3 palabras.
+- assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor o no hay claridad, devuelve null.
 
 Reglas:
 - Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
 - "mañana" = día siguiente al enviado.
 - Si no hay hora, usa 09:00.
-- El replyText debe ser SOLO el resumen para el chip UI, sin "Entendido" ni saludos.
+- El replyText debe ser SOLO el texto para el botón UI, sin "Entendido" ni saludos.
 - Interpreta lenguaje natural chileno.
 - Usa el contexto completo del mensaje para entender compromisos implícitos
 
