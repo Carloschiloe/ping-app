@@ -17,6 +17,7 @@ import SearchScreen from '../screens/SearchScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PingAIScreen from '../screens/PingAIScreen';
 import QuickCaptureScreen from '../screens/QuickCaptureScreen';
+import TaskDashboardScreen from '../screens/TaskDashboardScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -108,8 +109,8 @@ const MainTabs = () => (
                 let iconName: any;
                 if (route.name === 'Chats') {
                     iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else if (route.name === 'Agenda') {
-                    iconName = focused ? 'calendar' : 'calendar-outline';
+                } else if (route.name === 'Tablero') {
+                    iconName = focused ? 'layers' : 'layers-outline';
                 } else if (route.name === 'Search') {
                     iconName = focused ? 'search' : 'search-outline';
                 } else if (route.name === 'Perfil') {
@@ -120,7 +121,7 @@ const MainTabs = () => (
         })}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
-        <Tab.Screen name="Agenda" component={HoyScreen} options={{ title: 'Agenda' }} />
+        <Tab.Screen name="Tablero" component={TaskDashboardScreen} options={{ title: 'Tablero' }} />
         <Tab.Screen name="Search" component={SearchScreen} options={{ title: 'Buscar' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>

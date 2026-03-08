@@ -414,6 +414,44 @@ export const useCreateCommitment = () => {
     });
 };
 
+export const useAcceptCommitment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/accept`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+        },
+    });
+};
+
+export const useRejectCommitment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, reason }: { id: string, reason: string }) =>
+            apiClient.post(`/commitments/${id}/reject`, { reason }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+        },
+    });
+};
+
+export const usePostponeCommitment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, newDate }: { id: string, newDate: string }) =>
+            apiClient.post(`/commitments/${id}/postpone`, { newDate }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+        },
+    });
+};
+
 export const useUpdateCommitmentStatus = () => {
     const queryClient = useQueryClient();
     return useMutation({
