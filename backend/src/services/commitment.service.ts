@@ -1,12 +1,13 @@
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 const SELECT_WITH_ASSIGNEE = `
     *,
-    assignee:assigned_to_user_id (
+    assignee:profiles!assigned_to_user_id (
         id,
         full_name,
         avatar_url,
         email
     ),
-    message:message_id(id, conversation_id)
+    message:messages!message_id(id, conversation_id)
 `;
 
 export const createCommitment = async (userId: string, data: any) => {
@@ -69,7 +70,7 @@ export const postponeCommitment = async (userId: string, commitmentId: string, n
     return data;
 };
 
-export const getCommitments = async (userId: string, status?: string) => {
+export const getCommitments = async (userId: string, status?: string, conversationId?: string) => {
     // We want tasks where user is EITHER owner OR assignee
     let query = supabaseAdmin
         .from('commitments')
@@ -79,6 +80,10 @@ export const getCommitments = async (userId: string, status?: string) => {
 
     if (status) {
         query = query.eq('status', status);
+    }
+
+    if (conversationId) {
+        query = query.eq('group_conversation_id', conversationId);
     }
 
     const { data, error } = await query;

@@ -39,7 +39,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const assigneeName = commitment.assignee?.full_name
         || commitment.assignee?.email?.split('@')[0]
-        || (commitment.assigned_to_user_id ? `Usuario (${commitment.assigned_to_user_id.slice(0, 4)})` : 'Alguien');
+        || (commitment.assigned_to_user_id ? `Usuario` : 'Alguien');
+
+    console.log(`[DEBUG] GroupTaskCard ${commitment.id}: status=${status}, isAssignee=${isAssignee}, userId=${user?.id}, assignedTo=${commitment.assigned_to_user_id}`);
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "EEE d MMM 'a las' HH:mm", { locale: es })
@@ -89,7 +91,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const handlePing = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        Alert.alert('¡Pinga!', `Has enviado un recordatorio a ${assigneeName}.`);
+        Alert.alert('Recordar', `Has enviado un recordatorio a ${assigneeName}.`);
         apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
     };
 
@@ -177,7 +179,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                         activeOpacity={0.8}
                     >
                         <Ionicons name="notifications" size={18} color="#f59e0b" />
-                        <Text style={styles.pingBtnText}>¡Pinga!</Text>
+                        <Text style={styles.pingBtnText}>Recordar</Text>
                     </TouchableOpacity>
                 )}
             </View>

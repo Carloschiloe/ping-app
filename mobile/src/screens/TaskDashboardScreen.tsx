@@ -15,8 +15,7 @@ export default function TaskDashboardScreen() {
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
         queryFn: async () => {
-            const { data } = await apiClient.get('/commitments');
-            return data;
+            return apiClient.get('/commitments');
         }
     });
 
