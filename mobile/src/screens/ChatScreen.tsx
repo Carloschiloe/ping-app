@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -9,11 +9,14 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead, useConversationGroupTasks } from '../api/queries';
+import { useConversationMessages, useSendConversationMessage, useReactToMessage, useUpdateMessageStatus, useMarkConversationAsRead, useConversationGroupTasks, useCreateCommitment } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import AudioPlayer from '../components/AudioPlayer';
 import GroupTaskCard from '../components/GroupTaskCard';
+import TypingIndicator from '../components/TypingIndicator';
+import MentionPopup from '../components/MentionPopup';
+import MessageItem from '../components/MessageItem';
 import { apiClient } from '../api/client';
 import { useMediaPicker } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -47,53 +50,6 @@ function avatarColor(str: string) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const TypingIndicator = () => {
-    const dot1 = useRef(new Animated.Value(0)).current;
-    const dot2 = useRef(new Animated.Value(0)).current;
-    const dot3 = useRef(new Animated.Value(0)).current;
-
-    useEffect(() => {
-        const createAnimation = (anim: Animated.Value, delay: number) => {
-            return Animated.sequence([
-                Animated.delay(delay),
-                Animated.loop(
-                    Animated.sequence([
-                        Animated.timing(anim, { toValue: 1, duration: 300, useNativeDriver: true }),
-                        Animated.timing(anim, { toValue: 0, duration: 300, useNativeDriver: true }),
-                        Animated.delay(600) // pause between loops
-                    ])
-                )
-            ]);
-        };
-
-        Animated.parallel([
-            createAnimation(dot1, 0),
-            createAnimation(dot2, 200),
-            createAnimation(dot3, 400),
-        ]).start();
-    }, []);
-
-    const getDotStyle = (anim: Animated.Value) => ({
-        transform: [{
-            translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -5]
-            })
-        }],
-        opacity: anim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.4, 1]
-        })
-    });
-
-    return (
-        <View style={styles.typingBubble}>
-            <Animated.View style={[styles.typingDot, getDotStyle(dot1)]} />
-            <Animated.View style={[styles.typingDot, getDotStyle(dot2)]} />
-            <Animated.View style={[styles.typingDot, getDotStyle(dot3)]} />
-        </View>
-    );
-};
 
 export default function ChatScreen({ navigation }: any) {
     const route = useRoute<any>();
@@ -109,12 +65,24 @@ export default function ChatScreen({ navigation }: any) {
     const isMultiSelecting = multiSelect.length > 0;
     const menuAnim = useRef(new Animated.Value(300)).current;
 
+    // AI Suggestion State
+    const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
+    const [suggestionData, setSuggestionData] = useState<any>(null);
+    const { mutate: createCommitment } = useCreateCommitment();
+
     // Presence state
     const [activeTypers, setActiveTypers] = useState<{ name: string, isRecording: boolean }[]>([]);
     const presenceChannel = useRef<any>(null);
     let typingTimeout = useRef<NodeJS.Timeout | null>(null);
 
-    const { data, isLoading, refetch } = useConversationMessages(conversationId);
+    const {
+        data: infiniteData,
+        isLoading,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage
+    } = useConversationMessages(conversationId);
+
     const { mutate: sendMessage, isPending } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
     const { mutate: markAsRead } = useMarkConversationAsRead(conversationId);
@@ -124,7 +92,10 @@ export default function ChatScreen({ navigation }: any) {
     const swipeableRowRefs = useRef(new Map());
     const { user } = useAuth();
     const isFocused = useIsFocused();
-    const messages = data?.messages || [];
+
+    const messages = useMemo(() => {
+        return infiniteData?.pages.flatMap(page => page.messages) || [];
+    }, [infiniteData]);
     const { data: groupTasks = [] } = useConversationGroupTasks(isGroup ? conversationId : null);
 
     // ─── @Mention State (Phase 26) ──────────────────────────────────────────
@@ -219,15 +190,8 @@ export default function ChatScreen({ navigation }: any) {
                 schema: 'public',
                 table: 'message_reactions'
             }, () => {
-                refetch(); // Invalidate and refetch everything when any reaction changes
-            })
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'messages',
-                filter: `conversation_id=eq.${conversationId}`
-            }, () => {
-                refetch();
+                // queryClient's logic in queries.ts handles specific table updates, 
+                // but reactions are still partially handled by invalidation there.
             })
             .subscribe();
 
@@ -236,7 +200,7 @@ export default function ChatScreen({ navigation }: any) {
             reactionsChannel.unsubscribe();
             presenceChannel.current = null;
         };
-    }, [conversationId, user, refetch]);
+    }, [conversationId, user]);
 
     // ─── Build flat list with date dividers ───
     const flatData: any[] = [];
@@ -456,7 +420,6 @@ export default function ChatScreen({ navigation }: any) {
                         closeMenu();
                         const { error } = await supabase.from('messages').delete().eq('id', selectedMsg?.id);
                         if (error) Alert.alert('Error', 'No se pudo eliminar el mensaje.');
-                        else refetch();
                     }
                 }
             ]
@@ -500,7 +463,6 @@ export default function ChatScreen({ navigation }: any) {
                     text: 'Eliminar', style: 'destructive', onPress: async () => {
                         await supabase.from('messages').delete().in('id', multiSelect);
                         setMultiSelect([]);
-                        refetch();
                     }
                 }
             ]
@@ -526,9 +488,24 @@ export default function ChatScreen({ navigation }: any) {
 
     const handleSend = () => {
         if (!text.trim()) return;
+        const currentText = text;
+        const currentReply = replyingToMsg;
+        const currentMention = mentionedUserId;
+
+        setText('');
+        setReplyingToMsg(null);
+        setMentionedUserId(null);
+        setMentionQuery(null);
+
         sendMessage(
-            { text, reply_to_id: replyingToMsg?.id, mentioned_user_id: mentionedUserId ?? undefined },
-            { onSuccess: () => { setText(''); setReplyingToMsg(null); setMentionedUserId(null); setMentionQuery(null); } }
+            { text: currentText, reply_to_id: currentReply?.id, mentioned_user_id: currentMention ?? undefined },
+            {
+                onError: () => {
+                    // Optional: restore text if failed, but optimistic updates usually handle this via rollback
+                    // For now, simpler to just let it fail and maybe user retries.
+                    setText(currentText);
+                }
+            }
         );
     };
 
@@ -564,276 +541,140 @@ export default function ChatScreen({ navigation }: any) {
 
     // ─── Render message ──────────────────────────────────────────────────────
 
-    const renderMessage = ({ item }: { item: any }) => {
-        if (item.type === 'divider') {
-            return (
-                <View style={styles.dateDivider}>
-                    <Text style={styles.dateDividerText}>{item.date}</Text>
-                </View>
-            );
-        }
+    const renderMessage = ({ item }: { item: any }) => (
+        <MessageItem
+            item={item}
+            user={user}
+            isGroup={isGroup}
+            isMultiSelecting={isMultiSelecting}
+            isSelected={multiSelect.includes(item.id)}
+            highlightedMsgId={highlightedMsgId}
+            groupTasks={groupTasks}
+            onPress={handleMessagePress}
+            onLongPress={handleMessageLongPress}
+            onToggleSelect={toggleSelect}
+            onSwipeLeft={setReplyingToMsg}
+            onViewReactions={setViewingReactionsMsg}
+            formatTime={formatTime}
+            avatarColor={avatarColor}
+            swipeableRowRefs={swipeableRowRefs}
+        />
+    );
 
-        const isSystem = item.meta?.isSystem;
-        const isMe = (item.sender_id || item.user_id) === user?.id && !isSystem;
-        const time = formatTime(item.created_at);
-        const msgText: string = item.text || '';
-
-        if (isMe && item.message_reactions?.length > 0) {
-            // No log
-        }
-
-        if (isSystem) {
-            return (
-                <View style={styles.systemWrap}>
-                    <View style={styles.systemBubble}>
-                        <Text style={styles.systemText}>{msgText}</Text>
-                    </View>
-                </View>
-            );
-        }
-
-        let isImage = msgText.startsWith('[imagen]');
-        const isAudio = msgText.startsWith('[audio]');
-        let isVideo = msgText.startsWith('[video]');
+    const handleMessagePress = (item: any) => {
+        if (isMultiSelecting) { toggleSelect(item.id); return; }
+        const msgText = item.text || '';
+        const isImage = msgText.startsWith('[imagen]');
+        const isVideo = msgText.startsWith('[video]');
         const isDocument = msgText.startsWith('[document=');
 
+        // Extract media URL (logic shared with MessageItem but needed for state here)
         let mediaUrl = null;
-        let documentName = '';
         if (isImage) mediaUrl = msgText.slice(8);
-        else if (isAudio) mediaUrl = msgText.slice(7);
         else if (isVideo) mediaUrl = msgText.slice(7);
         else if (isDocument) {
             const match = msgText.match(/^\[document=([^\]]+)\](.*)$/);
-            if (match) {
-                documentName = match[1];
-                mediaUrl = match[2];
-            }
+            if (match) mediaUrl = match[2];
         }
 
-        // Backward compatibility: old videos were saved as [imagen]URL.mp4
-        if (isImage && mediaUrl && (mediaUrl.toLowerCase().includes('.mp4') || mediaUrl.toLowerCase().includes('.mov'))) {
-            isImage = false;
-            isVideo = true;
-        }
-        const isSelected = multiSelect.includes(item.id);
+        if (isImage && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'image' }); }
+        if (isVideo && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'video' }); }
+        if (isDocument && mediaUrl) { Linking.openURL(mediaUrl); }
 
-        const handlePress = () => {
-            if (isMultiSelecting) { toggleSelect(item.id); return; }
-            if (isImage && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'image' }); }
-            if (isVideo && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'video' }); }
-            if (isDocument && mediaUrl) { Linking.openURL(mediaUrl); }
-        };
-
-        const handleLongPress = () => {
-            if (isMultiSelecting) { toggleSelect(item.id); return; }
-            // Enter multi-select mode OR show context menu
-            if (!isMultiSelecting) {
-                openMenu(item);
-            }
-        };
-
-        const closeSwipeable = () => {
-            if (item.id && swipeableRowRefs.current.has(item.id)) {
-                swipeableRowRefs.current.get(item.id)?.close();
-            }
-        };
-
-        const renderLeftActions = (progress: any, dragX: any) => {
-            const trans = dragX.interpolate({
-                inputRange: [0, 50, 100, 101],
-                outputRange: [-20, 0, 0, 1],
+        if (item._isSuggestionTap && item.meta?.suggestedTask) {
+            setSuggestionData({
+                ...item.meta.suggestedTask,
+                messageId: item.id
             });
-            return (
-                <View style={{ width: 60, justifyContent: 'center', alignItems: 'center' }}>
-                    <Animated.View style={{ transform: [{ translateX: trans }], width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center', alignItems: 'center' }}>
-                        <Ionicons name="arrow-undo" size={18} color="#6b7280" />
-                    </Animated.View>
-                </View>
-            );
-        };
+            setSuggestionModalVisible(true);
+        }
+    };
+
+    const handleMessageLongPress = (item: any) => {
+        if (isMultiSelecting) { toggleSelect(item.id); return; }
+        openMenu(item);
+    };
+    const handleConfirmSuggestion = () => {
+        if (!suggestionData) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        createCommitment({
+            title: suggestionData.title,
+            due_at: suggestionData.dueAt,
+            assigned_to_user_id: suggestionData.assignedToUserId,
+            message_id: suggestionData.messageId,
+            group_conversation_id: isGroup ? conversationId : null,
+            is_group_task: isGroup && !!suggestionData.assignedToUserId
+        });
+
+        // Optimistically hide the chip by updating local meta (or let server realtime handle it)
+        setSuggestionModalVisible(false);
+        setSuggestionData(null);
+    };
+
+    const handleManualAIAnalysis = async (item: any) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setSelectedMsg(null);
+
+        try {
+            const res = await apiClient.post(`/ai/analyze-message/${item.id}`, {});
+            if (res.suggestedTask) {
+                Alert.alert('Ping AI', '¡Tarea detectada! Aparecerá una sugerencia en el mensaje.');
+            } else {
+                Alert.alert('Ping AI', 'No detecté una tarea clara en este mensaje.');
+            }
+        } catch (err) {
+            Alert.alert('Error', 'No se pudo analizar el mensaje.');
+        }
+    };
+
+    const renderAIConfirmationModal = () => {
+        if (!suggestionData) return null;
+        const assignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
+        const assigneeName = suggestionData.assignedToUserId === user?.id ? 'Para ti' : (assignee?.full_name || 'Alguien');
 
         return (
-            <Swipeable
-                key={item.id}
-                ref={ref => {
-                    if (ref && !swipeableRowRefs.current.has(item.id)) {
-                        swipeableRowRefs.current.set(item.id, ref);
-                    }
-                }}
-                friction={2}
-                leftThreshold={40}
-                renderLeftActions={renderLeftActions}
-                onSwipeableOpen={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setReplyingToMsg(item);
-                    closeSwipeable();
-                }}
-            >
-                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
-                    {isMultiSelecting && (
-                        <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkbox}>
-                            <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
-                                {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
-                            </View>
-                        </TouchableOpacity>
-                    )}
-
-                    {!isMe && !isSystem && (
-                        <View style={styles.senderAvatarContainer}>
-                            {(() => {
-                                const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-                                const avatarUrl = p?.avatar_url;
-                                const email = p?.email || '';
-                                const fullName = p?.full_name;
-
-                                let initialsString = '?';
-                                if (fullName) {
-                                    const parts = fullName.trim().split(/\s+/);
-                                    if (parts.length >= 2) initialsString = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                                    else initialsString = parts[0].substring(0, 2).toUpperCase();
-                                } else {
-                                    initialsString = email.substring(0, 2).toUpperCase();
-                                }
-
-                                const color = avatarColor(email || 'user');
-
-                                return avatarUrl ? (
-                                    <Image source={{ uri: avatarUrl }} style={styles.senderAvatar} />
-                                ) : (
-                                    <View style={[styles.senderAvatar, { backgroundColor: color, justifyContent: 'center', alignItems: 'center' }]}>
-                                        <Text style={styles.senderAvatarText}>{initialsString}</Text>
-                                    </View>
-                                );
-                            })()}
+            <Modal transparent visible={suggestionModalVisible} animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.suggestionModal}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>✨ Sugerencia de Ping AI</Text>
+                            <TouchableOpacity onPress={() => setSuggestionModalVisible(false)}>
+                                <Ionicons name="close" size={24} color="#6b7280" />
+                            </TouchableOpacity>
                         </View>
-                    )}
 
-                    <View style={{ maxWidth: '75%', position: 'relative' }}>
-                        <TouchableOpacity
-                            activeOpacity={0.85}
-                            onPress={handlePress}
-                            onLongPress={handleLongPress}
-                            delayLongPress={350}
-                            style={[
-                                styles.bubble,
-                                isMe ? styles.bubbleMe : styles.bubbleThem,
-                                (isImage || isVideo || isAudio) && styles.bubbleMedia,
-                                isSelected && styles.bubbleSelected,
-                                item.id === highlightedMsgId && styles.bubbleHighlighted,
-                                { overflow: 'hidden' }
-                            ]}
-                        >
-                            {/* ─── Quoted Message (Reply) ─── */}
-                            {item.reply_to && !Array.isArray(item.reply_to) && (
-                                <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
-                                    <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
-                                        {(() => {
-                                            const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
-                                            return p?.full_name || (p?.email || 'Usuario').split('@')[0];
-                                        })()}
-                                    </Text>
-                                    <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
-                                        {item.reply_to.text || 'Sin texto'}
-                                    </Text>
-                                </View>
-                            )}
+                        <View style={styles.modalBody}>
+                            <Text style={styles.inputLabel}>Título de la tarea</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={suggestionData.title}
+                                onChangeText={(t) => setSuggestionData({ ...suggestionData, title: t })}
+                            />
 
-                            {!isMe && !isSystem && isGroup && (
-                                <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
-                                    {(() => {
-                                        const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-                                        return p?.full_name || (p?.email || 'Miembro').split('@')[0];
-                                    })()}
-                                </Text>
-                            )}
-
-                            {isImage && mediaUrl ? (
-                                <Image
-                                    source={{ uri: mediaUrl }}
-                                    style={styles.msgImage}
-                                    resizeMode="cover"
-                                />
-                            ) : isVideo && mediaUrl ? (
-                                <View style={styles.inlineVideoWrap} pointerEvents="none">
-                                    <Video
-                                        source={{ uri: mediaUrl }}
-                                        style={styles.msgImage}
-                                        useNativeControls={false}
-                                        shouldPlay={false}
-                                        isMuted={true}
-                                        resizeMode={ResizeMode.COVER}
-                                    />
-                                    <View style={styles.videoPlayOverlay}>
-                                        <Ionicons name="play-circle" size={48} color="white" />
-                                    </View>
-                                </View>
-                            ) : isAudio && mediaUrl ? (
-                                <AudioPlayer url={mediaUrl} isMe={isMe} />
-                            ) : isDocument && mediaUrl ? (
-                                <View style={styles.documentBubble}>
-                                    <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: '#e5e7eb' }]}>
-                                        <Ionicons name="document-text" size={24} color={isMe ? 'white' : '#6b7280'} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
-                                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontSize: 10 }]}>Documento</Text>
-                                    </View>
-                                </View>
-                            ) : (
-                                <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
-                                    {msgText}
-                                </Text>
-                            )}
-
-                            <View style={styles.metaRow}>
-                                {/* Pro-active Debug Info: R for ReplyTo, RT for Reactions Count */}
-                                {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
-                                <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
-                                {isMe && (
-                                    <View style={{ marginLeft: 4 }}>
-                                        <Ionicons
-                                            name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
-                                            size={14}
-                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? '#9ca3af' : 'rgba(255,255,255,0.7)')}
-                                        />
-                                    </View>
-                                )}
+                            <Text style={styles.inputLabel}>Responsable</Text>
+                            <View style={styles.assigneePreview}>
+                                <Ionicons name="person-circle-outline" size={20} color="#6366f1" />
+                                <Text style={styles.assigneeText}>{assigneeName}</Text>
                             </View>
+
+                            <Text style={styles.inputLabel}>Fecha Sugerida</Text>
+                            <View style={styles.datePreview}>
+                                <Ionicons name="calendar-outline" size={20} color="#6366f1" />
+                                <Text style={styles.dateText}>
+                                    {new Date(suggestionData.dueAt).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                            </View>
+
+                            <Text style={styles.hintText}>Puedes editar el título antes de agendar.</Text>
+                        </View>
+
+                        <TouchableOpacity style={styles.acceptBtn} onPress={handleConfirmSuggestion}>
+                            <Text style={styles.acceptBtnText}>Agendar Tarea</Text>
                         </TouchableOpacity>
-                        {/* ─── Reactions (Pinned to bubble corner) ─── */}
-                        {item.message_reactions && item.message_reactions.length > 0 && (
-                            <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
-                                {(() => {
-                                    const counts = item.message_reactions.reduce((acc: any, r: any) => {
-                                        acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                                        return acc;
-                                    }, {});
-                                    return Object.keys(counts).map(emoji => (
-                                        <TouchableOpacity
-                                            key={emoji}
-                                            style={styles.reactionPill}
-                                            onPress={() => setViewingReactionsMsg(item)}
-                                        >
-                                            <Text style={{ fontSize: 13 }}>{emoji}</Text>
-                                            {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
-                                        </TouchableOpacity>
-                                    ));
-                                })()}
-                            </View>
-                        )}
                     </View>
-                    {highlightedMsgId === item.id && (
-                        <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
-                    )}
                 </View>
-
-                {/* Phase 26: Group Task Card — shown beneath the triggering message */}
-                {isGroup && (() => {
-                    const task = groupTasks.find((t: any) => t.message_id === item.id && t.is_group_task);
-                    return task ? <GroupTaskCard key={task.id} commitment={task} /> : null;
-                })()}
-
-            </Swipeable>
+            </Modal>
         );
     };
 
@@ -900,6 +741,7 @@ export default function ChatScreen({ navigation }: any) {
                 <StatusBar barStyle="light-content" />
 
                 {renderReactionDetailsModal()}
+                {renderAIConfirmationModal()}
 
                 <View style={styles.chatBg}>
                     {isLoading ? (
@@ -918,6 +760,15 @@ export default function ChatScreen({ navigation }: any) {
                             inverted
                             keyExtractor={(item) => item.id}
                             renderItem={renderMessage}
+                            onEndReached={() => {
+                                if (hasNextPage && !isFetchingNextPage) {
+                                    fetchNextPage();
+                                }
+                            }}
+                            onEndReachedThreshold={0.3}
+                            ListFooterComponent={() =>
+                                isFetchingNextPage ? <ActivityIndicator size="small" color="#999" style={{ marginVertical: 10 }} /> : null
+                            }
                             showsVerticalScrollIndicator={false}
                             contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
                             onScrollToIndexFailed={(info) => {
@@ -967,27 +818,12 @@ export default function ChatScreen({ navigation }: any) {
                     </View>
                 )}
 
-                {/* @Mention Popup — appears above input when @ is typed in a group */}
-                {isGroup && mentionQuery !== null && filteredParticipants.length > 0 && (
-                    <View style={styles.mentionPopup}>
-                        {filteredParticipants.map(p => (
-                            <TouchableOpacity
-                                key={p.id}
-                                style={styles.mentionItem}
-                                onPress={() => handleSelectMention(p)}
-                            >
-                                <View style={styles.mentionAvatar}>
-                                    <Text style={styles.mentionAvatarLetter}>
-                                        {(p.full_name || p.email)[0].toUpperCase()}
-                                    </Text>
-                                </View>
-                                <View>
-                                    <Text style={styles.mentionName}>{p.full_name || p.email.split('@')[0]}</Text>
-                                    <Text style={styles.mentionEmail}>{p.email}</Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
+                {/* @Mention Popup — extracted to component */}
+                {isGroup && mentionQuery !== null && (
+                    <MentionPopup
+                        participants={filteredParticipants}
+                        onSelect={handleSelectMention}
+                    />
                 )}
 
                 {/* Input bar */}
@@ -1419,20 +1255,6 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
         marginBottom: 2,
     },
-    typingBubble: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 3,
-        marginRight: 8,
-        height: 16,
-    },
-    typingDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#9ca3af',
-    },
     typingIndicatorText: {
         fontSize: 12,
         color: '#6b7280',
@@ -1470,6 +1292,45 @@ const styles = StyleSheet.create({
 
     // Summary Modal
     summaryBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    // New styles for suggestion modal, overlay, inputs, and buttons
+    suggestionMenuSheet: { // Renamed from menuSheet to avoid conflict
+        backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+        padding: 20, paddingBottom: 40, width: '100%',
+    },
+    menuOption: {
+        flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 0.5, borderBottomColor: '#f3f4f6',
+    },
+    menuOptionText: { fontSize: 16, color: '#374151', marginLeft: 15 },
+    menuOptionGroup: { marginTop: 10 },
+    menuOptionGroupLabel: { fontSize: 12, fontWeight: '700', color: '#9ca3af', marginBottom: 5, marginLeft: 2 },
+    modalOverlay: {
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20,
+    },
+    suggestionModal: {
+        backgroundColor: 'white', borderRadius: 24, width: '100%', padding: 24, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5,
+    },
+    modalHeader: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
+    },
+    modalTitle: { fontSize: 18, fontWeight: '700', color: '#1e1b4b' },
+    modalBody: { marginBottom: 24 },
+    inputLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', marginBottom: 8, textTransform: 'uppercase' },
+    modalInput: {
+        backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, fontSize: 16, color: '#111827', marginBottom: 16,
+    },
+    assigneePreview: {
+        flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f3ff', borderRadius: 12, padding: 12, marginBottom: 16, gap: 10,
+    },
+    assigneeText: { fontSize: 15, fontWeight: '600', color: '#6366f1' },
+    datePreview: {
+        flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, gap: 10,
+    },
+    dateText: { fontSize: 14, fontWeight: '500', color: '#c2410c' },
+    hintText: { fontSize: 11, color: '#9ca3af', marginTop: 12, textAlign: 'center' },
+    acceptBtn: {
+        backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+    },
+    acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
     summarySheet: {
         backgroundColor: 'white',
         borderTopLeftRadius: 30,
@@ -1494,33 +1355,5 @@ const styles = StyleSheet.create({
     },
     summaryDoneText: { color: 'white', fontWeight: '800', fontSize: 16 },
 
-    // @Mention Popup (Phase 26)
-    mentionPopup: {
-        backgroundColor: 'white',
-        marginHorizontal: 8,
-        marginBottom: 4,
-        borderRadius: 16,
-        shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
-        borderWidth: 1, borderColor: '#e5e7eb',
-        overflow: 'hidden',
-        maxHeight: 200,
-    },
-    mentionItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        gap: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
-    },
-    mentionAvatar: {
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: '#6366f1',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    mentionAvatarLetter: { color: 'white', fontWeight: '700', fontSize: 15 },
-    mentionName: { fontSize: 14, fontWeight: '700', color: '#111827' },
-    mentionEmail: { fontSize: 12, color: '#6b7280' },
 });
 

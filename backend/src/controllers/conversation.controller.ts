@@ -236,6 +236,8 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
         const scrollToMessageId = req.query.scrollToMessageId as string | undefined;
+        const before = req.query.before as string | undefined;
+        const limit = parseInt(req.query.limit as string) || 50;
 
         // Verify participation
         const { data: part } = await supabaseAdmin
@@ -252,6 +254,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, text, profiles!sender_id(email, full_name, avatar_url))';
         let finalMessages: any[] = [];
+        let hasMore = false;
 
         if (scrollToMessageId) {
             // Find the target message date
@@ -282,23 +285,46 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
                 // Combine: newer reversed (so newest is first, matching order desc) + older
                 finalMessages = [...(newer || []).reverse(), ...(older || [])];
+                hasMore = true; // For scrollTo, we assume there might be more in both directions but simple pagination usually only goes back
             }
-        }
+        } else if (before) {
+            // Fetch messages older than the 'before' timestamp
+            const { data: messages, error } = await supabaseAdmin
+                .from('messages')
+                .select(selectQuery)
+                .eq('conversation_id', conversationId)
+                .lt('created_at', before)
+                .order('created_at', { ascending: false })
+                .limit(limit + 1);
 
-        // Fallback or default load (last 50 messages)
-        if (!finalMessages.length) {
+            if (error) throw error;
+
+            if (messages && messages.length > limit) {
+                hasMore = true;
+                finalMessages = messages.slice(0, limit);
+            } else {
+                finalMessages = messages || [];
+            }
+        } else {
+            // Default load (last N messages)
             const { data: messages, error } = await supabaseAdmin
                 .from('messages')
                 .select(selectQuery)
                 .eq('conversation_id', conversationId)
                 .order('created_at', { ascending: false })
-                .limit(50);
+                .limit(limit + 1);
 
             if (error) throw error;
-            finalMessages = messages || [];
+
+            if (messages && messages.length > limit) {
+                hasMore = true;
+                finalMessages = messages.slice(0, limit);
+            } else {
+                finalMessages = messages || [];
+            }
         }
 
-        res.json({ messages: finalMessages });
+        res.json({ messages: finalMessages, hasMore });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

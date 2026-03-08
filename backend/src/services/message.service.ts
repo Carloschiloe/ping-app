@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { extractCommitment, transcribeAudio } from './ai.service';
 import { parseDateFromText } from './date-parser.service';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 import axios from 'axios';
 import fs from 'fs';
@@ -23,10 +23,11 @@ async function downloadFile(url: string, targetPath: string) {
 }
 
 export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string, mentionedUserId?: string) => {
-    // 1. Determine if it moves to transcription first
     let processingText = text;
     let meta: any = {};
+    let imageUrl: string | undefined;
 
+    // 1. Handle Multimedia (Audio/Image)
     if (text.startsWith('[audio]')) {
         const audioUrl = text.slice(7);
         try {
@@ -41,9 +42,14 @@ export const processUserMessage = async (userId: string, text: string, conversat
         } catch (err) {
             console.error('[Audio Processing] Failed:', err);
         }
+    } else if (text.startsWith('[imagen]')) {
+        const parts = text.split(' ');
+        imageUrl = parts[0].slice(8);
+        const description = parts.slice(1).join(' ');
+        processingText = description;
     }
 
-    // 2. Insert message
+    // 2. Insert message immediately
     const { data: message, error: messageError } = await supabaseAdmin
         .from('messages')
         .insert({
@@ -59,132 +65,78 @@ export const processUserMessage = async (userId: string, text: string, conversat
 
     if (messageError) throw messageError;
 
-    // Fetch the message again with joins
+    // 3. Trigger Background Analysis (Non-blocking)
+    analyzeAndSuggestTask(message.id, processingText, imageUrl, mentionedUserId, conversationId)
+        .catch(err => console.error('[Background Analysis Error]', err));
+
+    // Fetch message with joins for response
     const { data: fullMessage } = await supabaseAdmin
         .from('messages')
-        .select('*, profiles!sender_id(id, email), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
+        .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
         .eq('id', message.id)
         .single();
 
-    const finalMessage = fullMessage || message;
+    return { message: fullMessage || message };
+};
 
-    let commitmentCreated: any = null;
-    let systemMessage: any = null;
+export const analyzeAndSuggestTask = async (
+    messageId: string,
+    text: string,
+    imageUrl?: string,
+    mentionedUserId?: string,
+    conversationId?: string
+) => {
+    const timestamp = new Date().toISOString();
+    // Smart Triggers (for automatic flow, manual flow skips this)
+    const hasKeywords = /\b(agenda|tarea|hacer|reunion|reunión|recordar|mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|hoy|tienes|tengo)\b/i.test(text);
+    const isTriggered = !!mentionedUserId || hasKeywords || (imageUrl && text.trim().length > 0);
 
-    // 2. Try AI extraction first, fall back to regex
-    const nowIso = new Date().toISOString();
-    let title: string | null = null;
-    let dueAt: Date | null = null;
-    let replyText: string | null = null;
+    // If text is empty and no image, nothing to do
+    if (!text && !imageUrl) return null;
 
-    if (process.env.OPENAI_API_KEY) {
-        // AI path
-        const ai = await extractCommitment(processingText, nowIso);
+    try {
+        const ai = await extractCommitment(text, timestamp, imageUrl);
+
         if (ai.hasCommitment && ai.dueAt) {
-            title = ai.title;
-            dueAt = new Date(ai.dueAt);
-            replyText = ai.replyText;
+            const dueDate = new Date(ai.dueAt);
+            if (!isValid(dueDate)) return null;
 
-            // --- Phase 26: Use explicit @mentioned_user_id instead of AI name matching ---
-            if (mentionedUserId && conversationId) {
-                (message as any)._assignedToUserId = mentionedUserId;
-            } else if (ai.assignedToName && conversationId) {
-                // Fallback: AI-based name match (for messages without @mention)
-                try {
-                    const { data: participants } = await supabaseAdmin
-                        .from('conversation_participants')
-                        .select('user_id, profiles!inner(full_name)')
-                        .eq('conversation_id', conversationId);
+            let finalAssigneeId = mentionedUserId || null;
+            if (!finalAssigneeId && ai.assignedToName && conversationId) {
+                const { data: participants } = await supabaseAdmin
+                    .from('conversation_participants')
+                    .select('user_id, profiles!inner(full_name)')
+                    .eq('conversation_id', conversationId);
 
-                    const match = (participants || []).find((p: any) => {
-                        const name = (p.profiles?.full_name || '').toLowerCase();
-                        const detected = ai.assignedToName!.toLowerCase();
-                        return name.includes(detected) || detected.includes(name.split(' ')[0]);
-                    });
-
-                    if (match) {
-                        (message as any)._assignedToUserId = match.user_id;
-                    }
-                } catch (err) {
-                    console.error('[Phase26] Error resolving assignee:', err);
-                }
+                const match = (participants || []).find((p: any) => {
+                    const name = (p.profiles?.full_name || '').toLowerCase();
+                    const detected = ai.assignedToName!.toLowerCase();
+                    return name.includes(detected) || detected.includes(name.split(' ')[0]);
+                });
+                if (match) finalAssigneeId = match.user_id;
             }
-            // --------------------------------------------------
+
+            const suggestedTask = {
+                title: ai.title,
+                dueAt: ai.dueAt,
+                assignedToUserId: finalAssigneeId,
+                replyText: ai.replyText
+            };
+
+            console.log(`[AI] Saving suggestion ONLY to message ${messageId}: ${ai.title}`);
+            const { data: updated } = await supabaseAdmin
+                .from('messages')
+                .update({ meta: { suggestedTask } })
+                .eq('id', messageId)
+                .select()
+                .single();
+
+            return suggestedTask;
         }
-    } else {
-        // Fallback: regex date parser
-        const parsed = parseDateFromText(processingText);
-        if (parsed) {
-            title = `Recordatorio: "${processingText.substring(0, 40)}..."`;
-            dueAt = parsed.date;
-            const formattedDate = format(dueAt, "EEEE d 'de' MMMM 'a las' HH:mm", { locale: es });
-            replyText = `⏰ Te lo recordaré el ${formattedDate}.`;
-        }
+    } catch (err) {
+        console.error('[AI Analysis] Failed:', err);
     }
-
-    // 3. Save commitment if detected
-    if (dueAt && title) {
-        const { data: commitment, error: commError } = await supabaseAdmin
-            .from('commitments')
-            .insert({
-                owner_user_id: userId,
-                title,
-                due_at: dueAt.toISOString(),
-                status: 'pending',
-                message_id: message.id,
-                // Phase 26: group task fields
-                ...(conversationId ? { group_conversation_id: conversationId } : {}),
-                ...((message as any)._assignedToUserId ? {
-                    assigned_to_user_id: (message as any)._assignedToUserId,
-                    is_group_task: true,
-                } : {}),
-            })
-            .select()
-            .single();
-
-        if (commError) {
-            console.error('Error creating commitment:', commError);
-        } else {
-            commitmentCreated = commitment;
-
-            // --- Phase 15: Autonomous Sync ---
-            let syncNotice = '';
-            try {
-                const { syncCommitmentToCloud } = require('./calendar_sync.service');
-                const syncResults = await syncCommitmentToCloud(userId, commitment);
-
-                if (syncResults && syncResults.length > 0) {
-                    const hasConflict = syncResults.some((r: any) => r.hasConflict);
-                    if (hasConflict) {
-                        syncNotice = '\n\n⚠️ ¡Ojo! Tienes otro evento a esa misma hora en tu calendario.';
-                    } else {
-                        syncNotice = '\n\n🌐 Sincronizado automáticamente con tu nube.';
-                    }
-                }
-            } catch (syncErr) {
-                console.error('[Auto-Sync Trigger] Error:', syncErr);
-            }
-            // ----------------------------------
-
-            // Send reply if we have a title
-            if (replyText) {
-                const { data: sysMsg } = await supabaseAdmin
-                    .from('messages')
-                    .insert({
-                        conversation_id: conversationId,
-                        user_id: userId,
-                        sender_id: userId,
-                        text: replyText + syncNotice,
-                        meta: { isSystem: true, related_commitment_id: commitment.id }
-                    })
-                    .select('*, profiles!sender_id(id, email)')
-                    .single();
-                systemMessage = sysMsg;
-            }
-        }
-    }
-
-    return { message: finalMessage, commitment: commitmentCreated, systemMessage };
+    return null;
 };
 
 export const getMessages = async (userId: string, limit = 50, offset = 0) => {

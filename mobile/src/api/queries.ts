@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { apiClient } from './client';
@@ -50,13 +50,14 @@ export const useConversations = () => {
                     const currentUserId = session?.user?.id;
                     const isMe = currentUserId && (newMsg.sender_id === currentUserId || newMsg.user_id === currentUserId);
                     if (!isMe && !newMsg.meta?.isSystem) {
-                        try {
-                            await apiClient.patch(`/messages/${newMsg.id}/status`, { status: 'delivered' });
-                        } catch (e) {
-                            console.error('[Delivered Receipt Error]', e);
-                        }
+                        // Use a background call without await to avoid blocking the realtime thread
+                        setTimeout(() => {
+                            apiClient.patch(`/messages/${newMsg.id}/status`, { status: 'delivered' })
+                                .catch(() => { /* Silently fail background updates */ });
+                        }, 500); // Small delay to let DB settle
                     }
                 }
+                // Debounce invalidation slightly to avoid spamming if multiple messages arrive
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {
@@ -72,10 +73,12 @@ export const useConversations = () => {
     });
 };
 
+
 export const useConversationMessages = (conversationId: string, scrollToMessageId?: string) => {
     const queryClient = useQueryClient();
+    const { user } = useAuth();
 
-    // Realtime: instantly append new messages in this conversation
+    // Realtime: instantly append new messages or update status/reactions
     useEffect(() => {
         if (!conversationId) return;
         const channel = supabase
@@ -83,30 +86,104 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
-            )
-            .on(
-                'postgres_changes',
-                { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+                (payload) => {
+                    const newMsg = payload.new;
+                    queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
+                        if (!oldData) return oldData;
+                        // Avoid duplication if already added by optimistic update
+                        const allMessages = oldData.pages.flatMap((page: any) => page.messages);
+
+                        // Look for an optimistic message that matches this new one
+                        // Match criteria: temporary ID, same sender, and same text
+                        const isMe = newMsg.sender_id === user?.id || newMsg.user_id === user?.id;
+                        const optimisticMatch = allMessages.find((m: any) =>
+                            m.id.startsWith('temp-') &&
+                            (m.sender_id === newMsg.sender_id || m.user_id === newMsg.user_id) &&
+                            m.text === newMsg.text
+                        );
+
+                        const newPages = [...oldData.pages];
+                        if (optimisticMatch) {
+                            // Replace the optimistic message with the real one to keep position and avoid double render
+                            newPages[0] = {
+                                ...newPages[0],
+                                messages: newPages[0].messages.map((m: any) => m.id === optimisticMatch.id ? newMsg : m)
+                            };
+                        } else {
+                            // Only add if not already present by ID (standard check)
+                            if (allMessages.find((m: any) => m.id === newMsg.id)) return oldData;
+
+                            newPages[0] = {
+                                ...newPages[0],
+                                messages: [newMsg, ...newPages[0].messages]
+                            };
+                        }
+                        return { ...oldData, pages: newPages };
+                    });
+                }
             )
             .on(
                 'postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+                (payload) => {
+                    const updatedMsg = payload.new;
+                    queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
+                        if (!oldData) return oldData;
+                        return {
+                            ...oldData,
+                            pages: oldData.pages.map((page: any) => ({
+                                ...page,
+                                messages: page.messages.map((m: any) => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m)
+                            }))
+                        };
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+                (payload) => {
+                    const deletedId = payload.old.id;
+                    queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
+                        if (!oldData) return oldData;
+                        return {
+                            ...oldData,
+                            pages: oldData.pages.map((page: any) => ({
+                                ...page,
+                                messages: page.messages.filter((m: any) => m.id !== deletedId)
+                            }))
+                        };
+                    });
+                }
             )
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'message_reactions' },
-                () => { queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] }); }
+                () => {
+                    // Reactions are complex to update manually, invalidate for consistency
+                    queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                }
             )
             .subscribe();
         return () => { supabase.removeChannel(channel); };
-    }, [conversationId, queryClient]);
+    }, [conversationId, queryClient, scrollToMessageId]);
 
-    return useQuery({
+    return useInfiniteQuery({
         queryKey: ['conversation-messages', conversationId, scrollToMessageId],
-        queryFn: () => apiClient.get(`/conversations/${conversationId}/messages${scrollToMessageId ? `?scrollToMessageId=${scrollToMessageId}` : ''}`),
+        queryFn: async ({ pageParam }) => {
+            let url = `/conversations/${conversationId}/messages`;
+            const params = new URLSearchParams();
+            if (scrollToMessageId) params.append('scrollToMessageId', scrollToMessageId);
+            if (pageParam) params.append('before', pageParam as string);
+
+            const queryString = params.toString();
+            return apiClient.get(url + (queryString ? `?${queryString}` : ''));
+        },
+        initialPageParam: null,
+        getNextPageParam: (lastPage: any) => {
+            if (!lastPage.hasMore || lastPage.messages.length === 0) return undefined;
+            return lastPage.messages[lastPage.messages.length - 1].created_at;
+        },
         enabled: !!conversationId,
     });
 };
@@ -114,16 +191,62 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
 
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
+    const { user } = useAuth();
+
     return useMutation({
         mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string }) => {
-            console.log(`[Queries] Sending message: body=${JSON.stringify(data)}`);
             return apiClient.post(`/conversations/${conversationId}/messages`, data);
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+        onMutate: async (newMessage) => {
+            // Cancel any outgoing refetches
+            await queryClient.cancelQueries({ queryKey: ['conversation-messages', conversationId] });
+
+            // Snapshot the previous values for all variations of this conversation's message list
+            const previousQueries = queryClient.getQueriesData({ queryKey: ['conversation-messages', conversationId] });
+
+            // Optimistically update to the new value
+            if (previousQueries && previousQueries.length > 0) {
+                const optimisticMsg = {
+                    id: `temp-${Date.now()}`,
+                    conversation_id: conversationId,
+                    sender_id: user?.id,
+                    user_id: user?.id,
+                    text: newMessage.text,
+                    created_at: new Date().toISOString(),
+                    status: 'sending',
+                    profiles: {
+                        id: user?.id,
+                        full_name: user?.user_metadata?.full_name,
+                        avatar_url: user?.user_metadata?.avatar_url,
+                        email: user?.email,
+                    }
+                };
+
+                queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (old: any) => {
+                    if (!old) return old;
+                    const newPages = [...old.pages];
+                    newPages[0] = {
+                        ...newPages[0],
+                        messages: [optimisticMsg, ...newPages[0].messages]
+                    };
+                    return { ...old, pages: newPages };
+                });
+            }
+
+            return { previousQueries };
+        },
+        onError: (err, newMessage, context: any) => {
+            if (context?.previousQueries) {
+                context.previousQueries.forEach(([key, data]: any) => {
+                    queryClient.setQueryData(key, data);
+                });
+            }
+        },
+        onSettled: () => {
+            // Only invalidate after successful mutation to ensure server and client are in sync, 
+            // but use a slight delay or non-blocking approach if needed.
+            // For now, let's just make it more targeted.
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
     });
 };
@@ -278,16 +401,39 @@ export const useCommitments = (status?: string) => {
     });
 };
 
-export const useMarkCommitmentDone = () => {
+export const useCreateCommitment = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (id: string) => apiClient.patch(`/commitments/${id}`, { status: 'completed' }),
+        mutationFn: async (data: any) => apiClient.post('/commitments', data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
         },
     });
+};
+
+export const useUpdateCommitmentStatus = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, status }: { id: string, status: string }) =>
+            apiClient.patch(`/commitments/${id}`, { status }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        },
+    });
+};
+
+export const useMarkCommitmentDone = () => {
+    const { mutate } = useUpdateCommitmentStatus();
+    return {
+        mutate: (id: string) => mutate({ id, status: 'completed' }),
+        isPending: false // Simplify for legacy compat
+    };
 };
 
 export const useDeleteCommitment = () => {

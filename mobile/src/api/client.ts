@@ -76,14 +76,16 @@ export const apiClient = {
     },
     patch: async (endpoint: string, body: any) => {
         const headers = await getAuthHeaders();
-        const response = await fetch(`${API_URL}${endpoint}`, {
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
+        const response = await fetch(url, {
             method: 'PATCH',
             headers,
             body: JSON.stringify(body),
         });
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
-            throw new Error(error.error || `Error PATCH ${endpoint}`);
+            throw new Error(error.error || `Error PATCH ${url}`);
         }
         return response.json();
     },

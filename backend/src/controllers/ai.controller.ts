@@ -108,3 +108,45 @@ export const summarize = async (req: Request, res: Response): Promise<void> => {
         res.status(500).json({ error: error.message });
     }
 };
+
+export const analyzeMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { analyzeAndSuggestTask } = require('../services/message.service');
+
+        const { data: message, error: msgError } = await supabaseAdmin
+            .from('messages')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (msgError || !message) {
+            res.status(404).json({ error: 'Message not found' });
+            return;
+        }
+
+        let processingText = message.text || '';
+        let imageUrl: string | undefined;
+
+        if (processingText.startsWith('[imagen]')) {
+            const parts = processingText.split(' ');
+            imageUrl = parts[0].slice(8);
+            processingText = parts.slice(1).join(' ');
+        } else if (processingText.startsWith('[audio]')) {
+            processingText = message.meta?.transcript || '';
+        }
+
+        const suggestedTask = await analyzeAndSuggestTask(
+            message.id,
+            processingText,
+            imageUrl,
+            undefined, // We don't have explicit mentionedUserId here easily without more queries, but AI can handle it
+            message.conversation_id
+        );
+
+        res.status(200).json({ suggestedTask });
+    } catch (error: any) {
+        console.error('[AI Analyze Message] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

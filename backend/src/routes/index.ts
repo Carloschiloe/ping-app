@@ -64,9 +64,10 @@ router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommit
 router.get('/search', requireAuth, searchController.search);
 
 // AI
-router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize'] }));
+router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize', 'analyze-message'] }));
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
+router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage);
 
 // Cloud Calendar OAuth & Sync
 router.get('/calendar/auth/google', requireAuth, calendarController.getGoogleAuth);

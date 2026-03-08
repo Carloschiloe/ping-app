@@ -1,11 +1,11 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
 import { useMarkCommitmentDone } from '../api/queries';
 import * as Haptics from 'expo-haptics';
+import { apiClient } from '../api/client';
 
 interface GroupTaskCardProps {
     commitment: {
@@ -27,6 +27,8 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const { mutate: markDone, isPending } = useMarkCommitmentDone();
     const isAssignee = commitment.assigned_to_user_id === user?.id;
     const isDone = commitment.status === 'done';
+    const isPendingStatus = commitment.status === 'pending';
+    const isInProgress = commitment.status === 'in_progress';
 
     const assigneeName = commitment.assignee?.full_name
         || commitment.assignee?.email?.split('@')[0]
@@ -41,6 +43,13 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         markDone(commitment.id);
     };
 
+    const handlePing = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        Alert.alert('¡Pinga!', `Has enviado un recordatorio a ${assigneeName}.`);
+        // In a real app, this would call an endpoint to send a push notification
+        apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
+    };
+
     return (
         <View style={styles.card}>
             <View style={styles.header}>
@@ -48,9 +57,15 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     <Ionicons name="checkbox-outline" size={16} color="#6366f1" />
                     <Text style={styles.label}>Tarea Asignada</Text>
                 </View>
-                <View style={[styles.badge, isDone ? styles.badgeDone : styles.badgePending]}>
-                    <Text style={[styles.badgeText, isDone ? styles.badgeDoneText : styles.badgePendingText]}>
-                        {isDone ? '✅ Completada' : '⏳ Pendiente'}
+                <View style={[
+                    styles.badge,
+                    isDone ? styles.badgeDone : (isInProgress ? styles.badgeProgress : styles.badgePending)
+                ]}>
+                    <Text style={[
+                        styles.badgeText,
+                        isDone ? styles.badgeDoneText : (isInProgress ? styles.badgeProgressText : styles.badgePendingText)
+                    ]}>
+                        {isDone ? '✅ Completada' : (isInProgress ? '⚙️ En Progreso' : '⏳ Pendiente')}
                     </Text>
                 </View>
             </View>
@@ -71,17 +86,32 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 </View>
             </View>
 
-            {isAssignee && !isDone && (
-                <TouchableOpacity
-                    style={styles.completeBtn}
-                    onPress={handleMarkDone}
-                    disabled={isPending}
-                    activeOpacity={0.8}
-                >
-                    <Ionicons name="checkmark-circle" size={18} color="white" />
-                    <Text style={styles.completeBtnText}>{isPending ? 'Guardando...' : 'Marcar como Completa'}</Text>
-                </TouchableOpacity>
-            )}
+            <View style={styles.actions}>
+                {isAssignee && !isDone && (
+                    <TouchableOpacity
+                        style={styles.completeBtn}
+                        onPress={handleMarkDone}
+                        disabled={isPending}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name="checkmark-circle" size={18} color="white" />
+                        <Text style={styles.completeBtnText}>
+                            {isPending ? 'Guardando...' : 'Completar'}
+                        </Text>
+                    </TouchableOpacity>
+                )}
+
+                {!isAssignee && !isDone && (
+                    <TouchableOpacity
+                        style={styles.pingBtn}
+                        onPress={handlePing}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name="notifications" size={18} color="#f59e0b" />
+                        <Text style={styles.pingBtnText}>¡Pinga!</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
         </View>
     );
 }
@@ -121,9 +151,11 @@ const styles = StyleSheet.create({
     },
     badgePending: { backgroundColor: '#fef3c7' },
     badgeDone: { backgroundColor: '#dcfce7' },
+    badgeProgress: { backgroundColor: '#e0e7ff' },
     badgeText: { fontSize: 11, fontWeight: '600' },
     badgePendingText: { color: '#92400e' },
     badgeDoneText: { color: '#166534' },
+    badgeProgressText: { color: '#3730a3' },
     taskTitle: {
         fontSize: 14,
         fontWeight: '600',
@@ -135,7 +167,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        marginBottom: 10,
+        marginBottom: 12,
     },
     avatar: {
         width: 32,
@@ -162,18 +194,39 @@ const styles = StyleSheet.create({
         color: '#6b7280',
         marginTop: 1,
     },
+    actions: {
+        flexDirection: 'row',
+        gap: 8,
+    },
     completeBtn: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#6366f1',
         paddingVertical: 10,
-        paddingHorizontal: 16,
         borderRadius: 10,
         gap: 8,
         justifyContent: 'center',
     },
     completeBtnText: {
         color: 'white',
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    pingBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fffbeb',
+        borderWidth: 1,
+        borderColor: '#fde68a',
+        paddingVertical: 10,
+        borderRadius: 10,
+        gap: 8,
+        justifyContent: 'center',
+    },
+    pingBtnText: {
+        color: '#b45309',
         fontWeight: '700',
         fontSize: 14,
     },

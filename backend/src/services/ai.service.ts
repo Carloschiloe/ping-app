@@ -3,6 +3,8 @@ import fs from 'fs';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+console.log('--- [DEBUG] AI SERVICE LOADED (VERSION 2.1 - NO AUTO-CONFIRM) ---');
+
 export interface CommitmentExtraction {
     hasCommitment: boolean;
     title: string | null;
@@ -17,39 +19,47 @@ Extrae la siguiente información en JSON:
 - hasCommitment (boolean): true si hay un compromiso, tarea o evento con fecha/hora implícita o explícita
 - title (string | null): título corto y claro del compromiso (máx 60 caracteres)
 - dueAt (string | null): fecha y hora en formato ISO 8601 (ej: 2026-03-05T15:00:00), calculada desde la fecha de hoy
-- replyText (string | null): mensaje de confirmación amigable en español, confirmando el recordatorio
-- assignedToName (string | null): nombre de la persona mencionada como responsable de la tarea (ej: si el mensaje dice "Carlos va a hacer X", el valor es "Carlos"). Si el que habla es el responsable o no se menciona a nadie, devuelve null.
+- replyText (string | null): NO usar para confirmación. Genera un resumen muy corto para el chip (ej: "reunión mañana").
+- assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor, devuelve null.
 
 Reglas:
+- Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
-- "mañana" = mañana del mismo día que se envía el mensaje
-- Si no hay hora específica, usa las 09:00 del día correspondiente
-- Interpreta lenguaje natural chileno: "la otra semana", "pasado", "en un rato", "a las 3", etc.
-- El replyText debe ser natural y breve, ej: "✅ Te recuerdo el viernes a las 15:00."
+- "mañana" = día siguiente al enviado.
+- Si no hay hora, usa 09:00.
+- El replyText debe ser SOLO el resumen para el chip UI, sin "Entendido" ni saludos.
+- Interpreta lenguaje natural chileno.
 - Usa el contexto completo del mensaje para entender compromisos implícitos
 
-Responde SOLO con JSON válido, sin markdown.`;
+Responde SOLO con JSON válido.`;
 
 export const extractCommitment = async (
     text: string,
-    nowIso: string
+    nowIso: string,
+    imageUrl?: string
 ): Promise<CommitmentExtraction> => {
     if (!process.env.OPENAI_API_KEY) {
         return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null };
     }
 
     try {
+        const userContent: any[] = [{ type: 'text', text: `Fecha y hora actual: ${nowIso}\n\nMensaje: "${text}"` }];
+
+        if (imageUrl) {
+            userContent.push({
+                type: 'image_url',
+                image_url: { url: imageUrl }
+            });
+        }
+
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                {
-                    role: 'user',
-                    content: `Fecha y hora actual: ${nowIso}\n\nMensaje: "${text}"`
-                }
+                { role: 'user', content: userContent }
             ],
             temperature: 0.1,
-            max_tokens: 200,
+            max_tokens: 300,
             response_format: { type: 'json_object' },
         });
 
