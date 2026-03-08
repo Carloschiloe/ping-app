@@ -235,7 +235,8 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
             }
 
             // 3. Create Event with Rich Description
-            const description = `Ping: Compromiso detectado automáticamente.\n\nDetalles: ${commitment.title}\nAcordado el: ${new Date(commitment.created_at || Date.now()).toLocaleString('es-CL')}\n\nPing - El chat que recuerda. 🕵️‍♂️📝`;
+            const assigneeText = commitment.assigned_to_user_id ? `\nAsignado a: (ID ${commitment.assigned_to_user_id})` : '';
+            const description = `Ping: Compromiso detectado automáticamente.${assigneeText}\n\nDetalles: ${commitment.title}\nAcordado el: ${new Date(commitment.created_at || Date.now()).toLocaleString('es-CL')}\n\nPing - El chat que recuerda. 🕵️‍♂️📝`;
 
             let result;
             let eventUrl = '';

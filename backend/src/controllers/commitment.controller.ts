@@ -2,6 +2,34 @@ import { Request, Response } from 'express';
 import * as commitmentService from '../services/commitment.service';
 import * as calendarSyncService from '../services/calendar_sync.service';
 
+export const createCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const commitmentData = req.body;
+
+        const data = await commitmentService.createCommitment(userId, commitmentData);
+
+        // --- Phase 15.2: Sync to Cloud (Assigned User) ---
+        // If assigned_to_user_id is present, sync to THAT user's calendar
+        const targetSyncUserId = data.assigned_to_user_id || userId;
+
+        try {
+            await calendarSyncService.syncCommitmentToCloud(targetSyncUserId, data);
+        } catch (syncError) {
+            console.error('[Create Commitment] Cloud sync failed (non-blocking):', syncError);
+        }
+        // ------------------------------------------------
+
+        res.status(201).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export const getCommitments = async (req: Request, res: Response): Promise<void> => {
     try {
         if (!req.user || !req.user.id) {

@@ -1,6 +1,21 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 // import { schedulePushNotification } from './push-notification.service'; 
 
+export const createCommitment = async (userId: string, data: any) => {
+    const { data: commitment, error } = await supabaseAdmin
+        .from('commitments')
+        .insert({
+            ...data,
+            owner_user_id: userId,
+            status: 'pending'
+        })
+        .select()
+        .single();
+
+    if (error) throw error;
+    return commitment;
+};
+
 export const getCommitments = async (userId: string, status?: string) => {
     let query = supabaseAdmin
         .from('commitments')
