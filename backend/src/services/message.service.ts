@@ -169,3 +169,22 @@ export const getMessages = async (userId: string, limit = 50, offset = 0) => {
     if (error) throw error;
     return { messages: data, count };
 };
+
+export const insertSystemMessage = async (conversationId: string, text: string) => {
+    const { data, error } = await supabaseAdmin
+        .from('messages')
+        .insert({
+            conversation_id: conversationId,
+            text,
+            meta: { isSystem: true },
+            status: 'sent'
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('[System Message] Error inserting:', error);
+        return null;
+    }
+    return data;
+};

@@ -19,6 +19,8 @@ interface GroupTaskCardProps {
             avatar_url: string | null;
             email: string;
         } | null;
+        rejection_reason?: string | null;
+        proposed_due_at?: string | null;
     };
 }
 
@@ -127,9 +129,17 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
             <Text style={styles.taskTitle}>{commitment.title}</Text>
 
-            {isRejected && (commitment as any).rejection_reason && (
+            {isRejected && commitment.rejection_reason && (
                 <View style={styles.rejectionBox}>
-                    <Text style={styles.rejectionText}>Motivo: {(commitment as any).rejection_reason}</Text>
+                    <Text style={styles.rejectionText}>Motivo: {commitment.rejection_reason}</Text>
+                </View>
+            )}
+
+            {isCounter && commitment.proposed_due_at && (
+                <View style={[styles.rejectionBox, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }]}>
+                    <Text style={[styles.rejectionText, { color: '#3730a3' }]}>
+                        Nueva propuesta: {format(new Date(commitment.proposed_due_at), "EEE d MMM 'a las' HH:mm", { locale: es })}
+                    </Text>
                 </View>
             )}
 

@@ -6,7 +6,7 @@ import { apiClient } from '../api/client';
 import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 
-type Tab = 'pending' | 'proposed' | 'sent';
+type Tab = 'pending' | 'proposed' | 'sent' | 'rejected';
 
 export default function TaskDashboardScreen() {
     const { user } = useAuth();
@@ -27,7 +27,10 @@ export default function TaskDashboardScreen() {
             return c.assigned_to_user_id === user?.id && c.status === 'proposed';
         }
         if (activeTab === 'sent') {
-            return c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
+            return c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id && c.status !== 'rejected';
+        }
+        if (activeTab === 'rejected') {
+            return (c.owner_user_id === user?.id || c.assigned_to_user_id === user?.id) && c.status === 'rejected';
         }
         return false;
     });
@@ -37,8 +40,8 @@ export default function TaskDashboardScreen() {
             style={[styles.tab, activeTab === id && styles.activeTab]}
             onPress={() => setActiveTab(id)}
         >
-            <Ionicons name={icon} size={20} color={activeTab === id ? '#6366f1' : '#6b7280'} />
-            <Text style={[styles.tabText, activeTab === id && styles.activeTabText]}>{label}</Text>
+            <Ionicons name={icon} size={18} color={activeTab === id ? '#6366f1' : '#6b7280'} />
+            <Text style={[styles.tabText, activeTab === id && styles.activeTabText, { fontSize: 10 }]}>{label}</Text>
             {activeTab === id && <View style={styles.tabIndicator} />}
         </TouchableOpacity>
     );
@@ -52,9 +55,10 @@ export default function TaskDashboardScreen() {
             </View>
 
             <View style={styles.tabsContainer}>
-                {renderTab('pending', 'Mis Tareas', 'checkbox')}
-                {renderTab('proposed', 'Por Confirmar', 'mail-unread')}
-                {renderTab('sent', 'Enviadas', 'paper-plane')}
+                {renderTab('pending', 'Tablero', 'checkbox')}
+                {renderTab('proposed', 'Nuevas', 'mail-unread')}
+                {renderTab('sent', 'Delegadas', 'paper-plane')}
+                {renderTab('rejected', 'Rechazadas', 'close-circle')}
             </View>
 
             <FlatList

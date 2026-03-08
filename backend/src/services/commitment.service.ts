@@ -1,4 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { insertSystemMessage } from './message.service';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 const SELECT_WITH_ASSIGNEE = `
     *,
     assignee:profiles!assigned_to_user_id (
@@ -35,6 +38,12 @@ export const acceptCommitment = async (userId: string, commitmentId: string) => 
         .single();
 
     if (error) throw error;
+
+    if (data && data.group_conversation_id) {
+        const name = data.assignee?.full_name || 'Alguien';
+        await insertSystemMessage(data.group_conversation_id, `✅ ${name} ha aceptado la tarea: "${data.title}"`);
+    }
+
     return data;
 };
 
@@ -51,6 +60,12 @@ export const rejectCommitment = async (userId: string, commitmentId: string, rea
         .single();
 
     if (error) throw error;
+
+    if (data && data.group_conversation_id) {
+        const name = data.assignee?.full_name || 'Alguien';
+        await insertSystemMessage(data.group_conversation_id, `❌ ${name} ha rechazado la tarea: "${data.title}"\nMotivo: ${reason}`);
+    }
+
     return data;
 };
 
@@ -67,6 +82,13 @@ export const postponeCommitment = async (userId: string, commitmentId: string, n
         .single();
 
     if (error) throw error;
+
+    if (data && data.group_conversation_id) {
+        const name = data.assignee?.full_name || 'Alguien';
+        const formattedDate = format(new Date(newDate), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
+        await insertSystemMessage(data.group_conversation_id, `⏳ ${name} ha pospuesto la tarea: "${data.title}"\nNueva propuesta: ${formattedDate}`);
+    }
+
     return data;
 };
 
