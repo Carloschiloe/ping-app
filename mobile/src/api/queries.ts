@@ -526,8 +526,9 @@ export const useGroupTasks = () => {
  * Returns all group commitments in a specific conversation.
  */
 export const useConversationGroupTasks = (conversationId: string | null) => {
+    const { user } = useAuth();
     return useQuery({
-        queryKey: ['group-tasks-conv', conversationId],
+        queryKey: ['group-tasks-conv', conversationId, user?.id],
         queryFn: async () => {
             if (!conversationId) return [];
             return apiClient.get(`/commitments?conversationId=${conversationId}`);

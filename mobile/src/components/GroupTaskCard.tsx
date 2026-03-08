@@ -29,7 +29,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
 
-    const isAssignee = commitment.assigned_to_user_id === user?.id;
+    const currentUserId = user?.id?.toLowerCase();
+    const assignedId = commitment.assigned_to_user_id?.toLowerCase();
+    const isAssignee = !!currentUserId && !!assignedId && currentUserId === assignedId;
+
     const status = commitment.status;
     const isDone = status === 'done';
     const isProposed = status === 'proposed';
@@ -41,7 +44,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         || commitment.assignee?.email?.split('@')[0]
         || (commitment.assigned_to_user_id ? `Usuario` : 'Alguien');
 
-    console.log(`[DEBUG] GroupTaskCard ${commitment.id}: status=${status}, isAssignee=${isAssignee}, userId=${user?.id}, assignedTo=${commitment.assigned_to_user_id}`);
+    // Add a very small debug indicator for ID verification
+    const debugInfo = `U:${currentUserId?.slice(0, 4)} A:${assignedId?.slice(0, 4)}`;
+
+    console.log(`[DEBUG] GroupTaskCard ${commitment.id}: status=${status}, isAssignee=${isAssignee}, userId=${user?.id}, assignedTo=${commitment.assigned_to_user_id} (${debugInfo})`);
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "EEE d MMM 'a las' HH:mm", { locale: es })
@@ -140,6 +146,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     {dueDateStr && <Text style={styles.dueDate}>📅 {dueDateStr}</Text>}
                 </View>
             </View>
+
+            {/* Small debug info */}
+            <Text style={{ fontSize: 8, color: '#ccc', alignSelf: 'flex-end', marginTop: -10 }}>{debugInfo}</Text>
 
             <View style={styles.actions}>
                 {isAssignee && isProposed && (
