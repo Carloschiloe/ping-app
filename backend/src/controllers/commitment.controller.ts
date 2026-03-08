@@ -87,8 +87,9 @@ export const getCommitments = async (req: Request, res: Response): Promise<void>
         }
         const userId = req.user.id;
         const status = req.query.status as string | undefined;
+        const conversationId = req.query.conversationId as string | undefined;
 
-        const data = await commitmentService.getCommitments(userId, status);
+        const data = await commitmentService.getCommitments(userId, status, conversationId);
         res.status(200).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

@@ -39,7 +39,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const assigneeName = commitment.assignee?.full_name
         || commitment.assignee?.email?.split('@')[0]
-        || 'Alguien';
+        || (commitment.assigned_to_user_id ? `Usuario (${commitment.assigned_to_user_id.slice(0, 4)})` : 'Alguien');
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "EEE d MMM 'a las' HH:mm", { locale: es })

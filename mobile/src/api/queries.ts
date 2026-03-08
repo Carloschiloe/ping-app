@@ -513,24 +513,12 @@ export const useDisconnectCalendarAccount = () => {
 
 // ─── Phase 26: Group Tasks ────────────────────────────────────────────
 
-/**
- * Returns all group commitments assigned to the current user.
- */
 export const useGroupTasks = () => {
-    const { user } = useAuth();
     return useQuery({
-        queryKey: ['group-tasks', user?.id],
+        queryKey: ['group-tasks'],
         queryFn: async () => {
-            if (!user?.id) return [];
-            const { data, error } = await supabase
-                .from('commitments')
-                .select('*, assignee:assigned_to_user_id(full_name, avatar_url, email)')
-                .eq('is_group_task', true)
-                .order('due_at', { ascending: true });
-            if (error) throw error;
-            return data || [];
+            return apiClient.get('/commitments?is_group_task=true');
         },
-        enabled: !!user?.id,
     });
 };
 
@@ -542,14 +530,7 @@ export const useConversationGroupTasks = (conversationId: string | null) => {
         queryKey: ['group-tasks-conv', conversationId],
         queryFn: async () => {
             if (!conversationId) return [];
-            const { data, error } = await supabase
-                .from('commitments')
-                .select('*, assignee:assigned_to_user_id(full_name, avatar_url, email)')
-                .eq('is_group_task', true)
-                .eq('group_conversation_id', conversationId)
-                .order('due_at', { ascending: true });
-            if (error) throw error;
-            return data || [];
+            return apiClient.get(`/commitments?conversationId=${conversationId}`);
         },
         enabled: !!conversationId,
     });
