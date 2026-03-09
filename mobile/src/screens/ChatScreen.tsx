@@ -738,9 +738,9 @@ export default function ChatScreen({ navigation }: any) {
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, !suggestionData.assignedToUserId && { opacity: 0.5 }]}
+                            style={[styles.acceptBtn, isGroup ? (!suggestionData.assignedToUserId && suggestionData.assignedToUserId !== null && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 })]}
                             onPress={handleConfirmSuggestion}
-                            disabled={!suggestionData.assignedToUserId}
+                            disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
                         >
                             <Text style={styles.acceptBtnText}>¡Agendar Ahora!</Text>
                         </TouchableOpacity>
