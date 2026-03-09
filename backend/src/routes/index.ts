@@ -44,6 +44,7 @@ router.get('/conversations/:id/messages', requireAuth, conversationController.ge
 router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
+router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);
 
 // Groups
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
@@ -72,6 +73,8 @@ router.get('/search', requireAuth, searchController.search);
 // AI
 router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize', 'analyze-message'] }));
 router.post('/ai/ask', requireAuth, aiController.askPing);
+router.get('/ai/history', requireAuth, aiController.getHistory);
+router.delete('/ai/history', requireAuth, aiController.clearHistory);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
 router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage);
 

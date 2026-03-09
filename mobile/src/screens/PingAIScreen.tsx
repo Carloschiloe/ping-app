@@ -5,18 +5,39 @@ import {
     StatusBar, Image, SafeAreaView, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAskPing } from '../api/queries';
+import { useAskPing, useAIHistory, useClearAIHistory } from '../api/queries';
 import { Audio } from 'expo-av';
 import { uploadToSupabase } from '../lib/upload';
 import AudioPlayer from '../components/AudioPlayer';
 
 export default function PingAIScreen({ navigation }: any) {
     const [text, setText] = useState('');
-    const [messages, setMessages] = useState<any[]>([
-        { id: '1', text: '¡Hola! Soy Ping. 🤖\n\nPuedes preguntarme sobre tus compromisos, tareas pendientes o cualquier cosa que hayamos anotado.', isAi: true }
-    ]);
+    const { data: historyData, isLoading: historyLoading } = useAIHistory();
+    const { mutate: clearHistory } = useClearAIHistory();
+    const [messages, setMessages] = useState<any[]>([]);
+
     const { mutate: askPing, isPending } = useAskPing();
     const listRef = useRef<FlatList>(null);
+
+    // Load history when data arrives
+    useEffect(() => {
+        if (historyData?.messages) {
+            const history = historyData.messages.map((m: any) => ({
+                id: m.id,
+                text: m.text,
+                isAi: m.is_ai,
+                created_at: m.created_at
+            }));
+
+            if (history.length === 0) {
+                setMessages([
+                    { id: 'welcome', text: '¡Hola! Soy Ping. 🤖\n\nPuedes preguntarme sobre tus compromisos, tareas pendientes o cualquier cosa que hayamos anotado.', isAi: true }
+                ]);
+            } else {
+                setMessages(history);
+            }
+        }
+    }, [historyData]);
 
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -138,7 +159,14 @@ export default function PingAIScreen({ navigation }: any) {
                     <Text style={styles.title}>Preguntar a Ping</Text>
                     <Text style={styles.subtitle}>IA que recuerda</Text>
                 </View>
-                <View style={{ width: 40 }} />
+                <TouchableOpacity onPress={() => {
+                    Alert.alert('Borrar historial', '¿Estás seguro?', [
+                        { text: 'Cancelar', style: 'cancel' },
+                        { text: 'Borrar', style: 'destructive', onPress: () => clearHistory() }
+                    ]);
+                }} style={styles.backBtn}>
+                    <Ionicons name="trash-outline" size={24} color="white" />
+                </TouchableOpacity>
             </View>
 
             <FlatList

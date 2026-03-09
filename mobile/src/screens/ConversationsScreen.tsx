@@ -4,7 +4,7 @@ import {
     ActivityIndicator, StatusBar, Platform, Image, ScrollView, TextInput, Animated, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead } from '../api/queries';
+import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
@@ -34,14 +34,15 @@ export default function ConversationsScreen({ navigation }: any) {
     const { data, isLoading } = useConversations();
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
-    const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private'>('all');
+    const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
 
     const rawConversations = data?.conversations || [];
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
-    const { mutate: markAsRead } = useMarkConversationAsRead();
+    const { mutate: markAsRead } = useMarkConversationAsRead(''); // Empty string is fine for the hook initialization if we don't use it immediately or change how it's called
+    const { mutate: toggleArchive } = useToggleArchive();
 
     React.useEffect(() => {
         if (!rawConversations.length || !user) return;
@@ -79,6 +80,11 @@ export default function ConversationsScreen({ navigation }: any) {
             const name = (c.isGroup ? c.groupMetadata?.name : (c.otherUser?.full_name || c.otherUser?.email)) || '';
             const nameMatch = name.toLowerCase().includes(searchQuery.toLowerCase());
             if (!nameMatch) return false;
+
+            // Respect archive filter
+            if (filter === 'archived') return c.archived;
+            if (c.archived) return false; // Hide archived from other filters
+
             if (filter === 'unread') return (c.unreadCount || 0) > 0;
             if (filter === 'groups') return c.isGroup;
             if (filter === 'private') return !c.isGroup;
@@ -102,6 +108,7 @@ export default function ConversationsScreen({ navigation }: any) {
         if (!lastSeen) return false;
         const last = new Date(lastSeen).getTime();
         const now = new Date().getTime();
+        // Online if updated in last 5 min
         return (now - last) < 1000 * 60 * 5;
     };
 
@@ -123,18 +130,19 @@ export default function ConversationsScreen({ navigation }: any) {
         );
     };
 
-    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>) => {
+    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
         const trans = dragX.interpolate({
             inputRange: [-100, -50, 0],
             outputRange: [0, 0, 20],
         });
+        const isArchived = item.archived;
         return (
             <TouchableOpacity
-                style={styles.rightAction}
-                onPress={() => { Alert.alert('Archivar', '¿Deseas archivar esta conversación?'); }}
+                style={[styles.rightAction, { backgroundColor: isArchived ? '#10b981' : '#64748b' }]}
+                onPress={() => toggleArchive(item.id)}
             >
                 <Animated.View style={{ transform: [{ translateX: trans }] }}>
-                    <Ionicons name="archive-outline" size={28} color="white" />
+                    <Ionicons name={isArchived ? "archive" : "archive-outline"} size={28} color="white" />
                 </Animated.View>
             </TouchableOpacity>
         );
@@ -185,7 +193,7 @@ export default function ConversationsScreen({ navigation }: any) {
         return (
             <Swipeable
                 renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
-                renderRightActions={(progress, dragX) => renderRightActions(progress, dragX)}
+                renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
                 friction={2}
                 leftThreshold={40}
                 rightThreshold={40}
@@ -223,6 +231,7 @@ export default function ConversationsScreen({ navigation }: any) {
                         </View>
                     </View>
                 </TouchableOpacity>
+                <View style={styles.separator} />
             </Swipeable>
         );
     };
@@ -235,8 +244,8 @@ export default function ConversationsScreen({ navigation }: any) {
                     <LinearGradient colors={['#0f172a', '#1e3a8a']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
                     <View style={styles.headerTop}>
                         <Text style={styles.title}>Ping</Text>
-                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('NewChat')}>
-                            <Ionicons name="add" size={28} color="white" />
+                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('PingAI')}>
+                            <Ionicons name="sparkles" size={24} color="white" />
                         </TouchableOpacity>
                     </View>
                     <Animated.View style={[styles.searchContainer, { transform: [{ scale: searchScale }] }]}>
@@ -278,6 +287,7 @@ export default function ConversationsScreen({ navigation }: any) {
                                     <FilterChip label="Sin Leer" active={filter === 'unread'} onPress={() => setFilter('unread')} />
                                     <FilterChip label="Grupos" active={filter === 'groups'} onPress={() => setFilter('groups')} />
                                     <FilterChip label="Privados" active={filter === 'private'} onPress={() => setFilter('private')} />
+                                    <FilterChip label="Archivados" active={filter === 'archived'} onPress={() => setFilter('archived')} />
                                 </View>
                             </View>
                         )}
@@ -327,8 +337,8 @@ function ConversationSkeleton() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#ffffff' },
     loadingContainer: { flex: 1, paddingTop: 20 },
-    skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 18 },
-    skeletonAvatar: { width: 62, height: 62, borderRadius: 22, backgroundColor: '#f1f5f9', marginRight: 16 },
+    skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14 },
+    skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#f1f5f9', marginRight: 16 },
     skeletonInfo: { flex: 1 },
     skeletonLine: { height: 12, borderRadius: 6, backgroundColor: '#f1f5f9' },
     headerSection: { paddingHorizontal: 24, justifyContent: 'flex-end', paddingBottom: 20, zIndex: 10 },
@@ -349,13 +359,13 @@ const styles = StyleSheet.create({
     filterChipText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
     filterChipActiveText: { color: 'white' },
     listContent: { paddingBottom: 100 },
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 18, backgroundColor: 'white' },
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14, backgroundColor: 'white' },
     avatarContainer: { position: 'relative' },
-    avatar: { width: 62, height: 62, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
+    avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
     avatarImage: { width: '100%', height: '100%' },
     avatarText: { color: 'white', fontWeight: '900', fontSize: 24 },
     unreadIndicator: { position: 'absolute', top: -1, right: 14, width: 14, height: 14, borderRadius: 7, backgroundColor: '#4f46e5', borderWidth: 2, borderColor: 'white' },
-    onlineDot: { position: 'absolute', bottom: -1, right: 14, width: 15, height: 15, borderRadius: 7.5, backgroundColor: '#10b981', borderWidth: 2, borderColor: 'white' },
+    onlineDot: { position: 'absolute', bottom: -1, right: 14, width: 15, height: 15, borderRadius: 7.5, backgroundColor: '#10b981', borderWidth: 2, borderColor: 'white', zIndex: 10 },
     info: { flex: 1 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
     name: { fontSize: 17, fontWeight: '600', color: '#64748b' },
@@ -373,4 +383,5 @@ const styles = StyleSheet.create({
     emptyText: { fontSize: 15, color: '#94a3b8', marginTop: 4 },
     leftAction: { flex: 1, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
     rightAction: { flex: 1, backgroundColor: '#64748b', justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
+    separator: { height: 1, backgroundColor: '#f1f5f9', marginLeft: 96, marginRight: 24 },
 });

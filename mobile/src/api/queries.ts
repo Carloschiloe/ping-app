@@ -28,8 +28,29 @@ export const useSendMessage = () => {
 };
 
 export const useAskPing = () => {
+    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (query: string) => apiClient.post('/ai/ask', { query }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai-history'] });
+        }
+    });
+};
+
+export const useAIHistory = () => {
+    return useQuery({
+        queryKey: ['ai-history'],
+        queryFn: () => apiClient.get('/ai/history'),
+    });
+};
+
+export const useClearAIHistory = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => apiClient.delete('/ai/history'),
+        onSuccess: () => {
+            queryClient.setQueryData(['ai-history'], { messages: [] });
+        }
     });
 };
 
@@ -265,6 +286,16 @@ export const useMarkConversationAsRead = (conversationId: string) => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+        }
+    });
+};
+
+export const useToggleArchive = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.patch(`/conversations/${id}/archive`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
         }
     });
 };

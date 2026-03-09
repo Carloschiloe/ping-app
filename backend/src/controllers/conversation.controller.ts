@@ -114,15 +114,19 @@ export const list = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
 
-        // Get all conversation IDs for this user
+        // Get all conversation IDs and archived status for this user
         const { data: participations, error: pErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id')
+            .select('conversation_id, archived')
             .eq('user_id', userId);
 
         if (pErr) throw pErr;
 
         const conversationIds = participations?.map(p => p.conversation_id) || [];
+        const archivedMap: Record<string, boolean> = {};
+        participations?.forEach(p => {
+            archivedMap[p.conversation_id] = p.archived;
+        });
 
         if (conversationIds.length === 0) {
             res.json({ conversations: [] });
@@ -140,7 +144,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // Get all participants in these conversations (to find "the other person" or all members)
         const { data: allParticipants, error: apErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id, user_id, profiles(id, email, full_name, avatar_url)')
+            .select('conversation_id, user_id, profiles(id, email, full_name, avatar_url, last_seen)')
             .in('conversation_id', conversationIds)
             .neq('user_id', userId);
 
@@ -217,6 +221,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
                 groupMetadata,
                 lastMessage: lastMsgMap[id] || null,
                 unreadCount: unreadCounts[id] || 0,
+                archived: archivedMap[id] || false,
             };
         }).sort((a, b) => {
             const timeA = a.lastMessage?.created_at || '';
@@ -225,6 +230,41 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         });
 
         res.json({ conversations });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// PATCH /conversations/:id/archive - Toggle archive status
+export const toggleArchive = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+
+        // Get current status
+        const { data: part, error: getErr } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('archived')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId)
+            .single();
+
+        if (getErr || !part) {
+            res.status(404).json({ error: 'Participation not found' });
+            return;
+        }
+
+        const newStatus = !part.archived;
+
+        const { error: updateErr } = await supabaseAdmin
+            .from('conversation_participants')
+            .update({ archived: newStatus })
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId);
+
+        if (updateErr) throw updateErr;
+
+        res.json({ success: true, archived: newStatus });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

@@ -59,10 +59,24 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
 
         if (commError) throw commError;
 
+        // --- Persistence: Store User Query ---
+        await supabaseAdmin.from('ai_messages').insert({
+            user_id: userId,
+            text: processingText,
+            is_ai: false
+        });
+
         // 2. Call AI Service
         const nowIso = new Date().toISOString();
         const answer = await aiService.askPing(processingText, nowIso, {
             commitments: commitments || []
+        });
+
+        // --- Persistence: Store AI Answer ---
+        await supabaseAdmin.from('ai_messages').insert({
+            user_id: userId,
+            text: answer,
+            is_ai: true
         });
 
         res.status(200).json({
@@ -71,6 +85,37 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
         });
     } catch (error: any) {
         console.error('[AI Controller] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getHistory = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { data, error } = await supabaseAdmin
+            .from('ai_messages')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        res.json({ messages: data || [] });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const clearHistory = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { error } = await supabaseAdmin
+            .from('ai_messages')
+            .delete()
+            .eq('user_id', userId);
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
 };
