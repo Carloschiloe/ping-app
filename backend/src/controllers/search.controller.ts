@@ -38,7 +38,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
 
         if (msgError) throw msgError;
 
-        // Search commitments
+        // 3. Search commitments
         const { data: commitments, error: commError } = await supabaseAdmin
             .from('commitments')
             .select('*, message:message_id(id, conversation_id)')
@@ -48,9 +48,32 @@ export const search = async (req: Request, res: Response): Promise<void> => {
 
         if (commError) throw commError;
 
+        // 4. Search Profiles (Contacts)
+        const { data: profiles, error: profError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name, email, avatar_url')
+            .neq('id', userId)
+            .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
+            .limit(20);
+
+        if (profError) throw profError;
+
+        // 5. Search Conversations (Group Names)
+        const { data: conversations, error: convError } = await supabaseAdmin
+            .from('conversations')
+            .select('id, name, avatar_url, is_group')
+            .in('id', convIds)
+            .eq('is_group', true)
+            .ilike('name', `%${q}%`)
+            .limit(20);
+
+        if (convError) throw convError;
+
         res.status(200).json({
             messages: messages || [],
-            commitments: commitments || []
+            commitments: commitments || [],
+            profiles: profiles || [],
+            conversations: conversations || []
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });

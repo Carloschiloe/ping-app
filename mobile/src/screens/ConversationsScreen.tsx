@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -139,7 +140,10 @@ export default function ConversationsScreen({ navigation }: any) {
         return (
             <TouchableOpacity
                 style={[styles.rightAction, { backgroundColor: isArchived ? '#10b981' : '#64748b' }]}
-                onPress={() => toggleArchive(item.id)}
+                onPress={() => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    toggleArchive(item.id);
+                }}
             >
                 <Animated.View style={{ transform: [{ translateX: trans }] }}>
                     <Ionicons name={isArchived ? "archive" : "archive-outline"} size={28} color="white" />
@@ -282,13 +286,18 @@ export default function ConversationsScreen({ navigation }: any) {
                                     <QuickAction label="Grupo" icon="people" color="#ef4444" bg="#fef2f2" onPress={() => navigation.navigate('NewGroup')} />
                                     <QuickAction label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg="#faf5ff" onPress={() => navigation.navigate('NewChat')} />
                                 </ScrollView>
-                                <View style={styles.filterBar}>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    style={styles.filterBarContainer}
+                                    contentContainerStyle={styles.filterBar}
+                                >
                                     <FilterChip label="Todos" active={filter === 'all'} onPress={() => setFilter('all')} />
                                     <FilterChip label="Sin Leer" active={filter === 'unread'} onPress={() => setFilter('unread')} />
                                     <FilterChip label="Grupos" active={filter === 'groups'} onPress={() => setFilter('groups')} />
                                     <FilterChip label="Privados" active={filter === 'private'} onPress={() => setFilter('private')} />
                                     <FilterChip label="Archivados" active={filter === 'archived'} onPress={() => setFilter('archived')} />
-                                </View>
+                                </ScrollView>
                             </View>
                         )}
                         ListEmptyComponent={() => (
@@ -353,8 +362,9 @@ const styles = StyleSheet.create({
     qaCard: { alignItems: 'center', width: 70 },
     qaIconWrap: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 4 },
     qaLabel: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-    filterBar: { flexDirection: 'row', paddingHorizontal: 24, paddingBottom: 20, gap: 10 },
-    filterChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
+    filterBarContainer: { marginBottom: 20 },
+    filterBar: { flexDirection: 'row', paddingHorizontal: 24, gap: 8 },
+    filterChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
     filterChipActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
     filterChipText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
     filterChipActiveText: { color: 'white' },
