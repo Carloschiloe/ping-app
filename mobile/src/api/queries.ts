@@ -407,6 +407,7 @@ export const useCreateCommitment = () => {
         mutationFn: async (data: any) => apiClient.post('/commitments', data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
@@ -420,6 +421,7 @@ export const useAcceptCommitment = () => {
         mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/accept`, {}),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
@@ -433,6 +435,7 @@ export const useRejectCommitment = () => {
             apiClient.post(`/commitments/${id}/reject`, { reason }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
@@ -446,6 +449,7 @@ export const usePostponeCommitment = () => {
             apiClient.post(`/commitments/${id}/postpone`, { newDate }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         },
@@ -459,6 +463,7 @@ export const useUpdateCommitmentStatus = () => {
             apiClient.patch(`/commitments/${id}`, { status }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
@@ -467,10 +472,10 @@ export const useUpdateCommitmentStatus = () => {
 };
 
 export const useMarkCommitmentDone = () => {
-    const { mutate } = useUpdateCommitmentStatus();
+    const { mutate, isPending } = useUpdateCommitmentStatus();
     return {
         mutate: (id: string) => mutate({ id, status: 'completed' }),
-        isPending: false // Simplify for legacy compat
+        isPending
     };
 };
 

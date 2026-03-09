@@ -47,6 +47,7 @@ router.patch('/conversations/:id/read', requireAuth, conversationController.mark
 // Groups
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
 router.patch('/groups/:id', requireAuth, validateRequest(groupSchema.updateGroupSchema), groupController.updateGroup);
+router.get('/groups/:id/participants', requireAuth, groupController.getParticipants);
 router.post('/groups/:id/participants', requireAuth, validateRequest(groupSchema.addParticipantsSchema), groupController.addParticipants);
 router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 

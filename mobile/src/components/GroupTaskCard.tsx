@@ -15,6 +15,12 @@ interface GroupTaskCardProps {
         due_at: string;
         status: 'pending' | 'completed' | string;
         assigned_to_user_id: string | null;
+        owner_user_id: string;
+        owner?: {
+            full_name: string;
+            avatar_url: string | null;
+            email: string;
+        } | null;
         assignee?: {
             full_name: string;
             avatar_url: string | null;
@@ -44,9 +50,13 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const isCounter = status === 'counter_proposal';
     const isAccepted = status === 'accepted' || status === 'pending' || status === 'in_progress';
 
-    const assigneeName = commitment.assignee?.full_name
-        || commitment.assignee?.email?.split('@')[0]
-        || (commitment.assigned_to_user_id ? `Usuario` : 'Alguien');
+    // Phase 8: Show "Requested by" if I am the assignee
+    const requesterName = commitment.owner?.full_name || commitment.owner?.email?.split('@')[0] || 'Alguien';
+    const assigneeName = commitment.assignee?.full_name || commitment.assignee?.email?.split('@')[0] || 'Alguien';
+
+    const displayName = isAssignee
+        ? `De: ${requesterName}`
+        : `Para: ${assigneeName}`;
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
@@ -106,10 +116,22 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     };
 
     const handlePing = () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        const nameToShow = assigneeName === 'Alguien' ? 'el responsable' : assigneeName;
-        Alert.alert('Recordatorio Enviado', `Has enviado un recordatorio a ${nameToShow}.`);
-        apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
+        const nameToPing = assigneeName;
+        Alert.alert(
+            'Enviar Recordatorio',
+            `¿Quieres enviar un recordatorio a ${nameToPing}?`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Enviar',
+                    onPress: () => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                        apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
+                        Alert.alert('Ping!', `Has recordado a ${nameToPing}.`);
+                    }
+                }
+            ]
+        );
     };
 
     const getStatusInfo = () => {
@@ -145,7 +167,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     {dueDateStr && (
                         <Text style={styles.metaText}>• {dueDateStr}</Text>
                     )}
-                    <Text style={styles.metaText} numberOfLines={1}>• {assigneeName}</Text>
+                    <Text style={styles.metaText} numberOfLines={1}>• {displayName}</Text>
                 </View>
 
                 {isRejected && commitment.rejection_reason && (

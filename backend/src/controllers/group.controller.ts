@@ -164,3 +164,17 @@ export const updateGroup = async (req: Request, res: Response, next: NextFunctio
         next(error);
     }
 };
+export const getParticipants = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { id: conversationId } = req.params;
+        const { data, error } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('user_id, profiles(id, full_name, email, avatar_url)')
+            .eq('conversation_id', conversationId);
+
+        if (error) throw new AppError(error.message, 500);
+        res.status(200).json({ data });
+    } catch (error) {
+        next(error);
+    }
+};
