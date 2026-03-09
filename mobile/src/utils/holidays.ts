@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 
 /**
  * List of Chilean holidays for 2025
- * Format: 'MM-DD'
+ * Format: 'MM-dd'
  */
 const CHILE_HOLIDAYS_2025 = [
     '01-01', // Año Nuevo
@@ -29,7 +29,7 @@ const CHILE_HOLIDAYS_2025 = [
  * @returns boolean
  */
 export const isChileanHoliday = (date: Date): boolean => {
-    const monthDay = format(date, 'MM-DD');
+    const monthDay = format(date, 'MM-dd');
     return CHILE_HOLIDAYS_2025.includes(monthDay);
 };
 
