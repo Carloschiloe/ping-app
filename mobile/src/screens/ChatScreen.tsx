@@ -620,10 +620,10 @@ export default function ChatScreen({ navigation }: any) {
         createCommitment({
             title: suggestionData.title,
             due_at: suggestionData.dueAt,
-            assigned_to_user_id: suggestionData.assignedToUserId,
+            assigned_to_user_id: suggestionData.assignedToUserId, // can be null for "Everyone"
             message_id: suggestionData.messageId,
             group_conversation_id: isGroup ? conversationId : null,
-            is_group_task: isGroup && !!suggestionData.assignedToUserId
+            is_group_task: isGroup // If it's a group, it's a group task always if suggested via AI in group chat
         });
 
         // Optimistically hide the chip by updating local meta (or let server realtime handle it)
@@ -652,9 +652,11 @@ export default function ChatScreen({ navigation }: any) {
 
         // Ensure we find the assignee name
         const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
-        const assigneeName = suggestionData.assignedToUserId === user?.id
-            ? 'Para ti'
-            : (currentAssignee?.full_name || 'Sin asignar');
+        const assigneeName = suggestionData.assignedToUserId === null
+            ? 'Todos'
+            : suggestionData.assignedToUserId === user?.id
+                ? 'Para ti'
+                : (currentAssignee?.full_name || 'Sin asignar');
 
         return (
             <Modal transparent visible={suggestionModalVisible} animationType="slide">
@@ -687,6 +689,19 @@ export default function ChatScreen({ navigation }: any) {
                             <Text style={styles.inputLabel}>RESPONSABLE</Text>
                             <View style={styles.assigneeSelectorContainer}>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
+                                    {/* Option to assign to Everyone (only in groups) */}
+                                    {isGroup && (
+                                        <TouchableOpacity
+                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === null && styles.assigneeOptionActive]}
+                                            onPress={() => setSuggestionData({ ...suggestionData, assignedToUserId: null })}
+                                        >
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: '#10b981' }]}>
+                                                <Ionicons name="people" size={24} color="white" />
+                                            </View>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && styles.assigneeTextActive]}>Todos</Text>
+                                        </TouchableOpacity>
+                                    )}
+
                                     {/* Option to assign to self */}
                                     <TouchableOpacity
                                         style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
@@ -817,6 +832,7 @@ export default function ChatScreen({ navigation }: any) {
                             inverted
                             keyExtractor={(item) => item.id}
                             renderItem={renderMessage}
+                            keyboardShouldPersistTaps="handled"
                             onEndReached={() => {
                                 if (hasNextPage && !isFetchingNextPage) {
                                     fetchNextPage();
