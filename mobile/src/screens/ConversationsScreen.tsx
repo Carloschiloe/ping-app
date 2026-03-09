@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../lib/supabase';
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -33,11 +34,51 @@ export default function ConversationsScreen({ navigation }: any) {
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private'>('all');
+    const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
 
     const rawConversations = data?.conversations || [];
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
+
+    // Real-time presence and typing for ALL conversations in list
+    React.useEffect(() => {
+        if (!rawConversations.length || !user) return;
+
+        const channels = rawConversations.map((conv: any) => {
+            const channel = supabase.channel(`presence-${conv.id}`, {
+                config: { presence: { key: user.id } },
+            });
+
+            channel
+                .on('presence', { event: 'sync' }, () => {
+                    const state = channel.presenceState();
+                    const active: { name: string, isRecording: boolean }[] = [];
+                    Object.keys(state).forEach((key) => {
+                        if (key !== user.id) {
+                            const sessions: any[] = state[key];
+                            const isTyping = sessions.some(s => s.typing === true);
+                            const isRec = sessions.some(s => s.recording === true);
+                            if (isTyping || isRec) {
+                                const pData = sessions[0];
+                                active.push({
+                                    name: pData.name || pData.email || 'Alguien',
+                                    isRecording: isRec
+                                });
+                            }
+                        }
+                    });
+                    setTypingUsers(prev => ({ ...prev, [conv.id]: active }));
+                })
+                .subscribe();
+
+            return channel;
+        });
+
+        return () => {
+            channels.forEach((ch: any) => supabase.removeChannel(ch));
+        };
+    }, [rawConversations.length, user?.id]);
 
     const filteredConversations = React.useMemo(() => {
         return rawConversations.filter((c: any) => {
@@ -65,6 +106,13 @@ export default function ConversationsScreen({ navigation }: any) {
         extrapolate: 'clamp',
     });
 
+    const isOnline = (lastSeen?: string) => {
+        if (!lastSeen) return false;
+        const last = new Date(lastSeen).getTime();
+        const now = new Date().getTime();
+        return (now - last) < 1000 * 60 * 5; // Online if updated in last 5 min
+    };
+
     const renderItem = ({ item }: { item: any }) => {
         const isGroup = item.isGroup;
         const otherUser = item.otherUser;
@@ -76,10 +124,14 @@ export default function ConversationsScreen({ navigation }: any) {
         const unreadCount = item.unreadCount || 0;
         const isUnread = unreadCount > 0;
 
+        const typers = typingUsers[item.id] || [];
+        const isTyping = typers.length > 0;
+
         let displayName = 'Chat';
         let initials = '?';
         let colorStr = 'chat';
         let avatarUrl: string | null = null;
+        let online = false;
 
         if (isGroup && groupMeta) {
             displayName = groupMeta.name;
@@ -92,6 +144,7 @@ export default function ConversationsScreen({ navigation }: any) {
             displayName = otherUser.full_name || otherUser.email?.split('@')[0] || 'Usuario';
             colorStr = otherUser.email || 'user';
             avatarUrl = otherUser.avatar_url;
+            online = isOnline(otherUser.last_seen);
 
             if (otherUser.full_name) {
                 const parts = otherUser.full_name.trim().split(/\s+/).filter((p: string) => p.length > 0);
@@ -103,9 +156,11 @@ export default function ConversationsScreen({ navigation }: any) {
         }
 
         const color = avatarColor(colorStr);
-        const preview = lastMsg
-            ? (isSystem ? `🤖 ${lastMsg.text}` : lastMsg.text)
-            : 'Sin mensajes aún';
+        const preview = isTyping
+            ? (typers[0].isRecording ? '🎤 Grabando audio...' : '✍️ Escribiendo...')
+            : (lastMsg
+                ? (isSystem ? `🤖 ${lastMsg.text}` : lastMsg.text)
+                : 'Sin mensajes aún');
 
         return (
             <TouchableOpacity
@@ -121,7 +176,9 @@ export default function ConversationsScreen({ navigation }: any) {
                             <Text style={styles.avatarText}>{initials}</Text>
                         )}
                     </View>
-                    {isUnread && <View style={styles.unreadIndicator} />}
+                    {online && <View style={styles.onlineDot} />}
+                    {isUnread && !online && <View style={styles.unreadIndicator} />}
+                    {isUnread && online && <View style={[styles.unreadIndicator, { right: 28 }]} />}
                 </View>
 
                 <View style={styles.info}>
@@ -135,7 +192,7 @@ export default function ConversationsScreen({ navigation }: any) {
                     </View>
                     <View style={styles.bottomRow}>
                         <View style={styles.previewWrap}>
-                            {isByMe && lastMsg && (
+                            {!isTyping && isByMe && lastMsg && (
                                 <Ionicons
                                     name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'}
                                     size={16}
@@ -143,7 +200,14 @@ export default function ConversationsScreen({ navigation }: any) {
                                     style={{ marginRight: 4 }}
                                 />
                             )}
-                            <Text style={[styles.preview, isUnread && styles.previewUnread]} numberOfLines={1}>
+                            <Text
+                                style={[
+                                    styles.preview,
+                                    isUnread && styles.previewUnread,
+                                    isTyping && { color: '#6366f1', fontWeight: '700' }
+                                ]}
+                                numberOfLines={1}
+                            >
                                 {preview}
                             </Text>
                         </View>
@@ -206,7 +270,7 @@ export default function ConversationsScreen({ navigation }: any) {
 
             {isLoading ? (
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#6366f1" />
+                    {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} />)}
                 </View>
             ) : (
                 <Animated.FlatList
@@ -324,9 +388,31 @@ function FilterChip({ label, active, onPress }: any) {
     );
 }
 
+function ConversationSkeleton() {
+    return (
+        <View style={styles.skeletonRow}>
+            <View style={styles.skeletonAvatar} />
+            <View style={styles.skeletonInfo}>
+                <View style={[styles.skeletonLine, { width: '40%', marginBottom: 12 }]} />
+                <View style={[styles.skeletonLine, { width: '80%' }]} />
+            </View>
+        </View>
+    );
+}
+
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#ffffff' },
-    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    loadingContainer: { flex: 1, paddingTop: 20 },
+    skeletonRow: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 24, paddingVertical: 18,
+    },
+    skeletonAvatar: {
+        width: 62, height: 62, borderRadius: 22,
+        backgroundColor: '#f1f5f9', marginRight: 16,
+    },
+    skeletonInfo: { flex: 1 },
+    skeletonLine: { height: 12, borderRadius: 6, backgroundColor: '#f1f5f9' },
 
     headerSection: {
         paddingHorizontal: 24,
@@ -393,6 +479,11 @@ const styles = StyleSheet.create({
         position: 'absolute', top: -1, right: 14,
         width: 14, height: 14, borderRadius: 7,
         backgroundColor: '#4f46e5', borderWidth: 2, borderColor: 'white',
+    },
+    onlineDot: {
+        position: 'absolute', bottom: -1, right: 14,
+        width: 15, height: 15, borderRadius: 7.5,
+        backgroundColor: '#10b981', borderWidth: 2, borderColor: 'white',
     },
     info: { flex: 1 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
