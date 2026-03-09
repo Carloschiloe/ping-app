@@ -579,6 +579,17 @@ export default function ChatScreen({ navigation }: any) {
 
     const handleMessagePress = (item: any) => {
         if (isMultiSelecting) { toggleSelect(item.id); return; }
+
+        // Phase 9: Handle AI suggestion taps immediately
+        if (item._isSuggestionTap && item.meta?.suggestedTask) {
+            setSuggestionData({
+                ...item.meta.suggestedTask,
+                messageId: item.id
+            });
+            setSuggestionModalVisible(true);
+            return;
+        }
+
         const msgText = item.text || '';
         const isImage = msgText.startsWith('[imagen]');
         const isVideo = msgText.startsWith('[video]');
@@ -596,14 +607,6 @@ export default function ChatScreen({ navigation }: any) {
         if (isImage && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'image' }); }
         if (isVideo && mediaUrl) { setViewerMedia({ url: mediaUrl, type: 'video' }); }
         if (isDocument && mediaUrl) { Linking.openURL(mediaUrl); }
-
-        if (item._isSuggestionTap && item.meta?.suggestedTask) {
-            setSuggestionData({
-                ...item.meta.suggestedTask,
-                messageId: item.id
-            });
-            setSuggestionModalVisible(true);
-        }
     };
 
     const handleMessageLongPress = (item: any) => {
@@ -646,35 +649,34 @@ export default function ChatScreen({ navigation }: any) {
 
     const renderAIConfirmationModal = () => {
         if (!suggestionData) return null;
-        const assignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
-        const assigneeName = suggestionData.assignedToUserId === user?.id ? 'Para ti' : (assignee?.full_name || 'Alguien');
+
+        // Ensure we find the assignee name
+        const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
+        const assigneeName = suggestionData.assignedToUserId === user?.id
+            ? 'Para ti'
+            : (currentAssignee?.full_name || 'Sin asignar');
 
         return (
             <Modal transparent visible={suggestionModalVisible} animationType="slide">
                 <View style={styles.modalOverlay}>
                     <View style={styles.suggestionModal}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>✨ Sugerencia de Ping AI</Text>
-                            <TouchableOpacity onPress={() => setSuggestionModalVisible(false)}>
+                            <Text style={styles.modalTitle}>✨ Agendar con AI</Text>
+                            <TouchableOpacity onPress={() => setSuggestionModalVisible(false)} style={styles.modalCloseBtn}>
                                 <Ionicons name="close" size={24} color="#6b7280" />
                             </TouchableOpacity>
                         </View>
 
                         <View style={styles.modalBody}>
-                            <Text style={styles.inputLabel}>Título de la tarea</Text>
+                            <Text style={styles.inputLabel}>TÍTULO DE LA TAREA</Text>
                             <TextInput
                                 style={styles.modalInput}
                                 value={suggestionData.title}
                                 onChangeText={(t) => setSuggestionData({ ...suggestionData, title: t })}
+                                placeholder="Escribe el nombre de la tarea..."
                             />
 
-                            <Text style={styles.inputLabel}>Responsable</Text>
-                            <View style={styles.assigneePreview}>
-                                <Ionicons name="person-circle-outline" size={20} color="#6366f1" />
-                                <Text style={styles.assigneeText}>{assigneeName}</Text>
-                            </View>
-
-                            <Text style={styles.inputLabel}>Fecha Sugerida</Text>
+                            <Text style={styles.inputLabel}>FECHA Y HORA</Text>
                             <View style={styles.datePreview}>
                                 <Ionicons name="calendar-outline" size={20} color="#6366f1" />
                                 <Text style={styles.dateText}>
@@ -682,11 +684,50 @@ export default function ChatScreen({ navigation }: any) {
                                 </Text>
                             </View>
 
-                            <Text style={styles.hintText}>Puedes editar el título antes de agendar.</Text>
+                            <Text style={styles.inputLabel}>RESPONSABLE</Text>
+                            <View style={styles.assigneeSelectorContainer}>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
+                                    {/* Option to assign to self */}
+                                    <TouchableOpacity
+                                        style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
+                                        onPress={() => setSuggestionData({ ...suggestionData, assignedToUserId: user?.id })}
+                                    >
+                                        <View style={[styles.assigneeAvatar, { backgroundColor: '#6366f1' }]}>
+                                            <Text style={styles.assigneeAvatarText}>Yo</Text>
+                                        </View>
+                                        <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
+                                    </TouchableOpacity>
+
+                                    {/* Other participants */}
+                                    {groupParticipants.filter(p => p.id !== user?.id).map((p) => (
+                                        <TouchableOpacity
+                                            key={p.id}
+                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === p.id && styles.assigneeOptionActive]}
+                                            onPress={() => setSuggestionData({ ...suggestionData, assignedToUserId: p.id })}
+                                        >
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: avatarColor(p.email) }]}>
+                                                <Text style={styles.assigneeAvatarText}>{p.full_name?.substring(0, 1).toUpperCase() || p.email[0].toUpperCase()}</Text>
+                                            </View>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === p.id && styles.assigneeTextActive]} numberOfLines={1}>
+                                                {p.full_name?.split(' ')[0] || p.email.split('@')[0]}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </View>
+
+                            <View style={styles.currentAssigneeBadge}>
+                                <Ionicons name="checkmark-circle" size={16} color="#6366f1" />
+                                <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
+                            </View>
                         </View>
 
-                        <TouchableOpacity style={styles.acceptBtn} onPress={handleConfirmSuggestion}>
-                            <Text style={styles.acceptBtnText}>Agendar Tarea</Text>
+                        <TouchableOpacity
+                            style={[styles.acceptBtn, !suggestionData.assignedToUserId && { opacity: 0.5 }]}
+                            onPress={handleConfirmSuggestion}
+                            disabled={!suggestionData.assignedToUserId}
+                        >
+                            <Text style={styles.acceptBtnText}>¡Agendar Ahora!</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1370,6 +1411,62 @@ const styles = StyleSheet.create({
         shadowColor: '#8b5cf6', shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
     },
     summaryDoneText: { color: 'white', fontWeight: '800', fontSize: 16 },
-
+    modalCloseBtn: {
+        padding: 4,
+    },
+    assigneeSelectorContainer: {
+        marginTop: 4,
+        marginBottom: 16,
+    },
+    assigneeList: {
+        paddingVertical: 4,
+        gap: 12,
+    },
+    assigneeOption: {
+        alignItems: 'center',
+        width: 70,
+        opacity: 0.6,
+    },
+    assigneeOptionActive: {
+        opacity: 1,
+    },
+    assigneeAvatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 6,
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    assigneeAvatarText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    assigneeOptionText: {
+        fontSize: 11,
+        color: '#6b7280',
+        textAlign: 'center',
+    },
+    assigneeTextActive: {
+        color: '#6366f1',
+        fontWeight: '700',
+    },
+    currentAssigneeBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f5f3ff',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 20,
+        alignSelf: 'flex-start',
+        gap: 6,
+    },
+    currentAssigneeText: {
+        fontSize: 13,
+        color: '#4b5563',
+    },
 });
 
