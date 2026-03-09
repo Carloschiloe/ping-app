@@ -169,20 +169,22 @@ export default function TaskDashboardScreen() {
                                 return (
                                     <TouchableOpacity
                                         key={date.toISOString()}
-                                        style={[styles.gridDay, isSelected && styles.gridDayActive]}
+                                        style={styles.gridDay}
                                         onPress={() => {
                                             setSelectedDate(date);
                                             setIsCalendarVisible(false);
                                         }}
                                     >
-                                        <Text style={[
-                                            styles.gridDayText,
-                                            isSelected && styles.gridDayTextActive,
-                                            redDay && !isSelected && { color: '#ef4444', fontWeight: 'bold' }
-                                        ]}>
-                                            {format(date, 'd')}
-                                        </Text>
-                                        {hasTask && <View style={[styles.gridDot, isSelected && { backgroundColor: 'white' }]} />}
+                                        <View style={[styles.gridDayInner, isSelected && styles.gridDayActive]}>
+                                            <Text style={[
+                                                styles.gridDayText,
+                                                isSelected && styles.gridDayTextActive,
+                                                redDay && !isSelected && { color: '#ef4444', fontWeight: 'bold' }
+                                            ]}>
+                                                {format(date, 'd')}
+                                            </Text>
+                                            {hasTask && <View style={[styles.gridDot, isSelected && { backgroundColor: 'white' }]} />}
+                                        </View>
                                     </TouchableOpacity>
                                 );
                             })}
@@ -519,13 +521,18 @@ const styles = StyleSheet.create({
     monthGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 10,
         justifyContent: 'flex-start',
     },
     gridDay: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: '14.28%',
+        height: 45,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    gridDayInner: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#f1f5f9',
@@ -591,6 +598,6 @@ const styles = StyleSheet.create({
     },
     gridDayEmpty: {
         width: '14.28%',
-        height: 60,
+        height: 45,
     },
 });
