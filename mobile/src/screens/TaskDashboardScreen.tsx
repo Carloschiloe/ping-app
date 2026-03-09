@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { format, addDays, isSameDay, startOfDay } from 'date-fns';
@@ -17,6 +17,7 @@ export default function TaskDashboardScreen() {
     const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+    const [isCalendarVisible, setIsCalendarVisible] = useState(false);
 
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
@@ -25,20 +26,29 @@ export default function TaskDashboardScreen() {
         }
     });
 
-    // Generate 14 days for the scroller
+    // Generate 21 days for the scroller (2 days ago to 18 days ahead)
     const dates = useMemo(() => {
-        return Array.from({ length: 14 }).map((_, i) => addDays(startOfDay(new Date()), i));
+        return Array.from({ length: 21 }).map((_, i) => addDays(startOfDay(new Date()), i - 2));
     }, []);
+
+    // Calculate which days have tasks for the indicators
+    const daysWithTasks = useMemo(() => {
+        const set = new Set();
+        commitments.forEach((c: any) => {
+            if (c.due_at) {
+                set.add(format(new Date(c.due_at), 'yyyy-MM-dd'));
+            }
+        });
+        return set;
+    }, [commitments]);
 
     // Get unique team members from commitments
     const teamMembers = useMemo(() => {
         const membersMap = new Map();
         commitments.forEach((c: any) => {
-            // Add assignee if present and not current user
             if (c.assignee && c.assignee.id !== user?.id) {
                 membersMap.set(c.assignee.id, c.assignee);
             }
-            // Add owner if present and not current user
             if (c.owner && c.owner.id !== user?.id) {
                 membersMap.set(c.owner.id, c.owner);
             }
@@ -49,34 +59,23 @@ export default function TaskDashboardScreen() {
     const filteredData = useMemo(() => {
         return commitments.filter((c: any) => {
             const taskDate = c.due_at ? startOfDay(new Date(c.due_at)) : null;
-
-            // 1. Filter by Date
             if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
 
-            // 2. Filter by Type (Por Hacer vs Encargadas)
             if (filterType === 'todo') {
-                // I am the responsible
                 if (c.assigned_to_user_id !== user?.id) return false;
-
-                // If a user is selected in the carrusel, show only tasks assigned TO ME by THAT user
                 if (selectedUserId && c.owner_user_id !== selectedUserId) return false;
             } else {
-                // I am the owner, someone else is the responsible
                 const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
                 if (!isDelegatedByMe) return false;
-
-                // If a user is selected in the carrusel, show only tasks I assigned TO THAT user
                 if (selectedUserId && c.assigned_to_user_id !== selectedUserId) return false;
             }
 
-            // 3. Filter by Status
             if (statusFilter !== 'all') {
                 if (statusFilter === 'proposed' && c.status !== 'proposed') return false;
                 if (statusFilter === 'accepted' && (c.status !== 'accepted' && c.status !== 'pending' && c.status !== 'in_progress')) return false;
                 if (statusFilter === 'rejected' && c.status !== 'rejected') return false;
                 if (statusFilter === 'done' && c.status !== 'done') return false;
             }
-
             return true;
         });
     }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
@@ -85,6 +84,7 @@ export default function TaskDashboardScreen() {
         const isSelected = isSameDay(date, selectedDate);
         const dayName = format(date, 'EEE', { locale: es }).replace('.', '');
         const dayNum = format(date, 'dd');
+        const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
 
         return (
             <TouchableOpacity
@@ -94,7 +94,7 @@ export default function TaskDashboardScreen() {
             >
                 <Text style={[styles.dateDay, isSelected && styles.dateTextActive]}>{dayName}</Text>
                 <Text style={[styles.dateNum, isSelected && styles.dateTextActive]}>{dayNum}</Text>
-                {isSelected && <View style={styles.dateDot} />}
+                {hasTask && <View style={[styles.dateDot, isSelected ? styles.dateDotActive : styles.dateDotInactive]} />}
             </TouchableOpacity>
         );
     };
@@ -109,20 +109,73 @@ export default function TaskDashboardScreen() {
         </TouchableOpacity>
     );
 
+    const MonthPickerModal = () => {
+        const [viewDate, setViewDate] = useState(new Date(selectedDate));
+        const monthStart = startOfDay(new Date(viewDate.getFullYear(), viewDate.getMonth(), 1));
+        const daysInMonth = Array.from({ length: 31 }).map((_, i) => addDays(monthStart, i))
+            .filter(d => d.getMonth() === viewDate.getMonth());
+
+        return (
+            <Modal visible={isCalendarVisible} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.calendarModal}>
+                        <View style={styles.modalHeader}>
+                            <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, -1))}>
+                                <Ionicons name="chevron-back" size={24} color="#6366f1" />
+                            </TouchableOpacity>
+                            <Text style={styles.modalHeaderTitle}>
+                                {format(viewDate, 'MMMM yyyy', { locale: es })}
+                            </Text>
+                            <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, 32))}>
+                                <Ionicons name="chevron-forward" size={24} color="#6366f1" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.monthGrid}>
+                            {daysInMonth.map((date) => {
+                                const isSelected = isSameDay(date, selectedDate);
+                                const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
+                                return (
+                                    <TouchableOpacity
+                                        key={date.toISOString()}
+                                        style={[styles.gridDay, isSelected && styles.gridDayActive]}
+                                        onPress={() => {
+                                            setSelectedDate(date);
+                                            setIsCalendarVisible(false);
+                                        }}
+                                    >
+                                        <Text style={[styles.gridDayText, isSelected && styles.gridDayTextActive]}>
+                                            {format(date, 'd')}
+                                        </Text>
+                                        {hasTask && <View style={[styles.gridDot, isSelected && { backgroundColor: 'white' }]} />}
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                        <TouchableOpacity
+                            style={styles.closeModalBtn}
+                            onPress={() => setIsCalendarVisible(false)}
+                        >
+                            <Text style={styles.closeModalBtnText}>Cerrar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        );
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="dark-content" />
+            <MonthPickerModal />
 
-            {/* Header */}
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <Text style={styles.headerTitle}>Tareas</Text>
-                    <TouchableOpacity style={styles.calendarBtn}>
+                    <TouchableOpacity style={styles.calendarBtn} onPress={() => setIsCalendarVisible(true)}>
                         <Ionicons name="calendar-outline" size={24} color="#6366f1" />
                     </TouchableOpacity>
                 </View>
 
-                {/* Level Selector */}
                 <View style={styles.toggleContainer}>
                     <TouchableOpacity
                         style={[styles.toggleBtn, filterType === 'todo' && styles.toggleBtnActive]}
@@ -139,14 +192,12 @@ export default function TaskDashboardScreen() {
                 </View>
             </View>
 
-            {/* Date Scroller */}
             <View style={styles.scrollerContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroller}>
                     {dates.map(renderDateItem)}
                 </ScrollView>
             </View>
 
-            {/* Filters Bar */}
             <View style={styles.filtersContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
                     <StatusChip label="Todas" value="all" icon="layers-outline" />
@@ -157,7 +208,6 @@ export default function TaskDashboardScreen() {
                 </ScrollView>
             </View>
 
-            {/* Team Bar */}
             {teamMembers.length > 0 && (
                 <View style={styles.teamContainer}>
                     <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
@@ -310,8 +360,13 @@ const styles = StyleSheet.create({
         width: 4,
         height: 4,
         borderRadius: 2,
-        backgroundColor: 'white',
         marginTop: 4,
+    },
+    dateDotActive: {
+        backgroundColor: 'white',
+    },
+    dateDotInactive: {
+        backgroundColor: '#6366f1',
     },
     filtersContainer: {
         paddingVertical: 12,
@@ -394,6 +449,81 @@ const styles = StyleSheet.create({
     },
     listContent: {
         paddingBottom: 40,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    calendarModal: {
+        width: '100%',
+        backgroundColor: 'white',
+        borderRadius: 24,
+        padding: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    modalHeaderTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#1e293b',
+        textTransform: 'capitalize',
+    },
+    monthGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        justifyContent: 'flex-start',
+    },
+    gridDay: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f1f5f9',
+    },
+    gridDayActive: {
+        backgroundColor: '#6366f1',
+    },
+    gridDayText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#475569',
+    },
+    gridDayTextActive: {
+        color: 'white',
+    },
+    gridDot: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#6366f1',
+        position: 'absolute',
+        bottom: 5,
+    },
+    closeModalBtn: {
+        marginTop: 20,
+        backgroundColor: '#f1f5f9',
+        paddingVertical: 12,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    closeModalBtnText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#6366f1',
     },
     emptyContainer: {
         alignItems: 'center',
