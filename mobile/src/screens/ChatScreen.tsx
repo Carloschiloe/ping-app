@@ -106,28 +106,30 @@ export default function ChatScreen({ navigation }: any) {
     const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = popup closed
     const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
 
-    // Derive group participants from messages already in memory (avoids RLS issue)
+    // Fetch real participants (Phase 7)
     useEffect(() => {
-        const looksLikeGroup = isGroup || !!groupMetadata;
-        if (!looksLikeGroup || messages.length === 0) return;
+        if (!conversationId) return;
 
-        const seen = new Map<string, { id: string; full_name: string; email: string }>();
-        for (const msg of messages) {
-            const senderId = msg.sender_id || msg.user_id;
-            if (!senderId || senderId === user?.id || seen.has(senderId)) continue;
-            const profile = msg.profiles || msg.sender_profile;
-            seen.set(senderId, {
-                id: senderId,
-                full_name: profile?.full_name || '',
-                email: profile?.email || '',
-            });
-        }
-        const derived = Array.from(seen.values());
-        if (derived.length > 0) {
-            console.log('[Mention] participants derived from messages:', derived.length, derived.map(p => p.full_name || p.email));
-            setGroupParticipants(derived);
-        }
-    }, [messages, isGroup, groupMetadata, user?.id]);
+        const fetchParticipants = async () => {
+            try {
+                const { data } = await apiClient.get(`/groups/${conversationId}/participants`);
+                if (data && Array.isArray(data)) {
+                    const profiles = data.map((p: any) => p.profiles).filter(Boolean);
+                    setGroupParticipants(profiles);
+                } else if (!isGroup && otherUser) {
+                    // For 1-on-1, manually add self and other
+                    setGroupParticipants([
+                        { id: user?.id || '', full_name: user?.user_metadata?.full_name || '', email: user?.email || '' },
+                        { id: otherUser.id, full_name: otherUser.full_name, email: otherUser.email }
+                    ]);
+                }
+            } catch (err) {
+                console.error('[Mention] Failed to fetch participants:', err);
+            }
+        };
+
+        fetchParticipants();
+    }, [conversationId, isGroup, otherUser, user]);
     // ────────────────────────────────────────────────────────────────────────
 
     const chatTitle = isSelf ? '📌 Mis Recordatorios' : (isGroup ? (groupMetadata?.name || otherUser?.email || 'Grupo') : (otherUser?.email?.split('@')[0] || otherUser?.full_name || 'Chat'));

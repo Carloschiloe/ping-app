@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image, Alert, Modal } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { format, addDays, isSameDay, startOfDay } from 'date-fns';
@@ -25,6 +26,12 @@ export default function TaskDashboardScreen() {
             return apiClient.get('/commitments');
         }
     });
+
+    useFocusEffect(
+        useCallback(() => {
+            refetch();
+        }, [refetch])
+    );
 
     // Generate 21 days for the scroller (2 days ago to 18 days ahead)
     const dates = useMemo(() => {
@@ -74,7 +81,7 @@ export default function TaskDashboardScreen() {
                 if (statusFilter === 'proposed' && c.status !== 'proposed') return false;
                 if (statusFilter === 'accepted' && (c.status !== 'accepted' && c.status !== 'pending' && c.status !== 'in_progress')) return false;
                 if (statusFilter === 'rejected' && c.status !== 'rejected') return false;
-                if (statusFilter === 'done' && c.status !== 'done') return false;
+                if (statusFilter === 'done' && c.status !== 'completed') return false;
             }
             return true;
         });

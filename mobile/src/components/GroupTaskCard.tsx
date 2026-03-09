@@ -107,7 +107,8 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const handlePing = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        Alert.alert('Recordar', `Has enviado un recordatorio a ${assigneeName}.`);
+        const nameToShow = assigneeName === 'Alguien' ? 'el responsable' : assigneeName;
+        Alert.alert('Recordatorio Enviado', `Has enviado un recordatorio a ${nameToShow}.`);
         apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
     };
 

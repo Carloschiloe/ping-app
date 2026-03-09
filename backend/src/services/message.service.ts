@@ -109,17 +109,27 @@ export const analyzeAndSuggestTask = async (
 
             let finalAssigneeId = mentionedUserId || null;
             if (!finalAssigneeId && ai.assignedToName && conversationId) {
+                // Fetch ALL participants to ensure we match even if they haven't spoken recently
                 const { data: participants } = await supabaseAdmin
                     .from('conversation_participants')
-                    .select('user_id, profiles!inner(full_name)')
+                    .select('user_id, profiles!inner(full_name, email)')
                     .eq('conversation_id', conversationId);
 
+                const detected = ai.assignedToName!.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
                 const match = (participants || []).find((p: any) => {
-                    const name = (p.profiles?.full_name || '').toLowerCase();
-                    const detected = ai.assignedToName!.toLowerCase();
-                    return name.includes(detected) || detected.includes(name.split(' ')[0]);
+                    const fullName = (p.profiles?.full_name || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    const emailPrefix = (p.profiles?.email || '').split('@')[0].toLowerCase();
+
+                    return fullName.includes(detected) ||
+                        detected.includes(fullName.split(' ')[0]) ||
+                        emailPrefix.includes(detected);
                 });
-                if (match) finalAssigneeId = match.user_id;
+
+                if (match) {
+                    finalAssigneeId = match.user_id;
+                    console.log(`[AI] Matched assignee "${ai.assignedToName}" to user_id: ${finalAssigneeId}`);
+                }
             }
 
             const suggestedTask = {
