@@ -8,12 +8,12 @@ import { apiClient } from '../api/client';
 import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 
-type FilterType = 'mine' | 'team';
+type FilterType = 'todo' | 'delegated';
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'done';
 
 export default function TaskDashboardScreen() {
     const { user } = useAuth();
-    const [filterType, setFilterType] = useState<FilterType>('mine');
+    const [filterType, setFilterType] = useState<FilterType>('todo');
     const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -53,12 +53,19 @@ export default function TaskDashboardScreen() {
             // 1. Filter by Date
             if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
 
-            // 2. Filter by Type (Mine vs Team)
-            if (filterType === 'mine') {
-                const isMine = c.assigned_to_user_id === user?.id || c.owner_user_id === user?.id;
-                if (!isMine) return false;
+            // 2. Filter by Type (Por Hacer vs Encargadas)
+            if (filterType === 'todo') {
+                // I am the responsible
+                if (c.assigned_to_user_id !== user?.id) return false;
+
+                // If a user is selected in the carrusel, show only tasks assigned TO ME by THAT user
+                if (selectedUserId && c.owner_user_id !== selectedUserId) return false;
             } else {
-                // In Team mode, if someone is selected, show only their tasks
+                // I am the owner, someone else is the responsible
+                const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
+                if (!isDelegatedByMe) return false;
+
+                // If a user is selected in the carrusel, show only tasks I assigned TO THAT user
                 if (selectedUserId && c.assigned_to_user_id !== selectedUserId) return false;
             }
 
@@ -118,16 +125,16 @@ export default function TaskDashboardScreen() {
                 {/* Level Selector */}
                 <View style={styles.toggleContainer}>
                     <TouchableOpacity
-                        style={[styles.toggleBtn, filterType === 'mine' && styles.toggleBtnActive]}
-                        onPress={() => { setFilterType('mine'); setSelectedUserId(null); }}
+                        style={[styles.toggleBtn, filterType === 'todo' && styles.toggleBtnActive]}
+                        onPress={() => { setFilterType('todo'); setSelectedUserId(null); }}
                     >
-                        <Text style={[styles.toggleText, filterType === 'mine' && styles.toggleTextActive]}>Mis Tareas</Text>
+                        <Text style={[styles.toggleText, filterType === 'todo' && styles.toggleTextActive]}>Por Hacer</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[styles.toggleBtn, filterType === 'team' && styles.toggleBtnActive]}
-                        onPress={() => setFilterType('team')}
+                        style={[styles.toggleBtn, filterType === 'delegated' && styles.toggleBtnActive]}
+                        onPress={() => { setFilterType('delegated'); setSelectedUserId(null); }}
                     >
-                        <Text style={[styles.toggleText, filterType === 'team' && styles.toggleTextActive]}>Equipo</Text>
+                        <Text style={[styles.toggleText, filterType === 'delegated' && styles.toggleTextActive]}>Encargadas</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -150,9 +157,14 @@ export default function TaskDashboardScreen() {
                 </ScrollView>
             </View>
 
-            {/* Team Bar (Conditional) */}
-            {filterType === 'team' && teamMembers.length > 0 && (
+            {/* Team Bar */}
+            {teamMembers.length > 0 && (
                 <View style={styles.teamContainer}>
+                    <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>
+                            {filterType === 'todo' ? 'Filtrar por quien asignó:' : 'Filtrar por responsable:'}
+                        </Text>
+                    </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamRow}>
                         <TouchableOpacity
                             style={[styles.memberAvatar, !selectedUserId && styles.memberAvatarActive]}
