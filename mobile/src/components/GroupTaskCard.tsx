@@ -46,10 +46,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         || commitment.assignee?.email?.split('@')[0]
         || (commitment.assigned_to_user_id ? `Usuario` : 'Alguien');
 
-    // Add a very small debug indicator for ID verification
-    const debugInfo = `U:${currentUserId?.slice(0, 4)} A:${assignedId?.slice(0, 4)}`;
-
-    console.log(`[DEBUG] GroupTaskCard ${commitment.id}: status=${status}, isAssignee=${isAssignee}, userId=${user?.id}, assignedTo=${commitment.assigned_to_user_id} (${debugInfo})`);
+    // Remove debug logs for production feel
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "EEE d MMM 'a las' HH:mm", { locale: es })
@@ -116,15 +113,16 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     return (
         <View style={[styles.card, isRejected && styles.cardRejected]}>
             <View style={styles.header}>
-                <View style={styles.titleRow}>
-                    <Ionicons name="checkbox-outline" size={16} color="#6366f1" />
-                    <Text style={styles.label}>Tarea Asignada</Text>
-                </View>
                 <View style={[styles.badge, { backgroundColor: statusInfo.bg }]}>
                     <Text style={[styles.badgeText, { color: statusInfo.color }]}>
                         {statusInfo.label}
                     </Text>
                 </View>
+                {dueDateStr && (
+                    <Text style={styles.dueDate}>
+                        ⏰ {format(new Date(commitment.due_at), "HH:mm", { locale: es })}
+                    </Text>
+                )}
             </View>
 
             <Text style={styles.taskTitle}>{commitment.title}</Text>
@@ -144,23 +142,18 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
             )}
 
             <View style={styles.meta}>
-                {commitment.assignee?.avatar_url ? (
-                    <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
-                ) : (
-                    <View style={[styles.avatar, styles.avatarFallback]}>
-                        <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
-                    </View>
-                )}
-                <View>
+                <View style={styles.assigneeRow}>
+                    {commitment.assignee?.avatar_url ? (
+                        <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
+                    ) : (
+                        <View style={[styles.avatar, styles.avatarFallback]}>
+                            <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
+                        </View>
+                    )}
                     <Text style={styles.assigneeName}>{assigneeName}</Text>
-                    {dueDateStr && <Text style={styles.dueDate}>⏰ {format(new Date(commitment.due_at), "HH:mm", { locale: es })}</Text>}
                 </View>
             </View>
 
-            {/* Small debug info - made more visible for diagnosis */}
-            <View style={{ backgroundColor: '#f0f0f0', padding: 2, borderRadius: 4, marginTop: -10, alignSelf: 'flex-end' }}>
-                <Text style={{ fontSize: 7, color: '#999' }}>{debugInfo} S:{status} H:{isAssignee ? 'Y' : 'N'}</Text>
-            </View>
 
             <View style={styles.actions}>
                 {isAssignee && isProposed && (
@@ -210,13 +203,18 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: '#f0f0ff',
-        borderRadius: 12,
-        padding: 12,
-        marginTop: 6,
-        marginHorizontal: 8,
-        borderLeftWidth: 4,
-        borderLeftColor: '#6366f1',
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 10,
+        marginHorizontal: 15,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2,
     },
     cardRejected: {
         backgroundColor: '#fff1f1',
@@ -227,7 +225,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 8,
+        marginBottom: 10,
     },
     titleRow: {
         flexDirection: 'row',
@@ -248,11 +246,11 @@ const styles = StyleSheet.create({
     },
     badgeText: { fontSize: 11, fontWeight: '700' },
     taskTitle: {
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 16,
+        fontWeight: '700',
         color: '#1e1b4b',
-        marginBottom: 10,
-        lineHeight: 20,
+        marginBottom: 8,
+        lineHeight: 22,
     },
     rejectionBox: {
         backgroundColor: '#fee2e2',
@@ -273,10 +271,15 @@ const styles = StyleSheet.create({
         gap: 10,
         marginBottom: 12,
     },
+    assigneeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
     avatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
     },
     avatarFallback: {
         backgroundColor: '#6366f1',
@@ -286,17 +289,17 @@ const styles = StyleSheet.create({
     avatarLetter: {
         color: 'white',
         fontWeight: '700',
-        fontSize: 14,
+        fontSize: 10,
     },
     assigneeName: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#374151',
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#64748b',
     },
     dueDate: {
-        fontSize: 11,
-        color: '#6b7280',
-        marginTop: 1,
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
     },
     actions: {
         flexDirection: 'row',
