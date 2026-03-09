@@ -112,12 +112,17 @@ export default function ChatScreen({ navigation }: any) {
 
         const fetchParticipants = async () => {
             try {
-                const { data } = await apiClient.get(`/groups/${conversationId}/participants`);
-                if (data && Array.isArray(data)) {
-                    const profiles = data.map((p: any) => p.profiles).filter(Boolean);
+                // Phase 8: Using /conversations instead of /groups for better consistency and avoiding 404
+                const response = await apiClient.get(`/conversations/${conversationId}/participants`);
+
+                // Handle both { data: [...] } and direct array formats
+                const participantsArray = Array.isArray(response) ? response : (response?.data || []);
+
+                if (Array.isArray(participantsArray) && participantsArray.length > 0) {
+                    const profiles = participantsArray.map((p: any) => p.profiles).filter(Boolean);
                     setGroupParticipants(profiles);
                 } else if (!isGroup && otherUser) {
-                    // For 1-on-1, manually add self and other
+                    // For 1-on-1, manually add self and other as fallback
                     setGroupParticipants([
                         { id: user?.id || '', full_name: user?.user_metadata?.full_name || '', email: user?.email || '' },
                         { id: otherUser.id, full_name: otherUser.full_name, email: otherUser.email }

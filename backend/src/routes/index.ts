@@ -42,12 +42,12 @@ router.post('/conversations', requireAuth, conversationController.createOrFind);
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
 router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
+router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 
 // Groups
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
 router.patch('/groups/:id', requireAuth, validateRequest(groupSchema.updateGroupSchema), groupController.updateGroup);
-router.get('/groups/:id/participants', requireAuth, groupController.getParticipants);
 router.post('/groups/:id/participants', requireAuth, validateRequest(groupSchema.addParticipantsSchema), groupController.addParticipants);
 router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 
