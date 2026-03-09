@@ -160,3 +160,19 @@ export const deleteCommitment = async (req: Request, res: Response): Promise<voi
         res.status(500).json({ error: error.message });
     }
 };
+
+export const pingCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const id = req.params.id as string;
+
+        const data = await commitmentService.pingCommitment(userId, id);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};

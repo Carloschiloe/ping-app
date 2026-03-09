@@ -1,4 +1,5 @@
-import { View, Text, TouchableOpacity, StyleSheet, Image, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -12,7 +13,7 @@ interface GroupTaskCardProps {
         id: string;
         title: string;
         due_at: string;
-        status: 'pending' | 'done' | string;
+        status: 'pending' | 'completed' | string;
         assigned_to_user_id: string | null;
         assignee?: {
             full_name: string;
@@ -30,13 +31,14 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const { mutate: accept, isPending: isAccepting } = useAcceptCommitment();
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
+    const [showActions, setShowActions] = useState(false);
 
     const currentUserId = user?.id?.toLowerCase();
     const assignedId = commitment.assigned_to_user_id?.toLowerCase();
     const isAssignee = !!currentUserId && !!assignedId && currentUserId === assignedId;
 
     const status = commitment.status;
-    const isDone = status === 'done';
+    const isDone = status === 'completed';
     const isProposed = status === 'proposed';
     const isRejected = status === 'rejected';
     const isCounter = status === 'counter_proposal';
@@ -46,15 +48,25 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         || commitment.assignee?.email?.split('@')[0]
         || (commitment.assigned_to_user_id ? `Usuario` : 'Alguien');
 
-    // Remove debug logs for production feel
-
     const dueDateStr = commitment.due_at
-        ? format(new Date(commitment.due_at), "EEE d MMM 'a las' HH:mm", { locale: es })
+        ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
         : null;
 
     const handleMarkDone = () => {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        markDone(commitment.id);
+        Alert.alert(
+            'Completar Tarea',
+            '¿Confirmas que ya has completado esta tarea?',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Sí, completar',
+                    onPress: () => {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        markDone(commitment.id);
+                    }
+                }
+            ]
+        );
     };
 
     const handleAccept = () => {
@@ -81,7 +93,6 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     };
 
     const handlePostpone = () => {
-        // Simple implementation for now, ideally shows a date picker
         Alert.alert('Posponer', '¿Posponer para mañana a esta misma hora?', [
             { text: 'No', style: 'cancel' },
             {
@@ -131,7 +142,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                         </Text>
                     </View>
                     {dueDateStr && (
-                        <Text style={styles.metaText}>• {format(new Date(commitment.due_at), "HH:mm", { locale: es })}</Text>
+                        <Text style={styles.metaText}>• {dueDateStr}</Text>
                     )}
                     <Text style={styles.metaText} numberOfLines={1}>• {assigneeName}</Text>
                 </View>
@@ -158,24 +169,61 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 )}
 
                 {isAssignee && isProposed && (
-                    <View style={styles.miniActions}>
-                        <TouchableOpacity style={styles.miniActionBtn} onPress={handleAccept}>
-                            <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.miniActionBtn} onPress={handleReject}>
-                            <Ionicons name="close-circle" size={22} color="#ef4444" />
-                        </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity onPress={() => setShowActions(true)} style={styles.actionsBtn}>
+                        <Ionicons name="ellipsis-horizontal-circle" size={26} color="#6366f1" />
+                    </TouchableOpacity>
                 )}
 
                 {!isAssignee && !isDone && !isRejected && (
                     <TouchableOpacity onPress={handlePing}>
-                        <Ionicons name="notifications-outline" size={20} color="#f59e0b" />
+                        <Ionicons name="notifications-outline" size={22} color="#f59e0b" />
                     </TouchableOpacity>
                 )}
 
-                {isDone && <Ionicons name="checkmark-done-circle" size={22} color="#166534" style={{ opacity: 0.5 }} />}
+                {isDone && <Ionicons name="checkmark-done-circle" size={26} color="#22c55e" />}
             </View>
+
+            {/* Actions Modal */}
+            <Modal
+                visible={showActions}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowActions(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setShowActions(false)}>
+                    <View style={styles.actionMenu}>
+                        <Text style={styles.actionMenuTitle}>{commitment.title}</Text>
+
+                        <TouchableOpacity
+                            style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                            onPress={() => { setShowActions(false); handleAccept(); }}
+                        >
+                            <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
+                            <Text style={styles.menuItemText}>Aceptar Tarea</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                            onPress={() => { setShowActions(false); handlePostpone(); }}
+                        >
+                            <Ionicons name="time" size={24} color="#6366f1" />
+                            <Text style={styles.menuItemText}>Posponer</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => { setShowActions(false); handleReject(); }}
+                        >
+                            <Ionicons name="close-circle" size={24} color="#ef4444" />
+                            <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Rechazar</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowActions(false)}>
+                            <Text style={styles.cancelBtnText}>Cancelar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </Pressable>
+            </Modal>
         </View>
     );
 }
@@ -266,11 +314,49 @@ const styles = StyleSheet.create({
         shadowRadius: 6,
         elevation: 4,
     },
-    miniActions: {
-        flexDirection: 'row',
-        gap: 8,
+    actionsBtn: {
+        padding: 4,
     },
-    miniActionBtn: {
-        padding: 2,
-    }
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    actionMenu: {
+        width: '100%',
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 20,
+        alignItems: 'stretch',
+    },
+    actionMenuTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#0f172a',
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 15,
+        gap: 12,
+    },
+    menuItemText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#0f172a',
+    },
+    cancelBtn: {
+        marginTop: 15,
+        paddingVertical: 12,
+        alignItems: 'center',
+    },
+    cancelBtnText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#64748b',
+    },
 });

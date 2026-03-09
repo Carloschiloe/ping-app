@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { insertSystemMessage } from './message.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { sendPushNotification } from './push.service';
 const SELECT_WITH_ASSIGNEE = `
     *,
     assignee:profiles!assigned_to_user_id (
@@ -158,4 +159,37 @@ export const deleteCommitment = async (userId: string, commitmentId: string) => 
 
     if (error) throw error;
     return data;
+};
+export const pingCommitment = async (userId: string, commitmentId: string) => {
+    // 1. Get commitment details with assignee info
+    const { data: commitment, error } = await supabaseAdmin
+        .from('commitments')
+        .select(SELECT_WITH_ASSIGNEE)
+        .eq('id', commitmentId)
+        .single();
+
+    if (error || !commitment) throw new Error('Commitment not found');
+
+    // 2. Only owner can ping, and only if there's an assignee
+    if (commitment.owner_user_id !== userId) throw new Error('Unauthorized ping');
+    if (!commitment.assigned_to_user_id) throw new Error('No assignee to ping');
+
+    // 3. Get assignee's push token
+    const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('expo_push_token, full_name')
+        .eq('id', commitment.assigned_to_user_id)
+        .single();
+
+    const pushToken = profile?.expo_push_token;
+    if (pushToken) {
+        const ownerName = commitment.owner?.full_name || 'Alguien';
+        await sendPushNotification(
+            pushToken,
+            '🚨 Recordatorio de Tarea',
+            `${ownerName} te recuerda: "${commitment.title}"`
+        );
+    }
+
+    return { success: true };
 };

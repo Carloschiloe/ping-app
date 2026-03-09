@@ -63,6 +63,7 @@ router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectC
 router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
 router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
+router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
 
 // Search
 router.get('/search', requireAuth, searchController.search);
