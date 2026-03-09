@@ -8,6 +8,7 @@ import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
+import { isRedDay } from '../utils/holidays';
 
 type FilterType = 'todo' | 'delegated';
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'done';
@@ -92,6 +93,7 @@ export default function TaskDashboardScreen() {
         const dayName = format(date, 'EEE', { locale: es }).replace('.', '');
         const dayNum = format(date, 'dd');
         const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
+        const redDay = isRedDay(date);
 
         return (
             <TouchableOpacity
@@ -99,8 +101,16 @@ export default function TaskDashboardScreen() {
                 style={[styles.dateItem, isSelected && styles.dateItemActive]}
                 onPress={() => setSelectedDate(date)}
             >
-                <Text style={[styles.dateDay, isSelected && styles.dateTextActive]}>{dayName}</Text>
-                <Text style={[styles.dateNum, isSelected && styles.dateTextActive]}>{dayNum}</Text>
+                <Text style={[
+                    styles.dateDay,
+                    isSelected && styles.dateTextActive,
+                    redDay && !isSelected && { color: '#ef4444' }
+                ]}>{dayName}</Text>
+                <Text style={[
+                    styles.dateNum,
+                    isSelected && styles.dateTextActive,
+                    redDay && !isSelected && { color: '#ef4444' }
+                ]}>{dayNum}</Text>
                 {hasTask && <View style={[styles.dateDot, isSelected ? styles.dateDotActive : styles.dateDotInactive]} />}
             </TouchableOpacity>
         );
@@ -138,9 +148,24 @@ export default function TaskDashboardScreen() {
                             </TouchableOpacity>
                         </View>
                         <View style={styles.monthGrid}>
+                            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map(d => (
+                                <View key={d} style={styles.gridDayHeader}>
+                                    <Text style={styles.gridDayHeaderText}>{d}</Text>
+                                </View>
+                            ))}
+                            {(() => {
+                                // Pad beginning of month to start on Monday
+                                // getDay(): 0 is Sunday, 1 is Monday...
+                                const firstDay = monthStart.getDay();
+                                const prefixCount = firstDay === 0 ? 6 : firstDay - 1;
+                                return Array.from({ length: prefixCount }).map((_, i) => (
+                                    <View key={`prefix-${i}`} style={styles.gridDayEmpty} />
+                                ));
+                            })()}
                             {daysInMonth.map((date) => {
                                 const isSelected = isSameDay(date, selectedDate);
                                 const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
+                                const redDay = isRedDay(date);
                                 return (
                                     <TouchableOpacity
                                         key={date.toISOString()}
@@ -150,7 +175,11 @@ export default function TaskDashboardScreen() {
                                             setIsCalendarVisible(false);
                                         }}
                                     >
-                                        <Text style={[styles.gridDayText, isSelected && styles.gridDayTextActive]}>
+                                        <Text style={[
+                                            styles.gridDayText,
+                                            isSelected && styles.gridDayTextActive,
+                                            redDay && !isSelected && { color: '#ef4444', fontWeight: 'bold' }
+                                        ]}>
                                             {format(date, 'd')}
                                         </Text>
                                         {hasTask && <View style={[styles.gridDot, isSelected && { backgroundColor: 'white' }]} />}
@@ -549,5 +578,19 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#94a3b8',
         textAlign: 'center',
-    }
+    },
+    gridDayHeader: {
+        width: '14.28%',
+        alignItems: 'center',
+        paddingVertical: 10,
+    },
+    gridDayHeaderText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+    },
+    gridDayEmpty: {
+        width: '14.28%',
+        height: 60,
+    },
 });
