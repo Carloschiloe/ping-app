@@ -329,8 +329,22 @@ const MessageItem = ({
             </View>
 
             {isGroup && (() => {
-                const task = groupTasks.find((t: any) => t.message_id === item.id && t.is_group_task);
-                return task ? <GroupTaskCard key={task.id} commitment={task} /> : null;
+                const tasks = groupTasks.filter((t: any) => t.message_id === item.id && t.is_group_task);
+                if (tasks.length === 0) return null;
+
+                // Logic: 
+                // 1. If I am the creator, show the first one (as a summary)
+                // 2. If I am an assignee, show only MINE
+                const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);
+                const isOwner = tasks[0].owner_user_id === user?.id;
+
+                if (myTask) {
+                    return <GroupTaskCard key={myTask.id} commitment={myTask} />;
+                } else if (isOwner) {
+                    // Show a representative one for the owner
+                    return <GroupTaskCard key={tasks[0].id} commitment={{ ...tasks[0], _isEveryoneSummary: tasks.length > 1 }} />;
+                }
+                return null;
             })()}
 
         </Swipeable>

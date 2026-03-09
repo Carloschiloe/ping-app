@@ -613,18 +613,37 @@ export default function ChatScreen({ navigation }: any) {
         if (isMultiSelecting) { toggleSelect(item.id); return; }
         openMenu(item);
     };
-    const handleConfirmSuggestion = () => {
+    const handleConfirmSuggestion = async () => {
         if (!suggestionData) return;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        createCommitment({
-            title: suggestionData.title,
-            due_at: suggestionData.dueAt,
-            assigned_to_user_id: suggestionData.assignedToUserId, // can be null for "Everyone"
-            message_id: suggestionData.messageId,
-            group_conversation_id: isGroup ? conversationId : null,
-            is_group_task: isGroup // If it's a group, it's a group task always if suggested via AI in group chat
-        });
+        if (isGroup && suggestionData.assignedToUserId === null) {
+            // "Everyone" case: Create one commitment per participant (except the owner)
+            const targetParticipants = groupParticipants.filter(p => p.id !== user?.id);
+
+            // We'll run them sequentially to avoid potential race conditions on system messages
+            // though concurrently is also possible.
+            for (const participant of targetParticipants) {
+                createCommitment({
+                    title: suggestionData.title,
+                    due_at: suggestionData.dueAt,
+                    assigned_to_user_id: participant.id,
+                    message_id: suggestionData.messageId,
+                    group_conversation_id: conversationId,
+                    is_group_task: true
+                });
+            }
+        } else {
+            // Single assignee case
+            createCommitment({
+                title: suggestionData.title,
+                due_at: suggestionData.dueAt,
+                assigned_to_user_id: suggestionData.assignedToUserId,
+                message_id: suggestionData.messageId,
+                group_conversation_id: isGroup ? conversationId : null,
+                is_group_task: isGroup
+            });
+        }
 
         // Optimistically hide the chip by updating local meta (or let server realtime handle it)
         setSuggestionModalVisible(false);

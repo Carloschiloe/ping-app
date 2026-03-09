@@ -52,7 +52,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     // Phase 8: Show "Requested by" if I am the assignee
     const requesterName = commitment.owner?.full_name || commitment.owner?.email?.split('@')[0] || 'Alguien';
-    const assigneeName = commitment.assignee?.full_name || commitment.assignee?.email?.split('@')[0] || 'Alguien';
+    const assigneeName = (commitment as any)._isEveryoneSummary
+        ? 'Todos'
+        : (commitment.assignee?.full_name || commitment.assignee?.email?.split('@')[0] || 'Alguien');
 
     const displayName = isAssignee
         ? `De: ${requesterName}`
@@ -147,7 +149,11 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     return (
         <View style={[styles.row, isRejected && styles.rowRejected]}>
             <View style={styles.leftContent}>
-                {commitment.assignee?.avatar_url ? (
+                {(commitment as any)._isEveryoneSummary ? (
+                    <View style={[styles.avatar, { backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center' }]}>
+                        <Ionicons name="people" size={18} color="white" />
+                    </View>
+                ) : commitment.assignee?.avatar_url ? (
                     <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
                 ) : (
                     <View style={[styles.avatar, styles.avatarFallback]}>
