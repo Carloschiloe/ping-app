@@ -111,175 +111,95 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const statusInfo = getStatusInfo();
 
     return (
-        <View style={[styles.card, isRejected && styles.cardRejected]}>
-            <View style={styles.header}>
-                <View style={[styles.badge, { backgroundColor: statusInfo.bg }]}>
-                    <Text style={[styles.badgeText, { color: statusInfo.color }]}>
-                        {statusInfo.label}
-                    </Text>
-                </View>
-                {dueDateStr && (
-                    <Text style={styles.dueDate}>
-                        ⏰ {format(new Date(commitment.due_at), "HH:mm", { locale: es })}
-                    </Text>
+        <View style={[styles.row, isRejected && styles.rowRejected]}>
+            <View style={styles.leftContent}>
+                {commitment.assignee?.avatar_url ? (
+                    <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
+                ) : (
+                    <View style={[styles.avatar, styles.avatarFallback]}>
+                        <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
+                    </View>
                 )}
             </View>
 
-            <Text style={styles.taskTitle}>{commitment.title}</Text>
-
-            {isRejected && commitment.rejection_reason && (
-                <View style={styles.rejectionBox}>
-                    <Text style={styles.rejectionText}>Motivo: {commitment.rejection_reason}</Text>
-                </View>
-            )}
-
-            {isCounter && commitment.proposed_due_at && (
-                <View style={[styles.rejectionBox, { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }]}>
-                    <Text style={[styles.rejectionText, { color: '#4338ca' }]}>
-                        💡 Contrapropuesta: {format(new Date(commitment.proposed_due_at), "HH:mm", { locale: es })}
-                    </Text>
-                </View>
-            )}
-
-            <View style={styles.meta}>
-                <View style={styles.assigneeRow}>
-                    {commitment.assignee?.avatar_url ? (
-                        <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
-                    ) : (
-                        <View style={[styles.avatar, styles.avatarFallback]}>
-                            <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
-                        </View>
+            <View style={styles.centerContent}>
+                <Text style={styles.taskTitle} numberOfLines={1}>{commitment.title}</Text>
+                <View style={styles.metaRow}>
+                    <View style={[styles.miniBadge, { backgroundColor: statusInfo.bg }]}>
+                        <Text style={[styles.miniBadgeText, { color: statusInfo.color }]}>
+                            {statusInfo.label.split(' ')[1] || statusInfo.label}
+                        </Text>
+                    </View>
+                    {dueDateStr && (
+                        <Text style={styles.metaText}>• {format(new Date(commitment.due_at), "HH:mm", { locale: es })}</Text>
                     )}
-                    <Text style={styles.assigneeName}>{assigneeName}</Text>
+                    <Text style={styles.metaText} numberOfLines={1}>• {assigneeName}</Text>
                 </View>
+
+                {isRejected && commitment.rejection_reason && (
+                    <Text style={styles.rejectionMini}>Motivo: {commitment.rejection_reason}</Text>
+                )}
             </View>
 
-
-            <View style={styles.actions}>
-                {isAssignee && isProposed && (
-                    <>
-                        <TouchableOpacity style={[styles.actionBtn, styles.acceptBtn]} onPress={handleAccept} disabled={isAccepting}>
-                            <Ionicons name="checkmark" size={18} color="white" />
-                            <Text style={styles.btnText}>Aceptar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.actionBtn, styles.postponeBtn]} onPress={handlePostpone} disabled={isPostponing}>
-                            <Ionicons name="time-outline" size={18} color="#374151" />
-                            <Text style={[styles.btnText, { color: '#374151' }]}>Posponer</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={handleReject} disabled={isRejecting}>
-                            <Ionicons name="close" size={18} color="white" />
-                        </TouchableOpacity>
-                    </>
-                )}
-
+            <View style={styles.rightContent}>
                 {isAssignee && isAccepted && !isDone && (
                     <TouchableOpacity
-                        style={styles.completeBtn}
+                        style={styles.circleComplete}
                         onPress={handleMarkDone}
                         disabled={isMarkingDone}
-                        activeOpacity={0.8}
+                        activeOpacity={0.7}
                     >
-                        <Ionicons name="checkmark-circle" size={18} color="white" />
-                        <Text style={styles.completeBtnText}>
-                            {isMarkingDone ? 'Guardando...' : 'Completar'}
-                        </Text>
+                        {isMarkingDone ? (
+                            <Text style={{ fontSize: 8, color: 'white' }}>...</Text>
+                        ) : (
+                            <Ionicons name="checkmark" size={20} color="white" />
+                        )}
                     </TouchableOpacity>
+                )}
+
+                {isAssignee && isProposed && (
+                    <View style={styles.miniActions}>
+                        <TouchableOpacity style={styles.miniActionBtn} onPress={handleAccept}>
+                            <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.miniActionBtn} onPress={handleReject}>
+                            <Ionicons name="close-circle" size={22} color="#ef4444" />
+                        </TouchableOpacity>
+                    </View>
                 )}
 
                 {!isAssignee && !isDone && !isRejected && (
-                    <TouchableOpacity
-                        style={styles.pingBtn}
-                        onPress={handlePing}
-                        activeOpacity={0.8}
-                    >
-                        <Ionicons name="notifications" size={18} color="#f59e0b" />
-                        <Text style={styles.pingBtnText}>Recordar</Text>
+                    <TouchableOpacity onPress={handlePing}>
+                        <Ionicons name="notifications-outline" size={20} color="#f59e0b" />
                     </TouchableOpacity>
                 )}
+
+                {isDone && <Ionicons name="checkmark-done-circle" size={22} color="#166534" style={{ opacity: 0.5 }} />}
             </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    card: {
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
         backgroundColor: 'white',
-        borderRadius: 16,
-        padding: 16,
-        marginTop: 10,
-        marginHorizontal: 15,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-        elevation: 2,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
     },
-    cardRejected: {
+    rowRejected: {
         backgroundColor: '#fff1f1',
-        borderLeftColor: '#ef4444',
-        opacity: 0.9,
     },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    titleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    label: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#6366f1',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    badge: {
-        borderRadius: 20,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-    },
-    badgeText: { fontSize: 11, fontWeight: '700' },
-    taskTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#1e1b4b',
-        marginBottom: 8,
-        lineHeight: 22,
-    },
-    rejectionBox: {
-        backgroundColor: '#fee2e2',
-        padding: 8,
-        borderRadius: 8,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: '#fecaca',
-    },
-    rejectionText: {
-        fontSize: 12,
-        color: '#991b1b',
-        fontWeight: '500',
-    },
-    meta: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        marginBottom: 12,
-    },
-    assigneeRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
+    leftContent: {
+        marginRight: 12,
     },
     avatar: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
     },
     avatarFallback: {
         backgroundColor: '#6366f1',
@@ -289,79 +209,68 @@ const styles = StyleSheet.create({
     avatarLetter: {
         color: 'white',
         fontWeight: '700',
-        fontSize: 10,
-    },
-    assigneeName: {
         fontSize: 12,
-        fontWeight: '500',
-        color: '#64748b',
     },
-    dueDate: {
-        fontSize: 12,
+    centerContent: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    taskTitle: {
+        fontSize: 15,
         fontWeight: '700',
-        color: '#64748b',
+        color: '#0f172a',
+        marginBottom: 2,
     },
-    actions: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    actionBtn: {
+    metaRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 8,
-        borderRadius: 10,
         gap: 6,
     },
-    acceptBtn: {
-        flex: 2,
-        backgroundColor: '#22c55e',
+    metaText: {
+        fontSize: 11,
+        color: '#64748b',
+        fontWeight: '500',
     },
-    postponeBtn: {
-        flex: 2,
-        backgroundColor: '#f3f4f6',
-        borderWidth: 1,
-        borderColor: '#d1d5db',
+    miniBadge: {
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: 4,
     },
-    rejectBtn: {
-        flex: 1,
-        backgroundColor: '#ef4444',
+    miniBadgeText: {
+        fontSize: 9,
+        fontWeight: '800',
+        textTransform: 'uppercase',
     },
-    btnText: {
-        color: 'white',
-        fontWeight: '700',
-        fontSize: 13,
+    rejectionMini: {
+        fontSize: 10,
+        color: '#ef4444',
+        fontStyle: 'italic',
+        marginTop: 2,
     },
-    completeBtn: {
-        flex: 1,
-        flexDirection: 'row',
+    rightContent: {
+        marginLeft: 10,
         alignItems: 'center',
+        justifyContent: 'center',
+        width: 44,
+    },
+    circleComplete: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         backgroundColor: '#6366f1',
-        paddingVertical: 10,
-        borderRadius: 10,
-        gap: 8,
-        justifyContent: 'center',
-    },
-    completeBtnText: {
-        color: 'white',
-        fontWeight: '700',
-        fontSize: 14,
-    },
-    pingBtn: {
-        flex: 1,
-        flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fffbeb',
-        borderWidth: 1,
-        borderColor: '#fde68a',
-        paddingVertical: 10,
-        borderRadius: 10,
-        gap: 8,
         justifyContent: 'center',
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 4,
     },
-    pingBtnText: {
-        color: '#b45309',
-        fontWeight: '700',
-        fontSize: 14,
+    miniActions: {
+        flexDirection: 'row',
+        gap: 8,
     },
+    miniActionBtn: {
+        padding: 2,
+    }
 });
