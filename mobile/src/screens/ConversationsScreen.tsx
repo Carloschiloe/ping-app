@@ -1,11 +1,12 @@
 import React from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
-    ActivityIndicator, StatusBar, Platform, Image, ScrollView, TextInput
+    ActivityIndicator, StatusBar, Platform, Image, ScrollView, TextInput, Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -20,7 +21,7 @@ function avatarInitials(email?: string) {
     return email.substring(0, 2).toUpperCase();
 }
 
-const COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a', '#32ade6'];
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
 function avatarColor(str: string) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -32,6 +33,8 @@ export default function ConversationsScreen({ navigation }: any) {
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private'>('all');
+
+    const scrollY = React.useRef(new Animated.Value(0)).current;
 
     const rawConversations = data?.conversations || [];
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
@@ -49,6 +52,18 @@ export default function ConversationsScreen({ navigation }: any) {
             return true;
         });
     }, [rawConversations, searchQuery, filter]);
+
+    const headerHeight = scrollY.interpolate({
+        inputRange: [0, 100],
+        outputRange: [Platform.OS === 'ios' ? 180 : 140, Platform.OS === 'ios' ? 120 : 80],
+        extrapolate: 'clamp',
+    });
+
+    const searchScale = scrollY.interpolate({
+        inputRange: [0, 50],
+        outputRange: [1, 0.95],
+        extrapolate: 'clamp',
+    });
 
     const renderItem = ({ item }: { item: any }) => {
         const isGroup = item.isGroup;
@@ -95,44 +110,52 @@ export default function ConversationsScreen({ navigation }: any) {
         return (
             <TouchableOpacity
                 style={styles.row}
-                activeOpacity={0.7}
+                activeOpacity={0.6}
                 onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser, isGroup, groupMetadata: groupMeta })}
             >
-                <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
-                    {avatarUrl ? (
-                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                    ) : (
-                        <Text style={styles.avatarText}>{initials}</Text>
-                    )}
+                <View style={[styles.avatarContainer]}>
+                    <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
+                        {avatarUrl ? (
+                            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                        ) : (
+                            <Text style={styles.avatarText}>{initials}</Text>
+                        )}
+                    </View>
+                    {isUnread && <View style={styles.unreadIndicator} />}
                 </View>
 
                 <View style={styles.info}>
                     <View style={styles.topRow}>
-                        <Text style={[styles.name, isUnread && { fontWeight: '800' }]} numberOfLines={1}>
+                        <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>
                             {displayName}
                         </Text>
                         {lastMsg && (
-                            <Text style={[styles.time, isUnread && { color: '#6366f1', fontWeight: '700' }]}>{formatTime(lastMsg.created_at)}</Text>
+                            <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>
                         )}
                     </View>
                     <View style={styles.bottomRow}>
                         <View style={styles.previewWrap}>
                             {isByMe && lastMsg && (
                                 <Ionicons
-                                    name={lastMsg.status === 'sent' || !lastMsg.status ? 'checkmark' : 'checkmark-done'}
-                                    size={15}
-                                    color={lastMsg.status === 'read' ? '#34b7f1' : '#94a3b8'}
+                                    name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'}
+                                    size={16}
+                                    color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'}
                                     style={{ marginRight: 4 }}
                                 />
                             )}
-                            <Text style={[styles.preview, isUnread && { color: '#1e293b', fontWeight: '600' }]} numberOfLines={1}>
+                            <Text style={[styles.preview, isUnread && styles.previewUnread]} numberOfLines={1}>
                                 {preview}
                             </Text>
                         </View>
                         {isUnread && (
-                            <View style={styles.unreadBadge}>
+                            <LinearGradient
+                                colors={['#6366f1', '#8b5cf6']}
+                                style={styles.unreadBadge}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                            >
                                 <Text style={styles.unreadText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                            </View>
+                            </LinearGradient>
                         )}
                     </View>
                 </View>
@@ -142,135 +165,129 @@ export default function ConversationsScreen({ navigation }: any) {
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor="#1e3a5f" />
+            <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-            {/* Header Section */}
-            <View style={styles.headerSection}>
+            <Animated.View style={[styles.headerSection, { height: headerHeight }]}>
+                <LinearGradient
+                    colors={['#0f172a', '#1e3a8a']}
+                    style={StyleSheet.absoluteFill}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                />
+
                 <View style={styles.headerTop}>
                     <Text style={styles.title}>Ping</Text>
-                    <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('NewChat')}>
+                    <TouchableOpacity
+                        style={styles.headerIconBtn}
+                        onPress={() => navigation.navigate('NewChat')}
+                    >
                         <Ionicons name="add" size={28} color="white" />
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.searchBar}>
-                    <Ionicons name="search" size={18} color="#cbd5e1" />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Buscar chats..."
-                        placeholderTextColor="#94a3b8"
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                    />
-                    {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')}>
-                            <Ionicons name="close-circle" size={18} color="#cbd5e1" />
-                        </TouchableOpacity>
-                    )}
-                </View>
-            </View>
+                <Animated.View style={[styles.searchContainer, { transform: [{ scale: searchScale }] }]}>
+                    <View style={styles.searchBar}>
+                        <Ionicons name="search" size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Buscar en tus hilos..."
+                            placeholderTextColor="#64748b"
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                        />
+                        {searchQuery.length > 0 && (
+                            <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </Animated.View>
+            </Animated.View>
 
             {isLoading ? (
-                <ActivityIndicator size="large" color="#6366f1" style={{ marginTop: 40 }} />
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#6366f1" />
+                </View>
             ) : (
-                <FlatList
+                <Animated.FlatList
                     data={filteredConversations}
                     keyExtractor={item => item.id}
                     renderItem={renderItem}
+                    onScroll={Animated.event(
+                        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                        { useNativeDriver: false }
+                    )}
+                    scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.listContent}
                     ListHeaderComponent={() => (
-                        <>
-                            {/* Quick Actions Scroll */}
+                        <View style={styles.listHeader}>
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
-                                style={styles.quickActionsScroll}
                                 contentContainerStyle={styles.quickActionsContent}
                             >
-                                <TouchableOpacity
-                                    style={styles.qaCard}
+                                <QuickAction
+                                    label="Notas"
+                                    emoji="📌"
+                                    bg="#e0f2fe"
                                     onPress={() => openSelf(undefined, {
                                         onSuccess: ({ conversationId }) =>
                                             navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }),
                                     })}
                                     disabled={selfPending}
-                                >
-                                    <View style={[styles.qaIconWrap, { backgroundColor: '#eff6ff' }]}>
-                                        <Text style={{ fontSize: 20 }}>📌</Text>
-                                    </View>
-                                    <Text style={styles.qaLabel}>Notas</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.qaCard}
+                                />
+                                <QuickAction
+                                    label="AI"
+                                    emoji="🤖"
+                                    bg="#f0fdf4"
                                     onPress={() => navigation.navigate('PingAI')}
-                                >
-                                    <View style={[styles.qaIconWrap, { backgroundColor: '#f0fdf4' }]}>
-                                        <Text style={{ fontSize: 20 }}>🤖</Text>
-                                    </View>
-                                    <Text style={styles.qaLabel}>Ping AI</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.qaCard}
+                                />
+                                <QuickAction
+                                    label="Grupo"
+                                    icon="people"
+                                    color="#ef4444"
+                                    bg="#fef2f2"
                                     onPress={() => navigation.navigate('NewGroup')}
-                                >
-                                    <View style={[styles.qaIconWrap, { backgroundColor: '#fef2f2' }]}>
-                                        <Ionicons name="people" size={22} color="#ef4444" />
-                                    </View>
-                                    <Text style={styles.qaLabel}>+ Grupo</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.qaCard}
+                                />
+                                <QuickAction
+                                    label="Chat"
+                                    icon="chatbubble-ellipses"
+                                    color="#8b5cf6"
+                                    bg="#faf5ff"
                                     onPress={() => navigation.navigate('NewChat')}
-                                >
-                                    <View style={[styles.qaIconWrap, { backgroundColor: '#faf5ff' }]}>
-                                        <Ionicons name="chatbubble-ellipses" size={22} color="#a855f7" />
-                                    </View>
-                                    <Text style={styles.qaLabel}>+ Chat</Text>
-                                </TouchableOpacity>
+                                />
                             </ScrollView>
 
-                            {/* Filters */}
                             <View style={styles.filterBar}>
-                                <TouchableOpacity
-                                    style={[styles.filterChip, filter === 'all' && styles.filterChipActive]}
+                                <FilterChip
+                                    label="Todos"
+                                    active={filter === 'all'}
                                     onPress={() => setFilter('all')}
-                                >
-                                    <Text style={[styles.filterChipText, filter === 'all' && styles.filterChipActiveText]}>Todos</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.filterChip, filter === 'unread' && styles.filterChipActive]}
+                                />
+                                <FilterChip
+                                    label="Sin Leer"
+                                    active={filter === 'unread'}
                                     onPress={() => setFilter('unread')}
-                                >
-                                    <Text style={[styles.filterChipText, filter === 'unread' && styles.filterChipActiveText]}>Sin Leer</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.filterChip, filter === 'groups' && styles.filterChipActive]}
+                                />
+                                <FilterChip
+                                    label="Grupos"
+                                    active={filter === 'groups'}
                                     onPress={() => setFilter('groups')}
-                                >
-                                    <Text style={[styles.filterChipText, filter === 'groups' && styles.filterChipActiveText]}>Grupos</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.filterChip, filter === 'private' && styles.filterChipActive]}
+                                />
+                                <FilterChip
+                                    label="Privados"
+                                    active={filter === 'private'}
                                     onPress={() => setFilter('private')}
-                                >
-                                    <Text style={[styles.filterChipText, filter === 'private' && styles.filterChipActiveText]}>Privados</Text>
-                                </TouchableOpacity>
+                                />
                             </View>
-                        </>
+                        </View>
                     )}
                     ListEmptyComponent={() => (
                         <View style={styles.empty}>
-                            <Ionicons name="chatbubbles-outline" size={64} color="#e2e8f0" />
-                            <Text style={styles.emptyTitle}>
-                                {searchQuery.length > 0 ? 'Sin resultados' : 'Vacío'}
-                            </Text>
-                            <Text style={styles.emptyText}>
-                                {searchQuery.length > 0 ? 'Prueba otra búsqueda' : 'Toca el botón + superior'}
-                            </Text>
+                            <Ionicons name="chatbubbles-outline" size={80} color="#f1f5f9" />
+                            <Text style={styles.emptyTitle}>Nada por aquí</Text>
+                            <Text style={styles.emptyText}>Inicia un hilo o cambia el filtro</Text>
                         </View>
                     )}
                 />
@@ -279,168 +296,121 @@ export default function ConversationsScreen({ navigation }: any) {
     );
 }
 
+function QuickAction({ label, emoji, icon, color, bg, onPress, disabled }: any) {
+    return (
+        <TouchableOpacity
+            style={styles.qaCard}
+            onPress={onPress}
+            disabled={disabled}
+            activeOpacity={0.7}
+        >
+            <View style={[styles.qaIconWrap, { backgroundColor: bg }]}>
+                {emoji ? <Text style={{ fontSize: 24 }}>{emoji}</Text> : <Ionicons name={icon} size={24} color={color} />}
+            </View>
+            <Text style={styles.qaLabel}>{label}</Text>
+        </TouchableOpacity>
+    );
+}
+
+function FilterChip({ label, active, onPress }: any) {
+    return (
+        <TouchableOpacity
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={onPress}
+            activeOpacity={0.8}
+        >
+            <Text style={[styles.filterChipText, active && styles.filterChipActiveText]}>{label}</Text>
+        </TouchableOpacity>
+    );
+}
+
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#ffffff' },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
     headerSection: {
-        backgroundColor: '#1e3a5f',
-        paddingHorizontal: 20,
-        paddingTop: Platform.OS === 'ios' ? 60 : 20,
+        paddingHorizontal: 24,
+        justifyContent: 'flex-end',
         paddingBottom: 20,
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
+        zIndex: 10,
     },
     headerTop: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20,
+        marginBottom: 16,
     },
-    title: { fontSize: 32, fontWeight: '900', color: 'white', letterSpacing: -1.5 },
+    title: { fontSize: 34, fontWeight: '900', color: 'white', letterSpacing: -2 },
     headerIconBtn: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        alignItems: 'center', justifyContent: 'center',
     },
+    searchContainer: { width: '100%' },
     searchBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        borderRadius: 15,
-        paddingHorizontal: 15,
-        height: 48,
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 16, paddingHorizontal: 16, height: 50,
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     },
-    searchInput: {
-        flex: 1,
-        marginLeft: 10,
-        color: 'white',
-        fontSize: 16,
-        fontWeight: '600',
-    },
+    searchInput: { flex: 1, marginLeft: 12, color: 'white', fontSize: 16, fontWeight: '500' },
 
-    quickActionsScroll: {
-        backgroundColor: '#f8fafc',
-    },
-    quickActionsContent: {
-        paddingHorizontal: 20,
-        paddingVertical: 20,
-        gap: 15,
-    },
-    qaCard: {
-        alignItems: 'center',
-        width: 75,
-    },
+    listHeader: { backgroundColor: '#ffffff', borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -20 },
+    quickActionsContent: { paddingHorizontal: 24, paddingVertical: 24, gap: 20 },
+    qaCard: { alignItems: 'center', width: 70 },
     qaIconWrap: {
-        width: 60,
-        height: 60,
-        borderRadius: 20,
-        backgroundColor: 'white',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 3,
+        width: 64, height: 64, borderRadius: 22,
+        alignItems: 'center', justifyContent: 'center',
+        marginBottom: 10,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 12,
+        elevation: 4,
     },
-    qaLabel: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#64748b',
-    },
+    qaLabel: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
 
-    filterBar: {
-        flexDirection: 'row',
-        paddingHorizontal: 20,
-        paddingBottom: 15,
-        backgroundColor: '#f8fafc',
-        gap: 10,
-    },
+    filterBar: { flexDirection: 'row', paddingHorizontal: 24, paddingBottom: 20, gap: 10 },
     filterChip: {
-        paddingHorizontal: 18,
-        paddingVertical: 10,
-        borderRadius: 20,
-        backgroundColor: '#edf2f7',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
+        paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
+        backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9',
     },
-    filterChipActive: {
-        backgroundColor: '#1e3a5f',
-        borderColor: '#1e3a5f',
-    },
-    filterChipText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#64748b',
-    },
-    filterChipActiveText: {
-        color: 'white',
-    },
+    filterChipActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
+    filterChipText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
+    filterChipActiveText: { color: 'white' },
 
-    listContent: {
-        backgroundColor: 'white',
-    },
+    listContent: { paddingBottom: 100 },
     row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 24, paddingVertical: 18,
     },
+    avatarContainer: { position: 'relative' },
     avatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 15,
-        overflow: 'hidden',
+        width: 62, height: 62, borderRadius: 22,
+        alignItems: 'center', justifyContent: 'center',
+        marginRight: 16, overflow: 'hidden',
     },
     avatarImage: { width: '100%', height: '100%' },
-    avatarText: { color: 'white', fontWeight: '900', fontSize: 22 },
+    avatarText: { color: 'white', fontWeight: '900', fontSize: 24 },
+    unreadIndicator: {
+        position: 'absolute', top: -1, right: 14,
+        width: 14, height: 14, borderRadius: 7,
+        backgroundColor: '#4f46e5', borderWidth: 2, borderColor: 'white',
+    },
     info: { flex: 1 },
-    topRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 4,
-    },
-    name: { fontSize: 18, fontWeight: '700', color: '#0f172a', flex: 1 },
-    time: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
-    bottomRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    previewWrap: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-        marginRight: 10,
-    },
-    preview: { fontSize: 15, color: '#64748b', flex: 1 },
+    topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+    name: { fontSize: 17, fontWeight: '600', color: '#64748b' },
+    nameUnread: { color: '#0f172a', fontWeight: '800' },
+    time: { fontSize: 12, color: '#94a3b8', fontWeight: '500' },
+    timeUnread: { color: '#4f46e5', fontWeight: '700' },
+    bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    previewWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 },
+    preview: { fontSize: 14, color: '#94a3b8' },
+    previewUnread: { color: '#334155', fontWeight: '600' },
     unreadBadge: {
-        backgroundColor: '#6366f1',
-        borderRadius: 12,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        minWidth: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
+        borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4,
+        minWidth: 24, alignItems: 'center', justifyContent: 'center',
     },
     unreadText: { color: 'white', fontSize: 11, fontWeight: '900' },
 
-    empty: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingTop: 80,
-    },
-    emptyTitle: { fontSize: 20, fontWeight: '800', color: '#334155', marginTop: 20 },
-    emptyText: { fontSize: 15, color: '#94a3b8', textAlign: 'center', marginTop: 8 },
+    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
+    emptyTitle: { fontSize: 20, fontWeight: '800', color: '#cbd5e1', marginTop: 12 },
+    emptyText: { fontSize: 15, color: '#94a3b8', marginTop: 4 },
 });
