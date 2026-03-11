@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './src/lib/supabaseAdmin';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 async function test() {
     console.log("Testing DB columns...");

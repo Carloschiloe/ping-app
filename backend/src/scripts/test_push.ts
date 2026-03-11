@@ -1,4 +1,4 @@
-import { NotificationService } from './src/services/notification.service';
+import { NotificationService } from '../services/notification.service';
 
 async function testPush() {
     const tokens = [

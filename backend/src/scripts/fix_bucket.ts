@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './src/lib/supabaseAdmin';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 async function fixBucket() {
     console.log('Checking bucket "chat-media"...');
@@ -9,7 +9,8 @@ async function fixBucket() {
         return;
     }
 
-    const exists = buckets.find(b => b.id === 'chat-media');
+    const files: any[] = buckets.map((b: any) => ({ name: b.name }));
+    const exists = buckets.find((b: any) => b.id === 'chat-media');
     if (!exists) {
         console.log('Creating "chat-media" bucket...');
         const { error: createErr } = await supabaseAdmin.storage.createBucket('chat-media', {

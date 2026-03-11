@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './src/lib/supabaseAdmin';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 async function checkPolicies() {
     const { data: policies, error } = await supabaseAdmin.rpc('get_policies');

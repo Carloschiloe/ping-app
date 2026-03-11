@@ -8,7 +8,7 @@ export const createCommitmentSchema = z.object({
         assignedToUserId: z.string().uuid().optional().nullable(),
         groupConversationId: z.string().uuid().optional().nullable(),
         isGroupTask: z.boolean().optional(),
-        meta: z.record(z.any()).optional().nullable(),
+        meta: z.record(z.string(), z.any()).optional().nullable(),
     })
 });
 
@@ -23,6 +23,6 @@ export const updateCommitmentSchema = z.object({
         assignedToUserId: z.string().uuid().optional().nullable(),
         rejectionReason: z.string().optional().nullable(),
         proposedDueAt: z.string().datetime().optional().nullable(),
-        meta: z.record(z.any()).optional().nullable(),
+        meta: z.record(z.string(), z.any()).optional().nullable(),
     })
 });
