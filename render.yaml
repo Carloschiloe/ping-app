@@ -4,6 +4,7 @@ services:
     runtime: node
     region: oregon
     plan: free
+    autoDeployTrigger: commit
     rootDir: backend
     buildCommand: npm install && npm run build
     startCommand: npm start
