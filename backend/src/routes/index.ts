@@ -98,3 +98,5 @@ router.post('/calendar/sync', requireAuth, calendarController.syncCommitment);
 
 // Agora
 router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);
+router.post('/agora/recording/start', requireAuth, agoraController.startRecording);
+router.post('/agora/recording/:callId/stop', requireAuth, agoraController.stopRecording);
