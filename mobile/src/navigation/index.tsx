@@ -1,9 +1,10 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
@@ -132,6 +133,14 @@ const MainTabs = () => (
     </Tab.Navigator>
 );
 
+export const navigationRef = createNavigationContainerRef();
+
+// Inner component to use hooks with navigation context
+const PushNotificationHandler = () => {
+    usePushNotifications(navigationRef);
+    return null;
+};
+
 export const AppNavigator = () => {
     const { session, initialized } = useAuth();
 
@@ -144,7 +153,8 @@ export const AppNavigator = () => {
     }
 
     return (
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
+            <PushNotificationHandler />
             <Stack.Navigator screenOptions={{ headerShown: false }}>
                 {session ? (
                     <Stack.Screen name="Main" component={MainTabs} />

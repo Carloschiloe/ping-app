@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import * as agoraService from '../services/agora.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { NotificationService } from '../services/notification.service';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -91,6 +92,86 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
 
     } catch (error: any) {
         console.error('[Agora Controller] stopRecording failed:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Notify call - called when a user starts a call.
+ * Sends push notifications to other participants & saves call record.
+ */
+export const notifyCall = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId, callType = 'voice' } = req.body;
+        const callerId = (req as any).user?.id;
+
+        if (!conversationId) {
+            res.status(400).json({ error: 'conversationId is required' });
+            return;
+        }
+
+        // 1. Get caller's profile
+        const { data: callerProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', callerId)
+            .single();
+
+        const callerName = callerProfile?.full_name || callerProfile?.email || 'Alguien';
+
+        // 2. Get other participants in the conversation
+        const { data: members } = await supabaseAdmin
+            .from('conversation_members')
+            .select('user_id')
+            .eq('conversation_id', conversationId)
+            .neq('user_id', callerId);
+
+        if (!members || members.length === 0) {
+            res.status(200).json({ ok: true, notified: 0 });
+            return;
+        }
+
+        const otherUserIds = members.map((m: any) => m.user_id);
+
+        // 3. Get their push tokens
+        const { data: tokenRows } = await supabaseAdmin
+            .from('push_tokens')
+            .select('token')
+            .in('user_id', otherUserIds);
+
+        const tokens = (tokenRows || []).map((r: any) => r.token).filter(Boolean);
+
+        // 4. Log the call
+        const { data: callRecord } = await supabaseAdmin.from('calls').insert({
+            conversation_id: conversationId,
+            status: 'started',
+            meta: { channelName: conversationId, callType, callerId }
+        }).select().single();
+
+        // 5. Send push notifications if tokens available
+        if (tokens.length > 0) {
+            const callIcon = callType === 'video' ? '📹' : '📞';
+            await NotificationService.sendPushNotifications(
+                tokens.map((token: string) => ({
+                    to: token,
+                    title: `${callIcon} Llamada entrante`,
+                    body: `${callerName} te está llamando`,
+                    sound: 'default',
+                    data: {
+                        type: 'incoming_call',
+                        conversationId,
+                        callType,
+                        callerName,
+                        callId: callRecord?.id,
+                    },
+                    priority: 'high',
+                }))
+            );
+        }
+
+        res.status(200).json({ ok: true, notified: tokens.length, callId: callRecord?.id });
+    } catch (error: any) {
+        console.error('[Agora Controller] notifyCall failed:', error);
         res.status(500).json({ error: error.message });
     }
 };

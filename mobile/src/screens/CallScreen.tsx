@@ -33,6 +33,13 @@ const CallScreen = ({ route, navigation }: any) => {
             const { token, appId } = await apiClient.get(`/agora/token/${conversationId}`);
             const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}`;
             setCallUrl(url);
+
+            // Notify other participants about the call
+            apiClient.post('/agora/call/notify', {
+                conversationId,
+                callType: isVideo ? 'video' : 'voice',
+            }).catch((e: any) => console.warn('[Call] notify failed:', e.message));
+
         } catch (error: any) {
             Alert.alert('Error', 'No se pudo obtener el token de llamada: ' + error.message);
             navigation.goBack();
@@ -40,6 +47,7 @@ const CallScreen = ({ route, navigation }: any) => {
             setLoading(false);
         }
     };
+
 
     const toggleMute = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

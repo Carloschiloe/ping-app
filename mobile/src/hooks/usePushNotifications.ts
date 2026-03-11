@@ -23,7 +23,7 @@ if (Platform.OS !== 'web') {
     }
 }
 
-export const usePushNotifications = () => {
+export const usePushNotifications = (navigationRef?: any) => {
     const { user } = useAuth();
     const [expoPushToken, setExpoPushToken] = useState<string | undefined>();
     const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
@@ -46,7 +46,20 @@ export const usePushNotifications = () => {
                 console.log('Notification received:', notification);
             });
             responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-                console.log('Notification tapped:', response);
+                const data = response.notification.request.content.data as any;
+                console.log('Notification tapped:', data);
+
+                // Handle incoming call: navigate to CallScreen
+                if (data?.type === 'incoming_call' && data?.conversationId) {
+                    const nav = navigationRef?.current || navigationRef;
+                    if (nav?.navigate) {
+                        nav.navigate('Call', {
+                            conversationId: data.conversationId,
+                            isVideo: data.callType === 'video',
+                            remoteUser: { full_name: data.callerName },
+                        });
+                    }
+                }
             });
         } catch (e) {
             // Expo Go partial support — safe to ignore
