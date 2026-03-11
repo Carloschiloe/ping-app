@@ -99,6 +99,7 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
 /**
  * Notify call - called when a user starts a call.
  * Sends push notifications to other participants & saves call record.
+ * Uses correct schema: conversation_participants table, profiles.expo_push_token
  */
 export const notifyCall = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -117,29 +118,48 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
             .eq('id', callerId)
             .single();
 
-        const callerName = callerProfile?.full_name || callerProfile?.email || 'Alguien';
+        const callerName = callerProfile?.full_name || callerProfile?.email?.split('@')[0] || 'Alguien';
 
-        // 2. Get other participants in the conversation
-        const { data: members } = await supabaseAdmin
-            .from('conversation_members')
+        // 2. Get other participants (correct table name)
+        const { data: members, error: membersError } = await supabaseAdmin
+            .from('conversation_participants')
             .select('user_id')
             .eq('conversation_id', conversationId)
             .neq('user_id', callerId);
 
+        if (membersError) {
+            console.error('[notifyCall] Error fetching participants:', membersError);
+        }
+
         if (!members || members.length === 0) {
+            // Still log the call even if no one to notify
+            await supabaseAdmin.from('calls').insert({
+                conversation_id: conversationId,
+                status: 'started',
+                meta: { channelName: conversationId, callType, callerId }
+            });
             res.status(200).json({ ok: true, notified: 0 });
             return;
         }
 
         const otherUserIds = members.map((m: any) => m.user_id);
 
-        // 3. Get their push tokens
-        const { data: tokenRows } = await supabaseAdmin
-            .from('push_tokens')
-            .select('token')
-            .in('user_id', otherUserIds);
+        // 3. Get push tokens from profiles (correct column: expo_push_token)
+        const { data: profileRows, error: profileErr } = await supabaseAdmin
+            .from('profiles')
+            .select('id, expo_push_token')
+            .in('id', otherUserIds)
+            .not('expo_push_token', 'is', null);
 
-        const tokens = (tokenRows || []).map((r: any) => r.token).filter(Boolean);
+        if (profileErr) {
+            console.error('[notifyCall] Error fetching push tokens:', profileErr);
+        }
+
+        const tokens = (profileRows || [])
+            .map((p: any) => p.expo_push_token)
+            .filter((t: string) => t && t.startsWith('ExponentPushToken'));
+
+        console.log(`[notifyCall] Found ${tokens.length} valid push tokens for ${otherUserIds.length} participants`);
 
         // 4. Log the call
         const { data: callRecord } = await supabaseAdmin.from('calls').insert({
@@ -148,25 +168,26 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
             meta: { channelName: conversationId, callType, callerId }
         }).select().single();
 
-        // 5. Send push notifications if tokens available
+        // 5. Send push notifications
         if (tokens.length > 0) {
             const callIcon = callType === 'video' ? '📹' : '📞';
-            await NotificationService.sendPushNotifications(
-                tokens.map((token: string) => ({
-                    to: token,
-                    title: `${callIcon} Llamada entrante`,
-                    body: `${callerName} te está llamando`,
-                    sound: 'default',
-                    data: {
-                        type: 'incoming_call',
-                        conversationId,
-                        callType,
-                        callerName,
-                        callId: callRecord?.id,
-                    },
-                    priority: 'high',
-                }))
-            );
+            const messages = tokens.map((token: string) => ({
+                to: token,
+                title: `${callIcon} Llamada entrante`,
+                body: `${callerName} te está llamando`,
+                sound: 'default',
+                priority: 'high',
+                data: {
+                    type: 'incoming_call',
+                    conversationId,
+                    callType,
+                    callerName,
+                    callId: callRecord?.id,
+                },
+            }));
+
+            const result = await NotificationService.sendPushNotifications(messages);
+            console.log('[notifyCall] Push result:', JSON.stringify(result));
         }
 
         res.status(200).json({ ok: true, notified: tokens.length, callId: callRecord?.id });
@@ -175,3 +196,4 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
         res.status(500).json({ error: error.message });
     }
 };
+
