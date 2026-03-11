@@ -3,11 +3,13 @@ import { z } from 'zod';
 export const createCommitmentSchema = z.object({
     body: z.object({
         title: z.string().min(3).max(255),
-        dueAt: z.string().datetime().optional().nullable(),
+        due_at: z.string().datetime().optional().nullable(),
         message_id: z.string().uuid().optional().nullable(),
-        assignedToUserId: z.string().uuid().optional().nullable(),
-        groupConversationId: z.string().uuid().optional().nullable(),
-        isGroupTask: z.boolean().optional(),
+        assigned_to_user_id: z.string().uuid().optional().nullable(),
+        group_conversation_id: z.string().uuid().optional().nullable(),
+        is_group_task: z.boolean().optional(),
+        priority: z.string().optional().nullable(),
+        status: z.string().optional().nullable(),
         meta: z.record(z.string(), z.any()).optional().nullable(),
     })
 });
@@ -18,11 +20,11 @@ export const updateCommitmentSchema = z.object({
     }),
     body: z.object({
         title: z.string().min(3).max(255).optional(),
-        dueAt: z.string().datetime().optional().nullable(),
-        status: z.enum(['pending', 'accepted', 'rejected', 'completed', 'postponed', 'proposed', 'counter_proposal']).optional(),
-        assignedToUserId: z.string().uuid().optional().nullable(),
-        rejectionReason: z.string().optional().nullable(),
-        proposedDueAt: z.string().datetime().optional().nullable(),
+        due_at: z.string().datetime().optional().nullable(),
+        status: z.string().optional().nullable(),
+        assigned_to_user_id: z.string().uuid().optional().nullable(),
+        rejection_reason: z.string().optional().nullable(),
+        proposed_due_at: z.string().datetime().optional().nullable(),
         meta: z.record(z.string(), z.any()).optional().nullable(),
     })
 });

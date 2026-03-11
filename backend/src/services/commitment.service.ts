@@ -29,6 +29,9 @@ export const createCommitment = async (userId: string, data: any) => {
         owner_user_id: userId,
     };
 
+    // Remove fields not present in DB
+    if ('priority' in payload) delete (payload as any).priority;
+
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')
         .insert(payload)
