@@ -51,12 +51,14 @@ export default function ChatInfoScreen() {
     const { data: messagesData } = useConversationMessages(conversationId);
 
     const mediaFiles = useMemo(() => {
-        if (!messagesData?.messages) return { images: [], docs: [], audios: [] };
+        if (!messagesData?.pages) return { images: [], docs: [], audios: [] };
         const images: any[] = [];
         const docs: any[] = [];
         const audios: any[] = [];
 
-        messagesData.messages.forEach((m: any) => {
+        const allMessages = messagesData.pages.flatMap((page: any) => page.messages || []);
+
+        allMessages.forEach((m: any) => {
             if (!m.text) return;
             if (m.text.startsWith('[imagen]') || m.text.startsWith('[video]')) images.push(m);
             else if (m.text.startsWith('[document=')) docs.push(m);

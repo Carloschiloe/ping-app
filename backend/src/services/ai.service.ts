@@ -244,3 +244,94 @@ Tono: cálido, honesto, motivador. Celebra los logros. Si hay pendientes, aníma
         return `📋 ¡Hola ${userName}! Esta semana: ✅ ${completedCount} completado(s), ⏳ ${pendingCount} pendiente(s). ¡Tú puedes la próxima semana! 🚀`;
     }
 };
+/**
+ * Phase 28: Analyzes if a message is actionable or requires follow-up.
+ */
+export const analyzeActionability = async (text: string): Promise<{ isActionable: boolean, reason: string }> => {
+    if (!process.env.OPENAI_API_KEY || !text || text.trim().length < 5) {
+        return { isActionable: false, reason: 'Texto muy corto o sin API key' };
+    }
+
+    const prompt = `Analiza si el siguiente mensaje de chat requiere una respuesta, acción o seguimiento por parte del receptor.
+Responde únicamente con un JSON: { "isActionable": boolean, "reason": "breve explicación en español" }
+
+Mensaje: "${text}"`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0,
+            max_tokens: 150,
+            response_format: { type: 'json_object' },
+        });
+
+        const parsed = JSON.parse(response.choices[0]?.message?.content || '{}');
+        return {
+            isActionable: !!parsed.isActionable,
+            reason: parsed.reason || ''
+        };
+    } catch (err) {
+        console.error('[AI] analyzeActionability failed:', err);
+        return { isActionable: false, reason: 'Error en la IA' };
+    }
+};
+/**
+ * Phase 28: Generates a high-level briefing for the user's insights tab.
+ */
+export const generateBriefing = async (
+    userId: string,
+    commitments: any[],
+    ghostedChats: any[]
+): Promise<{ title: string, summary: string, priority: any }> => {
+    if (!process.env.OPENAI_API_KEY) {
+        return {
+            title: "Tu Resumen Inteligente",
+            summary: "No tengo acceso a la IA para generar un resumen personalizado.",
+            priority: commitments[0] || null
+        };
+    }
+
+    const commitmentsText = commitments.length > 0
+        ? commitments.slice(0, 5).map(c => `- ${c.title} (${c.status})`).join('\n')
+        : 'Sin tareas pendientes próximamente.';
+
+    const ghostedText = ghostedChats.length > 0
+        ? ghostedChats.slice(0, 3).map(g => `- Chat con ${g.name} (${g.hours}h sin respuesta)`).join('\n')
+        : 'Sin conversaciones estancadas.';
+
+    const prompt = `Como asistente Ping, genera un resumen ejecutivo MUY BREVE (máx 3 frases) para el usuario.
+Contexto:
+COMPROMISOS:
+${commitmentsText}
+
+CHATS PENDIENTES:
+${ghostedText}
+
+Regla: Sé motivador y directo. Si hay algo urgente, menciónalo primero. Español chileno cálido. No uses Markdown complejo.
+Responde con un JSON: { "summary": "texto del resumen" }`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 200,
+            response_format: { type: 'json_object' },
+        });
+
+        const parsed = JSON.parse(response.choices[0]?.message?.content || '{}');
+        return {
+            title: "Tu Resumen Inteligente",
+            summary: parsed.summary || "¡Hola! Revisa tus pendientes para hoy.",
+            priority: commitments[0] || null
+        };
+    } catch (err) {
+        console.error('[AI] generateBriefing failed:', err);
+        return {
+            title: "Tu Resumen Inteligente",
+            summary: "Hubo un pequeño error al generar tu resumen, pero tus datos están aquí.",
+            priority: commitments[0] || null
+        };
+    }
+};

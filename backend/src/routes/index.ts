@@ -13,6 +13,8 @@ import * as calendarController from '../controllers/calendar.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
+import * as commitmentSchema from '../schemas/commitment.schema';
+import * as messageSchema from '../schemas/message.schema';
 
 export const router = Router();
 
@@ -42,10 +44,11 @@ router.post('/conversations', requireAuth, conversationController.createOrFind);
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
-router.post('/conversations/:id/messages', requireAuth, conversationController.sendMessage);
+router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);
+router.post('/conversations/:id/ping', requireAuth, conversationController.pingConversation);
 
 // Groups
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
@@ -60,11 +63,11 @@ router.patch('/messages/:id/status', requireAuth, messageController.updateMessag
 
 // Commitments
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
-router.post('/commitments', requireAuth, commitmentController.createCommitment);
+router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
 router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
 router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
 router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
-router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
+router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
 

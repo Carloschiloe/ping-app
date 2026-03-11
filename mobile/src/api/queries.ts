@@ -41,7 +41,7 @@ export function useInsights() {
     return useQuery({
         queryKey: ['insights'],
         queryFn: async () => {
-            const { data } = await apiClient.get('/insights');
+            const data = await apiClient.get('/insights');
             return data;
         },
         refetchOnWindowFocus: true,
@@ -75,20 +75,6 @@ export const useConversations = () => {
         const channel = supabase
             .channel('conversations-list')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
-                const newMsg = payload.new as any;
-                // If we receive a message from someone else and it's just 'sent', mark it 'delivered'
-                if (newMsg && newMsg.status === 'sent') {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    const currentUserId = session?.user?.id;
-                    const isMe = currentUserId && (newMsg.sender_id === currentUserId || newMsg.user_id === currentUserId);
-                    if (!isMe && !newMsg.meta?.isSystem) {
-                        // Use a background call without await to avoid blocking the realtime thread
-                        setTimeout(() => {
-                            apiClient.patch(`/messages/${newMsg.id}/status`, { status: 'delivered' })
-                                .catch(() => { /* Silently fail background updates */ });
-                        }, 500); // Small delay to let DB settle
-                    }
-                }
                 // Debounce invalidation slightly to avoid spamming if multiple messages arrive
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
@@ -127,10 +113,10 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
 
                         // Look for an optimistic message that matches this new one
                         // Match criteria: temporary ID, same sender, and same text
-                        const isMe = newMsg.sender_id === user?.id || newMsg.user_id === user?.id;
+                        const isMe = newMsg.sender_id === user?.id;
                         const optimisticMatch = allMessages.find((m: any) =>
                             m.id.startsWith('temp-') &&
-                            (m.sender_id === newMsg.sender_id || m.user_id === newMsg.user_id) &&
+                            m.sender_id === newMsg.sender_id &&
                             m.text === newMsg.text
                         );
 
@@ -226,10 +212,10 @@ export const useSendConversationMessage = (conversationId: string) => {
     const { user } = useAuth();
 
     return useMutation({
-        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string }) => {
+        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string; meta?: any }) => {
             return apiClient.post(`/conversations/${conversationId}/messages`, data);
         },
-        onMutate: async (newMessage) => {
+        onMutate: async (data) => {
             // Cancel any outgoing refetches
             await queryClient.cancelQueries({ queryKey: ['conversation-messages', conversationId] });
 
@@ -242,10 +228,11 @@ export const useSendConversationMessage = (conversationId: string) => {
                     id: `temp-${Date.now()}`,
                     conversation_id: conversationId,
                     sender_id: user?.id,
-                    user_id: user?.id,
-                    text: newMessage.text,
+                    text: data.text,
                     created_at: new Date().toISOString(),
-                    status: 'sending',
+                    status: 'sending', // Local UI status
+                    meta: data.meta || {},
+                    reply_to_id: data.reply_to_id,
                     profiles: {
                         id: user?.id,
                         full_name: user?.user_metadata?.full_name,
@@ -298,6 +285,12 @@ export const useMarkConversationAsRead = (conversationId: string) => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
         }
+    });
+};
+
+export const usePingConversation = () => {
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/conversations/${id}/ping`, {}),
     });
 };
 

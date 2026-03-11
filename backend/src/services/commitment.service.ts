@@ -16,22 +16,31 @@ const SELECT_WITH_ASSIGNEE = `
         full_name,
         avatar_url,
         email
-    ),
-    message:messages!message_id(id, conversation_id)
+    )
 `;
 
 export const createCommitment = async (userId: string, data: any) => {
+    console.log('[createCommitment] Starting insert for user:', userId, 'data:', JSON.stringify(data));
+
+    // Ensure status default if not provided
+    const payload = {
+        status: 'proposed',
+        ...data,
+        owner_user_id: userId,
+    };
+
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')
-        .insert({
-            ...data,
-            owner_user_id: userId,
-            status: 'proposed' // Always start as proposed for negotiation
-        })
-        .select(SELECT_WITH_ASSIGNEE)
+        .insert(payload)
+        .select()
         .single();
 
-    if (error) throw error;
+    if (error) {
+        console.error('[createCommitment] DB Error:', JSON.stringify(error));
+        throw error;
+    }
+
+    console.log('[createCommitment] Success:', commitment.id);
     return commitment;
 };
 

@@ -1,22 +1,24 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { differenceInHours } from 'date-fns';
+import * as aiService from '../services/ai.service';
+
 
 export const getInsights = async (req: Request, res: Response): Promise<void> => {
     try {
-        const userId = req.user?.id;
+        const userId = (req as any).user?.id;
         if (!userId) {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
 
-        // 1. Get Pending Commitments for the next 48h
+        // 1. Get Pending/Proposed/Accepted Commitments for the next 48h
         const { data: commitments } = await supabaseAdmin
             .from('commitments')
             .select('*')
             .eq('owner_user_id', userId)
-            .eq('status', 'pending')
-            .order('due_date', { ascending: true });
+            .in('status', ['pending', 'proposed', 'accepted', 'counter_proposal'])
+            .order('due_at', { ascending: true });
 
         // 2. Detect "Ghosted" Chats (User sent last message > 24h ago and no reply)
         const { data: participations } = await supabaseAdmin
@@ -34,38 +36,51 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
                 is_group,
                 last_message_at,
                 last_message_text,
-                last_message:messages!conversations_last_message_id_fkey(
-                    sender_id,
-                    created_at,
-                    profiles:sender_id(full_name, avatar_url)
-                )
+                last_message_id
             `)
             .in('id', convIds)
             .not('last_message_id', 'is', null);
 
-        const ghostedChats = (lastMessages || []).filter((c: any) => {
-            if (!c.last_message) return false;
-            const isMe = c.last_message.sender_id === userId;
-            const hoursSince = differenceInHours(new Date(), new Date(c.last_message_at));
-            return isMe && hoursSince >= 24 && hoursSince < 168; // Between 1 day and 1 week
-        }).map((c: any) => ({
-            id: c.id,
-            name: c.name || c.last_message.profiles?.full_name || 'Alguien',
-            last_msg_at: c.last_message_at,
-            hours: differenceInHours(new Date(), new Date(c.last_message_at))
-        }));
+        // Fetch sender info and TEXT for last messages
+        const lastMsgIds = (lastMessages || []).map(m => m.last_message_id);
+        const { data: msgDetails } = await supabaseAdmin
+            .from('messages')
+            .select('id, sender_id, text, profiles:sender_id(full_name)')
+            .in('id', lastMsgIds);
 
-        // 3. Generate a Rule-Based Briefing (Faster than GPT for every hit, but we can iterate)
-        const briefing = {
-            title: "Tu Resumen Inteligente",
-            summary: commitments?.length
-                ? `Hoy tienes ${commitments.length} tareas pendientes. ${ghostedChats.length > 0 ? `Además, hay ${ghostedChats.length} personas que aún no te responden.` : ''}`
-                : "No tienes tareas críticas para hoy. ¡Es un buen momento para ponerte al día con tus mensajes!",
-            priority: commitments?.[0] || null
-        };
+        const candidates = (lastMessages || []).filter((c: any) => {
+            const msgInfo = (msgDetails || []).find(s => s.id === c.last_message_id);
+            if (!msgInfo) return false;
+            const isMe = msgInfo.sender_id === userId;
+            const hoursSince = differenceInHours(new Date(), new Date(c.last_message_at));
+            return isMe && hoursSince >= 24 && hoursSince <= 600;
+        }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()).slice(0, 5);
+
+        const ghostedChats = (await Promise.all(candidates.map(async (c: any) => {
+            const msgInfo = (msgDetails || []).find(s => s.id === c.last_message_id);
+            const textToTest = c.last_message_text || msgInfo?.text || '';
+
+            const { isActionable: aiActionable, reason } = await aiService.analyzeActionability(textToTest);
+            if (!aiActionable) return null;
+
+            const profilesData = msgInfo?.profiles;
+            const profile = Array.isArray(profilesData) ? profilesData[0] : profilesData;
+
+            return {
+                id: c.id,
+                name: c.name || profile?.full_name || 'Alguien',
+                last_msg_at: c.last_message_at,
+                last_msg_text: textToTest,
+                hours: differenceInHours(new Date(), new Date(c.last_message_at)),
+                reason
+            };
+        }))).filter(Boolean);
+
+        // 3. Generate an AI-powered Briefing
+        const briefingData = await aiService.generateBriefing(userId, commitments || [], ghostedChats as any[]);
 
         res.status(200).json({
-            briefing,
+            briefing: briefingData,
             commitments: commitments || [],
             ghostedChats
         });

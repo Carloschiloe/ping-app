@@ -241,7 +241,7 @@ export default function ChatScreen({ navigation }: any) {
         // Check if there are any unread messages from the OTHER person
         const hasUnread = messages.some((msg: any) => {
             const isSystem = msg.meta?.isSystem;
-            const isMe = (msg.sender_id || msg.user_id) === user.id;
+            const isMe = msg.sender_id === user.id;
             return !isMe && !isSystem && msg.status !== 'read';
         });
 
@@ -456,7 +456,7 @@ export default function ChatScreen({ navigation }: any) {
         if (id) setTimeout(() => setMultiSelect([id]), 200);
     };
 
-    const isMyMessage = selectedMsg && (selectedMsg.sender_id || selectedMsg.user_id) === user?.id;
+    const isMyMessage = selectedMsg && selectedMsg.sender_id === user?.id;
     const isTextMsg = selectedMsg && !selectedMsg.text?.match(/^\[(imagen|audio|video)\]/);
 
     // ─── Multi-select delete ─────────────────────────────────────────────────────
@@ -891,7 +891,7 @@ export default function ChatScreen({ navigation }: any) {
                     <View style={styles.replyPreviewBar}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.replyPreviewName}>
-                                {replyingToMsg.profiles?.email?.split('@')[0] || (replyingToMsg.user_id === user?.id ? 'Tú' : 'Alguien')}
+                                {replyingToMsg.profiles?.email?.split('@')[0] || (replyingToMsg.sender_id === user?.id ? 'Tú' : 'Alguien')}
                             </Text>
                             <Text style={styles.replyPreviewText} numberOfLines={1}>
                                 {(() => {

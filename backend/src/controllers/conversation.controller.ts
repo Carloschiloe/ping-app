@@ -169,7 +169,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         if (unreadErr) throw unreadErr;
 
         const unreadCounts = unreadCountsData.reduce((acc: Record<string, number>, msg) => {
-            const isMe = msg.sender_id === userId || msg.user_id === userId;
+            const isMe = msg.sender_id === userId;
             const isSystem = msg.meta && msg.meta.isSystem;
             if (!isMe && !isSystem) {
                 acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
@@ -472,6 +472,53 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
             .neq('status', 'read');
 
         if (updateErr) throw updateErr;
+
+        res.json({ success: true });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const pingConversation = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+
+        // 1. Get recipients (all participants except sender)
+        const { data: recipients } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('user_id, profiles!inner(full_name, expo_push_token)')
+            .eq('conversation_id', conversationId)
+            .neq('user_id', userId);
+
+        if (!recipients || recipients.length === 0) {
+            res.status(404).json({ error: 'No recipients found' });
+            return;
+        }
+
+        // 2. Get sender name
+        const { data: sender } = await supabaseAdmin
+            .from('profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .single();
+
+        const senderName = sender?.full_name || 'Alguien';
+
+        // 3. Send notifications
+        const tokens = recipients
+            .map((r: any) => r.profiles?.expo_push_token)
+            .filter((t: string | null) => !!t);
+
+        if (tokens.length > 0) {
+            await NotificationService.sendPushNotifications({
+                to: tokens,
+                title: '🚨 ¿Sigues ahí?',
+                body: `${senderName} te está esperando.`,
+                data: { conversationId },
+                sound: 'default'
+            });
+        }
 
         res.json({ success: true });
     } catch (error: any) {

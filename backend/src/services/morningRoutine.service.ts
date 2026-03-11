@@ -81,10 +81,10 @@ async function runMorningRoutine() {
 
             // Inject into personal self-messages (conversation_id null = Mis Recordatorios)
             await supabaseAdmin.from('messages').insert({
+                sender_id: null,
                 user_id: userId,
                 text: aiMessage,
                 conversation_id: null,
-                sender_id: null, // System/Ping message
                 status: 'sent',
                 meta: { is_morning_summary: true }
             });
@@ -147,7 +147,7 @@ async function runWeeklyReview() {
         try {
             const aiMessage = await generateWeeklyReview(data.name, data.completed, data.pending.length, data.pending);
             await supabaseAdmin.from('messages').insert({
-                user_id: userId, text: aiMessage, conversation_id: null, sender_id: null, status: 'sent',
+                sender_id: null, user_id: userId, text: aiMessage, conversation_id: null, status: 'sent',
                 meta: { is_weekly_review: true }
             });
             if (data.pushToken) {

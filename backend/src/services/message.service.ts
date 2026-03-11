@@ -27,7 +27,7 @@ export const processUserMessage = async (userId: string, text: string, conversat
     let meta: any = {};
     let imageUrl: string | undefined;
 
-    // 1. Handle Multimedia (Audio/Image)
+    // 1. Handle Multimedia (Audio/Image/Video/Document)
     if (text.startsWith('[audio]')) {
         const audioUrl = text.slice(7);
         try {
@@ -47,18 +47,31 @@ export const processUserMessage = async (userId: string, text: string, conversat
         imageUrl = parts[0].slice(8);
         const description = parts.slice(1).join(' ');
         processingText = description;
+    } else if (text.startsWith('[video]')) {
+        const parts = text.split(' ');
+        imageUrl = parts[0].slice(7); // Use imageUrl even for video to provide context to AI (GPT-4o can handle it or we use it as key)
+        const description = parts.slice(1).join(' ');
+        processingText = description;
+    } else if (text.startsWith('[document=')) {
+        const match = text.match(/^\[document=([^\]]+)\]([^\s]+)(.*)$/);
+        if (match) {
+            const docName = match[1];
+            const docUrl = match[2];
+            const description = (match[3] || '').trim();
+            processingText = description || `Documento: ${docName}`;
+        }
     }
 
     // 2. Insert message immediately
     const { data: message, error: messageError } = await supabaseAdmin
         .from('messages')
         .insert({
-            user_id: userId,
             sender_id: userId,
             ...(conversationId ? { conversation_id: conversationId } : {}),
             ...(replyToId ? { reply_to_id: replyToId } : {}),
             text,
             meta,
+            user_id: userId, // Keep user_id for now to avoid breaking DB constraints until dropped
         })
         .select()
         .single();
@@ -172,7 +185,7 @@ export const getMessages = async (userId: string, limit = 50, offset = 0) => {
     const { data, error, count } = await supabaseAdmin
         .from('messages')
         .select('*', { count: 'exact' })
-        .eq('user_id', userId)
+        .eq('sender_id', userId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -185,8 +198,8 @@ export const insertSystemMessage = async (conversationId: string, text: string, 
         .from('messages')
         .insert({
             conversation_id: conversationId,
-            user_id: userId || null, // If null, it will fail if not nullable, but we'll try to provide it
             sender_id: userId || null,
+            user_id: userId || null, // Keep for now
             text,
             meta: { isSystem: true },
             status: 'sent'

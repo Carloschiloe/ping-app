@@ -272,7 +272,7 @@ export default function ConversationsScreen({ navigation }: any) {
         const groupMeta = item.groupMetadata;
         const lastMsg = item.lastMessage;
         const isSystem = lastMsg?.meta?.isSystem;
-        const isByMe = lastMsg && (lastMsg.sender_id === user?.id || lastMsg.user_id === user?.id);
+        const isByMe = lastMsg && lastMsg.sender_id === user?.id;
         const unreadCount = item.unreadCount || 0;
         const isUnread = unreadCount > 0;
         const typers = typingUsers[item.id] || [];

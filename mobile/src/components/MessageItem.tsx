@@ -46,7 +46,7 @@ const MessageItem = ({
     }
 
     const isSystem = item.meta?.isSystem;
-    const isMe = (item.sender_id || item.user_id) === user?.id && !isSystem;
+    const isMe = item.sender_id === user?.id && !isSystem;
     const time = formatTime(item.created_at);
     const msgText: string = item.text || '';
 
