@@ -9,9 +9,18 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Ping necesita acceso a tu cámara para las videollamadas.",
+        "NSMicrophoneUsageDescription": "Ping necesita acceso a tu micrófono para las llamadas."
+      }
     },
     "android": {
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -45,7 +54,14 @@
         }
       ],
       "expo-secure-store",
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ping necesita acceso a tu cámara para las videollamadas.",
+          "microphonePermission": "Ping necesita acceso a tu micrófono para las llamadas."
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": false

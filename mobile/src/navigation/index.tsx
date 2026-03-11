@@ -17,6 +17,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import PingAIScreen from '../screens/PingAIScreen';
 import QuickCaptureScreen from '../screens/QuickCaptureScreen';
 import TaskDashboardScreen from '../screens/TaskDashboardScreen';
+import CallScreen from '../screens/CallScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -86,6 +87,11 @@ const ConversationsStack = () => (
             name="QuickCapture"
             component={QuickCaptureScreen}
             options={{ headerShown: false, presentation: 'modal' }}
+        />
+        <Stack.Screen
+            name="Call"
+            component={CallScreen}
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
         />
     </Stack.Navigator>
 );

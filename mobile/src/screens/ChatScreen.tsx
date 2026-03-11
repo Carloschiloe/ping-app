@@ -367,6 +367,12 @@ export default function ChatScreen({ navigation }: any) {
                             )}
                         </TouchableOpacity>
                     )}
+                    <TouchableOpacity onPress={() => handleVoiceCall()}>
+                        <Ionicons name="call" size={22} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleVideoCall()}>
+                        <Ionicons name="videocam" size={24} color="white" />
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { conversationId, isGroup, groupMetadata, otherUser, isSelf })}>
                         <Ionicons name="ellipsis-vertical" size={24} color="white" />
                     </TouchableOpacity>
@@ -374,6 +380,16 @@ export default function ChatScreen({ navigation }: any) {
             ),
         });
     }, [navigation, chatTitle, avatarUrl, isGroup, isSummarizing]);
+
+    const handleVoiceCall = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        navigation.navigate('Call', { conversationId, isVideo: false, remoteUser: otherUser });
+    };
+
+    const handleVideoCall = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        navigation.navigate('Call', { conversationId, isVideo: true, remoteUser: otherUser });
+    };
 
     const handleSummarize = async () => {
         setIsSummarizing(true);

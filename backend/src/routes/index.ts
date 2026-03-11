@@ -10,6 +10,7 @@ import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
 import * as insightsController from '../controllers/insights.controller';
 import * as calendarController from '../controllers/calendar.controller';
+import * as agoraController from '../controllers/agora.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
@@ -94,3 +95,6 @@ router.get('/calendar/accounts', requireAuth, calendarController.listAccounts);
 router.patch('/calendar/accounts/:id', requireAuth, calendarController.updateAccount);
 router.delete('/calendar/accounts/:id', requireAuth, calendarController.disconnectAccount);
 router.post('/calendar/sync', requireAuth, calendarController.syncCommitment);
+
+// Agora
+router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);

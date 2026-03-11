@@ -18,6 +18,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
     "@types/node-cron": "^3.0.11",
+    "agora-access-token": "^2.0.4",
+    "agora-token": "^2.0.5",
     "axios": "^1.13.6",
     "chrono-node": "^2.9.0",
     "cors": "^2.8.6",
