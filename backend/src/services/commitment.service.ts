@@ -22,15 +22,18 @@ const SELECT_WITH_ASSIGNEE = `
 export const createCommitment = async (userId: string, data: any) => {
     console.log('[createCommitment] Starting insert for user:', userId, 'data:', JSON.stringify(data));
 
-    // Ensure status default if not provided
-    const payload = {
+    const payload: any = {
         status: 'proposed',
-        ...data,
         owner_user_id: userId,
     };
 
-    // Remove fields not present in DB
-    if ('priority' in payload) delete (payload as any).priority;
+    // Explicitly copy allowed fields to avoid extra fields like 'priority'
+    const allowedFields = ['title', 'due_at', 'status', 'assigned_to_user_id', 'group_conversation_id', 'is_group_task', 'meta', 'message_id'];
+    allowedFields.forEach(field => {
+        if (data[field] !== undefined) payload[field] = data[field];
+    });
+
+    console.log('[createCommitment] Final Payload:', JSON.stringify(payload));
 
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')

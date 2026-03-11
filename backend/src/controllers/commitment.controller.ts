@@ -12,11 +12,14 @@ export const createCommitment = async (req: Request, res: Response): Promise<voi
         const commitmentData = req.body;
 
         const data = await commitmentService.createCommitment(userId, commitmentData);
-        // Note: No auto-sync here. Sync happens on 'accept'.
-
         res.status(201).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[createCommitment Controller Error]:', error);
+        res.status(500).json({
+            error: error.message || 'Internal Server Error',
+            details: error.details || error,
+            payload: req.body
+        });
     }
 };
 
