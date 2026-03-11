@@ -46,6 +46,24 @@ export default function InsightsScreen() {
         });
     };
 
+    const handleProactiveAction = async (sug: any) => {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        switch (sug.type) {
+            case 'OPEN_CHAT':
+                navigation.navigate('Chats', { screen: 'Chat', params: { conversationId: sug.payload.id } });
+                break;
+            case 'COMPLETE_TASK':
+                // Using existing navigate to board for now, or we could call the mutation directly
+                navigation.navigate('Tablero');
+                break;
+            case 'CREATE_NOTE':
+                setIsCaptureModalVisible(true);
+                break;
+            default:
+                Alert.alert('Acción', `Próximamente: ${sug.label}`);
+        }
+    };
+
     const handlePing = async (convId: string) => {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         pingConv(convId, {
@@ -107,13 +125,33 @@ export default function InsightsScreen() {
                     </View>
                     <Text style={styles.briefingText}>{briefing.summary}</Text>
 
-                    {briefing.priority && (
+                    {/* Proactive Suggestions */}
+                    {briefing.suggestions && briefing.suggestions.length > 0 && (
+                        <View style={styles.suggestionRow}>
+                            {briefing.suggestions.map((sug: any) => (
+                                <TouchableOpacity
+                                    key={sug.id}
+                                    style={styles.suggestionChip}
+                                    onPress={() => handleProactiveAction(sug)}
+                                >
+                                    <Ionicons
+                                        name={sug.type === 'OPEN_CHAT' ? 'chatbubble' : sug.type === 'COMPLETE_TASK' ? 'checkmark-circle' : 'flash'}
+                                        size={14}
+                                        color="#60a5fa"
+                                    />
+                                    <Text style={styles.suggestionChipText}>{sug.label}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+
+                    {briefing.priority_commitment && (
                         <TouchableOpacity
                             style={styles.priorityCard}
                             onPress={() => navigation.navigate('Tablero')}
                         >
                             <Text style={styles.priorityLabel}>PRIORIDAD HOY</Text>
-                            <Text style={styles.priorityText} numberOfLines={1}>{briefing.priority.title}</Text>
+                            <Text style={styles.priorityText} numberOfLines={1}>{briefing.priority_commitment.title}</Text>
                         </TouchableOpacity>
                     )}
                 </LinearGradient>
@@ -253,13 +291,13 @@ const styles = StyleSheet.create({
     title: { fontSize: 34, fontWeight: '900', color: '#0f172a', letterSpacing: -1 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-    briefingCard: { borderRadius: 24, padding: 24, marginBottom: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10 },
-    briefingHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-    briefingTitle: { color: '#60a5fa', fontWeight: '800', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 },
-    briefingText: { color: 'white', fontSize: 18, fontWeight: '600', lineHeight: 26 },
-    priorityCard: { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12, padding: 12, marginTop: 20 },
-    priorityLabel: { color: '#94a3b8', fontSize: 10, fontWeight: '800', marginBottom: 4 },
-    priorityText: { color: 'white', fontSize: 14, fontWeight: '700' },
+    briefingCard: { borderRadius: 24, padding: 24, marginBottom: 32, shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 12 },
+    briefingHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    briefingTitle: { color: 'white', fontWeight: '800', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1.5, marginLeft: 8 },
+    briefingText: { color: 'rgba(255,255,255,0.95)', fontSize: 18, fontWeight: '700', lineHeight: 26 },
+    priorityCard: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, padding: 16, marginTop: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    priorityLabel: { color: '#93c5fd', fontSize: 10, fontWeight: '900', marginBottom: 4, letterSpacing: 1 },
+    priorityText: { color: 'white', fontSize: 15, fontWeight: '700' },
 
     section: { marginBottom: 32 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -303,6 +341,30 @@ const styles = StyleSheet.create({
     modalInput: { backgroundColor: '#f8fafc', borderRadius: 20, padding: 20, fontSize: 16, color: '#1e293b', minHeight: 120, textAlignVertical: 'top', borderWidth: 1, borderColor: '#f1f5f9', marginBottom: 24 },
     saveBtn: { backgroundColor: '#3b82f6', height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 15, elevation: 8 },
     saveBtnText: { color: 'white', fontSize: 16, fontWeight: '800' },
+    // Proactive Suggestions
+    suggestionRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    suggestionChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.15)',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+    },
+    suggestionChipText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: '700',
+    },
     // Error & Loading States
     loadingText: { marginTop: 16, fontSize: 14, color: '#64748b', fontWeight: '600' },
     errorTitle: { fontSize: 20, fontWeight: '800', color: '#1e293b', marginTop: 16 },

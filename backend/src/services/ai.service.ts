@@ -277,46 +277,58 @@ Mensaje: "${text}"`;
     }
 };
 /**
- * Phase 28: Generates a high-level briefing for the user's insights tab.
+ * Phase 28: Generates a high-level briefing with proactive actions.
  */
 export const generateBriefing = async (
     userId: string,
     commitments: any[],
     ghostedChats: any[]
-): Promise<{ title: string, summary: string, priority: any }> => {
+): Promise<{ title: string, summary: string, priority_commitment: any, suggestions: any[] }> => {
     if (!process.env.OPENAI_API_KEY) {
         return {
             title: "Tu Resumen Inteligente",
             summary: "No tengo acceso a la IA para generar un resumen personalizado.",
-            priority: commitments[0] || null
+            priority_commitment: commitments[0] || null,
+            suggestions: []
         };
     }
 
     const commitmentsText = commitments.length > 0
-        ? commitments.slice(0, 5).map(c => `- ${c.title} (${c.status})`).join('\n')
+        ? commitments.slice(0, 5).map(c => `- [ID:${c.id}] ${c.title} (${c.status})`).join('\n')
         : 'Sin tareas pendientes próximamente.';
 
     const ghostedText = ghostedChats.length > 0
-        ? ghostedChats.slice(0, 3).map(g => `- Chat con ${g.name} (${g.hours}h sin respuesta)`).join('\n')
+        ? ghostedChats.slice(0, 3).map(g => `- [CHAT_ID:${g.id}] Chat con ${g.name} (${g.hours}h sin respuesta)`).join('\n')
         : 'Sin conversaciones estancadas.';
 
-    const prompt = `Como asistente Ping, genera un resumen ejecutivo MUY BREVE (máx 3 frases) para el usuario.
-Contexto:
+    const prompt = `Eres Ping, un asistente de productividad nivel mundial. Genera un resumen ejecutivo de 2-3 frases y sugiere 2 acciones proactivas.
+
+Contexto del Usuario:
 COMPROMISOS:
 ${commitmentsText}
 
-CHATS PENDIENTES:
+CONVERSACIONES EN ESPERA (Ghosted):
 ${ghostedText}
 
-Regla: Sé motivador y directo. Si hay algo urgente, menciónalo primero. Español chileno cálido. No uses Markdown complejo.
-Responde con un JSON: { "summary": "texto del resumen" }`;
+Instrucciones:
+1. El "summary" debe ser motivador, directo y en español chileno cálido.
+2. Genera 2 "suggestions" (objetos) con:
+   - label: Texto corto del botón (ej: "Llamar a Carlos", "Terminar Reporte").
+   - type: Uno de ["OPEN_CHAT", "COMPLETE_TASK", "CREATE_NOTE"].
+   - payload: { id: "el ID o CHAT_ID correspondiente" }.
+
+Responde SOLO en JSON:
+{
+  "summary": "...",
+  "suggestions": [ { "label": "...", "type": "...", "payload": { "id": "..." } } ]
+}`;
 
     try {
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.7,
-            max_tokens: 200,
+            max_tokens: 400,
             response_format: { type: 'json_object' },
         });
 
@@ -324,14 +336,19 @@ Responde con un JSON: { "summary": "texto del resumen" }`;
         return {
             title: "Tu Resumen Inteligente",
             summary: parsed.summary || "¡Hola! Revisa tus pendientes para hoy.",
-            priority: commitments[0] || null
+            priority_commitment: commitments[0] || null,
+            suggestions: (parsed.suggestions || []).map((s: any, idx: number) => ({
+                id: `sug-${idx}`,
+                ...s
+            }))
         };
     } catch (err) {
         console.error('[AI] generateBriefing failed:', err);
         return {
             title: "Tu Resumen Inteligente",
             summary: "Hubo un pequeño error al generar tu resumen, pero tus datos están aquí.",
-            priority: commitments[0] || null
+            priority_commitment: commitments[0] || null,
+            suggestions: []
         };
     }
 };
