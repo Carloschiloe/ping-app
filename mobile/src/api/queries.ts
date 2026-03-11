@@ -37,6 +37,17 @@ export const useAskPing = () => {
     });
 };
 
+export function useInsights() {
+    return useQuery({
+        queryKey: ['insights'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/insights');
+            return data;
+        },
+        refetchOnWindowFocus: true,
+    });
+}
+
 export const useAIHistory = () => {
     return useQuery({
         queryKey: ['ai-history'],
@@ -296,7 +307,7 @@ export const useToggleArchive = () => {
         mutationFn: async (id: string) => apiClient.patch(`/conversations/${id}/archive`, {}),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
-        }
+        },
     });
 };
 

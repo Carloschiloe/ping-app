@@ -8,6 +8,7 @@ import * as conversationController from '../controllers/conversation.controller'
 import * as userController from '../controllers/user.controller';
 import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
+import * as insightsController from '../controllers/insights.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
@@ -77,6 +78,9 @@ router.get('/ai/history', requireAuth, aiController.getHistory);
 router.delete('/ai/history', requireAuth, aiController.clearHistory);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
 router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage);
+
+// Insights
+router.get('/insights', requireAuth, insightsController.getInsights);
 
 // Cloud Calendar OAuth & Sync
 router.get('/calendar/auth/google', requireAuth, calendarController.getGoogleAuth);

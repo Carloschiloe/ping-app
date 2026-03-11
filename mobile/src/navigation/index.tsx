@@ -12,8 +12,7 @@ import NewChatScreen from '../screens/NewChatScreen';
 import NewGroupScreen from '../screens/NewGroupScreen';
 import ChatInfoScreen from '../screens/ChatInfoScreen';
 import AddParticipantsScreen from '../screens/AddParticipantsScreen';
-import HoyScreen from '../screens/HoyScreen';
-import SearchScreen from '../screens/SearchScreen';
+import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PingAIScreen from '../screens/PingAIScreen';
 import QuickCaptureScreen from '../screens/QuickCaptureScreen';
@@ -111,8 +110,8 @@ const MainTabs = () => (
                     iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
                 } else if (route.name === 'Tablero') {
                     iconName = focused ? 'layers' : 'layers-outline';
-                } else if (route.name === 'Search') {
-                    iconName = focused ? 'search' : 'search-outline';
+                } else if (route.name === 'Insights') {
+                    iconName = focused ? 'sparkles' : 'sparkles-outline';
                 } else if (route.name === 'Perfil') {
                     iconName = focused ? 'person-circle' : 'person-circle-outline';
                 }
@@ -122,7 +121,7 @@ const MainTabs = () => (
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Tablero" component={TaskDashboardScreen} options={{ title: 'Tablero' }} />
-        <Tab.Screen name="Search" component={SearchScreen} options={{ title: 'Buscar' }} />
+        <Tab.Screen name="Insights" component={InsightsScreen} options={{ title: 'Insights' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
 );

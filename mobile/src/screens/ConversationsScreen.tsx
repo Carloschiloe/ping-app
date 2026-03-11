@@ -4,12 +4,15 @@ import {
     ActivityIndicator, StatusBar, Platform, Image, ScrollView, TextInput, Animated, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive } from '../api/queries';
+import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive, useCreateConversation } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import { useQuery } from '@tanstack/react-query';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -31,6 +34,25 @@ function avatarColor(str: string) {
     return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
+    if (!highlight.trim()) {
+        return <Text style={style} numberOfLines={numberOfLines}>{text}</Text>;
+    }
+    const regex = new RegExp(`(${highlight})`, 'gi');
+    const parts = text.split(regex);
+    return (
+        <Text style={style} numberOfLines={numberOfLines}>
+            {parts.map((part: string, i: number) =>
+                regex.test(part) ? (
+                    <Text key={i} style={{ backgroundColor: '#fef08a', color: '#854d0e', fontWeight: '800' }}>{part}</Text>
+                ) : (
+                    <Text key={i}>{part}</Text>
+                )
+            )}
+        </Text>
+    );
+};
+
 export default function ConversationsScreen({ navigation }: any) {
     const { data, isLoading } = useConversations();
     const { user } = useAuth();
@@ -42,8 +64,25 @@ export default function ConversationsScreen({ navigation }: any) {
 
     const rawConversations = data?.conversations || [];
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
-    const { mutate: markAsRead } = useMarkConversationAsRead(''); // Empty string is fine for the hook initialization if we don't use it immediately or change how it's called
+    const { mutate: markAsRead } = useMarkConversationAsRead('');
     const { mutate: toggleArchive } = useToggleArchive();
+    const { mutateAsync: createConversation } = useCreateConversation();
+
+    const { data: searchData, isLoading: isSearchingGlobal } = useQuery({
+        queryKey: ['global-search', searchQuery],
+        queryFn: async () => {
+            if (!searchQuery || searchQuery.length <= 1) return null;
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(searchQuery)}`, {
+                headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            });
+            if (!res.ok) throw new Error('Global search failed');
+            return res.json();
+        },
+        enabled: searchQuery.length > 1,
+    });
+
+    const isGlobalSearchActive = searchQuery.length > 1;
 
     React.useEffect(() => {
         if (!rawConversations.length || !user) return;
@@ -151,6 +190,81 @@ export default function ConversationsScreen({ navigation }: any) {
             </TouchableOpacity>
         );
     };
+
+    const globalSections = React.useMemo(() => {
+        if (!searchData) return [];
+        const result = [];
+        const peopleAndGroups = [
+            ...(searchData.conversations || []).map((c: any) => ({ ...c, type: 'group' })),
+            ...(searchData.profiles || []).map((p: any) => ({ ...p, type: 'person' }))
+        ];
+        if (peopleAndGroups.length > 0) result.push({ title: 'Contactos y Grupos', data: peopleAndGroups, type: 'people' });
+        if ((searchData.commitments || []).length > 0) result.push({ title: 'Tareas', data: searchData.commitments, type: 'tasks' });
+        if ((searchData.messages || []).length > 0) result.push({ title: 'Mensajes', data: searchData.messages, type: 'messages' });
+        return result;
+    }, [searchData]);
+
+    const handleGlobalResultPress = async (item: any, type: string) => {
+        if (type === 'person') {
+            const res = await createConversation(item.id);
+            navigation.navigate('Chat', { conversationId: res.id, otherUser: item, isGroup: false });
+            return;
+        }
+        if (type === 'group') {
+            navigation.navigate('Chat', { conversationId: item.id, otherUser: null, isGroup: true, groupMetadata: item });
+            return;
+        }
+        const isCommitment = type === 'tasks';
+        const conversationId = isCommitment ? (item.conversation_id || item.message?.conversation_id) : item.conversation_id;
+        const conv = rawConversations.find((c: any) => c.id === conversationId);
+        navigation.navigate('Chat', {
+            conversationId,
+            scrollToMessageId: isCommitment ? item.message_id : item.id,
+            isGroup: conv?.isGroup,
+            otherUser: conv?.otherUser,
+            groupMetadata: conv?.groupMetadata,
+            isSelf: !conversationId || conv?.isSelf
+        });
+    };
+
+    const renderGlobalSection = ({ item: section }: { item: any }) => (
+        <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            {section.data.map((item: any) => (
+                <TouchableOpacity
+                    key={item.id}
+                    style={styles.resultCard}
+                    onPress={() => handleGlobalResultPress(item, item.type || section.type)}
+                >
+                    <View style={styles.resultIcon}>
+                        {item.avatar_url ? (
+                            <Image source={{ uri: item.avatar_url }} style={styles.resultAvatar} />
+                        ) : (
+                            <View style={[styles.resultIconInner, { backgroundColor: item.type === 'person' ? '#3b82f6' : (item.type === 'group' ? '#10b981' : '#f59e0b') }]}>
+                                <Ionicons
+                                    name={item.type === 'person' ? 'person' : (item.type === 'group' ? 'people' : (section.type === 'tasks' ? 'calendar' : 'chatbubble'))}
+                                    size={14}
+                                    color="white"
+                                />
+                            </View>
+                        )}
+                    </View>
+                    <View style={styles.resultInfo}>
+                        <HighlightText
+                            text={item.full_name || item.name || item.title || item.text}
+                            highlight={searchQuery}
+                            style={styles.resultText}
+                            numberOfLines={1}
+                        />
+                        <Text style={styles.resultSubtext}>
+                            {item.type === 'person' ? item.email : (item.type === 'group' ? 'Grupo' : (section.type === 'tasks' ? 'Tarea' : `De ${item.sender?.full_name || 'Enviado'}`))}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={14} color="#cbd5e1" />
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
 
     const renderItem = ({ item }: { item: any }) => {
         const isGroup = item.isGroup;
@@ -269,6 +383,28 @@ export default function ConversationsScreen({ navigation }: any) {
                     <View style={styles.loadingContainer}>
                         {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} />)}
                     </View>
+                ) : isGlobalSearchActive ? (
+                    <FlatList
+                        data={globalSections}
+                        keyExtractor={item => item.title}
+                        renderItem={renderGlobalSection}
+                        contentContainerStyle={styles.listContent}
+                        ListHeaderComponent={() => (
+                            <View style={styles.searchHeaderLabel}>
+                                <Text style={styles.searchHeaderLabelText}>BÚSQUEDA GLOBAL</Text>
+                            </View>
+                        )}
+                        ListEmptyComponent={() => (
+                            <View style={styles.empty}>
+                                {isSearchingGlobal ? <ActivityIndicator color="#64748b" /> : (
+                                    <>
+                                        <Ionicons name="search-outline" size={60} color="#f1f5f9" />
+                                        <Text style={styles.emptyTitle}>Sin resultados en Ping</Text>
+                                    </>
+                                )}
+                            </View>
+                        )}
+                    />
                 ) : (
                     <Animated.FlatList
                         data={filteredConversations}
@@ -394,4 +530,16 @@ const styles = StyleSheet.create({
     leftAction: { flex: 1, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
     rightAction: { flex: 1, backgroundColor: '#64748b', justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
     separator: { height: 1, backgroundColor: '#f1f5f9', marginLeft: 96, marginRight: 24 },
+    // Search 2.0 Fusion Styles
+    searchHeaderLabel: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#f8fafc' },
+    searchHeaderLabelText: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    sectionContainer: { marginTop: 16 },
+    sectionTitle: { fontSize: 13, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginHorizontal: 24, marginBottom: 12 },
+    resultCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 12, backgroundColor: 'white' },
+    resultIcon: { marginRight: 16 },
+    resultIconInner: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    resultAvatar: { width: 36, height: 36, borderRadius: 18 },
+    resultInfo: { flex: 1, marginRight: 12 },
+    resultText: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
+    resultSubtext: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
 });
