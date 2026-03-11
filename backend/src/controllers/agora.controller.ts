@@ -175,7 +175,7 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
                 to: token,
                 title: `${callIcon} Llamada entrante`,
                 body: `${callerName} te está llamando`,
-                sound: 'default',
+                sound: 'default' as const,
                 priority: 'high',
                 data: {
                     type: 'incoming_call',
