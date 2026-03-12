@@ -40,6 +40,7 @@ const CallScreen = ({ route, navigation }: any) => {
 
         channel
             .on('broadcast', { event: 'hangup' }, () => {
+                console.log('[Realtime] Received hangup broadcast from other party');
                 // Other party hung up
                 if (!isHangingUp.current) {
                     isHangingUp.current = true;
@@ -47,7 +48,9 @@ const CallScreen = ({ route, navigation }: any) => {
                     navigation.goBack();
                 }
             })
-            .subscribe();
+            .subscribe((status) => {
+                console.log(`[Realtime] Call channel status for ${conversationId}: ${status}`);
+            });
 
         channelRef.current = channel;
     };
@@ -55,7 +58,8 @@ const CallScreen = ({ route, navigation }: any) => {
     const fetchToken = async () => {
         try {
             const { token, appId } = await apiClient.get(`/agora/token/${conversationId}`);
-            const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}`;
+            const ts = Date.now();
+            const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}&t=${ts}`;
             setCallUrl(url);
 
             // Notify the other user(s) via push + realtime

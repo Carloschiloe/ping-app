@@ -84,11 +84,17 @@ client.on("user-unpublished", () => {
   s.textContent="La otra persona apagó su cámara/micro";
 });
 
-client.on("user-left", () => {
+client.on("user-left", (user) => {
+  console.log("Remote user left channel:", user.uid);
   const s = document.getElementById("status");
   s.style.display="block";
   s.textContent="Llamada finalizada";
-  if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage('hangup');
+  if(window.ReactNativeWebView) {
+    console.log("Sending hangup message to native WebView");
+    window.ReactNativeWebView.postMessage('hangup');
+  } else {
+    console.warn("ReactNativeWebView NOT detected in window");
+  }
 });
 
 window.toggleMute  = (m) => localAudioTrack  && localAudioTrack.setMuted(m);
