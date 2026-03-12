@@ -190,6 +190,26 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
             console.log('[notifyCall] Push result:', JSON.stringify(result));
         }
 
+        // 6. Supabase Realtime broadcast to each participant (instant signal when app is open)
+        const realtimePayload = {
+            type: 'incoming_call',
+            conversationId,
+            callType,
+            callerName,
+            callId: callRecord?.id,
+        };
+        for (const userId of otherUserIds) {
+            try {
+                await supabaseAdmin.channel(`calls:user:${userId}`).send({
+                    type: 'broadcast',
+                    event: 'incoming_call',
+                    payload: realtimePayload,
+                });
+            } catch (e: any) {
+                console.warn(`[notifyCall] Realtime broadcast to ${userId} failed:`, e.message);
+            }
+        }
+
         res.status(200).json({ ok: true, notified: tokens.length, callId: callRecord?.id });
     } catch (error: any) {
         console.error('[Agora Controller] notifyCall failed:', error);

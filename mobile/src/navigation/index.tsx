@@ -90,16 +90,6 @@ const ConversationsStack = () => (
             component={QuickCaptureScreen}
             options={{ headerShown: false, presentation: 'modal' }}
         />
-        <Stack.Screen
-            name="Call"
-            component={CallScreen}
-            options={{ headerShown: false, presentation: 'fullScreenModal' }}
-        />
-        <Stack.Screen
-            name="IncomingCall"
-            component={IncomingCallScreen}
-            options={{ headerShown: false, presentation: 'fullScreenModal' }}
-        />
     </Stack.Navigator>
 );
 
@@ -167,6 +157,17 @@ export const AppNavigator = () => {
                 ) : (
                     <Stack.Screen name="Auth" component={AuthScreen} />
                 )}
+                {/* Always registered so navigationRef can reach them from root */}
+                <Stack.Screen
+                    name="IncomingCall"
+                    component={IncomingCallScreen}
+                    options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+                />
+                <Stack.Screen
+                    name="CallModal"
+                    component={CallScreen}
+                    options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+                />
             </Stack.Navigator>
         </NavigationContainer>
     );
