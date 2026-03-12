@@ -1,10 +1,10 @@
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import axios from 'axios';
 
-const APP_ID = process.env.AGORA_APP_ID || '';
-const APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
-const AGORA_REST_ID = process.env.AGORA_REST_ID || '';
-const AGORA_REST_SECRET = process.env.AGORA_REST_SECRET || '';
+const APP_ID = (process.env.AGORA_APP_ID || '').trim();
+const APP_CERTIFICATE = (process.env.AGORA_APP_CERTIFICATE || '').trim();
+const AGORA_REST_ID = (process.env.AGORA_REST_ID || '').trim();
+const AGORA_REST_SECRET = (process.env.AGORA_REST_SECRET || '').trim();
 
 const getAuthHeader = () => {
     return {
