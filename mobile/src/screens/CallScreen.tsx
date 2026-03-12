@@ -21,6 +21,7 @@ const CallScreen = ({ route, navigation }: any) => {
     const webviewRef = useRef<any>(null);
     const channelRef = useRef<any>(null);
     const isHangingUp = useRef(false);
+    const currentCallId = useRef<string | null>(route.params.callId || null);
 
     useEffect(() => {
         fetchToken();
@@ -70,15 +71,30 @@ const CallScreen = ({ route, navigation }: any) => {
             // Notify the other user(s) via push + realtime ONLY IF we are the ones starting the call
             if (!isIncoming) {
                 try {
-                    await apiClient.post(`/agora/call/notify`, {
+                    const response = await apiClient.post(`/agora/call/notify`, {
                         conversationId,
                         callType: isVideo ? 'video' : 'voice'
                     });
+                    if (response.callId) {
+                        currentCallId.current = response.callId;
+                        console.log('[CallScreen] Call record created/assigned:', response.callId);
+                        
+                        // START RECORDING (Initiator only for now)
+                        apiClient.post('/agora/recording/start', {
+                            channelName: conversationId,
+                            conversationId,
+                            callId: response.callId
+                        }).then(recResp => {
+                            console.log('[CallScreen] Recording started SID:', recResp.sid);
+                        }).catch(recErr => {
+                            console.warn('[CallScreen] Recording failed to start:', recErr);
+                        });
+                    }
                 } catch (notifyErr) {
                     console.log('[notifyCall] soft fail:', notifyErr);
                 }
             } else {
-                console.log('[CallScreen] Incoming call, skipping notify endpoint.');
+                console.log('[CallScreen] Incoming call, skipping notify endpoint. callId:', currentCallId.current);
             }
         } catch (error: any) {
             Alert.alert('Error', 'No se pudo obtener el token de llamada: ' + error.message);
@@ -112,15 +128,21 @@ const CallScreen = ({ route, navigation }: any) => {
         console.log('[CallScreen] Sending hangup broadcast...');
         if (channelRef.current) {
             try {
-                const resp = await channelRef.current.send({
+                await channelRef.current.send({
                     type: 'broadcast',
                     event: 'hangup',
                     payload: {},
                 });
-                console.log('[CallScreen] Hangup broadcast result:', resp);
             } catch (err: any) {
                 console.error('[CallScreen] Hangup broadcast error:', err);
             }
+        }
+
+        // STOP RECORDING
+        if (currentCallId.current) {
+            apiClient.post(`/agora/recording/${currentCallId.current}/stop`, {})
+                .then(() => console.log('[CallScreen] Stop recording signal sent'))
+                .catch(err => console.error('[CallScreen] Stop recording failed:', err));
         }
 
         webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);

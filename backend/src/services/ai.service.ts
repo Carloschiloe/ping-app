@@ -370,41 +370,110 @@ export const processCallRecording = async (callId: string): Promise<void> => {
 
         if (fetchErr || !call) throw new Error('Call not found');
 
-        // 2. Locate recording in Storage
-        // Agora usually uploads to S3 with a specific structure.
-        // We assume the file is eventually available in the 'recordings' bucket.
-        const fileName = `calls/${call.meta.channelName}/${call.sid}_0.m3u8`; // Placeholder logic
-        // TODO: Implement actual S3 file retrieval/polling if necessary.
+        // 2. Wait for Agora to finish uploading (polling would be better, but a delay is a start)
+        console.log(`[AI] Waiting 15s for recording upload to storage...`);
+        await new Promise(resolve => setTimeout(resolve, 15000));
 
-        // For now, we simulate the text if we can't find the file, 
-        // but in production this should call openai.audio.transcriptions.create
+        // 3. Locate recording in Storage
+        // Agora HLS/Mix mode usually creates an .m3u8 and .ts segments, or an MP4 if configured.
+        // For simplicity, we'll try to find the most recent audio/video file in the bucket for this channel.
+        const channelName = call.meta?.channelName || call.conversation_id;
+        const prefix = `calls/${channelName}`;
+        
+        console.log(`[AI] Searching for recording in bucket: ${prefix}`);
+        const { data: files, error: listErr } = await supabaseAdmin.storage
+            .from('recordings')
+            .list(prefix, { sortBy: { column: 'created_at', order: 'desc' }, limit: 5 });
 
-        const transcript = "Simulated transcript: El usuario discutió los planes de expansión y acordó enviar el contrato mañana.";
+        if (listErr || !files || files.length === 0) {
+            console.error('[AI] No recording files found in storage.');
+            await supabaseAdmin.from('calls').update({ status: 'no_recording' }).eq('id', callId);
+            return;
+        }
 
-        // 3. Summarize Transcript
-        const prompt = `Eres Ping AI. Analiza la siguiente transcripción de una llamada y genera:
-1. Resumen Ejecutivo (máx 3 frases).
-2. Tareas Extraídas (si las hay).
-3. Sentimiento general.
+        // Find the first .aac, .m4a or .mp4 file (mixer usually outputs these or .ts)
+        // Note: For Whisper we'd ideally have a single audio file. 
+        // Agora Mix mode HLS output is harder to transcribe directly without concatenation.
+        // We'll assume for now that if we find a file, we attempt to transcribe it.
+        const recordingFile = files.find(f => f.name.endsWith('.mp4') || f.name.endsWith('.m4a') || f.name.endsWith('.ts'));
+        if (!recordingFile) {
+            console.error('[AI] Could not find a suitable audio/video file for transcription.');
+            return;
+        }
+
+        const fullPath = `${prefix}/${recordingFile.name}`;
+        console.log(`[AI] Downloading file for transcription: ${fullPath}`);
+        
+        const { data: fileBlob, error: downloadErr } = await supabaseAdmin.storage
+            .from('recordings')
+            .download(fullPath);
+
+        if (downloadErr || !fileBlob) throw new Error(`Download failed: ${downloadErr?.message}`);
+
+        // Write to tmp file for Whisper
+        const tmpPath = `/tmp/${callId}_${recordingFile.name}`;
+        const buffer = Buffer.from(await fileBlob.arrayBuffer());
+        fs.writeFileSync(tmpPath, buffer);
+
+        // 4. Transcribe with Whisper
+        console.log(`[AI] Transcribing with Whisper...`);
+        const transcript = await transcribeAudio(tmpPath);
+        fs.unlinkSync(tmpPath); // Cleanup
+
+        if (!transcript) {
+            console.error('[AI] Transcription returned empty.');
+            return;
+        }
+
+        // 5. Summarize and Extract Commitments
+        console.log(`[AI] Summarizing and extracting commitments...`);
+        const nowIso = new Date().toISOString();
+        const summaryPrompt = `Analiza esta transcripción de una llamada de voz/video y genera un resumen ejecutivo.
+Identifica también cualquier compromiso o tarea acordada.
 
 Transcripción:
-${transcript}`;
+"${transcript}"`;
 
         const summaryResponse = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: prompt }],
+            model: 'gpt-4o',
+            messages: [{ role: 'user', content: summaryPrompt }],
+            temperature: 0.3,
         });
 
-        const finalSummary = summaryResponse.choices[0]?.message?.content || 'Sin resumen.';
+        const summary = summaryResponse.choices[0]?.message?.content || 'Sin resumen.';
 
-        // 4. Update Database
+        // Also run the commitment extractor on the transcript
+        const extraction = await extractCommitment(transcript, nowIso);
+
+        // 6. Update Call Record
         await supabaseAdmin.from('calls').update({
             transcript,
-            summary: finalSummary,
+            summary,
             status: 'processed'
         }).eq('id', callId);
 
-        console.log(`[AI] Call ${callId} processed successfully.`);
+        // 7. Post summary and task to the chat
+        const summaryMessage = `📞 **Resumen de la llamada**\n\n${summary}`;
+        const { data: msgData } = await supabaseAdmin.from('messages').insert({
+            conversation_id: call.conversation_id,
+            user_id: call.meta?.callerId, // Attribution to caller or system user?
+            text: summaryMessage,
+            meta: { is_ai_summary: true, callId }
+        }).select().single();
+
+        // If a commitment was found, create it too
+        if (extraction.hasCommitment && msgData) {
+            await supabaseAdmin.from('commitments').insert({
+                title: extraction.title,
+                due_at: extraction.dueAt,
+                assigned_to_user_id: call.conversation_id, // Default to group or recipient? 
+                // Note: Logic for who is assigned would need more context from transcript names.
+                message_id: msgData.id,
+                status: 'pending'
+            });
+        }
+
+        console.log(`[AI] Call ${callId} processed and summary posted.`);
 
     } catch (err) {
         console.error('[AI] processCallRecording failed:', err);

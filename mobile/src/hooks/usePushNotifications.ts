@@ -38,6 +38,7 @@ const doNavigate = (navigationRef: any, data: any) => {
                 callType: data.callType || 'voice',
                 callerName: data.callerName || 'Alguien',
                 callerAvatar: data.callerAvatar || null,
+                callId: data.callId || null,
             });
         } catch (e: any) {
             console.error('[CallNav] navigate error:', e.message);
@@ -47,8 +48,8 @@ const doNavigate = (navigationRef: any, data: any) => {
 
 export const usePushNotifications = (navigationRef?: any) => {
     const { user } = useAuth();
-    const notifRef = useRef<Notifications.Subscription>();
-    const responseRef = useRef<Notifications.Subscription>();
+    const notifRef = useRef<Notifications.Subscription | undefined>(undefined);
+    const responseRef = useRef<Notifications.Subscription | undefined>(undefined);
 
     useEffect(() => {
         if (!user) return;

@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import * as agoraService from '../services/agora.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from '../services/notification.service';
+import { processCallRecording } from '../services/ai.service';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -24,7 +25,7 @@ export const getToken = async (req: Request, res: Response): Promise<void> => {
 
 export const startRecording = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { channelName, conversationId } = req.body;
+        const { channelName, conversationId, callId } = req.body;
         const userId = (req as any).user?.id;
 
         if (!channelName || !conversationId) {
@@ -42,19 +43,29 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
         // 3. Start Recording
         const sid = await agoraService.startRecording(resourceId, channelName, recorderUid, token);
 
-        // 4. Persistence
-        const { data, error } = await supabaseAdmin.from('calls').insert({
-            conversation_id: conversationId,
-            resource_id: resourceId,
-            sid: sid,
-            recorder_uid: recorderUid,
-            status: 'recording',
-            meta: { channelName }
-        }).select().single();
+        // 4. Persistence - Update existing call record if callId provided, otherwise insert
+        let finalCallId = callId;
+        if (callId) {
+            await supabaseAdmin.from('calls').update({
+                resource_id: resourceId,
+                sid: sid,
+                recorder_uid: recorderUid,
+                status: 'recording',
+            }).eq('id', callId);
+        } else {
+            const { data, error } = await supabaseAdmin.from('calls').insert({
+                conversation_id: conversationId,
+                resource_id: resourceId,
+                sid: sid,
+                recorder_uid: recorderUid,
+                status: 'recording',
+                meta: { channelName }
+            }).select().single();
+            if (error) throw error;
+            finalCallId = data.id;
+        }
 
-        if (error) throw error;
-
-        res.status(200).json({ ok: true, callId: data.id, sid });
+        res.status(200).json({ ok: true, callId: finalCallId, sid });
     } catch (error: any) {
         console.error('[Agora Controller] startRecording failed:', error);
         res.status(500).json({ error: error.message });
@@ -88,7 +99,7 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
         res.status(200).json({ ok: true, message: 'Recording stopped and ready for processing' });
 
         // Trigger AI processing in background (deferred)
-        // processCallRecording(callId); 
+        processCallRecording(callId as string); 
 
     } catch (error: any) {
         console.error('[Agora Controller] stopRecording failed:', error);

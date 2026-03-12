@@ -14,7 +14,7 @@ const CALL_PATTERN = Platform.OS === 'android'
     : [0, 800, 400, 800];
 
 const IncomingCallScreen = ({ route, navigation }: any) => {
-    const { conversationId, callType = 'voice', callerName = 'Alguien', callerAvatar = null } = route.params;
+    const { conversationId, callType = 'voice', callerName = 'Alguien', callerAvatar = null, callId = null } = route.params;
     const isVideo = callType === 'video';
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -87,7 +87,8 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
             conversationId,
             isVideo,
             remoteUser: { full_name: callerName },
-            isIncoming: true, // Tell CallScreen NOT to notify again
+            isIncoming: true,
+            callId, // Pass it along
         });
     };
 
