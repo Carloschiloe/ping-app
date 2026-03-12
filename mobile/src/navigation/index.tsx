@@ -164,7 +164,7 @@ export const AppNavigator = () => {
                     options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
                 />
                 <Stack.Screen
-                    name="CallModal"
+                    name="Call"
                     component={CallScreen}
                     options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
                 />
