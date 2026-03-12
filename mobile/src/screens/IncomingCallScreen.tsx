@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { supabase } from '../lib/supabase';
 
 // Vibration pattern: ring-ring-ring
 const CALL_PATTERN = Platform.OS === 'android'
@@ -51,8 +52,23 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
         pulse(pulseAnim2, 600);
         pulse(pulseAnim3, 1200);
 
+        // Listen for hangup from caller
+        const channel = supabase.channel(`call:${conversationId}`, {
+            config: { broadcast: { self: false } },
+        });
+
+        channel
+            .on('broadcast', { event: 'hangup' }, () => {
+                console.log('[IncomingCall] Received hangup broadcast from caller');
+                handleDecline();
+            })
+            .subscribe((status) => {
+                console.log(`[IncomingCall] Realtime status: ${status}`);
+            });
+
         return () => {
             Vibration.cancel();
+            channel.unsubscribe();
         };
     }, []);
 

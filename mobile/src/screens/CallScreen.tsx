@@ -100,10 +100,15 @@ const CallScreen = ({ route, navigation }: any) => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
 
         // Signal to the other party via Supabase Realtime
-        await channelRef.current?.send({
+        console.log('[CallScreen] Sending hangup broadcast...');
+        channelRef.current?.send({
             type: 'broadcast',
             event: 'hangup',
             payload: {},
+        }).then((resp: any) => {
+            console.log('[CallScreen] Hangup broadcast result:', resp);
+        }).catch((err: any) => {
+            console.error('[CallScreen] Hangup broadcast error:', err);
         });
 
         webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);
