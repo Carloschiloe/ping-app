@@ -49,14 +49,14 @@ export const usePushNotifications = (navigationRef?: any) => {
                 const data = response.notification.request.content.data as any;
                 console.log('Notification tapped:', data);
 
-                // Handle incoming call: navigate to CallScreen
+                // Handle incoming call: navigate to IncomingCallScreen
                 if (data?.type === 'incoming_call' && data?.conversationId) {
                     const nav = navigationRef?.current || navigationRef;
                     if (nav?.navigate) {
-                        nav.navigate('Call', {
+                        nav.navigate('IncomingCall', {
                             conversationId: data.conversationId,
-                            isVideo: data.callType === 'video',
-                            remoteUser: { full_name: data.callerName },
+                            callType: data.callType || 'voice',
+                            callerName: data.callerName || 'Alguien',
                         });
                     }
                 }

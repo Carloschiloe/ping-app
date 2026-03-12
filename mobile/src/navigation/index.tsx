@@ -19,6 +19,7 @@ import PingAIScreen from '../screens/PingAIScreen';
 import QuickCaptureScreen from '../screens/QuickCaptureScreen';
 import TaskDashboardScreen from '../screens/TaskDashboardScreen';
 import CallScreen from '../screens/CallScreen';
+import IncomingCallScreen from '../screens/IncomingCallScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -157,7 +158,19 @@ export const AppNavigator = () => {
             <PushNotificationHandler />
             <Stack.Navigator screenOptions={{ headerShown: false }}>
                 {session ? (
-                    <Stack.Screen name="Main" component={MainTabs} />
+                    <>
+                        <Stack.Screen name="Main" component={MainTabs} />
+                        <Stack.Screen
+                            name="Call"
+                            component={CallScreen}
+                            options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+                        />
+                        <Stack.Screen
+                            name="IncomingCall"
+                            component={IncomingCallScreen}
+                            options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+                        />
+                    </>
                 ) : (
                     <Stack.Screen name="Auth" component={AuthScreen} />
                 )}
