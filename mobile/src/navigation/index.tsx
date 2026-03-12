@@ -95,6 +95,11 @@ const ConversationsStack = () => (
             component={CallScreen}
             options={{ headerShown: false, presentation: 'fullScreenModal' }}
         />
+        <Stack.Screen
+            name="IncomingCall"
+            component={IncomingCallScreen}
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
     </Stack.Navigator>
 );
 
@@ -158,19 +163,7 @@ export const AppNavigator = () => {
             <PushNotificationHandler />
             <Stack.Navigator screenOptions={{ headerShown: false }}>
                 {session ? (
-                    <>
-                        <Stack.Screen name="Main" component={MainTabs} />
-                        <Stack.Screen
-                            name="Call"
-                            component={CallScreen}
-                            options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
-                        />
-                        <Stack.Screen
-                            name="IncomingCall"
-                            component={IncomingCallScreen}
-                            options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
-                        />
-                    </>
+                    <Stack.Screen name="Main" component={MainTabs} />
                 ) : (
                     <Stack.Screen name="Auth" component={AuthScreen} />
                 )}
