@@ -88,10 +88,20 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
-        const { channelName } = call.meta as any;
+        const { channelName } = (call.meta as any) || {};
 
-        // 2. Stop Agora Recording
-        await agoraService.stopRecording(call.resource_id, call.sid, channelName, call.recorder_uid);
+        // 2. Stop Agora Recording - Defensive check: Only stop if it actually started
+        if (call.resource_id && call.sid && call.recorder_uid && channelName) {
+            try {
+                await agoraService.stopRecording(call.resource_id, call.sid, channelName, call.recorder_uid);
+            } catch (agoraErr: any) {
+                console.warn('[Agora Controller] stopRecording Agora API warning:', agoraErr.message);
+                // We keep going to update the database state even if the Agora call fails
+                // (e.g. if the recording already stopped automatically)
+            }
+        } else {
+            console.log('[Agora Controller] stopRecording skipped: Missing recording metadata (likely never started)');
+        }
 
         // 3. Update Status
         await supabaseAdmin.from('calls').update({ status: 'stopped' }).eq('id', callId);
