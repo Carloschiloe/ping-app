@@ -22,6 +22,7 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
     const pulseAnim3 = useRef(new Animated.Value(1)).current;
     const slideAnim = useRef(new Animated.Value(60)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const channelRef = useRef<any>(null); // Store channel in ref to use in methods
 
     useEffect(() => {
         // Vibrate in loop
@@ -66,12 +67,16 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
                 console.log(`[IncomingCall] Realtime status: ${status}`);
             });
 
+        channelRef.current = channel;
+
         return () => {
             Vibration.cancel();
             console.log('[IncomingCall] Cleaning up channel...');
-            supabase.removeChannel(channel).then(() => {
-                console.log('[IncomingCall] Channel removed.');
-            });
+            if (channelRef.current) {
+                supabase.removeChannel(channelRef.current).then(() => {
+                    console.log('[IncomingCall] Channel removed.');
+                });
+            }
         };
     }, []);
 
@@ -82,12 +87,28 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
             conversationId,
             isVideo,
             remoteUser: { full_name: callerName },
+            isIncoming: true, // Tell CallScreen NOT to notify again
         });
     };
 
-    const handleDecline = () => {
+    const handleDecline = async () => {
         Vibration.cancel();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+
+        // Tell the caller we declined/hung up
+        if (channelRef.current) {
+            console.log('[IncomingCall] Sending decline/hangup broadcast...');
+            try {
+                await channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'hangup',
+                    payload: {},
+                });
+            } catch (err) {
+                console.error('[IncomingCall] Failed to send hangup:', err);
+            }
+        }
+
         navigation.goBack();
     };
 

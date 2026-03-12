@@ -13,7 +13,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://ping-app-con3.onrend
 const CALL_BASE_URL = API_URL.replace('/api', '');
 
 const CallScreen = ({ route, navigation }: any) => {
-    const { conversationId, isVideo = true, remoteUser } = route.params;
+    const { conversationId, isVideo = true, remoteUser, isIncoming = false } = route.params;
     const [loading, setLoading] = useState(true);
     const [callUrl, setCallUrl] = useState<string | null>(null);
     const [isMuted, setIsMuted] = useState(false);
@@ -67,14 +67,18 @@ const CallScreen = ({ route, navigation }: any) => {
             const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}&t=${ts}`;
             setCallUrl(url);
 
-            // Notify the other user(s) via push + realtime
-            try {
-                await apiClient.post(`/agora/call/notify`, {
-                    conversationId,
-                    callType: isVideo ? 'video' : 'voice'
-                });
-            } catch (notifyErr) {
-                console.log('[notifyCall] soft fail:', notifyErr);
+            // Notify the other user(s) via push + realtime ONLY IF we are the ones starting the call
+            if (!isIncoming) {
+                try {
+                    await apiClient.post(`/agora/call/notify`, {
+                        conversationId,
+                        callType: isVideo ? 'video' : 'voice'
+                    });
+                } catch (notifyErr) {
+                    console.log('[notifyCall] soft fail:', notifyErr);
+                }
+            } else {
+                console.log('[CallScreen] Incoming call, skipping notify endpoint.');
             }
         } catch (error: any) {
             Alert.alert('Error', 'No se pudo obtener el token de llamada: ' + error.message);
