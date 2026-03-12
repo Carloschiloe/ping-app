@@ -87,7 +87,7 @@ export const startRecording = async (
             accessKey: process.env.SUPABASE_S3_ACCESS_KEY,
             secretKey: process.env.SUPABASE_S3_SECRET_KEY,
             endpoint: process.env.SUPABASE_S3_ENDPOINT,
-            fileNamePrefix: ['calls', channelName],
+            fileNamePrefix: ['calls', channelName.replace(/-/g, '')],
         };
 
         const response = await axios.post(
