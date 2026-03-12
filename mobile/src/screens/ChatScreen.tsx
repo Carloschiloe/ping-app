@@ -98,7 +98,7 @@ export default function ChatScreen({ navigation }: any) {
     const messages = useMemo(() => {
         return infiniteData?.pages.flatMap(page => page.messages) || [];
     }, [infiniteData]);
-    const { data: groupTasks = [] } = useConversationGroupTasks(isGroup ? conversationId : null);
+    const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
 
     // ─── @Mention State (Phase 26) ──────────────────────────────────────────
     const [mentionedUserId, setMentionedUserId] = useState<string | null>(null);
@@ -656,7 +656,7 @@ export default function ChatScreen({ navigation }: any) {
                 due_at: suggestionData.dueAt,
                 assigned_to_user_id: suggestionData.assignedToUserId,
                 message_id: suggestionData.messageId,
-                group_conversation_id: isGroup ? conversationId : null,
+                group_conversation_id: conversationId,
                 is_group_task: isGroup
             });
         }

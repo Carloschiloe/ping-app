@@ -328,8 +328,8 @@ const MessageItem = ({
                 )}
             </View>
 
-            {isGroup && (() => {
-                const tasks = groupTasks.filter((t: any) => t.message_id === item.id && t.is_group_task);
+            {(() => {
+                const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
                 // Logic: 
