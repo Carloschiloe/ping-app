@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
-    Animated, Easing, Vibration, Platform,
+    Animated, Easing, Vibration, Platform, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,7 @@ const CALL_PATTERN = Platform.OS === 'android'
     : [0, 800, 400, 800];
 
 const IncomingCallScreen = ({ route, navigation }: any) => {
-    const { conversationId, callType = 'voice', callerName = 'Alguien' } = route.params;
+    const { conversationId, callType = 'voice', callerName = 'Alguien', callerAvatar = null } = route.params;
     const isVideo = callType === 'video';
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -99,9 +99,13 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
                     <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim3 }], opacity: pulseOpacity3, borderColor: isVideo ? '#6366f1' : '#3b82f6' }]} />
 
                     <View style={[styles.avatarCircle, { borderColor: isVideo ? '#6366f1' : '#3b82f6' }]}>
-                        <Text style={styles.avatarInitial}>
-                            {callerName.charAt(0).toUpperCase()}
-                        </Text>
+                        {callerAvatar ? (
+                            <Image source={{ uri: callerAvatar }} style={styles.avatarImage} />
+                        ) : (
+                            <Text style={styles.avatarInitial}>
+                                {callerName.charAt(0).toUpperCase()}
+                            </Text>
+                        )}
                     </View>
                 </View>
 
@@ -151,9 +155,10 @@ const styles = StyleSheet.create({
     avatarCircle: {
         width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2,
         backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 2,
-        alignItems: 'center', justifyContent: 'center',
+        alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
     },
     avatarInitial: { fontSize: 64, fontWeight: '700', color: 'white' },
+    avatarImage: { width: '100%', height: '100%', resizeMode: 'cover' },
     callerName: {
         fontSize: 34, fontWeight: '800', color: 'white', textAlign: 'center',
         letterSpacing: -0.5, marginBottom: 8,

@@ -114,11 +114,12 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
         // 1. Get caller's profile
         const { data: callerProfile } = await supabaseAdmin
             .from('profiles')
-            .select('full_name, email')
+            .select('full_name, email, avatar_url')
             .eq('id', callerId)
             .single();
 
         const callerName = callerProfile?.full_name || callerProfile?.email?.split('@')[0] || 'Alguien';
+        const callerAvatar = callerProfile?.avatar_url || null;
 
         // 2. Get other participants (correct table name)
         const { data: members, error: membersError } = await supabaseAdmin
@@ -184,6 +185,7 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
                     conversationId,
                     callType,
                     callerName,
+                    callerAvatar,
                     callId: callRecord?.id,
                 },
             }));
@@ -198,6 +200,7 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
             conversationId,
             callType,
             callerName,
+            callerAvatar,
             callId: callRecord?.id,
         };
         for (const userId of otherUserIds) {

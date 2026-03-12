@@ -57,6 +57,16 @@ const CallScreen = ({ route, navigation }: any) => {
             const { token, appId } = await apiClient.get(`/agora/token/${conversationId}`);
             const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}`;
             setCallUrl(url);
+
+            // Notify the other user(s) via push + realtime
+            try {
+                await apiClient.post(`/agora/call/notify`, {
+                    conversationId,
+                    callType: isVideo ? 'video' : 'voice'
+                });
+            } catch (notifyErr) {
+                console.log('[notifyCall] soft fail:', notifyErr);
+            }
         } catch (error: any) {
             Alert.alert('Error', 'No se pudo obtener el token de llamada: ' + error.message);
             navigation.goBack();
@@ -120,6 +130,12 @@ const CallScreen = ({ route, navigation }: any) => {
                 allowsFullscreenVideo
                 onPermissionRequest={(request: any) => request.grant(request.resources)}
                 onError={(e: any) => console.error('[WebView Error]', e.nativeEvent.description)}
+                onMessage={(event: any) => {
+                    if (event.nativeEvent.data === 'hangup') {
+                        console.log('[CallScreen] Received hangup from WebView');
+                        hangup();
+                    }
+                }}
                 originWhitelist={['*']}
             />
 

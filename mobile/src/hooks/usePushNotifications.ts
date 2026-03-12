@@ -37,6 +37,7 @@ const doNavigate = (navigationRef: any, data: any) => {
                 conversationId: data.conversationId,
                 callType: data.callType || 'voice',
                 callerName: data.callerName || 'Alguien',
+                callerAvatar: data.callerAvatar || null,
             });
         } catch (e: any) {
             console.error('[CallNav] navigate error:', e.message);

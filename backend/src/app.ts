@@ -16,15 +16,15 @@ app.use('/api', router);
 
 // Healthcheck
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Call Page (served over HTTPS so getUserMedia works in mobile WebView)
 app.get('/call', (req, res) => {
-    const { token, appId, channel, video } = req.query as Record<string, string>;
-    const withVideo = video === 'true';
+  const { token, appId, channel, video } = req.query as Record<string, string>;
+  const withVideo = video === 'true';
 
-    const html = `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8"/>
@@ -81,7 +81,14 @@ client.on("user-published", async (user, mediaType) => {
 client.on("user-unpublished", () => {
   const s = document.getElementById("status");
   s.style.display="block";
-  s.textContent="La otra persona salió";
+  s.textContent="La otra persona apagó su cámara/micro";
+});
+
+client.on("user-left", () => {
+  const s = document.getElementById("status");
+  s.style.display="block";
+  s.textContent="Llamada finalizada";
+  if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage('hangup');
 });
 
 window.toggleMute  = (m) => localAudioTrack  && localAudioTrack.setMuted(m);
@@ -96,8 +103,8 @@ joinCall();
 </script>
 </body>
 </html>`;
-    res.setHeader('Content-Type', 'text/html');
-    res.send(html);
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
 });
 
 // Global Error Handler
