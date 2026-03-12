@@ -68,7 +68,10 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
 
         return () => {
             Vibration.cancel();
-            channel.unsubscribe();
+            console.log('[IncomingCall] Cleaning up channel...');
+            supabase.removeChannel(channel).then(() => {
+                console.log('[IncomingCall] Channel removed.');
+            });
         };
     }, []);
 

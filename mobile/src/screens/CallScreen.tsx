@@ -28,7 +28,12 @@ const CallScreen = ({ route, navigation }: any) => {
 
         return () => {
             // Cleanup Realtime channel on unmount
-            channelRef.current?.unsubscribe();
+            if (channelRef.current) {
+                console.log('[CallScreen] Removing channel...');
+                supabase.removeChannel(channelRef.current).then(() => {
+                    console.log('[CallScreen] Channel removed.');
+                });
+            }
         };
     }, []);
 
@@ -101,15 +106,18 @@ const CallScreen = ({ route, navigation }: any) => {
 
         // Signal to the other party via Supabase Realtime
         console.log('[CallScreen] Sending hangup broadcast...');
-        channelRef.current?.send({
-            type: 'broadcast',
-            event: 'hangup',
-            payload: {},
-        }).then((resp: any) => {
-            console.log('[CallScreen] Hangup broadcast result:', resp);
-        }).catch((err: any) => {
-            console.error('[CallScreen] Hangup broadcast error:', err);
-        });
+        if (channelRef.current) {
+            try {
+                const resp = await channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'hangup',
+                    payload: {},
+                });
+                console.log('[CallScreen] Hangup broadcast result:', resp);
+            } catch (err: any) {
+                console.error('[CallScreen] Hangup broadcast error:', err);
+            }
+        }
 
         webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);
         navigation.goBack();
