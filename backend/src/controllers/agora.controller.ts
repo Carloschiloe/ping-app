@@ -177,6 +177,8 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
                 body: `${callerName} te está llamando`,
                 sound: 'default' as const,
                 priority: 'high',
+                channelId: 'calls',
+                categoryId: 'incoming_call',
                 data: {
                     type: 'incoming_call',
                     conversationId,

@@ -107,6 +107,20 @@ async function registerPushToken(): Promise<string | undefined> {
         }).catch(() => { });
     }
 
+    // Configure Action Categories for Incoming Calls (iOS & Android)
+    await Notifications.setNotificationCategoryAsync('incoming_call', [
+        {
+            identifier: 'accept',
+            buttonTitle: 'Contestar',
+            options: { opensAppToForeground: true },
+        },
+        {
+            identifier: 'reject',
+            buttonTitle: 'Rechazar',
+            options: { isDestructive: true, opensAppToForeground: false },
+        }
+    ]).catch(() => { });
+
     const { status: existing } = await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' as const }));
     const finalStatus = existing === 'granted'
         ? existing
