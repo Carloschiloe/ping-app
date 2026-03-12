@@ -377,7 +377,7 @@ export const processCallRecording = async (callId: string): Promise<void> => {
         // 3. Locate recording in Storage
         // Agora HLS/Mix mode usually creates an .m3u8 and .ts segments, or an MP4 if configured.
         // For simplicity, we'll try to find the most recent audio/video file in the bucket for this channel.
-        const channelName = call.meta?.channelName || call.conversation_id;
+        const channelName = (call.meta?.channelName || call.conversation_id).replace(/-/g, '');
         const prefix = `calls/${channelName}`;
         
         console.log(`[AI] Searching for recording in bucket: ${prefix}`);
