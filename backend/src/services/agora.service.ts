@@ -40,17 +40,25 @@ export const generateRtcToken = (channelName: string, userId: string): string =>
  * Stage 1: Acquire Resource ID
  */
 export const acquireResource = async (channelName: string, uid: number): Promise<string> => {
-    const url = `https://api.agora.io/v1/apps/${APP_ID}/cloud_recording/acquire`;
-    const response = await axios.post(
-        url,
-        {
-            cname: channelName,
-            uid: uid.toString(),
-            clientRequest: { resourceExpiredHour: 24 },
-        },
-        { headers: getAuthHeader() }
-    );
-    return response.data.resourceId;
+    try {
+        const url = `https://api.agora.io/v1/apps/${APP_ID}/cloud_recording/acquire`;
+        const response = await axios.post(
+            url,
+            {
+                cname: channelName,
+                uid: uid.toString(),
+                clientRequest: { resourceExpiredHour: 24 },
+            },
+            { headers: getAuthHeader() }
+        );
+        return response.data.resourceId;
+    } catch (error: any) {
+        if (error.response) {
+            console.error('[Agora Service] acquireResource failed:', error.response.status, error.response.data);
+            throw new Error(`Agora Acquire Error [${error.response.status}]: ${JSON.stringify(error.response.data)}`);
+        }
+        throw error;
+    }
 };
 
 /**
@@ -62,37 +70,51 @@ export const startRecording = async (
     uid: number,
     token: string
 ): Promise<string> => {
-    const url = `https://api.agora.io/v1/apps/${APP_ID}/cloud_recording/resourceid/${resourceId}/mode/mix/start`;
+    try {
+        const url = `https://api.agora.io/v1/apps/${APP_ID}/cloud_recording/resourceid/${resourceId}/mode/mix/start`;
 
-    // Supabase S3 Config (Placeholder - User needs to provide actual S3 creds for Agora)
-    const storageConfig = {
-        vendor: 1, // AWS S3 (Supabase uses S3 API)
-        region: 0, // us-east-1 equivalent usually
-        bucket: process.env.SUPABASE_S3_BUCKET || 'recordings',
-        accessKey: process.env.SUPABASE_S3_ACCESS_KEY,
-        secretKey: process.env.SUPABASE_S3_SECRET_KEY,
-        endpoint: process.env.SUPABASE_S3_ENDPOINT, // e.g. wbigqhtuzfmpnxservlf.supabase.co
-        fileNamePrefix: [`calls/${channelName}`],
-    };
+        // Supabase S3 Config
+        const regionStr = process.env.SUPABASE_S3_REGION || 'us-east-1';
+        let regionNum = 0; // default US_EAST_1
+        if (regionStr === 'us-east-2') regionNum = 1;
+        if (regionStr === 'us-west-1') regionNum = 2;
+        if (regionStr === 'us-west-2') regionNum = 3;
 
-    const response = await axios.post(
-        url,
-        {
-            cname: channelName,
-            uid: uid.toString(),
-            clientRequest: {
-                token,
-                recordingConfig: {
-                    maxIdleTime: 30,
-                    streamTypes: 1, // Audio only for now (better for transcripts)
-                    channelType: 0,
+        const storageConfig = {
+            vendor: 1, // AWS S3
+            region: regionNum,
+            bucket: process.env.SUPABASE_S3_BUCKET || 'recordings',
+            accessKey: process.env.SUPABASE_S3_ACCESS_KEY,
+            secretKey: process.env.SUPABASE_S3_SECRET_KEY,
+            endpoint: process.env.SUPABASE_S3_ENDPOINT,
+            fileNamePrefix: [`calls/${channelName}`],
+        };
+
+        const response = await axios.post(
+            url,
+            {
+                cname: channelName,
+                uid: uid.toString(),
+                clientRequest: {
+                    token,
+                    recordingConfig: {
+                        maxIdleTime: 30,
+                        streamTypes: 1, // Audio only
+                        channelType: 0,
+                    },
+                    storageConfig,
                 },
-                storageConfig,
             },
-        },
-        { headers: getAuthHeader() }
-    );
-    return response.data.sid;
+            { headers: getAuthHeader() }
+        );
+        return response.data.sid;
+    } catch (error: any) {
+        if (error.response) {
+            console.error('[Agora Service] startRecording failed:', error.response.status, error.response.data);
+            throw new Error(`Agora Start Error [${error.response.status}]: ${JSON.stringify(error.response.data)}`);
+        }
+        throw error;
+    }
 };
 
 /**
