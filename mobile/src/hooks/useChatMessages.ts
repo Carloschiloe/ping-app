@@ -109,14 +109,16 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 schema: 'public',
                 table: 'messages',
                 filter: `conversation_id=eq.${conversationId}`
-            }, () => {
+            }, (payload) => {
+                console.warn('[DEBUG-REALTIME] Message UPDATE received. ID:', payload.new.id, 'Meta:', JSON.stringify(payload.new.meta));
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             })
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'commitments'
-            }, () => {
+            }, (payload: any) => {
+                console.warn('[DEBUG-REALTIME] Commitment CHANGE received:', payload.eventType, 'Status:', payload.new?.status);
                 queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
             })

@@ -34,6 +34,10 @@ const MessageItemComponent = ({
     onToggleSelect, onSwipeLeft, onViewReactions,
     formatTime, avatarColor, swipeableRowRefs
 }: MessageItemProps) => {
+    // DEBUG: Tracing Rendering
+    if (item.meta?.suggestedTask || (groupTasks && groupTasks.some(t => t.message_id === item.id))) {
+        console.warn(`[DEBUG-MSG] Rendering Msg ${item.id.substring(0,8)} | Meta: ${!!item.meta?.suggestedTask} | Tasks count: ${groupTasks?.filter(t => t.message_id === item.id).length}`);
+    }
 
     if (item.type === 'divider') {
         return (
@@ -298,7 +302,10 @@ const MessageItemComponent = ({
                     {item.meta?.suggestedTask && (
                         <TouchableOpacity
                             style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
-                            onPress={() => onPress({ ...item, _isSuggestionTap: true })}
+                            onPress={() => {
+                                console.warn('[DEBUG-CHIP] Chip Pressed for:', item.id);
+                                onPress({ ...item, _isSuggestionTap: true });
+                            }}
                             activeOpacity={0.7}
                         >
                             <Text style={styles.suggestionIcon}>✨</Text>
@@ -338,9 +345,13 @@ const MessageItemComponent = ({
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
+                console.warn(`[DEBUG-TASKS] Message ${item.id.substring(0,8)} has ${tasks.length} tasks matching. UserID: ${user?.id}`);
+
                 // Priority: Task assigned to ME, otherwise the first task related to this message
                 const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);
                 const displayTask = myTask || tasks[0];
+
+                console.warn(`[DEBUG-TASKS] Chosen DisplayTask ID: ${displayTask.id}, Status: ${displayTask.status}, AssignedTo: ${displayTask.assigned_to_user_id}`);
 
                 return <GroupTaskCard 
                     key={displayTask.id} 

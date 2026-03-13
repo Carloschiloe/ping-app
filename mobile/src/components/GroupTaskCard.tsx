@@ -45,10 +45,13 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const status = commitment.status;
     const isDone = status === 'completed';
-    const isProposed = status === 'proposed';
+    const isProposed = status === 'proposed' || status === 'pending'; // Combined for robustness
     const isRejected = status === 'rejected';
     const isCounter = status === 'counter_proposal';
-    const isAccepted = status === 'accepted' || status === 'pending' || status === 'in_progress';
+    const isAccepted = status === 'accepted' || status === 'in_progress';
+
+    // DEBUG: Commitment State
+    console.warn(`[DEBUG-CARD] Task: ${commitment.title.substring(0,15)} | Status: ${status} | isAssignee: ${isAssignee} | IDs: Me=${currentUserId?.substring(0,6)} Target=${assignedId?.substring(0,6)}`);
 
     // Phase 8: Show "Requested by" if I am the assignee
     const requesterName = commitment.owner?.full_name || commitment.owner?.email?.split('@')[0] || 'Alguien';
