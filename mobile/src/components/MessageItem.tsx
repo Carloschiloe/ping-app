@@ -146,7 +146,7 @@ const MessageItemComponent = ({
                 closeSwipeable();
             }}
         >
-            <View> {/* Container to ensure stacked layout of bubble + chip + task cards */}
+            <View>
                 <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
@@ -274,8 +274,6 @@ const MessageItemComponent = ({
                                 {msgText}
                             </Text>
                         )}
-
-
                         <View style={styles.metaRow}>
                             {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : theme.colors.text.muted, marginRight: 4 }}>R</Text>}
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
@@ -340,9 +338,7 @@ const MessageItemComponent = ({
                 {highlightedMsgId === item.id && (
                     <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
                 )}
-            </View>
-
-            {(() => {
+            </View>{(() => {
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
