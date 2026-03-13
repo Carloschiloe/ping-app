@@ -66,6 +66,9 @@ router.patch('/messages/:id/status', requireAuth, messageController.updateMessag
 router.get('/commitments/check-conflict', requireAuth, commitmentController.checkConflict);
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
+router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
+router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
+router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
 
 // Search
 router.get('/search', requireAuth, searchController.search);
