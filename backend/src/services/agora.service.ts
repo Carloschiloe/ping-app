@@ -81,13 +81,15 @@ export const startRecording = async (
         if (regionStr === 'us-west-2') regionNum = 3;
 
         const storageConfig = {
-            vendor: 1, // AWS S3
+            vendor: 11, // S3-compatible
             region: regionNum,
             bucket: process.env.SUPABASE_S3_BUCKET || 'recordings',
             accessKey: process.env.SUPABASE_S3_ACCESS_KEY,
             secretKey: process.env.SUPABASE_S3_SECRET_KEY,
-            endpoint: process.env.SUPABASE_S3_ENDPOINT,
             fileNamePrefix: ['calls', channelName.replace(/-/g, '')],
+            extensionParams: {
+                endpoint: (process.env.SUPABASE_S3_ENDPOINT || '').replace(/^https?:\/\//, ''),
+            }
         };
 
         const response = await axios.post(
