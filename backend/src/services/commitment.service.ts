@@ -154,9 +154,12 @@ export const createCommitment = async (userId: string, data: any) => {
 export const acceptCommitment = async (userId: string, id: string) => {
     const { data, error } = await supabaseAdmin
         .from('commitments')
-        .update({ status: 'accepted' })
+        .update({ 
+            status: 'accepted',
+            assigned_to_user_id: userId // En caso de ser para 'todos', el primero que acepta se lo asigna
+        })
         .eq('id', id)
-        .eq('assigned_to_user_id', userId)
+        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
         .select()
         .single();
 
@@ -172,7 +175,7 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
             meta: { rejection_reason: reason } 
         })
         .eq('id', id)
-        .eq('assigned_to_user_id', userId)
+        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
         .select()
         .single();
 
@@ -192,7 +195,7 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
             meta: { ...(currentTask?.meta || {}), original_due_at: currentTask?.due_at } 
         })
         .eq('id', id)
-        .eq('assigned_to_user_id', userId)
+        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
         .select()
         .single();
 
