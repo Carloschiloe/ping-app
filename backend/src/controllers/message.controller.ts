@@ -17,6 +17,7 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
         }
 
         const result = await messageService.processUserMessage(userId, text, undefined, reply_to_id);
+        console.log('[DEBUG-BACKEND] processUserMessage result Meta:', JSON.stringify(result.message?.meta));
         res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
