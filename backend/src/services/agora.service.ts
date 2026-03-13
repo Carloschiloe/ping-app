@@ -74,11 +74,7 @@ export const startRecording = async (
         const url = `https://api.agora.io/v1/apps/${APP_ID}/cloud_recording/resourceid/${resourceId}/mode/mix/start`;
 
         // Supabase S3 Config
-        const regionStr = process.env.SUPABASE_S3_REGION || 'us-east-1';
-        let regionNum = 0; // default US_EAST_1
-        if (regionStr === 'us-east-2') regionNum = 1;
-        if (regionStr === 'us-west-1') regionNum = 2;
-        if (regionStr === 'us-west-2') regionNum = 3;
+        const regionNum = 0; // Standard for S3-compatible (S3 proxy)
 
         const storageConfig = {
             vendor: 11, // S3-compatible
@@ -86,11 +82,17 @@ export const startRecording = async (
             bucket: process.env.SUPABASE_S3_BUCKET || 'recordings',
             accessKey: process.env.SUPABASE_S3_ACCESS_KEY,
             secretKey: process.env.SUPABASE_S3_SECRET_KEY,
-            fileNamePrefix: ['calls', channelName.replace(/-/g, '')],
+            fileNamePrefix: `calls/${channelName.replace(/-/g, '')}`,
             extensionParams: {
                 endpoint: (process.env.SUPABASE_S3_ENDPOINT || '').replace(/^https?:\/\//, ''),
             }
         };
+
+        console.log('[Agora Service] Starting recording with storageConfig:', {
+            ...storageConfig,
+            accessKey: '***',
+            secretKey: '***'
+        });
 
         const response = await axios.post(
             url,

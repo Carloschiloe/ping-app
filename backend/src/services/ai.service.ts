@@ -370,23 +370,48 @@ export const processCallRecording = async (callId: string): Promise<void> => {
 
         if (fetchErr || !call) throw new Error('Call not found');
 
-        // 2. Wait for Agora to finish uploading (polling would be better, but a delay is a start)
-        console.log(`[AI] Waiting 15s for recording upload to storage...`);
-        await new Promise(resolve => setTimeout(resolve, 15000));
+        // 2. Wait for Agora to finish uploading with retry logic
+        console.log(`[AI] Checking for recording in storage (will retry up to 3 times)...`);
+        
+        let files: any[] = [];
+        let attempts = 0;
+        const maxAttempts = 3;
+        const delayMs = 30000; // 30 seconds
 
-        // 3. Locate recording in Storage
-        // Agora HLS/Mix mode usually creates an .m3u8 and .ts segments, or an MP4 if configured.
-        // For simplicity, we'll try to find the most recent audio/video file in the bucket for this channel.
         const channelName = (call.meta?.channelName || call.conversation_id).replace(/-/g, '');
         const prefix = `calls/${channelName}`;
-        
-        console.log(`[AI] Searching for recording in bucket: ${prefix}`);
-        const { data: files, error: listErr } = await supabaseAdmin.storage
-            .from('recordings')
-            .list(prefix, { sortBy: { column: 'created_at', order: 'desc' }, limit: 5 });
 
-        if (listErr || !files || files.length === 0) {
-            console.error('[AI] No recording files found in storage.');
+        while (attempts < maxAttempts) {
+            attempts++;
+            console.log(`[AI] Attempt ${attempts}/${maxAttempts}: Listing files in ${prefix}...`);
+            
+            const { data: foundFiles, error: listErr } = await supabaseAdmin.storage
+                .from('recordings')
+                .list(prefix, { sortBy: { column: 'created_at', order: 'desc' }, limit: 10 });
+
+            if (listErr) {
+                console.error(`[AI] Storage list error on attempt ${attempts}:`, listErr.message);
+            } else if (foundFiles && foundFiles.length > 0) {
+                // Ignore placeholder or metadata files if any, look for media
+                const mediaFiles = foundFiles.filter(f => f.name.endsWith('.mp4') || f.name.endsWith('.m4a') || f.name.endsWith('.ts') || f.name.endsWith('.aac'));
+                if (mediaFiles.length > 0) {
+                    files = foundFiles;
+                    console.log(`[AI] Found ${mediaFiles.length} media files after ${attempts} attempts.`);
+                    break;
+                }
+                console.log(`[AI] Found files but no media segments yet: ${foundFiles.map(f => f.name).join(', ')}`);
+            } else {
+                console.log(`[AI] No files found in ${prefix} yet.`);
+            }
+
+            if (attempts < maxAttempts) {
+                console.log(`[AI] Waiting ${delayMs/1000}s for next attempt...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+
+        if (files.length === 0) {
+            console.error('[AI] FAILED: No recording files found in storage after multiple attempts.');
             await supabaseAdmin.from('calls').update({ status: 'no_recording' }).eq('id', callId);
             return;
         }
