@@ -55,7 +55,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const isAccepted = status === 'accepted' || status === 'in_progress';
 
     // DEBUG: Commitment State
-    console.warn(`[DEBUG-CARD] Task: ${commitment.title.substring(0,15)} | Status: ${status} | isAssignee: ${isAssignee} | IDs: Me=${currentUserId?.substring(0,6)} Target=${assignedId?.substring(0,6)}`);
+    console.warn(`[DEBUG-CARD] Task: ${commitment.title.substring(0,15)} | Status: ${status} | isAssignee: ${isAssignee} | IDs: Me=${currentUserId?.substring(0,6)} Target=${assignedId?.substring(0,6)} Owner=${commitment.owner_user_id?.substring(0,6)}`);
 
     // Improve name resolution
     const requesterName = commitment.owner?.full_name || (isOwner ? 'Mí' : 'Alguien');
