@@ -96,7 +96,7 @@ export const createCommitment = async (userId: string, data: any) => {
             due_at,
             message_id,
             owner_user_id: userId,
-            assigned_to_user_id: assigned_to_user_id || userId,
+            assigned_to_user_id: assigned_to_user_id,
             group_conversation_id,
             is_group_task,
             status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
