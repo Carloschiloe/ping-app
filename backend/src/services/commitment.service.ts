@@ -99,7 +99,7 @@ export const createCommitment = async (userId: string, data: any) => {
             assigned_to_user_id: assigned_to_user_id || userId,
             group_conversation_id,
             is_group_task,
-            status: assigned_to_user_id && assigned_to_user_id !== userId ? 'pending' : 'accepted',
+            status: assigned_to_user_id && assigned_to_user_id !== userId ? 'proposed' : 'accepted',
             meta
         })
         .select()
@@ -179,12 +179,15 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
 };
 
 export const postponeCommitment = async (userId: string, id: string, newDate: string) => {
+    // Fetch current state to merge meta
+    const { data: currentTask } = await supabaseAdmin.from('commitments').select('due_at, meta').eq('id', id).single();
+
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update({ 
             due_at: newDate,
-            status: 'pending',
-            meta: { original_due_at: newDate } // Placeholder
+            status: 'proposed',
+            meta: { ...(currentTask?.meta || {}), original_due_at: currentTask?.due_at } 
         })
         .eq('id', id)
         .eq('assigned_to_user_id', userId)

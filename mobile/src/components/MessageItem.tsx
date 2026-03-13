@@ -338,15 +338,17 @@ const MessageItemComponent = ({
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
+                // Priority: Task assigned to ME, otherwise the first task related to this message
                 const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);
-                const isOwner = tasks[0].owner_user_id === user?.id;
+                const displayTask = myTask || tasks[0];
 
-                if (myTask) {
-                    return <GroupTaskCard key={myTask.id} commitment={myTask} />;
-                } else if (isOwner) {
-                    return <GroupTaskCard key={tasks[0].id} commitment={{ ...tasks[0], _isEveryoneSummary: tasks.length > 1 }} />;
-                }
-                return null;
+                return <GroupTaskCard 
+                    key={displayTask.id} 
+                    commitment={{ 
+                        ...displayTask, 
+                        _isEveryoneSummary: !myTask && tasks.length > 1 
+                    }} 
+                />;
             })()}
 
         </Swipeable>
@@ -361,6 +363,7 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.isMultiSelecting === next.isMultiSelecting &&
         prev.highlightedMsgId === next.highlightedMsgId &&
         prev.item.status === next.item.status &&
+        prev.item.meta === next.item.meta && // Added: Re-render when meta changes (AI suggestion)
         prev.item.message_reactions?.length === next.item.message_reactions?.length &&
         prev.groupTasks?.length === next.groupTasks?.length
     );
