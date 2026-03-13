@@ -134,7 +134,7 @@ export default function ChatScreen({ navigation }: any) {
                     onSummarize={handleSummarize}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'voice' })}
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'video' })}
-                    onInfo={() => navigation.navigate(isGroup ? 'GroupInfo' : 'ContactInfo', { conversationId, otherUser })}
+                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup })}
                 />
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
