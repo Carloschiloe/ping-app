@@ -148,7 +148,7 @@ export default function ChatScreen({ navigation }: any) {
     const handleSummarize = async () => {
         setIsSummarizing(true);
         try {
-            const res = await apiClient.post('/ai/summarize-conversation', { conversationId });
+            const res = await apiClient.post('/ai/summarize', { conversationId });
             setSummary(res.summary || 'No se pudo generar el resumen.');
         } catch (err) {
             console.error('[AI] Summarize failed:', err);
