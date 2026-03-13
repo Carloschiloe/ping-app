@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -151,6 +153,27 @@ export const createCommitment = async (userId: string, data: any) => {
     return commitment;
 };
 
+async function insertSystemMessage(userId: string, conversationId: string, text: string) {
+    if (!conversationId) return;
+    try {
+        await supabaseAdmin.from('messages').insert({
+            conversation_id: conversationId,
+            sender_id: userId,
+            user_id: userId,
+            text,
+            meta: { isSystem: true },
+            status: 'sent'
+        });
+    } catch (err) {
+        console.error('[Commitment Service] insertSystemMessage failed:', err);
+    }
+}
+
+async function getUserName(userId: string) {
+    const { data } = await supabaseAdmin.from('profiles').select('full_name').eq('id', userId).single();
+    return data?.full_name || 'Alguien';
+}
+
 export const acceptCommitment = async (userId: string, id: string) => {
     const { data, error } = await supabaseAdmin
         .from('commitments')
@@ -164,6 +187,10 @@ export const acceptCommitment = async (userId: string, id: string) => {
         .single();
 
     if (error) throw error;
+
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.group_conversation_id, `✅ ${userName} aceptó la propuesta: "${data.title}"`);
+
     return data;
 };
 
@@ -180,6 +207,10 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
         .single();
 
     if (error) throw error;
+
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.group_conversation_id, `❌ ${userName} rechazó la propuesta: "${data.title}"${reason ? ` (Motivo: ${reason})` : ''}`);
+
     return data;
 };
 
@@ -200,6 +231,11 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
         .single();
 
     if (error) throw error;
+
+    const userName = await getUserName(userId);
+    const newDateStr = format(new Date(newDate), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
+    await insertSystemMessage(userId, data.group_conversation_id, `🕒 ${userName} pospuso la propuesta "${data.title}" para el ${newDateStr}`);
+
     return data;
 };
 
