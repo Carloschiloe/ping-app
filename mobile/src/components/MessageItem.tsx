@@ -146,7 +146,8 @@ const MessageItemComponent = ({
                 closeSwipeable();
             }}
         >
-            <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
+            <View> {/* Container to ensure stacked layout of bubble + chip + task cards */}
+                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -345,28 +346,24 @@ const MessageItemComponent = ({
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
-                console.warn(`[DEBUG-TASKS] Message ${item.id.substring(0,8)} has ${tasks.length} tasks matching. UserID: ${user?.id}`);
-
-                // Priority: Task assigned to ME, otherwise the first task related to this message
                 const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);
                 const displayTask = myTask || tasks[0];
 
-                console.warn(`[DEBUG-TASKS] Chosen DisplayTask ID: ${displayTask.id}, Status: ${displayTask.status}, AssignedTo: ${displayTask.assigned_to_user_id}`);
-
-                return <GroupTaskCard 
-                    key={displayTask.id} 
-                    commitment={{ 
-                        ...displayTask, 
-                        _isEveryoneSummary: !myTask && tasks.length > 1 
-                    }} 
-                />;
+                return (
+                    <GroupTaskCard 
+                        key={displayTask.id} 
+                        commitment={{ 
+                            ...displayTask, 
+                            _isEveryoneSummary: !myTask && tasks.length > 1 
+                        }} 
+                    />
+                );
             })()}
-
+            </View>
         </Swipeable>
     );
 };
 
-// Optimization: React.memo with custom comparison
 export const MessageItem = memo(MessageItemComponent, (prev, next) => {
     return (
         prev.item.id === next.item.id &&
@@ -374,9 +371,9 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.isMultiSelecting === next.isMultiSelecting &&
         prev.highlightedMsgId === next.highlightedMsgId &&
         prev.item.status === next.item.status &&
-        prev.item.meta === next.item.meta && // Added: Re-render when meta changes (AI suggestion)
-        prev.item.message_reactions?.length === next.item.message_reactions?.length &&
-        prev.groupTasks?.length === next.groupTasks?.length
+        // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
+        JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
+        prev.groupTasks === next.groupTasks
     );
 });
 
@@ -451,19 +448,20 @@ const styles = StyleSheet.create({
     suggestionChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f5f3ff',
-        borderRadius: 20,
+        backgroundColor: '#e0e7ff', // Indigo 100
+        borderRadius: 12,
         paddingHorizontal: 12,
-        paddingVertical: 6,
-        marginTop: 6,
-        borderWidth: 1,
-        borderColor: '#ddd6fe',
+        paddingVertical: 8,
+        marginTop: 8,
+        marginBottom: 4,
+        borderWidth: 1.5,
+        borderColor: '#818cf8', // Indigo 400
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        shadowColor: theme.colors.secondary,
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
+        shadowColor: '#4f46e5',
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
     },
     suggestionIcon: {
         fontSize: 14,
@@ -471,7 +469,7 @@ const styles = StyleSheet.create({
     },
     suggestionText: {
         fontSize: 12,
-        fontWeight: '600',
-        color: theme.colors.secondary,
+        fontWeight: '700',
+        color: '#312e81', // Indigo 900 for high contrast
     },
 });
