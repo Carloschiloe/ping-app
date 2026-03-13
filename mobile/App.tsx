@@ -19,13 +19,19 @@ const BackendBanner = () => {
     useEffect(() => {
         const checkHealth = async () => {
             try {
+                // We check the health relative to the API_URL. 
+                // Note: apiClient already handles cases where backend is rebooting with retries, 
+                // but this banner is for the global initial connection.
                 const res = await fetch(`${API_URL}/health`);
                 setConnected(res.ok);
             } catch {
                 setConnected(false);
             }
         };
+
         checkHealth();
+        const timer = setInterval(checkHealth, 20000); // Check every 20s
+        return () => clearInterval(timer);
     }, []);
 
     if (connected === null || connected === true) return null;
