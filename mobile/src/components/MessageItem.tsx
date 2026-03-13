@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking
 } from 'react-native';
@@ -8,9 +8,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
-
-// ─── Constants (Matched with ChatScreen) ───
-const BUBBLE_BLUE = '#005c4b';
+import { theme } from '../theme/theme';
 
 interface MessageItemProps {
     item: any;
@@ -30,7 +28,7 @@ interface MessageItemProps {
     swipeableRowRefs: React.MutableRefObject<Map<string, any>>;
 }
 
-const MessageItem = ({
+const MessageItemComponent = ({
     item, user, isGroup, isMultiSelecting, isSelected,
     highlightedMsgId, groupTasks, onPress, onLongPress,
     onToggleSelect, onSwipeLeft, onViewReactions,
@@ -121,7 +119,7 @@ const MessageItem = ({
         return (
             <View style={{ width: 60, justifyContent: 'center', alignItems: 'center' }}>
                 <Animated.View style={{ transform: [{ translateX: trans }], width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center', alignItems: 'center' }}>
-                    <Ionicons name="arrow-undo" size={18} color="#6b7280" />
+                    <Ionicons name="arrow-undo" size={18} color={theme.colors.text.secondary} />
                 </Animated.View>
             </View>
         );
@@ -148,7 +146,7 @@ const MessageItem = ({
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
-                            {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
+                            {isSelected && <Ionicons name="checkmark" size={14} color={theme.colors.white} />}
                         </View>
                     </TouchableOpacity>
                 )}
@@ -201,13 +199,13 @@ const MessageItem = ({
                         {/* ─── Quoted Message (Reply) ─── */}
                         {item.reply_to && !Array.isArray(item.reply_to) && (
                             <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
-                                <Text style={[styles.quotedName, isMe ? { color: 'white' } : { color: '#8b5cf6' }]} numberOfLines={1}>
+                                <Text style={[styles.quotedName, isMe ? { color: theme.colors.white } : { color: theme.colors.secondary }]} numberOfLines={1}>
                                     {(() => {
                                         const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
                                         return p?.full_name || (p?.email || 'Usuario').split('@')[0];
                                     })()}
                                 </Text>
-                                <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: '#4b5563' }]} numberOfLines={1}>
+                                <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: theme.colors.text.secondary }]} numberOfLines={1}>
                                     {item.reply_to.text || 'Sin texto'}
                                 </Text>
                             </View>
@@ -243,7 +241,7 @@ const MessageItem = ({
                                         resizeMode={ResizeMode.COVER}
                                     />
                                     <View style={styles.videoPlayOverlay}>
-                                        <Ionicons name="play-circle" size={48} color="white" />
+                                        <Ionicons name="play-circle" size={48} color={theme.colors.white} />
                                     </View>
                                 </View>
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { padding: 8, fontSize: 14 }]}>{description}</Text> : null}
@@ -256,8 +254,8 @@ const MessageItem = ({
                         ) : isDocument && mediaUrl ? (
                             <View>
                                 <View style={styles.documentBubble}>
-                                    <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: '#e5e7eb' }]}>
-                                        <Ionicons name="document-text" size={24} color={isMe ? 'white' : '#6b7280'} />
+                                    <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: theme.colors.background }]}>
+                                        <Ionicons name="document-text" size={24} color={isMe ? theme.colors.white : theme.colors.text.secondary} />
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
@@ -274,15 +272,23 @@ const MessageItem = ({
 
 
                         <View style={styles.metaRow}>
-                            {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : '#9ca3af', marginRight: 4 }}>R</Text>}
+                            {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : theme.colors.text.muted, marginRight: 4 }}>R</Text>}
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                             {isMe && (
                                 <View style={{ marginLeft: 4 }}>
-                                    <Ionicons
-                                        name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
-                                        size={14}
-                                        color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? '#9ca3af' : 'rgba(255,255,255,0.7)')}
-                                    />
+                                    {item.status === 'pending_offline' ? (
+                                        <Ionicons
+                                            name="time-outline"
+                                            size={14}
+                                            color="rgba(255,255,255,0.6)"
+                                        />
+                                    ) : (
+                                        <Ionicons
+                                            name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
+                                            size={14}
+                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? theme.colors.text.muted : 'rgba(255,255,255,0.7)')}
+                                        />
+                                    )}
                                 </View>
                             )}
                         </View>
@@ -332,16 +338,12 @@ const MessageItem = ({
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
                 if (tasks.length === 0) return null;
 
-                // Logic: 
-                // 1. If I am the creator, show the first one (as a summary)
-                // 2. If I am an assignee, show only MINE
                 const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);
                 const isOwner = tasks[0].owner_user_id === user?.id;
 
                 if (myTask) {
                     return <GroupTaskCard key={myTask.id} commitment={myTask} />;
                 } else if (isOwner) {
-                    // Show a representative one for the owner
                     return <GroupTaskCard key={tasks[0].id} commitment={{ ...tasks[0], _isEveryoneSummary: tasks.length > 1 }} />;
                 }
                 return null;
@@ -351,12 +353,25 @@ const MessageItem = ({
     );
 };
 
+// Optimization: React.memo with custom comparison
+export const MessageItem = memo(MessageItemComponent, (prev, next) => {
+    return (
+        prev.item.id === next.item.id &&
+        prev.isSelected === next.isSelected &&
+        prev.isMultiSelecting === next.isMultiSelecting &&
+        prev.highlightedMsgId === next.highlightedMsgId &&
+        prev.item.status === next.item.status &&
+        prev.item.message_reactions?.length === next.item.message_reactions?.length &&
+        prev.groupTasks?.length === next.groupTasks?.length
+    );
+});
+
 export default MessageItem;
 
 const styles = StyleSheet.create({
-    dateDivider: { alignItems: 'center', marginVertical: 10 },
+    dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
     dateDividerText: {
-        backgroundColor: 'rgba(0,0,0,0.2)', color: 'white',
+        backgroundColor: 'rgba(0,0,0,0.2)', color: theme.colors.white,
         fontSize: 12, paddingHorizontal: 12, paddingVertical: 4,
         borderRadius: 10, overflow: 'hidden', fontWeight: '500',
     },
@@ -366,25 +381,25 @@ const styles = StyleSheet.create({
     bubble: {
         borderRadius: 16, paddingHorizontal: 12,
         paddingTop: 8, paddingBottom: 6,
-        shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 2, elevation: 1,
+        shadowColor: theme.colors.black, shadowOpacity: 0.08, shadowRadius: 2, elevation: 1,
     },
-    bubbleMe: { backgroundColor: BUBBLE_BLUE, borderBottomRightRadius: 4 },
-    bubbleThem: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
+    bubbleMe: { backgroundColor: theme.colors.whatsapp.teal, borderBottomRightRadius: 4 },
+    bubbleThem: { backgroundColor: theme.colors.white, borderBottomLeftRadius: 4 },
     bubbleHighlighted: { backgroundColor: '#bfdbfe' },
     senderAvatarContainer: {
         width: 32, height: 32, marginRight: 8, alignSelf: 'flex-end', marginBottom: 2,
     },
     senderAvatar: { width: 32, height: 32, borderRadius: 16 },
-    senderAvatarText: { color: 'white', fontSize: 12, fontWeight: '700' },
+    senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
-    senderName: { fontSize: 12, fontWeight: '700', color: BUBBLE_BLUE, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
+    senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.whatsapp.teal, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
     msgText: { fontSize: 15.5, lineHeight: 21 },
-    msgTextMe: { color: 'white' },
-    msgTextThem: { color: '#111827' },
+    msgTextMe: { color: theme.colors.white },
+    msgTextThem: { color: theme.colors.text.primary },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
     timeText: { fontSize: 11 },
     timeMe: { color: 'rgba(255,255,255,0.7)' },
-    timeThem: { color: '#9ca3af' },
+    timeThem: { color: theme.colors.text.muted },
     msgImage: { width: 220, height: 220, borderRadius: 10 },
     inlineVideoWrap: { position: 'relative', width: 220, height: 220, borderRadius: 10, overflow: 'hidden' },
     videoPlayOverlay: {
@@ -404,21 +419,21 @@ const styles = StyleSheet.create({
     checkbox: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
     checkCircle: {
         width: 22, height: 22, borderRadius: 11,
-        borderWidth: 2, borderColor: '#9ca3af',
+        borderWidth: 2, borderColor: theme.colors.text.muted,
         alignItems: 'center', justifyContent: 'center',
     },
     checkCircleOn: { backgroundColor: '#0a84ff', borderColor: '#0a84ff' },
     bubbleSelected: { opacity: 0.75 },
     quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
-    quotedMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: 'white' },
-    quotedThem: { backgroundColor: '#f3f4f6', borderLeftColor: '#8b5cf6' },
+    quotedMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: theme.colors.white },
+    quotedThem: { backgroundColor: theme.colors.background, borderLeftColor: theme.colors.secondary },
     quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
     quotedText: { fontSize: 12 },
     reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', position: 'absolute', bottom: -10, gap: 4, zIndex: 100 },
     reactionsMe: { right: 8 },
     reactionsThem: { left: 8 },
-    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#e5e7eb', gap: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
-    reactionCount: { fontSize: 11, fontWeight: '700', color: '#4b5563' },
+    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.white, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.border, gap: 2, shadowColor: theme.colors.black, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
+    reactionCount: { fontSize: 11, fontWeight: '700', color: theme.colors.text.secondary },
     suggestionChip: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -431,7 +446,7 @@ const styles = StyleSheet.create({
         borderColor: '#ddd6fe',
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        shadowColor: '#6366f1',
+        shadowColor: theme.colors.secondary,
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 2,
@@ -443,6 +458,6 @@ const styles = StyleSheet.create({
     suggestionText: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#6366f1',
+        color: theme.colors.secondary,
     },
 });

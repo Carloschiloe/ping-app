@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import * as aiService from '../services/ai.service';
+import { transcribeAudio } from '../services/transcription.service';
+import { askPing as askPingService, summarizeConversation } from '../services/synthesis.service';
+import { analyzeAndSuggestTask } from '../services/message.service';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -38,7 +40,7 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
             try {
                 const tempFile = path.join(os.tmpdir(), `ping_ask_audio_${Date.now()}.m4a`);
                 await downloadFile(audioUrl, tempFile);
-                const transcript = await aiService.transcribeAudio(tempFile);
+                const transcript = await transcribeAudio(tempFile);
                 if (transcript) {
                     processingText = transcript;
                 }
@@ -68,7 +70,7 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
 
         // 2. Call AI Service
         const nowIso = new Date().toISOString();
-        const answer = await aiService.askPing(processingText, nowIso, {
+        const answer = await askPingService(processingText, nowIso, {
             commitments: commitments || []
         });
 
@@ -145,7 +147,7 @@ export const summarize = async (req: Request, res: Response): Promise<void> => {
         }
 
         // 2. Call AI Service (reverse to keep chronological order for the AI)
-        const summary = await aiService.summarizeConversation([...messages].reverse());
+        const summary = await summarizeConversation([...messages].reverse());
 
         res.status(200).json({ summary });
     } catch (error: any) {
@@ -157,7 +159,6 @@ export const summarize = async (req: Request, res: Response): Promise<void> => {
 export const analyzeMessage = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
-        const { analyzeAndSuggestTask } = require('../services/message.service');
 
         const { data: message, error: msgError } = await supabaseAdmin
             .from('messages')
