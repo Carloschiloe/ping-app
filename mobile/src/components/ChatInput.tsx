@@ -111,6 +111,16 @@ const styles = StyleSheet.create({
         paddingBottom: Platform.OS === 'ios' ? 24 : 8,
         gap: 6,
     },
+    recordBtn: {
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: theme.colors.primary,
+        justifyContent: 'center', alignItems: 'center',
+    },
+    sendBtn: {
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: theme.colors.primary,
+        justifyContent: 'center', alignItems: 'center',
+    },
     mediaBtn: {
         width: 42,
         height: 42,
@@ -133,14 +143,6 @@ const styles = StyleSheet.create({
         maxHeight: 120,
         color: theme.colors.text.primary,
         shadowColor: theme.colors.black, shadowOpacity: 0.06, shadowRadius: 2, elevation: 1,
-    },
-    sendBtn: {
-        backgroundColor: theme.colors.whatsapp.teal,
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     sendDisabled: {
         opacity: 0.4,

@@ -105,6 +105,14 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             })
             .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'messages',
+                filter: `conversation_id=eq.${conversationId}`
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            })
+            .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'commitments'

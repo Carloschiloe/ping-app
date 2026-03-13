@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { insertSystemMessage } from './message.service';
 import { NotificationService } from './notification.service';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -79,15 +78,14 @@ export const extractCommitment = async (
 };
 
 export const createCommitment = async (userId: string, data: any) => {
-    const { 
-        title, 
-        due_at, 
-        message_id, 
-        assigned_to_user_id, 
-        group_conversation_id, 
-        is_group_task = false,
-        meta = {} 
-    } = data;
+    // Standardize field names (handle both camelCase from AI and snake_case from schema)
+    const title = data.title;
+    const due_at = data.due_at || data.dueAt;
+    const message_id = data.message_id || data.messageId;
+    const assigned_to_user_id = data.assigned_to_user_id || data.assignedToUserId;
+    const group_conversation_id = data.group_conversation_id || data.groupConversationId;
+    const is_group_task = data.is_group_task || data.isGroupTask || false;
+    const meta = data.meta || {};
 
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')
@@ -122,7 +120,14 @@ export const createCommitment = async (userId: string, data: any) => {
             sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'}`;
         }
 
-        await insertSystemMessage(group_conversation_id, sysText, userId);
+        await supabaseAdmin.from('messages').insert({
+            conversation_id: group_conversation_id,
+            sender_id: userId,
+            user_id: userId, // Added for backward compatibility/consistency
+            text: sysText,
+            meta: { isSystem: true },
+            status: 'sent'
+        });
     }
 
     return commitment;

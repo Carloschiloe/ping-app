@@ -286,7 +286,7 @@ const MessageItemComponent = ({
                                         <Ionicons
                                             name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
                                             size={14}
-                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? theme.colors.text.muted : 'rgba(255,255,255,0.7)')}
+                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? theme.colors.text.muted : 'rgba(0,0,0,0.4)')}
                                         />
                                     )}
                                 </View>
@@ -297,7 +297,7 @@ const MessageItemComponent = ({
                     {/* ─── AI Suggestion Chip ─── */}
                     {item.meta?.suggestedTask && (
                         <TouchableOpacity
-                            style={styles.suggestionChip}
+                            style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
                             onPress={() => onPress({ ...item, _isSuggestionTap: true })}
                             activeOpacity={0.7}
                         >
@@ -383,8 +383,8 @@ const styles = StyleSheet.create({
         paddingTop: 8, paddingBottom: 6,
         shadowColor: theme.colors.black, shadowOpacity: 0.08, shadowRadius: 2, elevation: 1,
     },
-    bubbleMe: { backgroundColor: theme.colors.whatsapp.teal, borderBottomRightRadius: 4 },
-    bubbleThem: { backgroundColor: theme.colors.white, borderBottomLeftRadius: 4 },
+    bubbleMe: { backgroundColor: theme.colors.bubbleMe, borderBottomRightRadius: 4 },
+    bubbleThem: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4 },
     bubbleHighlighted: { backgroundColor: '#bfdbfe' },
     senderAvatarContainer: {
         width: 32, height: 32, marginRight: 8, alignSelf: 'flex-end', marginBottom: 2,
@@ -392,13 +392,13 @@ const styles = StyleSheet.create({
     senderAvatar: { width: 32, height: 32, borderRadius: 16 },
     senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
-    senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.whatsapp.teal, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
+    senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.success, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
     msgText: { fontSize: 15.5, lineHeight: 21 },
-    msgTextMe: { color: theme.colors.white },
-    msgTextThem: { color: theme.colors.text.primary },
+    msgTextMe: { color: theme.colors.bubbleTextMe },
+    msgTextThem: { color: theme.colors.bubbleTextThem },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
     timeText: { fontSize: 11 },
-    timeMe: { color: 'rgba(255,255,255,0.7)' },
+    timeMe: { color: 'rgba(0,0,0,0.5)' },
     timeThem: { color: theme.colors.text.muted },
     msgImage: { width: 220, height: 220, borderRadius: 10 },
     inlineVideoWrap: { position: 'relative', width: 220, height: 220, borderRadius: 10, overflow: 'hidden' },

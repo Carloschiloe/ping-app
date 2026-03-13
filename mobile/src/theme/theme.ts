@@ -17,6 +17,10 @@ export const theme = {
             light: '#ffffff',
         },
         border: '#e5e7eb',
+        bubbleMe: '#e7ffdb',     // WhatsApp-like Me (Light)
+        bubbleThem: '#ffffff',   // WhatsApp-like Them (Light)
+        bubbleTextMe: '#111827',
+        bubbleTextThem: '#111827',
         whatsapp: {
             teal: '#005c4b',
             lightTeal: '#00a884',
