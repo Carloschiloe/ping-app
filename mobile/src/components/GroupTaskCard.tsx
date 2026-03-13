@@ -41,7 +41,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const currentUserId = user?.id?.toLowerCase();
     const assignedId = commitment.assigned_to_user_id?.toLowerCase();
-    const isAssignee = !!currentUserId && !!assignedId && currentUserId === assignedId;
+    const isOwner = !!currentUserId && commitment.owner_user_id?.toLowerCase() === currentUserId;
+    const isEveryone = !commitment.assigned_to_user_id;
+    // You are an assignee if it's assigned to you specifically, or if it's for everyone and you're not the owner
+    const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
 
     const status = commitment.status;
     const isDone = status === 'completed';
@@ -53,15 +56,15 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     // DEBUG: Commitment State
     console.warn(`[DEBUG-CARD] Task: ${commitment.title.substring(0,15)} | Status: ${status} | isAssignee: ${isAssignee} | IDs: Me=${currentUserId?.substring(0,6)} Target=${assignedId?.substring(0,6)}`);
 
-    // Phase 8: Show "Requested by" if I am the assignee
-    const requesterName = commitment.owner?.full_name || commitment.owner?.email?.split('@')[0] || 'Alguien';
-    const assigneeName = (commitment as any)._isEveryoneSummary
+    // Improve name resolution
+    const requesterName = commitment.owner?.full_name || (isOwner ? 'Mí' : 'Alguien');
+    const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id
         ? 'Todos'
-        : (commitment.assignee?.full_name || commitment.assignee?.email?.split('@')[0] || 'Alguien');
+        : (commitment.assignee?.full_name || (isAssignee ? 'Mí' : 'Alguien'));
 
     const displayName = isAssignee
         ? `De: ${requesterName}`
-        : `Para: ${assigneeName}`;
+        : (isOwner ? `Para: ${assigneeName}` : `Para: ${assigneeName}`);
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "HH:mm", { locale: es })

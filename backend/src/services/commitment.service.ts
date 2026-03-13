@@ -99,7 +99,7 @@ export const createCommitment = async (userId: string, data: any) => {
             assigned_to_user_id: assigned_to_user_id || userId,
             group_conversation_id,
             is_group_task,
-            status: assigned_to_user_id && assigned_to_user_id !== userId ? 'proposed' : 'accepted',
+            status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
             meta
         })
         .select()
@@ -121,7 +121,9 @@ export const createCommitment = async (userId: string, data: any) => {
             
             const senderName = profile?.full_name || 'Alguien';
             let sysText = `✨ ${senderName} agendó: ${title}`;
-            if (assigned_to_user_id && assigned_to_user_id !== userId) {
+            if (!assigned_to_user_id) {
+                 sysText = `✨ ${senderName} propuso agendar "${title}" para todos`;
+            } else if (assigned_to_user_id !== userId) {
                 const { data: target } = await supabaseAdmin.from('profiles').select('full_name').eq('id', assigned_to_user_id).single();
                 sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'}`;
             }
@@ -201,7 +203,11 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
 export const getCommitments = async (userId: string, status?: string, conversationId?: string) => {
     let query = supabaseAdmin
         .from('commitments')
-        .select('*');
+        .select(`
+            *,
+            owner:owner_user_id(id, full_name, email, avatar_url),
+            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
+        `);
 
     if (conversationId) {
         query = query.eq('group_conversation_id', conversationId);
