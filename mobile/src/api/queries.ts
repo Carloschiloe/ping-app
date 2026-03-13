@@ -567,6 +567,25 @@ export const useGroupTasks = () => {
  */
 export const useConversationGroupTasks = (conversationId: string | null) => {
     const { user } = useAuth();
+    const queryClient = useQueryClient();
+
+    useEffect(() => {
+        if (!conversationId) return;
+        const channel = supabase
+            .channel(`group-tasks-${conversationId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'commitments', filter: `group_conversation_id=eq.${conversationId}` },
+                () => {
+                    queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+                    // Also invalidate general commitments to keep Insights updated
+                    queryClient.invalidateQueries({ queryKey: ['commitments'] });
+                }
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [conversationId, queryClient]);
+
     return useQuery({
         queryKey: ['group-tasks-conv', conversationId, user?.id],
         queryFn: async () => {
