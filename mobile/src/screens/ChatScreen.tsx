@@ -139,6 +139,7 @@ export default function ChatScreen({ navigation }: any) {
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
             headerTintColor: theme.colors.white,
+            headerRight: () => null, // Explicitly clear any right buttons
         });
     }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing]);
 
@@ -331,6 +332,24 @@ export default function ChatScreen({ navigation }: any) {
                             renderItem={renderMessage}
                             onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                             onEndReachedThreshold={0.3}
+                            ListHeaderComponent={() => isGroup ? (
+                                <View style={styles.listHeaderSummary}>
+                                    <TouchableOpacity 
+                                        style={styles.floatingSummarizeBtn} 
+                                        onPress={handleSummarize}
+                                        disabled={isSummarizing}
+                                    >
+                                        {isSummarizing ? (
+                                            <ActivityIndicator size="small" color="white" />
+                                        ) : (
+                                            <>
+                                                <Ionicons name="sparkles" size={16} color="white" />
+                                                <Text style={styles.floatingSummarizeText}>Resumir Conversación</Text>
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            ) : null}
                             ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
                             contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
                         />
@@ -540,4 +559,28 @@ const styles = StyleSheet.create({
     replyPreviewContent: { flex: 1, borderLeftWidth: 3, borderLeftColor: theme.colors.whatsapp.teal, paddingLeft: 10 },
     replyPreviewName: { fontSize: 13, fontWeight: '700', color: theme.colors.whatsapp.teal, marginBottom: 2 },
     replyPreviewText: { fontSize: 13, color: theme.colors.text.secondary },
+    listHeaderSummary: {
+        width: '100%',
+        alignItems: 'center',
+        marginVertical: 10,
+    },
+    floatingSummarizeBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(99, 102, 241, 0.9)',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        gap: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    floatingSummarizeText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '600',
+    },
 });

@@ -26,39 +26,25 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
     return (
         <View style={styles.headerContainer}>
-            <View style={styles.titleSection}>
+            <TouchableOpacity style={styles.titleSection} onPress={onInfo} activeOpacity={0.7}>
                 {avatarUrl ? (
                     <View style={styles.avatarWrap}>
                         <Image source={{ uri: avatarUrl }} style={styles.avatar} />
                     </View>
-                ) : null}
-                <Text style={styles.titleText} numberOfLines={1}>{chatTitle}</Text>
-            </View>
-            <View style={styles.actionsSection}>
-                {isGroup && (
-                    <TouchableOpacity
-                        onPress={onSummarize}
-                        style={styles.headerActionBtn}
-                        disabled={isSummarizing}
-                    >
-                        {isSummarizing ? (
-                            <ActivityIndicator size="small" color={theme.colors.secondary} />
-                        ) : (
-                            <View style={styles.summarizeBtnInner}>
-                                <Ionicons name="sparkles" size={16} color={theme.colors.secondary} />
-                                <Text style={styles.summarizeBtnText}>Resumir</Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
+                ) : (
+                    <View style={[styles.avatarWrap, { backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }]}>
+                        <Ionicons name={isGroup ? "people" : "person"} size={20} color={theme.colors.secondary} />
+                    </View>
                 )}
-                <TouchableOpacity onPress={onVoiceCall}>
-                    <Ionicons name="call" size={22} color={theme.colors.white} />
+                <Text style={styles.titleText} numberOfLines={1}>{chatTitle}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.actionsSection}>
+                <TouchableOpacity onPress={onVoiceCall} style={styles.iconBtn}>
+                    <Ionicons name="call" size={20} color={theme.colors.white} />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={onVideoCall}>
-                    <Ionicons name="videocam" size={24} color={theme.colors.white} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={onInfo}>
-                    <Ionicons name="ellipsis-vertical" size={24} color={theme.colors.white} />
+                <TouchableOpacity onPress={onVideoCall} style={styles.iconBtn}>
+                    <Ionicons name="videocam" size={22} color={theme.colors.white} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -115,5 +101,10 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: theme.colors.secondary,
+    },
+    iconBtn: {
+        padding: 4,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });
