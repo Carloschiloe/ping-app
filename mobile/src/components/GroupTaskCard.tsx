@@ -28,6 +28,7 @@ interface GroupTaskCardProps {
         } | null;
         rejection_reason?: string | null;
         proposed_due_at?: string | null;
+        type?: 'task' | 'meeting';
     };
 }
 
@@ -70,10 +71,13 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
         : null;
 
+    const isMeeting = commitment.type === 'meeting';
+    const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
+
     const handleMarkDone = () => {
         Alert.alert(
-            'Completar Tarea',
-            '¿Confirmas que ya has completado esta tarea?',
+            `Completar ${typeLabel}`,
+            `¿Confirmas que ya has completado esta ${typeLabel.toLowerCase()}?`,
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
@@ -94,7 +98,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
 
     const handleReject = () => {
         Alert.prompt(
-            'Rechazar Tarea',
+            `Rechazar ${typeLabel}`,
             'Indica el motivo del rechazo:',
             [
                 { text: 'Cancelar', style: 'cancel' },
@@ -162,8 +166,12 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 ) : commitment.assignee?.avatar_url ? (
                     <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
                 ) : (
-                    <View style={[styles.avatar, styles.avatarFallback]}>
-                        <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
+                    <View style={[styles.avatar, styles.avatarFallback, isMeeting && { backgroundColor: '#8b5cf6' }]}>
+                        {isMeeting ? (
+                            <Ionicons name="calendar-outline" size={16} color="white" />
+                        ) : (
+                            <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
+                        )}
                     </View>
                 )}
             </View>
@@ -233,8 +241,8 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                             style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
                             onPress={() => { setShowActions(false); handleAccept(); }}
                         >
-                            <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
-                            <Text style={styles.menuItemText}>Aceptar Tarea</Text>
+                            <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
+                            <Text style={styles.menuItemText}>Aceptar {typeLabel}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity

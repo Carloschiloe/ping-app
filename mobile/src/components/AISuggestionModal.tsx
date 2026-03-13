@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { apiClient } from '../api/client';
 
 interface AISuggestionModalProps {
     visible: boolean;
@@ -25,7 +26,33 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     onUpdateData,
     avatarColor
 }) => {
+    const [conflicts, setConflicts] = useState<any[]>([]);
+    const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
+
+    useEffect(() => {
+        if (visible && suggestionData?.dueAt) {
+            checkConflicts();
+        } else {
+            setConflicts([]);
+        }
+    }, [visible, suggestionData?.dueAt, suggestionData?.assignedToUserId]);
+
+    const checkConflicts = async () => {
+        try {
+            setIsCheckingConflicts(true);
+            const res = await apiClient.get(`/commitments/check-conflict?dueAt=${suggestionData.dueAt}`);
+            setConflicts(res || []);
+        } catch (err) {
+            console.error('[AISuggestionModal] Conflict check failed:', err);
+        } finally {
+            setIsCheckingConflicts(false);
+        }
+    };
+
     if (!suggestionData) return null;
+
+    const isMeeting = suggestionData.type === 'meeting';
+    const typeLabel = isMeeting ? 'REUNIÓN' : 'TAREA';
 
     const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
     const assigneeName = suggestionData.assignedToUserId === null
@@ -46,21 +73,30 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                     </View>
 
                     <View style={styles.modalBody}>
-                        <Text style={styles.inputLabel}>TÍTULO DE LA TAREA</Text>
+                        <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
                         <TextInput
                             style={styles.modalInput}
                             value={suggestionData.title}
                             onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
-                            placeholder="Escribe el nombre de la tarea..."
+                            placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
                         />
 
                         <Text style={styles.inputLabel}>FECHA Y HORA</Text>
                         <View style={styles.datePreview}>
-                            <Ionicons name="calendar-outline" size={20} color="#6366f1" />
-                            <Text style={styles.dateText}>
+                            <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
+                            <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
                                 {new Date(suggestionData.dueAt).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                             </Text>
                         </View>
+
+                        {conflicts.length > 0 && (
+                            <View style={styles.conflictBanner}>
+                                <Ionicons name="warning" size={16} color="#ef4444" />
+                                <Text style={styles.conflictText}>
+                                    Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
+                                </Text>
+                            </View>
+                        )}
 
                         <Text style={styles.inputLabel}>RESPONSABLE</Text>
                         <View style={styles.assigneeSelectorContainer}>
@@ -81,7 +117,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
                                     onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id })}
                                 >
-                                    <View style={[styles.assigneeAvatar, { backgroundColor: '#6366f1' }]}>
+                                    <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? '#8b5cf6' : '#6366f1' }]}>
                                         <Text style={styles.assigneeAvatarText}>Yo</Text>
                                     </View>
                                     <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
@@ -105,17 +141,17 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         </View>
 
                         <View style={styles.currentAssigneeBadge}>
-                            <Ionicons name="checkmark-circle" size={16} color="#6366f1" />
+                            <Ionicons name="checkmark-circle" size={16} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
                             <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
                         </View>
                     </View>
 
                     <TouchableOpacity
-                        style={[styles.acceptBtn, isGroup ? (suggestionData.assignedToUserId === undefined && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 })]}
+                        style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup ? (suggestionData.assignedToUserId === undefined && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 }))]}
                         onPress={onConfirm}
                         disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
                     >
-                        <Text style={styles.acceptBtnText}>¡Agendar Ahora!</Text>
+                        <Text style={styles.acceptBtnText}>¡Agendar {isMeeting ? 'Reunión' : 'Tarea'}!</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -160,4 +196,20 @@ const styles = StyleSheet.create({
     currentAssigneeText: { fontSize: 13, color: '#4b5563' },
     acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+    conflictBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fee2e2',
+        padding: 10,
+        borderRadius: 12,
+        marginTop: -8,
+        marginBottom: 16,
+        gap: 8,
+    },
+    conflictText: {
+        fontSize: 12,
+        color: '#b91c1c',
+        fontWeight: '600',
+        flex: 1,
+    },
 });

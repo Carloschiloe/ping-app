@@ -12,6 +12,7 @@ export interface CommitmentExtraction {
     dueAt: string | null;       // ISO 8601 string or null
     replyText: string | null;   // confirmation message for the user
     assignedToName: string | null; // Phase 26: name of the person responsible (if mentioned)
+    type: 'task' | 'meeting';      // Differentiation
 }
 
 const SYSTEM_PROMPT = `Eres un asistente de productividad personal en español (Chile). Analizas mensajes de chat e identificas si el mensaje contiene un compromiso, tarea, recordatorio o evento con fecha/hora.
@@ -22,8 +23,11 @@ Extrae la siguiente información en JSON:
 - dueAt (string | null): fecha y hora en formato ISO 8601 (ej: 2026-03-05T15:00:00), calculada desde la fecha de hoy
 - replyText (string | null): Texto para el botón de acción UI. Debe ser muy corto y directo (ej: "Agendar reunión", "Guardar recordatorio", "Asignar tarea"). MÁXIMO 3 palabras.
 - assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor o no hay claridad, devuelve null.
+- type (string): "meeting" si es una reunión, call, junta o evento con hora fija. "task" si es una acción a realizar, un favor o un pendiente.
 
 Reglas:
+- REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral.
+- TAREA (task): Se refiere a ejecutar una acción técnica, enviar un documento, comprar algo, etc.
 - Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
 - "mañana" = día siguiente al enviado.
@@ -40,7 +44,7 @@ export const extractCommitment = async (
     imageUrl?: string
 ): Promise<CommitmentExtraction> => {
     if (!process.env.OPENAI_API_KEY) {
-        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null };
+        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null, type: 'task' };
     }
 
     try {
@@ -72,10 +76,11 @@ export const extractCommitment = async (
             dueAt: parsed.dueAt || null,
             replyText: parsed.replyText || null,
             assignedToName: parsed.assignedToName || null,
+            type: parsed.type === 'meeting' ? 'meeting' : 'task',
         };
     } catch (err) {
         console.error('[Commitment Service] extractCommitment failed:', err);
-        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null };
+        return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null, type: 'task' };
     }
 };
 
@@ -101,6 +106,7 @@ export const createCommitment = async (userId: string, data: any) => {
             assigned_to_user_id: assigned_to_user_id,
             group_conversation_id,
             is_group_task,
+            type: data.type || 'task',
             status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
             meta
         })
@@ -299,4 +305,24 @@ export const pingCommitment = async (userId: string, id: string) => {
         });
     }
     return { ok: true };
+};
+
+export const checkConflict = async (userId: string, dueAt: string) => {
+    const checkDate = new Date(dueAt);
+    const startRange = new Date(checkDate.getTime() - 30 * 60 * 1000).toISOString(); // -30 min
+    const endRange = new Date(checkDate.getTime() + 30 * 60 * 1000).toISOString();   // +30 min
+
+    const { data: conflicts, error } = await supabaseAdmin
+        .from('commitments')
+        .select('id, title, due_at, type')
+        .eq('status', 'accepted')
+        .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
+        .gte('due_at', startRange)
+        .lte('due_at', endRange);
+
+    if (error) {
+        console.error('[Commitment Service] checkConflict failed:', error);
+        return [];
+    }
+    return conflicts || [];
 };

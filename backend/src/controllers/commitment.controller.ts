@@ -179,3 +179,23 @@ export const pingCommitment = async (req: Request, res: Response): Promise<void>
         res.status(500).json({ error: error.message });
     }
 };
+
+export const checkConflict = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const dueAt = req.query.dueAt as string;
+        if (!dueAt) {
+            res.status(400).json({ error: 'Missing dueAt parameter' });
+            return;
+        }
+
+        const data = await commitmentService.checkConflict(userId, dueAt);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};

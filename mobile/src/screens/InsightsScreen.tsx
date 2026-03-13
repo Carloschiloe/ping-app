@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useInsights, useCreateCommitment, usePingConversation } from '../api/queries';
+import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -102,6 +103,9 @@ export default function InsightsScreen() {
     const commitments = data?.commitments || [];
     const ghostedChats = data?.ghostedChats || [];
 
+    const meetings = commitments.filter((c: any) => c.type === 'meeting');
+    const tasks = commitments.filter((c: any) => c.type === 'task' || !c.type);
+
     return (
         <View style={{ flex: 1 }}>
             <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -112,49 +116,78 @@ export default function InsightsScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* IA Briefing Card */}
-                <LinearGradient
-                    colors={['#1e293b', '#0f172a']}
-                    style={styles.briefingCard}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                >
+                {/* IA Briefing Card (Minimalist) */}
+                <View style={styles.briefingContainer}>
                     <View style={styles.briefingHeader}>
-                        <Ionicons name="sparkles" size={20} color="#60a5fa" />
+                        <Ionicons name="sparkles" size={18} color="#6366f1" />
                         <Text style={styles.briefingTitle}>{briefing.title}</Text>
                     </View>
                     <Text style={styles.briefingText}>{briefing.summary}</Text>
+                </View>
 
-                    {/* Proactive Suggestions */}
-                    {briefing.suggestions && briefing.suggestions.length > 0 && (
-                        <View style={styles.suggestionRow}>
-                            {briefing.suggestions.map((sug: any) => (
-                                <TouchableOpacity
-                                    key={sug.id}
-                                    style={styles.suggestionChip}
-                                    onPress={() => handleProactiveAction(sug)}
+                {/* Agenda: Meetings (Horizontal) */}
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Agenda del Día</Text>
+                        <Text style={styles.sectionBadge}>{meetings.length}</Text>
+                    </View>
+                    {meetings.length === 0 ? (
+                        <View style={styles.emptyCardInline}>
+                            <Text style={styles.emptyTextSmall}>Sin reuniones hoy</Text>
+                        </View>
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
+                            {meetings.map((meet: any) => (
+                                <TouchableOpacity 
+                                    key={meet.id} 
+                                    style={styles.meetingCard}
+                                    onPress={() => navigation.navigate('Chats', { screen: 'Chat', params: { conversationId: meet.conversation_id } })}
                                 >
-                                    <Ionicons
-                                        name={sug.type === 'OPEN_CHAT' ? 'chatbubble' : sug.type === 'COMPLETE_TASK' ? 'checkmark-circle' : 'flash'}
-                                        size={14}
-                                        color="#60a5fa"
-                                    />
-                                    <Text style={styles.suggestionChipText}>{sug.label}</Text>
+                                    <View style={styles.meetingTime}>
+                                        <Text style={styles.meetingTimeText}>
+                                            {format(new Date(meet.due_at), 'HH:mm')}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.meetingTitle} numberOfLines={2}>{meet.title}</Text>
+                                    <View style={styles.meetingFooter}>
+                                        <Ionicons name="videocam-outline" size={14} color="#8b5cf6" />
+                                        <Text style={styles.meetingContact}>Con {meet.assignee?.full_name || 'Alguien'}</Text>
+                                    </View>
                                 </TouchableOpacity>
                             ))}
-                        </View>
+                        </ScrollView>
                     )}
+                </View>
 
-                    {briefing.priority_commitment && (
-                        <TouchableOpacity
-                            style={styles.priorityCard}
-                            onPress={() => navigation.navigate('Tablero')}
-                        >
-                            <Text style={styles.priorityLabel}>PRIORIDAD HOY</Text>
-                            <Text style={styles.priorityText} numberOfLines={1}>{briefing.priority_commitment.title}</Text>
-                        </TouchableOpacity>
-                    )}
-                </LinearGradient>
+                {/* Proactive Suggestions */}
+                {briefing.suggestions && briefing.suggestions.length > 0 && (
+                    <View style={styles.suggestionRow}>
+                        {briefing.suggestions.map((sug: any) => (
+                            <TouchableOpacity
+                                key={sug.id}
+                                style={styles.suggestionChip}
+                                onPress={() => handleProactiveAction(sug)}
+                            >
+                                <Ionicons
+                                    name={sug.type === 'OPEN_CHAT' ? 'chatbubble' : sug.type === 'COMPLETE_TASK' ? 'checkmark-circle' : 'flash'}
+                                    size={14}
+                                    color="#60a5fa"
+                                />
+                                <Text style={styles.suggestionChipText}>{sug.label}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                )}
+
+                {briefing.priority_commitment && (
+                    <TouchableOpacity
+                        style={styles.priorityCard}
+                        onPress={() => navigation.navigate('Tablero')}
+                    >
+                        <Text style={styles.priorityLabel}>PRIORIDAD HOY</Text>
+                        <Text style={styles.priorityText} numberOfLines={1}>{briefing.priority_commitment.title}</Text>
+                    </TouchableOpacity>
+                )}
 
                 {/* Ghosted Chats Section */}
                 {ghostedChats.length > 0 && (
@@ -195,28 +228,35 @@ export default function InsightsScreen() {
                     </View>
                 )}
 
-                {/* Critical Tasks Section */}
+                {/* Action Engine: Tasks (Vertical) */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <View>
-                            <Text style={styles.sectionTitle}>Tareas Críticas</Text>
-                            <Text style={styles.sectionSub}>Pendientes por hacer</Text>
+                            <Text style={styles.sectionTitle}>Motor de Acción</Text>
+                            <Text style={styles.sectionSub}>Tus tareas pendientes</Text>
                         </View>
                         <TouchableOpacity onPress={() => navigation.navigate('Tablero')}>
                             <Text style={styles.viewAll}>Ver todo</Text>
                         </TouchableOpacity>
                     </View>
-                    {commitments.length === 0 ? (
-                        <View style={styles.emptyCard}>
-                            <Text style={styles.emptyText}>¡Todo al día! No hay tareas pendientes.</Text>
+                    {tasks.length === 0 ? (
+                        <View style={styles.emptyCardInline}>
+                            <Text style={styles.emptyTextSmall}>¡Todo al día! No hay tareas pendientes.</Text>
                         </View>
                     ) : (
-                        commitments.slice(0, 3).map((comm: any) => (
-                            <View key={comm.id} style={styles.commCard}>
-                                <View style={[styles.commDot, { backgroundColor: comm.priority === 'high' ? '#ef4444' : '#f59e0b' }]} />
-                                <Text style={styles.commText} numberOfLines={1}>{comm.title}</Text>
+                        tasks.slice(0, 5).map((comm: any) => (
+                            <TouchableOpacity 
+                                key={comm.id} 
+                                style={styles.actionTaskCard}
+                                onPress={() => navigation.navigate('Chats', { screen: 'Chat', params: { conversationId: comm.conversation_id } })}
+                            >
+                                <View style={[styles.taskDot, { backgroundColor: comm.priority === 'high' ? '#ef4444' : '#6366f1' }]} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.taskTitleMain} numberOfLines={1}>{comm.title}</Text>
+                                    <Text style={styles.taskSubtext}>{comm.assignee?.full_name || 'Para Mí'}</Text>
+                                </View>
                                 <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
-                            </View>
+                            </TouchableOpacity>
                         ))
                     )}
                 </View>
@@ -291,19 +331,29 @@ const styles = StyleSheet.create({
     title: { fontSize: 34, fontWeight: '900', color: '#0f172a', letterSpacing: -1 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-    briefingCard: { borderRadius: 24, padding: 24, marginBottom: 32, shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 12 },
-    briefingHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    briefingTitle: { color: 'white', fontWeight: '800', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1.5, marginLeft: 8 },
-    briefingText: { color: 'rgba(255,255,255,0.95)', fontSize: 18, fontWeight: '700', lineHeight: 26 },
+    briefingContainer: { backgroundColor: 'white', padding: 20, borderRadius: 24, marginBottom: 24, borderLeftWidth: 4, borderLeftColor: '#6366f1', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
+    briefingHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+    briefingTitle: { color: '#6366f1', fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 6 },
+    briefingText: { color: '#334155', fontSize: 16, fontWeight: '600', lineHeight: 24 },
+
     priorityCard: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, padding: 16, marginTop: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
     priorityLabel: { color: '#93c5fd', fontSize: 10, fontWeight: '900', marginBottom: 4, letterSpacing: 1 },
     priorityText: { color: 'white', fontSize: 15, fontWeight: '700' },
 
-    section: { marginBottom: 32 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    sectionTitle: { fontSize: 18, fontWeight: '800', color: '#1e293b' },
-    sectionSub: { fontSize: 13, color: '#64748b', marginBottom: 16, marginTop: -4 },
-    viewAll: { color: '#3b82f6', fontWeight: '700', fontSize: 14 },
+    horizontalScroll: { paddingBottom: 10 },
+    meetingCard: { backgroundColor: 'white', width: 220, padding: 16, borderRadius: 20, marginRight: 15, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+    meetingTime: { backgroundColor: '#f5f3ff', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, marginBottom: 10 },
+    meetingTimeText: { color: '#8b5cf6', fontWeight: '800', fontSize: 13 },
+    meetingTitle: { fontSize: 15, fontWeight: '700', color: '#1e293b', marginBottom: 8, height: 40 },
+    meetingFooter: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    meetingContact: { fontSize: 11, color: '#64748b', fontWeight: '600' },
+
+    section: { marginBottom: 28 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    sectionTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', flex: 1 },
+    sectionBadge: { backgroundColor: '#f1f5f9', color: '#64748b', fontSize: 12, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12, overflow: 'hidden' },
+    sectionSub: { fontSize: 13, color: '#64748b', marginTop: 2 },
+    viewAll: { color: '#6366f1', fontWeight: '700', fontSize: 14 },
 
     ghostCardWrapper: { backgroundColor: 'white', borderRadius: 20, marginBottom: 16, borderWidth: 1, borderColor: '#f1f5f9', overflow: 'hidden' },
     ghostCard: { padding: 16 },
@@ -371,4 +421,11 @@ const styles = StyleSheet.create({
     errorText: { fontSize: 14, color: '#64748b', marginTop: 8, textAlign: 'center', paddingHorizontal: 40 },
     retryBtn: { marginTop: 20, backgroundColor: '#f1f5f9', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
     retryBtnText: { color: '#3b82f6', fontWeight: '700' },
+
+    actionTaskCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 16, borderRadius: 18, marginBottom: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    taskDot: { width: 4, height: 24, borderRadius: 2, marginRight: 16 },
+    taskTitleMain: { fontSize: 15, fontWeight: '700', color: '#1e293b', marginBottom: 2 },
+    taskSubtext: { fontSize: 12, color: '#94a3b8', fontWeight: '500' },
+    emptyCardInline: { padding: 40, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 20, width: '100%' },
+    emptyTextSmall: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
 });

@@ -71,6 +71,7 @@ router.post('/commitments/:id/postpone', requireAuth, commitmentController.postp
 router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
+router.get('/commitments/check-conflict', requireAuth, commitmentController.checkConflict);
 
 // Search
 router.get('/search', requireAuth, searchController.search);
