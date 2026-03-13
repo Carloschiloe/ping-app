@@ -61,7 +61,8 @@
           "cameraPermission": "Ping necesita acceso a tu cámara para las videollamadas.",
           "microphonePermission": "Ping necesita acceso a tu micrófono para las llamadas."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "reactCompiler": false

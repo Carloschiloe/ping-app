@@ -459,6 +459,7 @@ export const useAcceptCommitment = () => {
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
         },
     });
 };

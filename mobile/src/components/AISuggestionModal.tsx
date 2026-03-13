@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { apiClient } from '../api/client';
 
 interface AISuggestionModalProps {
@@ -28,6 +29,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
 }) => {
     const [conflicts, setConflicts] = useState<any[]>([]);
     const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
+    const [showPicker, setShowPicker] = useState(false);
+    const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
 
     useEffect(() => {
         if (visible && suggestionData?.dueAt) {
@@ -46,6 +49,39 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             console.error('[AISuggestionModal] Conflict check failed:', err);
         } finally {
             setIsCheckingConflicts(false);
+        }
+    };
+
+    const onDateChange = (event: any, selectedDate?: Date) => {
+        if (event.type === 'dismissed') {
+            setShowPicker(false);
+            return;
+        }
+
+        if (selectedDate) {
+            const currentSelected = new Date(suggestionData.dueAt);
+            if (pickerMode === 'date') {
+                currentSelected.setFullYear(selectedDate.getFullYear());
+                currentSelected.setMonth(selectedDate.getMonth());
+                currentSelected.setDate(selectedDate.getDate());
+                
+                if (Platform.OS === 'android') {
+                    setShowPicker(false);
+                    // on Android we immediately show time picker after date
+                    setTimeout(() => {
+                        setPickerMode('time');
+                        setShowPicker(true);
+                    }, 100);
+                } else {
+                    // on iOS we can stay or update
+                    onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
+                }
+            } else {
+                currentSelected.setHours(selectedDate.getHours());
+                currentSelected.setMinutes(selectedDate.getMinutes());
+                setShowPicker(false);
+                onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
+            }
         }
     };
 
@@ -81,13 +117,30 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
                         />
 
-                        <Text style={styles.inputLabel}>FECHA Y HORA</Text>
-                        <View style={styles.datePreview}>
+                        <Text style={styles.inputLabel}>FECHA Y HORA (Toca para cambiar)</Text>
+                        <TouchableOpacity 
+                            style={styles.datePreview} 
+                            onPress={() => {
+                                setPickerMode('date');
+                                setShowPicker(true);
+                            }}
+                        >
                             <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
                             <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
                                 {new Date(suggestionData.dueAt).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                             </Text>
-                        </View>
+                            <Ionicons name="pencil" size={14} color="#94a3b8" style={{ marginLeft: 'auto' }} />
+                        </TouchableOpacity>
+
+                        {showPicker && (
+                            <DateTimePicker
+                                value={new Date(suggestionData.dueAt)}
+                                mode={pickerMode}
+                                is24Hour={true}
+                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                onChange={onDateChange}
+                            />
+                        )}
 
                         {conflicts.length > 0 && (
                             <View style={styles.conflictBanner}>
