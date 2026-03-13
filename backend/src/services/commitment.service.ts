@@ -78,7 +78,9 @@ export const extractCommitment = async (
 };
 
 export const createCommitment = async (userId: string, data: any) => {
-    // Standardize field names (handle both camelCase from AI and snake_case from schema)
+    console.log('[Commitment Service] Creating commitment with data:', JSON.stringify(data));
+    
+    // Standardize field names (handle both camelCase from AI/Frontend and snake_case from schema)
     const title = data.title;
     const due_at = data.due_at || data.dueAt;
     const message_id = data.message_id || data.messageId;
@@ -103,31 +105,45 @@ export const createCommitment = async (userId: string, data: any) => {
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) {
+        console.error('[Commitment Service] INSERT commitments failed:', error);
+        throw error;
+    }
 
     // Notify to Chat if conversationId is present
     if (group_conversation_id) {
-        const { data: profile } = await supabaseAdmin
-            .from('profiles')
-            .select('full_name')
-            .eq('id', userId)
-            .single();
-        
-        const senderName = profile?.full_name || 'Alguien';
-        let sysText = `✨ ${senderName} agendó: ${title}`;
-        if (assigned_to_user_id && assigned_to_user_id !== userId) {
-            const { data: target } = await supabaseAdmin.from('profiles').select('full_name').eq('id', assigned_to_user_id).single();
-            sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'}`;
-        }
+        try {
+            const { data: profile } = await supabaseAdmin
+                .from('profiles')
+                .select('full_name')
+                .eq('id', userId)
+                .single();
+            
+            const senderName = profile?.full_name || 'Alguien';
+            let sysText = `✨ ${senderName} agendó: ${title}`;
+            if (assigned_to_user_id && assigned_to_user_id !== userId) {
+                const { data: target } = await supabaseAdmin.from('profiles').select('full_name').eq('id', assigned_to_user_id).single();
+                sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'}`;
+            }
 
-        await supabaseAdmin.from('messages').insert({
-            conversation_id: group_conversation_id,
-            sender_id: userId,
-            user_id: userId, // Added for backward compatibility/consistency
-            text: sysText,
-            meta: { isSystem: true },
-            status: 'sent'
-        });
+            console.log('[Commitment Service] Inserting system message:', sysText);
+            const { error: msgError } = await supabaseAdmin.from('messages').insert({
+                conversation_id: group_conversation_id,
+                sender_id: userId,
+                user_id: userId,
+                text: sysText,
+                meta: { isSystem: true },
+                status: 'sent'
+            });
+
+            if (msgError) {
+                console.error('[Commitment Service] System message insert FAILED:', msgError);
+            } else {
+                console.log('[Commitment Service] System message inserted successfully');
+            }
+        } catch (innerErr) {
+            console.error('[Commitment Service] Error in notification logic:', innerErr);
+        }
     }
 
     return commitment;
