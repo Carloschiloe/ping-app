@@ -74,7 +74,8 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
         : null;
 
-    const isMeeting = commitment.type === 'meeting';
+    const isMeetingRaw = commitment.type === 'meeting';
+    const isMeeting = isMeetingRaw || /reunión|llamada|junta|meet|zooom|call/i.test(commitment.title || '');
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
 
     const handleMarkDone = () => {
