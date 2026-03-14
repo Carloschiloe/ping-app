@@ -112,116 +112,122 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.modalBody}>
-                        <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={suggestionData.title}
-                            onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
-                            placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
-                        />
-
-                        <Text style={styles.inputLabel}>FECHA Y HORA (Toca para cambiar)</Text>
-                        <TouchableOpacity 
-                            style={styles.datePreview} 
-                            onPress={() => {
-                                setPickerMode('date');
-                                setShowPicker(true);
-                            }}
-                        >
-                            <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
-                            <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
-                                {formattedDate}
-                            </Text>
-                            <Ionicons name="pencil" size={14} color="#94a3b8" style={{ marginLeft: 'auto' }} />
-                        </TouchableOpacity>
-
-                        {showPicker && (
-                            <DateTimePicker
-                                value={new Date(suggestionData.dueAt)}
-                                mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
-                                is24Hour={true}
-                                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                onChange={onDateChange}
-                                {...(Platform.OS === 'ios' ? {} : { textColor: '#1e1b4b' })}
-                            />
-                        )}
-
-                        <View style={styles.statusContainer}>
-                            {isCheckingConflicts && (
-                                <View style={styles.checkingContainer}>
-                                    <ActivityIndicator size="small" color="#6366f1" />
-                                    <Text style={styles.checkingText}>Verificando conflictos...</Text>
-                                </View>
-                            )}
-
-                            {conflicts.length > 0 && !isCheckingConflicts && (
-                                <View style={styles.conflictBanner}>
-                                    <Ionicons name="warning" size={16} color="#ef4444" />
-                                    <Text style={styles.conflictText}>
-                                        Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
-
-                        <Text style={styles.inputLabel}>RESPONSABLE</Text>
-                        <View style={styles.assigneeSelectorContainer}>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
-                                {isGroup && (
-                                    <TouchableOpacity
-                                        style={[styles.assigneeOption, suggestionData.assignedToUserId === null && styles.assigneeOptionActive]}
-                                        onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: null })}
-                                    >
-                                        <View style={[styles.assigneeAvatar, { backgroundColor: '#10b981' }]}>
-                                            <Ionicons name="people" size={24} color="white" />
-                                        </View>
-                                        <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && styles.assigneeTextActive]}>Todos</Text>
-                                    </TouchableOpacity>
-                                )}
-
-                                <TouchableOpacity
-                                    style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
-                                    onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id })}
-                                >
-                                    <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? '#8b5cf6' : '#6366f1' }]}>
-                                        <Text style={styles.assigneeAvatarText}>Yo</Text>
-                                    </View>
-                                    <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
-                                </TouchableOpacity>
-
-                                {groupParticipants.length > 0 ? groupParticipants.filter(p => p.id !== user?.id).map((p) => (
-                                    <TouchableOpacity
-                                        key={p.id}
-                                        style={[styles.assigneeOption, suggestionData.assignedToUserId === p.id && styles.assigneeOptionActive]}
-                                        onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: p.id })}
-                                    >
-                                        <View style={[styles.assigneeAvatar, { backgroundColor: avatarColor(p.email) }]}>
-                                            <Text style={styles.assigneeAvatarText}>{p.full_name?.substring(0, 1).toUpperCase() || p.email[0].toUpperCase()}</Text>
-                                        </View>
-                                        <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === p.id && styles.assigneeTextActive]} numberOfLines={1}>
-                                            {p.full_name?.split(' ')[0] || p.email.split('@')[0]}
-                                        </Text>
-                                    </TouchableOpacity>
-                                )) : (
-                                    <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
-                                )}
-                            </ScrollView>
-                        </View>
-
-                        <View style={styles.currentAssigneeBadge}>
-                            <Ionicons name="checkmark-circle" size={16} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
-                            <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
-                        </View>
-                    </View>
-
-                    <TouchableOpacity
-                        style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup ? (suggestionData.assignedToUserId === undefined && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 }))]}
-                        onPress={onConfirm}
-                        disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
+                    <ScrollView 
+                        style={styles.modalScroll} 
+                        contentContainerStyle={styles.modalScrollContent}
+                        showsVerticalScrollIndicator={false}
                     >
-                        <Text style={styles.acceptBtnText}>¡Agendar {isMeeting ? 'Reunión' : 'Tarea'}!</Text>
-                    </TouchableOpacity>
+                        <View style={styles.modalBody}>
+                            <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={suggestionData.title}
+                                onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
+                                placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
+                            />
+
+                            <Text style={styles.inputLabel}>FECHA Y HORA (Toca para cambiar)</Text>
+                            <TouchableOpacity 
+                                style={styles.datePreview} 
+                                onPress={() => {
+                                    setPickerMode('date');
+                                    setShowPicker(true);
+                                }}
+                            >
+                                <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
+                                <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
+                                    {formattedDate}
+                                </Text>
+                                <Ionicons name="pencil" size={14} color="#94a3b8" style={{ marginLeft: 'auto' }} />
+                            </TouchableOpacity>
+
+                            {showPicker && (
+                                <DateTimePicker
+                                    value={new Date(suggestionData.dueAt)}
+                                    mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
+                                    is24Hour={true}
+                                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                                    onChange={onDateChange}
+                                    {...(Platform.OS === 'ios' ? {} : { textColor: '#1e1b4b' })}
+                                />
+                            )}
+
+                            <View style={styles.statusContainer}>
+                                {isCheckingConflicts && (
+                                    <View style={styles.checkingContainer}>
+                                        <ActivityIndicator size="small" color="#6366f1" />
+                                        <Text style={styles.checkingText}>Verificando conflictos...</Text>
+                                    </View>
+                                )}
+
+                                {conflicts.length > 0 && !isCheckingConflicts && (
+                                    <View style={styles.conflictBanner}>
+                                        <Ionicons name="warning" size={16} color="#ef4444" />
+                                        <Text style={styles.conflictText}>
+                                            Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <Text style={styles.inputLabel}>RESPONSABLE</Text>
+                            <View style={styles.assigneeSelectorContainer}>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
+                                    {isGroup && (
+                                        <TouchableOpacity
+                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === null && styles.assigneeOptionActive]}
+                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: null })}
+                                        >
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: '#10b981' }]}>
+                                                <Ionicons name="people" size={24} color="white" />
+                                            </View>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && styles.assigneeTextActive]}>Todos</Text>
+                                        </TouchableOpacity>
+                                    )}
+
+                                    <TouchableOpacity
+                                        style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
+                                        onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id })}
+                                    >
+                                        <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? '#8b5cf6' : '#6366f1' }]}>
+                                            <Text style={styles.assigneeAvatarText}>Yo</Text>
+                                        </View>
+                                        <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
+                                    </TouchableOpacity>
+
+                                    {groupParticipants.length > 0 ? groupParticipants.filter(p => p.id !== user?.id).map((p) => (
+                                        <TouchableOpacity
+                                            key={p.id}
+                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === p.id && styles.assigneeOptionActive]}
+                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: p.id })}
+                                        >
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: avatarColor(p.email) }]}>
+                                                <Text style={styles.assigneeAvatarText}>{p.full_name?.substring(0, 1).toUpperCase() || p.email[0].toUpperCase()}</Text>
+                                            </View>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === p.id && styles.assigneeTextActive]} numberOfLines={1}>
+                                                {p.full_name?.split(' ')[0] || p.email.split('@')[0]}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )) : (
+                                        <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
+                                    )}
+                                </ScrollView>
+                            </View>
+
+                            <View style={styles.currentAssigneeBadge}>
+                                <Ionicons name="checkmark-circle" size={16} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
+                                <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
+                            </View>
+                        </View>
+
+                        <TouchableOpacity
+                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup ? (suggestionData.assignedToUserId === undefined && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 }))]}
+                            onPress={onConfirm}
+                            disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
+                        >
+                            <Text style={styles.acceptBtnText}>¡Agendar {isMeeting ? 'Reunión' : 'Tarea'}!</Text>
+                        </TouchableOpacity>
+                    </ScrollView>
                 </View>
             </View>
         </Modal>
@@ -233,14 +239,28 @@ const styles = StyleSheet.create({
         flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20,
     },
     suggestionModal: {
-        backgroundColor: 'white', borderRadius: 24, width: '100%', padding: 24, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5,
+        backgroundColor: 'white', 
+        borderRadius: 24, 
+        width: '100%', 
+        padding: 24, 
+        shadowColor: '#000', 
+        shadowOpacity: 0.2, 
+        shadowRadius: 10, 
+        elevation: 5,
+        maxHeight: '90%',
     },
     modalHeader: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
     },
     modalTitle: { fontSize: 18, fontWeight: '700', color: '#1e1b4b' },
     modalCloseBtn: { padding: 4 },
-    modalBody: { marginBottom: 24 },
+    modalScroll: {
+        flexGrow: 0,
+    },
+    modalScrollContent: {
+        paddingBottom: 20,
+    },
+    modalBody: { marginBottom: 12 },
     inputLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', marginBottom: 8, textTransform: 'uppercase' },
     modalInput: {
         backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, fontSize: 16, color: '#111827', marginBottom: 16,
