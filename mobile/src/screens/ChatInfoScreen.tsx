@@ -9,7 +9,7 @@ import { uploadToSupabase } from '../lib/upload';
 import { Video, ResizeMode } from 'expo-av';
 import AudioPlayer from '../components/AudioPlayer';
 import * as Sharing from 'expo-sharing';
-import FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { useDeleteMessage } from '../api/queries';
 
@@ -166,7 +166,7 @@ export default function ChatInfoScreen() {
         if (!url) return;
 
         try {
-            const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + (url.split('/').pop() || 'file');
+            const fileUri = (FileSystem.cacheDirectory || FileSystem.documentDirectory || '') + (url.split('/').pop() || 'file');
             const download = await FileSystem.downloadAsync(url, fileUri);
             if (await Sharing.isAvailableAsync()) {
                 await Sharing.shareAsync(download.uri);
@@ -190,7 +190,7 @@ export default function ChatInfoScreen() {
                 return;
             }
 
-            const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + (url.split('/').pop() || 'file');
+            const fileUri = (FileSystem.cacheDirectory || FileSystem.documentDirectory || '') + (url.split('/').pop() || 'file');
             const download = await FileSystem.downloadAsync(url, fileUri);
             await MediaLibrary.saveToLibraryAsync(download.uri);
             Alert.alert('✅ Guardado', 'El archivo se guardó en tu galería.');
