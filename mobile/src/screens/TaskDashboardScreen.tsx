@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image, Alert, Modal, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -64,8 +64,8 @@ export default function TaskDashboardScreen() {
         return Array.from(membersMap.values());
     }, [commitments, user?.id]);
 
-    const filteredData = useMemo(() => {
-        return commitments.filter((c: any) => {
+    const groupedData = useMemo(() => {
+        const filtered = commitments.filter((c: any) => {
             const taskDate = c.due_at ? startOfDay(new Date(c.due_at)) : null;
             if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
 
@@ -86,6 +86,27 @@ export default function TaskDashboardScreen() {
             }
             return true;
         });
+
+        // Sort by time
+        const sorted = filtered.sort((a: any, b: any) => {
+            const dateA = a.due_at ? new Date(a.due_at).getTime() : 0;
+            const dateB = b.due_at ? new Date(b.due_at).getTime() : 0;
+            return dateA - dateB;
+        });
+
+        const meetings: any[] = [];
+        const tasks: any[] = [];
+
+        sorted.forEach((item: any) => {
+            const isMeeting = item.type === 'meeting' || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(item.title || '');
+            if (isMeeting) {
+                meetings.push(item);
+            } else {
+                tasks.push(item);
+            }
+        });
+
+        return { meetings, tasks };
     }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
 
     const renderDateItem = (date: Date) => {
@@ -283,21 +304,55 @@ export default function TaskDashboardScreen() {
                 </View>
             )}
 
-            <FlatList
-                data={filteredData}
-                keyExtractor={(item) => item.id}
+            <ScrollView 
+                style={{ flex: 1 }}
                 contentContainerStyle={styles.listContent}
-                renderItem={({ item }) => <GroupTaskCard commitment={item} groupParticipants={teamMembers} />}
-                onRefresh={refetch}
-                refreshing={isLoading}
-                ListEmptyComponent={
+                refreshControl={
+                    <RefreshControl refreshing={isLoading} onRefresh={refetch} />
+                }
+            >
+                {groupedData.meetings.length > 0 && (
+                    <View style={styles.sectionContainer}>
+                        <View style={styles.sectionHeader}>
+                            <View style={styles.sectionTitleRow}>
+                                <Ionicons name="calendar" size={18} color="#6366f1" />
+                                <Text style={styles.sectionTitleText}>Próximas Reuniones</Text>
+                            </View>
+                            <View style={styles.sectionBadge}>
+                                <Text style={styles.sectionBadgeText}>{groupedData.meetings.length}</Text>
+                            </View>
+                        </View>
+                        {groupedData.meetings.map(item => (
+                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
+                        ))}
+                    </View>
+                )}
+
+                {groupedData.tasks.length > 0 && (
+                    <View style={styles.sectionContainer}>
+                        <View style={styles.sectionHeader}>
+                            <View style={styles.sectionTitleRow}>
+                                <Ionicons name="list" size={18} color="#10b981" />
+                                <Text style={styles.sectionTitleText}>Tareas del Día</Text>
+                            </View>
+                            <View style={styles.sectionBadge}>
+                                <Text style={styles.sectionBadgeText}>{groupedData.tasks.length}</Text>
+                            </View>
+                        </View>
+                        {groupedData.tasks.map(item => (
+                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
+                        ))}
+                    </View>
+                )}
+
+                {groupedData.meetings.length === 0 && groupedData.tasks.length === 0 && (
                     <View style={styles.emptyContainer}>
                         <Ionicons name="folder-open-outline" size={64} color="#d1d5db" />
                         <Text style={styles.emptyText}>No hay tareas para este filtro</Text>
                         <Text style={styles.emptySubtext}>Cambia de día o filtro para ver más</Text>
                     </View>
-                }
-            />
+                )}
+            </ScrollView>
         </SafeAreaView>
     );
 }
@@ -483,6 +538,40 @@ const styles = StyleSheet.create({
     memberName: {
         fontSize: 10,
         fontWeight: '600',
+        color: '#64748b',
+    },
+    sectionContainer: {
+        marginBottom: 20,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        backgroundColor: '#f8fafc',
+    },
+    sectionTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    sectionTitleText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#475569',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    sectionBadge: {
+        backgroundColor: '#e2e8f0',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 10,
+    },
+    sectionBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
         color: '#64748b',
     },
     listContent: {
