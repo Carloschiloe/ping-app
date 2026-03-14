@@ -114,6 +114,8 @@ export const updateCommitment = async (req: Request, res: Response): Promise<voi
         if (updates.status) safeUpdates.status = updates.status;
         if (updates.title) safeUpdates.title = updates.title;
         if (updates.due_at) safeUpdates.due_at = updates.due_at;
+        if (updates.assigned_to_user_id) safeUpdates.assigned_to_user_id = updates.assigned_to_user_id;
+        if (updates.type) safeUpdates.type = updates.type;
 
         const data = await commitmentService.updateCommitment(userId, commitmentId, safeUpdates);
 

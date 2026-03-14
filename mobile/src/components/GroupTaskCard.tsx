@@ -133,6 +133,7 @@ export default function GroupTaskCard({
 
     const onConfirmEdit = async () => {
         if (!editData) return;
+        console.warn('[DEBUG-MOBILE] onConfirmEdit raw editData:', JSON.stringify(editData));
         try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             

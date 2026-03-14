@@ -56,7 +56,6 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             setIsCheckingConflicts(false);
         }
     };
-
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (event.type === 'dismissed') {
             setShowPicker(false);
@@ -64,6 +63,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         }
 
         if (selectedDate) {
+            console.warn(`[DEBUG-MOBILE] onDateChange: ${selectedDate.toISOString()} | Mode: ${pickerMode}`);
             if (Platform.OS === 'ios') {
                 // In iOS datetime mode, selectedDate has everything
                 onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
@@ -74,6 +74,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                     currentSelected.setMonth(selectedDate.getMonth());
                     currentSelected.setDate(selectedDate.getDate());
                     
+                    console.warn(`[DEBUG-MOBILE] Date updated: ${currentSelected.toISOString()}`);
                     setShowPicker(false);
                     setTimeout(() => {
                         setPickerMode('time');
@@ -82,6 +83,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 } else {
                     currentSelected.setHours(selectedDate.getHours());
                     currentSelected.setMinutes(selectedDate.getMinutes());
+                    console.warn(`[DEBUG-MOBILE] Time updated: ${currentSelected.toISOString()}`);
                     setShowPicker(false);
                     onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
                 }
