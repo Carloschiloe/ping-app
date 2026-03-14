@@ -224,6 +224,24 @@ export default function ChatInfoScreen() {
         );
     };
 
+    const handleViewMedia = () => {
+        setIsMediaMenuVisible(false);
+        if (!selectedMedia) return;
+
+        const isImage = selectedMedia.text.startsWith('[imagen]');
+        const isDoc = selectedMedia.text.startsWith('[document=');
+        const url = selectedMedia.parsedUrl;
+
+        if (isDoc) {
+            const match = selectedMedia.text.match(/^\[document=([^\]]+)\](.*)$/);
+            if (match) {
+                Linking.openURL(match[2].trim());
+            }
+        } else if (isImage || url.toLowerCase().includes('.mp4')) {
+            setViewerMedia({ url, type: isImage ? 'image' : 'video' });
+        }
+    };
+
     const handleForwardMedia = () => {
         if (!selectedMedia) return;
         setIsMediaMenuVisible(false);
@@ -327,8 +345,7 @@ export default function ChatInfoScreen() {
                             return (
                                 <TouchableOpacity
                                     style={styles.mediaItem}
-                                    onPress={() => setViewerMedia({ url, type: isImage ? 'image' : 'video' })}
-                                    onLongPress={() => {
+                                    onPress={() => {
                                         setSelectedMedia(item);
                                         setIsMediaMenuVisible(true);
                                     }}
@@ -361,7 +378,14 @@ export default function ChatInfoScreen() {
                         if (!match) return null;
                         const [, filename, docUrl] = match;
                         return (
-                            <TouchableOpacity key={docMsg.id} style={styles.docRow} onPress={() => Linking.openURL(docUrl)}>
+                            <TouchableOpacity 
+                                key={docMsg.id} 
+                                style={styles.docRow} 
+                                onPress={() => {
+                                    setSelectedMedia({ ...docMsg, parsedUrl: docUrl });
+                                    setIsMediaMenuVisible(true);
+                                }}
+                            >
                                 <View style={styles.docIcon}>
                                     <Ionicons name="document-text" size={24} color="white" />
                                 </View>
@@ -461,6 +485,13 @@ export default function ChatInfoScreen() {
                             <View style={styles.menuIndicator} />
                         </View>
                         
+                        <TouchableOpacity style={styles.menuItem} onPress={handleViewMedia}>
+                            <Ionicons name="eye-outline" size={24} color="#1e3a5f" />
+                            <Text style={[styles.menuItemText, { fontWeight: '600', color: '#1e3a5f' }]}>
+                                {selectedMedia?.text.startsWith('[document=') ? 'Abrir archivo' : 'Ver archivo'}
+                            </Text>
+                        </TouchableOpacity>
+
                         <TouchableOpacity style={styles.menuItem} onPress={handleForwardMedia}>
                             <Ionicons name="arrow-redo-outline" size={24} color="#374151" />
                             <Text style={styles.menuItemText}>Reenviar</Text>
