@@ -69,6 +69,7 @@ router.post('/commitments', requireAuth, validateRequest(commitmentSchema.create
 router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
 router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
 router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
+router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
 
 // Search
 router.get('/search', requireAuth, searchController.search);
