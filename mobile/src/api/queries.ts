@@ -629,3 +629,14 @@ export const useConversationGroupTasks = (conversationId: string | null) => {
         enabled: !!conversationId,
     });
 };
+export const useDeleteMessage = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (messageId: string) => apiClient.delete(`/messages/${messageId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-media', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
+    });
+};

@@ -62,6 +62,7 @@ router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGrou
 router.post('/messages', requireAuth, messageController.createMessage);
 router.get('/messages', requireAuth, messageController.getMessages);
 router.patch('/messages/:id/status', requireAuth, messageController.updateMessageStatus);
+router.delete('/messages/:id', requireAuth, messageController.deleteMessage);
 
 // Commitments
 router.get('/commitments/check-conflict', requireAuth, commitmentController.checkConflict);

@@ -8,6 +8,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
 import { Video, ResizeMode } from 'expo-av';
 import AudioPlayer from '../components/AudioPlayer';
+import * as Sharing from 'expo-sharing';
+import FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import { useDeleteMessage } from '../api/queries';
 
 export default function ChatInfoScreen() {
     const route = useRoute<any>();
@@ -88,6 +92,10 @@ export default function ChatInfoScreen() {
     const [isEditingName, setIsEditingName] = useState(false);
     const [tempName, setTempName] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
+    const [selectedMedia, setSelectedMedia] = useState<any>(null);
+    const [isMediaMenuVisible, setIsMediaMenuVisible] = useState(false);
+
+    const { mutate: deleteMessage } = useDeleteMessage(conversationId);
 
     const handlePickGroupImage = async () => {
         if (!isAdmin) return;
@@ -150,6 +158,76 @@ export default function ChatInfoScreen() {
                 }
             ]
         );
+    };
+
+    const handleShareMedia = async () => {
+        if (!selectedMedia) return;
+        const url = selectedMedia.parsedUrl || selectedMedia.text.match(/\](http.*)$/)?.[1];
+        if (!url) return;
+
+        try {
+            const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + (url.split('/').pop() || 'file');
+            const download = await FileSystem.downloadAsync(url, fileUri);
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(download.uri);
+            }
+        } catch (error) {
+            Alert.alert('Error', 'No se pudo compartir el archivo.');
+        } finally {
+            setIsMediaMenuVisible(false);
+        }
+    };
+
+    const handleDownloadMedia = async () => {
+        if (!selectedMedia) return;
+        const url = selectedMedia.parsedUrl || selectedMedia.text.match(/\](http.*)$/)?.[1];
+        if (!url) return;
+
+        try {
+            const { status } = await MediaLibrary.requestPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería para guardar el archivo.');
+                return;
+            }
+
+            const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + (url.split('/').pop() || 'file');
+            const download = await FileSystem.downloadAsync(url, fileUri);
+            await MediaLibrary.saveToLibraryAsync(download.uri);
+            Alert.alert('✅ Guardado', 'El archivo se guardó en tu galería.');
+        } catch (error) {
+            Alert.alert('Error', 'No se pudo descargar el archivo.');
+        } finally {
+            setIsMediaMenuVisible(false);
+        }
+    };
+
+    const handleDeleteMedia = () => {
+        if (!selectedMedia) return;
+        Alert.alert(
+            'Eliminar archivo',
+            '¿Estás seguro de que quieres eliminar este archivo?',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar',
+                    style: 'destructive',
+                    onPress: () => {
+                        deleteMessage(selectedMedia.id, {
+                            onSuccess: () => {
+                                setIsMediaMenuVisible(false);
+                                setSelectedMedia(null);
+                            }
+                        });
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleForwardMedia = () => {
+        if (!selectedMedia) return;
+        setIsMediaMenuVisible(false);
+        navigation.navigate('ForwardMessage', { message: selectedMedia });
     };
 
     const renderMember = ({ item }: { item: any }) => (
@@ -250,6 +328,10 @@ export default function ChatInfoScreen() {
                                 <TouchableOpacity
                                     style={styles.mediaItem}
                                     onPress={() => setViewerMedia({ url, type: isImage ? 'image' : 'video' })}
+                                    onLongPress={() => {
+                                        setSelectedMedia(item);
+                                        setIsMediaMenuVisible(true);
+                                    }}
                                 >
                                     {isImage || url.toLowerCase().includes('.mp4') ? (
                                         <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} />
@@ -366,6 +448,47 @@ export default function ChatInfoScreen() {
                     </SafeAreaView>
                 </View>
             </Modal>
+
+            {/* Media Options Menu */}
+            <Modal visible={isMediaMenuVisible} transparent={true} animationType="slide">
+                <TouchableOpacity 
+                    style={styles.menuOverlay} 
+                    activeOpacity={1} 
+                    onPress={() => setIsMediaMenuVisible(false)}
+                >
+                    <View style={styles.menuContent}>
+                        <View style={styles.menuHeader}>
+                            <View style={styles.menuIndicator} />
+                        </View>
+                        
+                        <TouchableOpacity style={styles.menuItem} onPress={handleForwardMedia}>
+                            <Ionicons name="arrow-redo-outline" size={24} color="#374151" />
+                            <Text style={styles.menuItemText}>Reenviar</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.menuItem} onPress={handleShareMedia}>
+                            <Ionicons name="share-outline" size={24} color="#374151" />
+                            <Text style={styles.menuItemText}>Compartir</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.menuItem} onPress={handleDownloadMedia}>
+                            <Ionicons name="download-outline" size={24} color="#374151" />
+                            <Text style={styles.menuItemText}>Descargar</Text>
+                        </TouchableOpacity>
+
+                        {(selectedMedia?.sender_id === user?.id || isAdmin) && (
+                            <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0 }]} onPress={handleDeleteMedia}>
+                                <Ionicons name="trash-outline" size={24} color="#ef4444" />
+                                <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Eliminar</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity style={styles.menuCancel} onPress={() => setIsMediaMenuVisible(false)}>
+                            <Text style={styles.menuCancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </View>
     );
 }
@@ -458,4 +581,13 @@ const styles = StyleSheet.create({
     deleteBtnText: { color: '#ef4444', fontWeight: '600', fontSize: 16 },
     emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, opacity: 0.6 },
     emptyMediaText: { marginTop: 12, color: '#6b7280', fontSize: 14, fontWeight: '500' },
+
+    menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    menuContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
+    menuHeader: { alignItems: 'center', paddingVertical: 12 },
+    menuIndicator: { width: 40, height: 4, backgroundColor: '#e5e7eb', borderRadius: 2 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+    menuItemText: { marginLeft: 16, fontSize: 16, color: '#374151', fontWeight: '500' },
+    menuCancel: { marginTop: 8, padding: 16, alignItems: 'center' },
+    menuCancelText: { fontSize: 16, color: '#6b7280', fontWeight: 'bold' },
 });

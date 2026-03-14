@@ -115,3 +115,56 @@ export const updateMessageStatus = async (req: Request, res: Response): Promise<
         res.status(500).json({ error: error.message });
     }
 };
+export const deleteMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        // Fetch message to check ownership or admin status
+        const { data: message, error: fetchErr } = await supabaseAdmin
+            .from('messages')
+            .select('sender_id, conversation_id')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !message) {
+            res.status(404).json({ error: 'Message not found' });
+            return;
+        }
+
+        // Check if user is sender OR admin of the conversation
+        let isAuthorized = message.sender_id === userId;
+
+        if (!isAuthorized) {
+            const { data: conv } = await supabaseAdmin
+                .from('conversations')
+                .select('group_metadata')
+                .eq('id', message.conversation_id)
+                .single();
+            
+            if (conv?.group_metadata?.admin_id === userId) {
+                isAuthorized = true;
+            }
+        }
+
+        if (!isAuthorized) {
+            res.status(403).json({ error: 'Action not allowed' });
+            return;
+        }
+
+        const { error: deleteErr } = await supabaseAdmin
+            .from('messages')
+            .delete()
+            .eq('id', id);
+
+        if (deleteErr) throw deleteErr;
+
+        res.json({ success: true });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
