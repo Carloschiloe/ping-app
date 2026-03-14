@@ -47,7 +47,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const checkConflicts = async () => {
         try {
             setIsCheckingConflicts(true);
-            const res = await apiClient.get(`/commitments/check-conflict?dueAt=${suggestionData.dueAt}`);
+            const res = await apiClient.get(`/commitments/check-conflict?dueAt=${encodeURIComponent(suggestionData.dueAt)}`);
             setConflicts(res || []);
         } catch (err) {
             console.error('[AISuggestionModal] Conflict check failed:', err);

@@ -329,6 +329,10 @@ export const pingCommitment = async (userId: string, id: string) => {
 
 export const checkConflict = async (userId: string, dueAt: string) => {
     const checkDate = new Date(dueAt);
+    if (isNaN(checkDate.getTime())) {
+        console.warn('[Commitment Service] Invalid date received for checkConflict:', dueAt);
+        return [];
+    }
     const startRange = new Date(checkDate.getTime() - 30 * 60 * 1000).toISOString(); // -30 min
     const endRange = new Date(checkDate.getTime() + 30 * 60 * 1000).toISOString();   // +30 min
 
