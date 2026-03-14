@@ -95,6 +95,7 @@ export const createCommitment = async (userId: string, data: any) => {
     const assigned_to_user_id = data.assigned_to_user_id || data.assignedToUserId;
     const group_conversation_id = data.group_conversation_id || data.groupConversationId;
     const is_group_task = data.is_group_task || data.isGroupTask || false;
+    const type = data.type || 'task';
     const meta = data.meta || {};
 
     const { data: commitment, error } = await supabaseAdmin
@@ -107,7 +108,7 @@ export const createCommitment = async (userId: string, data: any) => {
             assigned_to_user_id: assigned_to_user_id,
             group_conversation_id,
             is_group_task,
-            type: data.type || 'task',
+            type,
             status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
             meta
         })
