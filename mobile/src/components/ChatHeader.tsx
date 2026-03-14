@@ -40,6 +40,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </TouchableOpacity>
 
             <View style={styles.actionsSection}>
+                <TouchableOpacity onPress={onSummarize} style={[styles.iconBtn, styles.summarizeIconBtn]} disabled={isSummarizing}>
+                    {isSummarizing ? (
+                        <ActivityIndicator size="small" color={theme.colors.secondary} />
+                    ) : (
+                        <Ionicons name="sparkles" size={20} color="#fbbf24" />
+                    )}
+                </TouchableOpacity>
                 <TouchableOpacity onPress={onVoiceCall} style={styles.iconBtn}>
                     <Ionicons name="call" size={20} color={theme.colors.white} />
                 </TouchableOpacity>
@@ -82,29 +89,16 @@ const styles = StyleSheet.create({
     actionsSection: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: theme.spacing.md - 4,
-    },
-    headerActionBtn: {
-        backgroundColor: theme.colors.background,
-        borderRadius: theme.borderRadius.lg,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-    },
-    summarizeBtnInner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    summarizeBtnText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.secondary,
+        gap: theme.spacing.sm,
     },
     iconBtn: {
-        padding: 4,
+        padding: 6,
         alignItems: 'center',
         justifyContent: 'center',
     },
+    summarizeIconBtn: {
+        backgroundColor: 'rgba(251, 191, 36, 0.1)',
+        borderRadius: 20,
+        marginRight: 4,
+    }
 });

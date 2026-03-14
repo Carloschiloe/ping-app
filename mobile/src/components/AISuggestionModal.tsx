@@ -143,6 +143,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 is24Hour={true}
                                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                                 onChange={onDateChange}
+                                textColor="#1e1b4b"
                             />
                         )}
 

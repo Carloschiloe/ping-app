@@ -332,24 +332,6 @@ export default function ChatScreen({ navigation }: any) {
                             renderItem={renderMessage}
                             onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                             onEndReachedThreshold={0.3}
-                            ListHeaderComponent={() => isGroup ? (
-                                <View style={styles.listHeaderSummary}>
-                                    <TouchableOpacity 
-                                        style={styles.floatingSummarizeBtn} 
-                                        onPress={handleSummarize}
-                                        disabled={isSummarizing}
-                                    >
-                                        {isSummarizing ? (
-                                            <ActivityIndicator size="small" color="white" />
-                                        ) : (
-                                            <>
-                                                <Ionicons name="sparkles" size={16} color="white" />
-                                                <Text style={styles.floatingSummarizeText}>Resumir Conversación</Text>
-                                            </>
-                                        )}
-                                    </TouchableOpacity>
-                                </View>
-                            ) : null}
                             ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
                             contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
                         />
