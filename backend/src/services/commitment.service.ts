@@ -129,12 +129,13 @@ export const createCommitment = async (userId: string, data: any) => {
                 .single();
             
             const senderName = profile?.full_name || 'Alguien';
-            let sysText = `✨ ${senderName} agendó: ${title}`;
+            const dateStr = format(new Date(due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
+            let sysText = `✨ ${senderName} agendó: ${title} (${dateStr})`;
             if (!assigned_to_user_id) {
-                 sysText = `✨ ${senderName} propuso agendar "${title}" para todos`;
+                 sysText = `✨ ${senderName} propuso agendar "${title}" para todos (${dateStr})`;
             } else if (assigned_to_user_id !== userId) {
                 const { data: target } = await supabaseAdmin.from('profiles').select('full_name').eq('id', assigned_to_user_id).single();
-                sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'}`;
+                sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'} (${dateStr})`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);

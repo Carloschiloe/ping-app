@@ -61,26 +61,27 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         }
 
         if (selectedDate) {
-            const currentSelected = new Date(suggestionData.dueAt);
-            if (pickerMode === 'date') {
-                currentSelected.setFullYear(selectedDate.getFullYear());
-                currentSelected.setMonth(selectedDate.getMonth());
-                currentSelected.setDate(selectedDate.getDate());
-                
-                if (Platform.OS === 'android') {
+            if (Platform.OS === 'ios') {
+                // In iOS datetime mode, selectedDate has everything
+                onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
+            } else {
+                const currentSelected = new Date(suggestionData.dueAt);
+                if (pickerMode === 'date') {
+                    currentSelected.setFullYear(selectedDate.getFullYear());
+                    currentSelected.setMonth(selectedDate.getMonth());
+                    currentSelected.setDate(selectedDate.getDate());
+                    
                     setShowPicker(false);
                     setTimeout(() => {
                         setPickerMode('time');
                         setShowPicker(true);
                     }, 100);
                 } else {
+                    currentSelected.setHours(selectedDate.getHours());
+                    currentSelected.setMinutes(selectedDate.getMinutes());
+                    setShowPicker(false);
                     onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
                 }
-            } else {
-                currentSelected.setHours(selectedDate.getHours());
-                currentSelected.setMinutes(selectedDate.getMinutes());
-                setShowPicker(false);
-                onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
             }
         }
     };
@@ -142,15 +143,25 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             </TouchableOpacity>
 
                             {showPicker && (
-                                <DateTimePicker
-                                    value={new Date(suggestionData.dueAt)}
-                                    mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
-                                    is24Hour={true}
-                                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                    onChange={onDateChange}
-                                    themeVariant="light"
-                                    {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
-                                />
+                                <View style={styles.pickerWrapper}>
+                                    <DateTimePicker
+                                        value={new Date(suggestionData.dueAt)}
+                                        mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
+                                        is24Hour={true}
+                                        display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                                        onChange={onDateChange}
+                                        themeVariant="light"
+                                        {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
+                                    />
+                                    {Platform.OS === 'ios' && (
+                                        <TouchableOpacity 
+                                            style={styles.confirmPickerBtn} 
+                                            onPress={() => setShowPicker(false)}
+                                        >
+                                            <Text style={styles.confirmPickerBtnText}>Confirmar Fecha y Hora</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             )}
 
                             <View style={styles.statusContainer}>
@@ -316,4 +327,22 @@ const styles = StyleSheet.create({
     currentAssigneeText: { fontSize: 13, color: '#4b5563' },
     acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+    pickerWrapper: {
+        backgroundColor: '#f9fafb',
+        borderRadius: 16,
+        padding: 8,
+        marginTop: 8,
+    },
+    confirmPickerBtn: {
+        backgroundColor: '#6366f1',
+        paddingVertical: 10,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 8,
+    },
+    confirmPickerBtnText: {
+        color: 'white',
+        fontWeight: '700',
+        fontSize: 14,
+    }
 });
