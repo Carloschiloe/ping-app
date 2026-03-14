@@ -129,13 +129,9 @@ export const createCommitment = async (userId: string, data: any) => {
                 .single();
             
             const senderName = profile?.full_name || 'Alguien';
-            const dateStr = format(new Date(due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
-            let sysText = `✨ ${senderName} agendó: ${title} (${dateStr})`;
-            if (!assigned_to_user_id) {
-                 sysText = `✨ ${senderName} propuso agendar "${title}" para todos (${dateStr})`;
-            } else if (assigned_to_user_id !== userId) {
-                const { data: target } = await supabaseAdmin.from('profiles').select('full_name').eq('id', assigned_to_user_id).single();
-                sysText = `✨ ${senderName} propuso agendar "${title}" para ${target?.full_name || 'otro usuario'} (${dateStr})`;
+            let sysText = `✨ ${senderName} propuso una nueva ${type === 'meeting' ? 'reunión' : 'tarea'}`;
+            if (assigned_to_user_id && assigned_to_user_id === userId) {
+                 sysText = `✨ ${senderName} agendó: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -297,13 +293,7 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
 
     if (data && (updates.title || updates.due_at)) {
         const userName = await getUserName(userId);
-        const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
-        let changeText = 'sus detalles';
-        if (updates.title && updates.due_at) changeText = `el título a "${data.title}" y la fecha para el ${dateStr}`;
-        else if (updates.title) changeText = `el título a "${data.title}"`;
-        else if (updates.due_at) changeText = `la fecha para el ${dateStr}`;
-
-        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}: ${changeText}`);
+        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}`);
     }
 
     return data;

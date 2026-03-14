@@ -173,21 +173,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     return (
         <View style={[styles.row, isRejected && styles.rowRejected]}>
             <View style={styles.leftContent}>
-                {(commitment as any)._isEveryoneSummary ? (
-                    <View style={[styles.avatar, { backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center' }]}>
-                        <Ionicons name="people" size={18} color="white" />
-                    </View>
-                ) : commitment.assignee?.avatar_url ? (
-                    <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.avatar} />
-                ) : (
-                    <View style={[styles.avatar, styles.avatarFallback, isMeeting && { backgroundColor: '#8b5cf6' }]}>
-                        {isMeeting ? (
-                            <Ionicons name="calendar-outline" size={16} color="white" />
-                        ) : (
-                            <Text style={styles.avatarLetter}>{assigneeName[0]?.toUpperCase()}</Text>
-                        )}
-                    </View>
-                )}
+                <View style={styles.timeBadgeContainer}>
+                    <Text style={styles.timeBadgeText}>{dueDateStr || '--:--'}</Text>
+                </View>
             </View>
 
             <View style={styles.centerContent}>
@@ -198,9 +186,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                             {statusInfo.label.split(' ')[1] || statusInfo.label}
                         </Text>
                     </View>
-                    {dueDateStr && (
-                        <Text style={styles.metaText}>• {dueDateStr}</Text>
-                    )}
+                    <Text style={styles.metaText}>
+                        • {format(new Date(commitment.due_at), "d MMM", { locale: es })}
+                    </Text>
                     <Text style={styles.metaText} numberOfLines={1}>• {displayName}</Text>
                 </View>
 
@@ -225,15 +213,9 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     </TouchableOpacity>
                 )}
 
-                {isAssignee && isProposed && (
+                {(isAssignee || isOwner) && !isDone && !isRejected && (
                     <TouchableOpacity onPress={() => setShowActions(true)} style={styles.actionsBtn}>
                         <Ionicons name="ellipsis-horizontal-circle" size={26} color="#6366f1" />
-                    </TouchableOpacity>
-                )}
-
-                {!isAssignee && !isDone && !isRejected && (
-                    <TouchableOpacity onPress={handlePing}>
-                        <Ionicons name="notifications-outline" size={22} color="#f59e0b" />
                     </TouchableOpacity>
                 )}
 
@@ -337,7 +319,24 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff1f1',
     },
     leftContent: {
-        marginRight: 12,
+        marginRight: 10,
+        width: 55,
+        alignItems: 'center',
+    },
+    timeBadgeContainer: {
+        backgroundColor: '#f8fafc',
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+        borderRadius: 8,
+        borderWidth: 1.5,
+        borderColor: '#e2e8f0',
+        width: '100%',
+        alignItems: 'center',
+    },
+    timeBadgeText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#1e293b',
     },
     avatar: {
         width: 32,
