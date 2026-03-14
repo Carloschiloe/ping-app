@@ -143,6 +143,8 @@ export default function GroupTaskCard({
                 assigned_to_user_id: editData.assignedToUserId
             };
 
+            console.warn('[DEBUG-MOBILE] Sending update payload:', JSON.stringify(payload));
+
             await updateCommitment({ 
                 id: commitment.id, 
                 data: payload 
