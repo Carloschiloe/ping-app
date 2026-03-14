@@ -148,7 +148,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     is24Hour={true}
                                     display={Platform.OS === 'ios' ? 'inline' : 'default'}
                                     onChange={onDateChange}
-                                    {...(Platform.OS === 'ios' ? {} : { textColor: '#1e1b4b' })}
+                                    themeVariant="light"
+                                    {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
                                 />
                             )}
 
