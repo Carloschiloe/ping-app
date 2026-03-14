@@ -27,7 +27,7 @@ export default function GroupTaskCard({
     const { mutate: accept, isPending: isAccepting } = useAcceptCommitment();
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
-    const { mutate: updateCommitment } = useUpdateCommitment();
+    const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const [showActions, setShowActions] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
