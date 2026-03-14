@@ -139,11 +139,11 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         {showPicker && (
                             <DateTimePicker
                                 value={new Date(suggestionData.dueAt)}
-                                mode={pickerMode}
+                                mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
                                 is24Hour={true}
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                display={Platform.OS === 'ios' ? 'inline' : 'default'}
                                 onChange={onDateChange}
-                                textColor="#1e1b4b"
+                                {...(Platform.OS === 'ios' ? {} : { textColor: '#1e1b4b' })}
                             />
                         )}
 
