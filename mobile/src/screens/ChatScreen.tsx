@@ -310,11 +310,13 @@ export default function ChatScreen({ navigation }: any) {
                     groupParticipants={groupParticipants}
                     onClose={() => setSuggestionModalVisible(false)}
                     onUpdateData={setSuggestionData}
-                    onConfirm={() => {
-                        createCommitment({ 
+                    onConfirm={async () => {
+                        await createCommitment({ 
                             ...suggestionData, 
                             group_conversation_id: conversationId 
                         });
+                        // Force refresh of messages to show system message
+                        queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
                         setSuggestionModalVisible(false);
                     }}
                     avatarColor={avatarColor}

@@ -130,10 +130,12 @@ export const createCommitment = async (userId: string, data: any) => {
                 .single();
             
             const senderName = profile?.full_name || 'Alguien';
-            const typeLabel = type === 'meeting' ? 'reunión' : 'tarea';
-            let sysText = `✨ ${senderName} propuso una nueva ${typeLabel}`;
+            // Robust check: include common meeting synonyms and handle accents/casing
+            const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(title || '');
+            const finalType = (type === 'meeting' || isTitleMeeting) ? 'reunión' : 'tarea';
+            let sysText = `✨ ${senderName} propuso una nueva ${finalType}`;
             if (assigned_to_user_id && assigned_to_user_id === userId) {
-                 sysText = `✨ ${senderName} agendó una ${typeLabel}: ${title}`;
+                 sysText = `✨ ${senderName} agendó una ${finalType}: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -296,10 +298,11 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
     if (data && (updates.title || updates.due_at)) {
         const userName = await getUserName(userId);
         let detail = '';
-        const typeLabel = data.type === 'meeting' ? 'la reunión' : 'la tarea';
-        const actionText = updates.due_at ? `propuso un cambio de fecha/hora para ${typeLabel}` : `editó ${typeLabel}`;
+        const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(updates.title || data.title || '');
+        const finalType = (data.type === 'meeting' || isTitleMeeting) ? 'la reunión' : 'la tarea';
+        const actionText = updates.due_at ? `propuso un cambio de fecha/hora para ${finalType}` : `editó ${finalType}`;
         if (updates.due_at) {
-            const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
+            const dateStr = format(new Date(updates.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
             detail = `: ${dateStr}`;
         }
         await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText}${detail}`);

@@ -352,6 +352,7 @@ const MessageItemComponent = ({
                             ...displayTask, 
                             _isEveryoneSummary: !myTask && tasks.length > 1 
                         }} 
+                        conversationId={item.conversation_id}
                     />
                 );
             })()}

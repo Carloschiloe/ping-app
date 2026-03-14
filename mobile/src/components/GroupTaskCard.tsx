@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -29,10 +30,14 @@ interface GroupTaskCardProps {
         rejection_reason?: string | null;
         proposed_due_at?: string | null;
         type?: 'task' | 'meeting';
+        group_conversation_id?: string;
     };
+    conversationId?: string;
 }
 
-export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
+export default function GroupTaskCard({ commitment, conversationId: manualConversationId }: GroupTaskCardProps) {
+    const queryClient = useQueryClient();
+    const conversationId = manualConversationId || commitment.group_conversation_id;
     const { user } = useAuth();
     const { mutate: markDone, isPending: isMarkingDone } = useMarkCommitmentDone();
     const { mutate: accept, isPending: isAccepting } = useAcceptCommitment();
@@ -75,7 +80,7 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         : null;
 
     const isMeetingRaw = commitment.type === 'meeting';
-    const isMeeting = isMeetingRaw || /reunión|llamada|junta|meet|zooom|call/i.test(commitment.title || '');
+    const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(commitment.title || '');
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
 
     const handleMarkDone = () => {
@@ -128,10 +133,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
         setShowEditModal(true);
     };
 
-    const onConfirmEdit = () => {
+    const onConfirmEdit = async () => {
         if (!editData) return;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        updateCommitment({ 
+        await updateCommitment({ 
             id: commitment.id, 
             data: { 
                 title: editData.title, 
@@ -139,6 +144,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                 assigned_to_user_id: editData.assigned_to_user_id 
             } 
         });
+        // Force refresh of messages to show system message
+        if (conversationId) {
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+        }
         setShowEditModal(false);
     };
 
