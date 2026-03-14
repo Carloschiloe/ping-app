@@ -1,7 +1,8 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { processUserMessage } from '../services/message.service';
 import { NotificationService } from '../services/notification.service';
+import { AppError } from '../utils/AppError';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -523,5 +524,38 @@ export const pingConversation = async (req: Request, res: Response): Promise<voi
         res.json({ success: true });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
+    }
+};
+
+export const getConversationMedia = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { id: conversationId } = req.params;
+        
+        // Buscamos mensajes que empiecen con los prefijos de media conocidos
+        const { data, error } = await supabaseAdmin
+            .from('messages')
+            .select('id, text, created_at, sender_id, meta')
+            .eq('conversation_id', conversationId)
+            .ilike('text', '%[%')
+            .order('created_at', { ascending: false });
+
+        if (error) throw new AppError(error.message, 500);
+
+        console.warn(`[DEBUG-BACKEND] Media found for ${conversationId}: ${(data || []).length} items`);
+        if (data && data.length > 0) {
+            data.slice(0, 5).forEach((m, i) => {
+                console.warn(`[DEBUG-BACKEND] Item ${i}: ID=${m.id.substring(0,8)} Text="${m.text?.substring(0, 100)}"`);
+            });
+        }
+
+        // Filtro adicional para asegurar que tengan el formato correcto
+        const mediaMessages = (data || []).filter(m => {
+            const t = m.text || '';
+            return t.startsWith('[imagen]') || t.startsWith('[audio]') || t.startsWith('[video]') || t.startsWith('[document=');
+        });
+
+        res.status(200).json({ messages: mediaMessages });
+    } catch (error) {
+        next(error);
     }
 };

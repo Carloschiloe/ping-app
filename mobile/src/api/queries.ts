@@ -206,6 +206,24 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
     });
 };
 
+export const useConversationMedia = (conversationId: string) => {
+    return useQuery({
+        queryKey: ['conversation-media', conversationId],
+        queryFn: async () => {
+            try {
+                console.warn(`[DEBUG-QUERY] Fetching media for ${conversationId}`);
+                const res = await apiClient.get(`/conversations/${conversationId}/media`);
+                console.warn(`[DEBUG-QUERY] Media received: ${res.messages?.length || 0}`);
+                return res.messages || [];
+            } catch (err: any) {
+                console.error(`[DEBUG-QUERY] ERROR fetching media:`, err?.message || err);
+                throw err;
+            }
+        },
+        enabled: !!conversationId,
+    });
+};
+
 
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();

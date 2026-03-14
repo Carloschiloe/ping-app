@@ -35,10 +35,6 @@ const MessageItemComponent = ({
     onToggleSelect, onSwipeLeft, onViewReactions,
     formatTime, avatarColor, swipeableRowRefs, groupParticipants = []
 }: MessageItemProps) => {
-    // DEBUG: Tracing Rendering
-    if (item.meta?.suggestedTask || (groupTasks && groupTasks.some(t => t.message_id === item.id))) {
-        console.warn(`[DEBUG-MSG] Rendering Msg ${item.id.substring(0,8)} | Meta: ${!!item.meta?.suggestedTask} | Tasks count: ${groupTasks?.filter(t => t.message_id === item.id).length}`);
-    }
 
     if (item.type === 'divider') {
         return (
@@ -48,10 +44,20 @@ const MessageItemComponent = ({
         );
     }
 
+    // DIAGNOSTIC LOG (Fase 27)
+    if (item.text && (item.text.startsWith('[') || item.text.includes('http'))) {
+        console.warn(`[DEBUG-MSG] ID: ${item.id.substring(0,8)} | Grp: ${isGroup} | Text: "${item.text.substring(0, 60)}..."`);
+    }
+
     const isSystem = item.meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
     const time = formatTime(item.created_at);
     const msgText: string = item.text || '';
+
+    // DIAGNOSTIC LOG (Fase 29)
+    if (msgText.startsWith('[') || msgText.includes('http')) {
+        console.warn(`[DEBUG-MSG] ID: ${item.id.substring(0,8)} | Grp: ${isGroup} | Prefix: ${msgText.substring(0, 15)}...`);
+    }
 
     if (isSystem) {
         return (
@@ -63,20 +69,22 @@ const MessageItemComponent = ({
         );
     }
 
-    let isImage = msgText.startsWith('[imagen]');
-    const isAudio = msgText.startsWith('[audio]');
-    let isVideo = msgText.startsWith('[video]');
-    const isDocument = msgText.startsWith('[document=');
+    const trimmedText = msgText.trim();
+    let isImage = trimmedText.startsWith('[imagen]');
+    const isAudio = trimmedText.startsWith('[audio]');
+    let isVideo = trimmedText.startsWith('[video]');
+    const isDocument = trimmedText.startsWith('[document=');
 
     let mediaUrl = null;
     let documentName = '';
 
     let description = '';
     const extractUrlAndDescription = (text: string, prefixLength: number) => {
-        const full = text.slice(prefixLength);
-        const firstSpace = full.indexOf(' ');
-        if (firstSpace === -1) return { url: full, desc: '' };
-        return { url: full.slice(0, firstSpace), desc: full.slice(firstSpace + 1) };
+        const full = text.slice(prefixLength).trim();
+        // Buscamos el primer espacio o el primer salto de línea
+        const match = full.match(/^([^\s\n]+)[\s\n]*([\s\S]*)$/);
+        if (!match) return { url: full, desc: '' };
+        return { url: match[1], desc: match[2].trim() };
     };
 
     if (isImage) {

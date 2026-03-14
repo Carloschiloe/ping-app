@@ -45,6 +45,7 @@ router.post('/conversations', requireAuth, conversationController.createOrFind);
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
+router.get('/conversations/:id/media', requireAuth, conversationController.getConversationMedia);
 router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);

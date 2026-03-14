@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup } from '../api/queries';
+import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup, useConversationMedia } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -48,24 +48,38 @@ export default function ChatInfoScreen() {
     const members = isGroup ? (currentConv?.groupMetadata?.participants || []) : [];
 
     // Get media from messages
-    const { data: messagesData } = useConversationMessages(conversationId);
+    const { data: mediaMessages, isLoading: isMediaLoading } = useConversationMedia(conversationId);
 
     const mediaFiles = useMemo(() => {
-        if (!messagesData?.pages) return { images: [], docs: [], audios: [] };
         const images: any[] = [];
         const docs: any[] = [];
         const audios: any[] = [];
 
-        const allMessages = messagesData.pages.flatMap((page: any) => page.messages || []);
+        if (!mediaMessages) return { images, docs, audios };
 
-        allMessages.forEach((m: any) => {
+        const robustExtract = (text: string, prefixLength: number) => {
+            const full = text.slice(prefixLength).trim();
+            const match = full.match(/^([^\s\n]+)[\s\n]*([\s\S]*)$/);
+            if (!match) return { url: full };
+            return { url: match[1] };
+        };
+
+        mediaMessages.forEach((m: any) => {
             if (!m.text) return;
-            if (m.text.startsWith('[imagen]') || m.text.startsWith('[video]')) images.push(m);
-            else if (m.text.startsWith('[document=')) docs.push(m);
-            else if (m.text.startsWith('[audio]')) audios.push(m);
+            const text = m.text.trim();
+            if (text.startsWith('[imagen]') || text.startsWith('[video]')) {
+                const prefix = text.startsWith('[imagen]') ? 8 : 7;
+                const { url } = robustExtract(text, prefix);
+                images.push({ ...m, parsedUrl: url });
+            } else if (text.startsWith('[document=')) {
+                docs.push(m);
+            } else if (text.startsWith('[audio]')) {
+                const { url } = robustExtract(text, 7);
+                audios.push({ ...m, parsedUrl: url });
+            }
         });
         return { images, docs, audios };
-    }, [messagesData]);
+    }, [mediaMessages, isGroup]);
 
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
     const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
@@ -227,10 +241,11 @@ export default function ChatInfoScreen() {
                         horizontal
                         data={mediaFiles.images}
                         keyExtractor={(item) => item.id}
+                        ListEmptyComponent={isMediaLoading ? <ActivityIndicator style={{ margin: 20 }} /> : null}
                         showsHorizontalScrollIndicator={false}
                         renderItem={({ item }) => {
                             const isImage = item.text.startsWith('[imagen]');
-                            const url = isImage ? item.text.slice(8) : item.text.slice(7);
+                            const url = item.parsedUrl;
                             return (
                                 <TouchableOpacity
                                     style={styles.mediaItem}
@@ -281,7 +296,7 @@ export default function ChatInfoScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Notas de Voz</Text>
                     {mediaFiles.audios.map((audioMsg: any) => {
-                        const url = audioMsg.text.slice(7);
+                        const url = audioMsg.parsedUrl;
                         if (!url) return null;
                         const dateText = new Date(audioMsg.created_at).toLocaleDateString('es-CL', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                         return (
@@ -291,6 +306,14 @@ export default function ChatInfoScreen() {
                             </View>
                         );
                     })}
+                </View>
+            )}
+
+            {/* Empty Media State */}
+            {!isMediaLoading && mediaFiles.images.length === 0 && mediaFiles.docs.length === 0 && mediaFiles.audios.length === 0 && (
+                <View style={styles.emptyMedia}>
+                    <Ionicons name="images-outline" size={48} color="#9ca3af" />
+                    <Text style={styles.emptyMediaText}>No hay archivos compartidos aún</Text>
                 </View>
             )}
 
@@ -433,4 +456,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'white', padding: 16, marginTop: 8, marginBottom: 32, gap: 8,
     },
     deleteBtnText: { color: '#ef4444', fontWeight: '600', fontSize: 16 },
+    emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, opacity: 0.6 },
+    emptyMediaText: { marginTop: 12, color: '#6b7280', fontSize: 14, fontWeight: '500' },
 });

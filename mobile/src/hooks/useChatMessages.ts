@@ -45,6 +45,11 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     const messages = useMemo(() => {
         const serverMessages = infiniteData?.pages.flatMap(page => page.messages) || [];
         
+        if (serverMessages.length > 0) {
+            const mediaSample = serverMessages.filter(m => m.text?.startsWith('[')).length;
+            console.warn(`[DEBUG-HOOK] Conv: ${conversationId.substring(0,8)} | Msgs: ${serverMessages.length} | Media-ish: ${mediaSample}`);
+        }
+
         // Filter queue messages for THIS conversation
         const pendingForThisConv = queue
             .filter(q => q.conversationId === conversationId)
