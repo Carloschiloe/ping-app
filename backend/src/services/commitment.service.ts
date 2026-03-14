@@ -135,7 +135,14 @@ export const createCommitment = async (userId: string, data: any) => {
             const finalType = (type === 'meeting' || isTitleMeeting) ? 'reunión' : 'tarea';
             let sysText = `✨ ${senderName} propuso una nueva ${finalType}`;
             if (assigned_to_user_id && assigned_to_user_id === userId) {
-                 sysText = `✨ ${senderName} agendó una ${finalType}: ${title}`;
+                const dateObj = new Date(due_at);
+                const timeStr = dateObj.toLocaleString('es-CL', {
+                    timeZone: 'America/Santiago',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -302,7 +309,16 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
         const finalType = (data.type === 'meeting' || isTitleMeeting) ? 'la reunión' : 'la tarea';
         const actionText = updates.due_at ? `propuso un cambio de fecha/hora para ${finalType}` : `editó ${finalType}`;
         if (updates.due_at) {
-            const dateStr = format(new Date(updates.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
+            const dateObj = new Date(updates.due_at);
+            const dateStr = dateObj.toLocaleString('es-CL', {
+                timeZone: 'America/Santiago',
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
             detail = `: ${dateStr}`;
         }
         await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText}${detail}`);
