@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 
 interface AISuggestionModalProps {
@@ -67,13 +69,11 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 
                 if (Platform.OS === 'android') {
                     setShowPicker(false);
-                    // on Android we immediately show time picker after date
                     setTimeout(() => {
                         setPickerMode('time');
                         setShowPicker(true);
                     }, 100);
                 } else {
-                    // on iOS we can stay or update
                     onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
                 }
             } else {
@@ -96,6 +96,10 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         : suggestionData.assignedToUserId === user?.id
             ? 'Para ti'
             : (currentAssignee?.full_name || 'Sin asignar');
+
+    // Safe date parsing
+    const dateObj = new Date(suggestionData.dueAt);
+    const formattedDate = format(dateObj, "eeee, d 'de' MMM, HH:mm", { locale: es });
 
     return (
         <Modal transparent visible={visible} animationType="slide">
@@ -127,7 +131,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         >
                             <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
                             <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
-                                {new Date(suggestionData.dueAt).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                {formattedDate}
                             </Text>
                             <Ionicons name="pencil" size={14} color="#94a3b8" style={{ marginLeft: 'auto' }} />
                         </TouchableOpacity>
@@ -142,14 +146,23 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             />
                         )}
 
-                        {conflicts.length > 0 && (
-                            <View style={styles.conflictBanner}>
-                                <Ionicons name="warning" size={16} color="#ef4444" />
-                                <Text style={styles.conflictText}>
-                                    Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
-                                </Text>
-                            </View>
-                        )}
+                        <View style={styles.statusContainer}>
+                            {isCheckingConflicts && (
+                                <View style={styles.checkingContainer}>
+                                    <ActivityIndicator size="small" color="#6366f1" />
+                                    <Text style={styles.checkingText}>Verificando conflictos...</Text>
+                                </View>
+                            )}
+
+                            {conflicts.length > 0 && !isCheckingConflicts && (
+                                <View style={styles.conflictBanner}>
+                                    <Ionicons name="warning" size={16} color="#ef4444" />
+                                    <Text style={styles.conflictText}>
+                                        Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
 
                         <Text style={styles.inputLabel}>RESPONSABLE</Text>
                         <View style={styles.assigneeSelectorContainer}>
@@ -176,7 +189,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
                                 </TouchableOpacity>
 
-                                {groupParticipants.filter(p => p.id !== user?.id).map((p) => (
+                                {groupParticipants.length > 0 ? groupParticipants.filter(p => p.id !== user?.id).map((p) => (
                                     <TouchableOpacity
                                         key={p.id}
                                         style={[styles.assigneeOption, suggestionData.assignedToUserId === p.id && styles.assigneeOptionActive]}
@@ -189,7 +202,9 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                             {p.full_name?.split(' ')[0] || p.email.split('@')[0]}
                                         </Text>
                                     </TouchableOpacity>
-                                ))}
+                                )) : (
+                                    <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
+                                )}
                             </ScrollView>
                         </View>
 
@@ -233,6 +248,36 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, gap: 10,
     },
     dateText: { fontSize: 14, fontWeight: '500', color: '#c2410c' },
+    statusContainer: {
+        minHeight: 40,
+        justifyContent: 'center',
+        marginVertical: 4,
+    },
+    checkingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 8,
+    },
+    checkingText: {
+        fontSize: 12,
+        color: '#6366f1',
+        fontWeight: '500',
+    },
+    conflictBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fee2e2',
+        padding: 10,
+        borderRadius: 12,
+        gap: 8,
+    },
+    conflictText: {
+        fontSize: 12,
+        color: '#b91c1c',
+        fontWeight: '600',
+        flex: 1,
+    },
     assigneeSelectorContainer: { marginTop: 4, marginBottom: 16 },
     assigneeList: { paddingVertical: 4, gap: 12 },
     assigneeOption: { alignItems: 'center', width: 70, opacity: 0.6 },
@@ -249,20 +294,4 @@ const styles = StyleSheet.create({
     currentAssigneeText: { fontSize: 13, color: '#4b5563' },
     acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
-    conflictBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fee2e2',
-        padding: 10,
-        borderRadius: 12,
-        marginTop: -8,
-        marginBottom: 16,
-        gap: 8,
-    },
-    conflictText: {
-        fontSize: 12,
-        color: '#b91c1c',
-        fontWeight: '600',
-        flex: 1,
-    },
 });
