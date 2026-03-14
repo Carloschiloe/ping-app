@@ -27,7 +27,7 @@ Extrae la siguiente información en JSON:
 
 Reglas:
 - TIMEZONE: Estás en Chile. Usa UTC-3 para tus cálculos de hora.
-- REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral.
+- REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral. Si el mensaje dice "reunión" explícitamente, usa "meeting".
 - TAREA (task): Se refiere a ejecutar una acción técnica, enviar un documento, comprar algo, etc.
 - Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
@@ -133,7 +133,7 @@ export const createCommitment = async (userId: string, data: any) => {
             const typeLabel = type === 'meeting' ? 'reunión' : 'tarea';
             let sysText = `✨ ${senderName} propuso una nueva ${typeLabel}`;
             if (assigned_to_user_id && assigned_to_user_id === userId) {
-                 sysText = `✨ ${senderName} agendó: ${title}`;
+                 sysText = `✨ ${senderName} agendó una ${typeLabel}: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -296,12 +296,13 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
     if (data && (updates.title || updates.due_at)) {
         const userName = await getUserName(userId);
         let detail = '';
-        const actionText = updates.due_at ? 'propuso un cambio de fecha/hora para' : 'editó';
+        const typeLabel = data.type === 'meeting' ? 'la reunión' : 'la tarea';
+        const actionText = updates.due_at ? `propuso un cambio de fecha/hora para ${typeLabel}` : `editó ${typeLabel}`;
         if (updates.due_at) {
             const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
             detail = `: ${dateStr}`;
         }
-        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText} ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}${detail}`);
+        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText}${detail}`);
     }
 
     return data;

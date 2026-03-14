@@ -91,7 +91,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
 
     if (!suggestionData) return null;
 
-    const isMeeting = suggestionData.type === 'meeting';
+    const isMeetingRaw = suggestionData.type === 'meeting';
+    const isMeeting = isMeetingRaw || /reunión|llamada|junta|meet|zooom|call/i.test(suggestionData.title || '');
     const typeLabel = isMeeting ? 'REUNIÓN' : 'TAREA';
 
     const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
@@ -140,7 +141,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     setShowPicker(true);
                                 }}
                             >
-                                <Ionicons name={isMeeting ? "calendar-outline" : "time-outline"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
+                                <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
                                 <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
                                     {formattedDate}
                                 </Text>
