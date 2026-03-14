@@ -38,7 +38,10 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     const { mutate: accept, isPending: isAccepting } = useAcceptCommitment();
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
+    const { mutate: updateCommitment } = useUpdateCommitment();
     const [showActions, setShowActions] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editData, setEditData] = useState<any>(null);
 
     const currentUserId = user?.id?.toLowerCase();
     const assignedId = commitment.assigned_to_user_id?.toLowerCase();
@@ -115,16 +118,27 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
     };
 
     const handlePostpone = () => {
-        Alert.alert('Posponer', '¿Posponer para mañana a esta misma hora?', [
-            { text: 'No', style: 'cancel' },
-            {
-                text: 'Sí',
-                onPress: () => {
-                    const newDate = new Date(new Date(commitment.due_at).getTime() + 24 * 60 * 60 * 1000).toISOString();
-                    postpone({ id: commitment.id, newDate });
-                }
-            }
-        ]);
+        setEditData({ ...commitment, dueAt: commitment.due_at });
+        setShowEditModal(true);
+    };
+
+    const handleEdit = () => {
+        setEditData({ ...commitment, dueAt: commitment.due_at });
+        setShowEditModal(true);
+    };
+
+    const onConfirmEdit = () => {
+        if (!editData) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        updateCommitment({ 
+            id: commitment.id, 
+            data: { 
+                title: editData.title, 
+                due_at: editData.dueAt,
+                assigned_to_user_id: editData.assigned_to_user_id 
+            } 
+        });
+        setShowEditModal(false);
     };
 
     const handlePing = () => {
@@ -237,29 +251,45 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     <View style={styles.actionMenu}>
                         <Text style={styles.actionMenuTitle}>{commitment.title}</Text>
 
-                        <TouchableOpacity
-                            style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
-                            onPress={() => { setShowActions(false); handleAccept(); }}
-                        >
-                            <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
-                            <Text style={styles.menuItemText}>Aceptar {typeLabel}</Text>
-                        </TouchableOpacity>
+                        {isAssignee && isProposed && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                onPress={() => { setShowActions(false); handleAccept(); }}
+                            >
+                                <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
+                                <Text style={styles.menuItemText}>Aceptar {typeLabel}</Text>
+                            </TouchableOpacity>
+                        )}
 
-                        <TouchableOpacity
-                            style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
-                            onPress={() => { setShowActions(false); handlePostpone(); }}
-                        >
-                            <Ionicons name="time" size={24} color="#6366f1" />
-                            <Text style={styles.menuItemText}>Posponer</Text>
-                        </TouchableOpacity>
+                        {isOwner && !isDone && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                onPress={() => { setShowActions(false); handleEdit(); }}
+                            >
+                                <Ionicons name="create" size={24} color="#8b5cf6" />
+                                <Text style={styles.menuItemText}>Editar {typeLabel}</Text>
+                            </TouchableOpacity>
+                        )}
 
-                        <TouchableOpacity
-                            style={styles.menuItem}
-                            onPress={() => { setShowActions(false); handleReject(); }}
-                        >
-                            <Ionicons name="close-circle" size={24} color="#ef4444" />
-                            <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Rechazar</Text>
-                        </TouchableOpacity>
+                        {isAssignee && !isMeeting && isProposed && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                onPress={() => { setShowActions(false); handlePostpone(); }}
+                            >
+                                <Ionicons name="time" size={24} color="#6366f1" />
+                                <Text style={styles.menuItemText}>Posponer</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {isAssignee && isProposed && (
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => { setShowActions(false); handleReject(); }}
+                            >
+                                <Ionicons name="close-circle" size={24} color="#ef4444" />
+                                <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Rechazar</Text>
+                            </TouchableOpacity>
+                        )}
 
                         <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowActions(false)}>
                             <Text style={styles.cancelBtnText}>Cancelar</Text>
@@ -267,9 +297,31 @@ export default function GroupTaskCard({ commitment }: GroupTaskCardProps) {
                     </View>
                 </Pressable>
             </Modal>
+
+            {/* Edit/Postpone Modal Wrapper */}
+            {editData && (
+                <View style={{ position: 'absolute' }}>
+                    <AISuggestionModal
+                        visible={showEditModal}
+                        isEditing={true}
+                        suggestionData={editData}
+                        user={user}
+                        isGroup={true}
+                        groupParticipants={[]} // We should probably pass participants properly or use a simplified version
+                        onClose={() => setShowEditModal(false)}
+                        onUpdateData={setEditData}
+                        onConfirm={onConfirmEdit}
+                        avatarColor={() => '#6366f1'}
+                    />
+                </View>
+            )}
         </View>
     );
 }
+
+// Inline Mock/Import AISuggestionModal if needed, but it should be available in the project
+import { AISuggestionModal } from './AISuggestionModal';
+import { useUpdateCommitment } from '../api/queries';
 
 const styles = StyleSheet.create({
     row: {

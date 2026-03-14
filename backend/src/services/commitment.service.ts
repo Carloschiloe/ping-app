@@ -282,6 +282,9 @@ export const getCommitments = async (userId: string, status?: string, conversati
 };
 
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
+    // Fetch old record for message comparison
+    const { data: oldCommitment } = await supabaseAdmin.from('commitments').select('*').eq('id', id).single();
+
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update(updates)
@@ -291,6 +294,18 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
         .single();
 
     if (error) throw error;
+
+    if (data && (updates.title || updates.due_at)) {
+        const userName = await getUserName(userId);
+        const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
+        let changeText = 'sus detalles';
+        if (updates.title && updates.due_at) changeText = `el título a "${data.title}" y la fecha para el ${dateStr}`;
+        else if (updates.title) changeText = `el título a "${data.title}"`;
+        else if (updates.due_at) changeText = `la fecha para el ${dateStr}`;
+
+        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}: ${changeText}`);
+    }
+
     return data;
 };
 

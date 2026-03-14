@@ -16,6 +16,7 @@ interface AISuggestionModalProps {
     onConfirm: () => void;
     onUpdateData: (data: any) => void;
     avatarColor: (str: string) => string;
+    isEditing?: boolean;
 }
 
 export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
@@ -27,7 +28,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     onClose,
     onConfirm,
     onUpdateData,
-    avatarColor
+    avatarColor,
+    isEditing
 }) => {
     const [conflicts, setConflicts] = useState<any[]>([]);
     const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
@@ -107,7 +109,9 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             <View style={styles.modalOverlay}>
                 <View style={styles.suggestionModal}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>✨ Agendar con AI</Text>
+                        <Text style={styles.modalTitle}>
+                            {isEditing ? `✏️ Editar ${typeLabel}` : `✨ Agendar con AI`}
+                        </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
                             <Ionicons name="close" size={24} color="#6b7280" />
                         </TouchableOpacity>
@@ -237,7 +241,9 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             onPress={onConfirm}
                             disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
                         >
-                            <Text style={styles.acceptBtnText}>¡Agendar {isMeeting ? 'Reunión' : 'Tarea'}!</Text>
+                            <Text style={styles.acceptBtnText}>
+                                {isEditing ? `Guardar Cambios` : `¡Agendar ${isMeeting ? 'Reunión' : 'Tarea'}!`}
+                            </Text>
                         </TouchableOpacity>
                     </ScrollView>
                 </View>

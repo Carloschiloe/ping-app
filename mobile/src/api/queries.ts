@@ -507,6 +507,21 @@ export const useUpdateCommitmentStatus = () => {
     });
 };
 
+export const useUpdateCommitment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, data }: { id: string, data: any }) =>
+            apiClient.patch(`/commitments/${id}`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        },
+    });
+};
+
 export const useMarkCommitmentDone = () => {
     const { mutate, isPending } = useUpdateCommitmentStatus();
     return {
