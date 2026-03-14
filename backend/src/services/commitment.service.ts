@@ -293,10 +293,8 @@ export const getCommitments = async (userId: string, status?: string, conversati
 };
 
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
-    console.log(`[DEBUG-BACKEND] updateCommitment called for ${id}. Updates:`, JSON.stringify(updates));
     // Fetch old record for message comparison
     const { data: oldCommitment } = await supabaseAdmin.from('commitments').select('*').eq('id', id).single();
-    console.log(`[DEBUG-BACKEND] Old commitment due_at: ${oldCommitment?.due_at}`);
 
     const { data, error } = await supabaseAdmin
         .from('commitments')
@@ -306,12 +304,7 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
         .select()
         .single();
 
-    if (error) {
-        console.error('[DEBUG-BACKEND] Update failed:', error);
-        throw error;
-    }
-
-    console.log(`[DEBUG-BACKEND] Database updated. New due_at: ${data.due_at}`);
+    if (error) throw error;
 
     if (data && (updates.title || updates.due_at || updates.assigned_to_user_id)) {
         const userName = await getUserName(userId);
@@ -335,9 +328,7 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
                 hour12: false
             });
             detail = `: ${dateStr}`;
-            console.log(`[DEBUG-BACKEND] System Message Detail Date: ${dateStr}`);
         }
-        console.log(`[DEBUG-BACKEND] Inserting system message: ✏️ ${userName} ${actionText}${detail}`);
         await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText}${detail}`);
     }
 

@@ -46,9 +46,6 @@ export default function GroupTaskCard({
     const isCounter = status === 'counter_proposal';
     const isAccepted = status === 'accepted' || status === 'in_progress';
 
-    // DEBUG: Commitment State
-    console.warn(`[DEBUG-CARD] Task: ${commitment.title.substring(0,15)} | Status: ${status} | isAssignee: ${isAssignee} | IDs: Me=${currentUserId?.substring(0,6)} Target=${assignedId?.substring(0,6)} Owner=${commitment.owner_user_id?.substring(0,6)}`);
-
     // Improve name resolution
     const requesterName = commitment.owner?.full_name || (isOwner ? 'Mí' : 'Alguien');
     const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id
@@ -133,7 +130,6 @@ export default function GroupTaskCard({
 
     const onConfirmEdit = async () => {
         if (!editData) return;
-        console.warn('[DEBUG-MOBILE] onConfirmEdit raw editData:', JSON.stringify(editData));
         try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             
@@ -143,8 +139,6 @@ export default function GroupTaskCard({
                 due_at: editData.dueAt,
                 assigned_to_user_id: editData.assignedToUserId
             };
-
-            console.warn('[DEBUG-MOBILE] Sending update payload:', JSON.stringify(payload));
 
             await updateCommitment({ 
                 id: commitment.id, 
