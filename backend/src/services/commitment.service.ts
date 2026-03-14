@@ -294,7 +294,12 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
 
     if (data && (updates.title || updates.due_at)) {
         const userName = await getUserName(userId);
-        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}`);
+        let detail = '';
+        if (updates.due_at) {
+            const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
+            detail = `: nueva fecha/hora ${dateStr}`;
+        }
+        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}${detail}`);
     }
 
     return data;

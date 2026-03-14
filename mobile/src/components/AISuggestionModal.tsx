@@ -176,14 +176,12 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     </View>
                                 )}
 
-                                {conflicts.length > 0 && !isCheckingConflicts && (
                                     <View style={styles.conflictBanner}>
                                         <Ionicons name="warning" size={16} color="#ef4444" />
-                                        <Text style={styles.conflictText}>
-                                            Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts[0].title.substring(0, 20)}...)
+                                        <Text style={styles.conflictText} numberOfLines={2}>
+                                            Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts.map((c: any) => c.title).join(', ')})
                                         </Text>
                                     </View>
-                                )}
                             </View>
 
                             <Text style={styles.inputLabel}>RESPONSABLE</Text>
@@ -331,6 +329,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f3ff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, alignSelf: 'flex-start', gap: 6,
     },
     currentAssigneeText: { fontSize: 13, color: '#4b5563' },
+    conflictText: {
+        color: '#ef4444',
+        fontSize: 12,
+        fontWeight: '500',
+        marginLeft: 8,
+        flex: 1,
+        lineHeight: 16,
+    },
     acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
     pickerWrapper: {
