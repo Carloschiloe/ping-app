@@ -47,7 +47,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const checkConflicts = async () => {
         try {
             setIsCheckingConflicts(true);
-            const res = await apiClient.get(`/commitments/check-conflict?dueAt=${encodeURIComponent(suggestionData.dueAt)}`);
+            const excludeParam = suggestionData.id ? `&excludeId=${suggestionData.id}` : '';
+            const res = await apiClient.get(`/commitments/check-conflict?dueAt=${encodeURIComponent(suggestionData.dueAt)}${excludeParam}`);
             setConflicts(res || []);
         } catch (err) {
             console.error('[AISuggestionModal] Conflict check failed:', err);
@@ -153,7 +154,9 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
                                         is24Hour={true}
                                         display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                        onChange={onDateChange}
+                                        onChange={(event, date) => {
+                                            if (date) onDateChange(event, date);
+                                        }}
                                         themeVariant="light"
                                         {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
                                     />
@@ -176,12 +179,14 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     </View>
                                 )}
 
+                                {conflicts.length > 0 && !isCheckingConflicts && (
                                     <View style={styles.conflictBanner}>
                                         <Ionicons name="warning" size={16} color="#ef4444" />
                                         <Text style={styles.conflictText} numberOfLines={2}>
                                             Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts.map((c: any) => c.title).join(', ')})
                                         </Text>
                                     </View>
+                                )}
                             </View>
 
                             <Text style={styles.inputLabel}>RESPONSABLE</Text>
@@ -285,6 +290,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, gap: 10,
     },
     dateText: { fontSize: 14, fontWeight: '500', color: '#c2410c' },
+    conflictBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fee2e2',
+        padding: 10,
+        borderRadius: 12,
+        gap: 8,
+    },
     statusContainer: {
         minHeight: 40,
         justifyContent: 'center',
@@ -300,20 +313,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#6366f1',
         fontWeight: '500',
-    },
-    conflictBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fee2e2',
-        padding: 10,
-        borderRadius: 12,
-        gap: 8,
-    },
-    conflictText: {
-        fontSize: 12,
-        color: '#b91c1c',
-        fontWeight: '600',
-        flex: 1,
     },
     assigneeSelectorContainer: { marginTop: 4, marginBottom: 16 },
     assigneeList: { paddingVertical: 4, gap: 12 },

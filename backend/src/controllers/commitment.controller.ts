@@ -188,12 +188,13 @@ export const checkConflict = async (req: Request, res: Response): Promise<void> 
         }
         const userId = req.user.id;
         const dueAt = req.query.dueAt as string;
+        const excludeId = req.query.excludeId as string | undefined;
         if (!dueAt) {
             res.status(400).json({ error: 'Missing dueAt parameter' });
             return;
         }
 
-        const data = await commitmentService.checkConflict(userId, dueAt);
+        const data = await commitmentService.checkConflict(userId, dueAt, excludeId);
         res.status(200).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

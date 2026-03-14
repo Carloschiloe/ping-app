@@ -130,7 +130,8 @@ export const createCommitment = async (userId: string, data: any) => {
                 .single();
             
             const senderName = profile?.full_name || 'Alguien';
-            let sysText = `✨ ${senderName} propuso una nueva ${type === 'meeting' ? 'reunión' : 'tarea'}`;
+            const typeLabel = type === 'meeting' ? 'reunión' : 'tarea';
+            let sysText = `✨ ${senderName} propuso una nueva ${typeLabel}`;
             if (assigned_to_user_id && assigned_to_user_id === userId) {
                  sysText = `✨ ${senderName} agendó: ${title}`;
             }
@@ -295,11 +296,12 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
     if (data && (updates.title || updates.due_at)) {
         const userName = await getUserName(userId);
         let detail = '';
+        const actionText = updates.due_at ? 'propuso un cambio de fecha/hora para' : 'editó';
         if (updates.due_at) {
             const dateStr = format(new Date(data.due_at), "eeee d 'de' MMMM, HH:mm", { locale: es });
-            detail = `: nueva fecha/hora ${dateStr}`;
+            detail = `: ${dateStr}`;
         }
-        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} editó ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}${detail}`);
+        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText} ${data.type === 'meeting' ? 'la reunión' : 'la tarea'}${detail}`);
     }
 
     return data;
@@ -332,7 +334,7 @@ export const pingCommitment = async (userId: string, id: string) => {
     return { ok: true };
 };
 
-export const checkConflict = async (userId: string, dueAt: string) => {
+export const checkConflict = async (userId: string, dueAt: string, excludeId?: string) => {
     const checkDate = new Date(dueAt);
     if (isNaN(checkDate.getTime())) {
         console.warn('[Commitment Service] Invalid date received for checkConflict:', dueAt);
@@ -341,13 +343,19 @@ export const checkConflict = async (userId: string, dueAt: string) => {
     const startRange = new Date(checkDate.getTime() - 30 * 60 * 1000).toISOString(); // -30 min
     const endRange = new Date(checkDate.getTime() + 30 * 60 * 1000).toISOString();   // +30 min
 
-    const { data: conflicts, error } = await supabaseAdmin
+    let query = supabaseAdmin
         .from('commitments')
         .select('id, title, due_at, type')
         .eq('status', 'accepted')
         .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
         .gte('due_at', startRange)
         .lte('due_at', endRange);
+
+    if (excludeId) {
+        query = query.neq('id', excludeId);
+    }
+
+    const { data: conflicts, error } = await query;
 
     if (error) {
         console.error('[Commitment Service] checkConflict failed:', error);
