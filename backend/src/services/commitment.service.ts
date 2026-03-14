@@ -133,16 +133,20 @@ export const createCommitment = async (userId: string, data: any) => {
             // Robust check: include common meeting synonyms and handle accents/casing
             const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(title || '');
             const finalType = (type === 'meeting' || isTitleMeeting) ? 'reunión' : 'tarea';
-            let sysText = `✨ ${senderName} propuso una nueva ${finalType}`;
-            if (assigned_to_user_id && assigned_to_user_id === userId) {
-                const dateObj = new Date(due_at);
-                const timeStr = dateObj.toLocaleString('es-CL', {
-                    timeZone: 'America/Santiago',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
+            
+            const dateObj = new Date(due_at);
+            const timeStr = dateObj.toLocaleString('es-CL', {
+                timeZone: 'America/Santiago',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+
+            let sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
+            
+            // If it's a proposal for someone else, use "propuso"
+            if (assigned_to_user_id && assigned_to_user_id !== userId) {
+                 sysText = `✨ ${senderName} propuso una nueva ${finalType} para las ${timeStr}: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -302,12 +306,16 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
 
     if (error) throw error;
 
-    if (data && (updates.title || updates.due_at)) {
+    if (data && (updates.title || updates.due_at || updates.assigned_to_user_id)) {
         const userName = await getUserName(userId);
         let detail = '';
         const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(updates.title || data.title || '');
         const finalType = (data.type === 'meeting' || isTitleMeeting) ? 'la reunión' : 'la tarea';
-        const actionText = updates.due_at ? `propuso un cambio de fecha/hora para ${finalType}` : `editó ${finalType}`;
+        
+        let actionText = `editó ${finalType}`;
+        if (updates.due_at) {
+            actionText = `propuso un cambio de fecha/hora para ${finalType}`;
+        }
         if (updates.due_at) {
             const dateObj = new Date(updates.due_at);
             const dateStr = dateObj.toLocaleString('es-CL', {

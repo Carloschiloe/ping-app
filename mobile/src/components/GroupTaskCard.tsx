@@ -10,32 +10,16 @@ import * as Haptics from 'expo-haptics';
 import { apiClient } from '../api/client';
 
 interface GroupTaskCardProps {
-    commitment: {
-        id: string;
-        title: string;
-        due_at: string;
-        status: 'pending' | 'completed' | string;
-        assigned_to_user_id: string | null;
-        owner_user_id: string;
-        owner?: {
-            full_name: string;
-            avatar_url: string | null;
-            email: string;
-        } | null;
-        assignee?: {
-            full_name: string;
-            avatar_url: string | null;
-            email: string;
-        } | null;
-        rejection_reason?: string | null;
-        proposed_due_at?: string | null;
-        type?: 'task' | 'meeting';
-        group_conversation_id?: string;
-    };
+    commitment: any;
     conversationId?: string;
+    groupParticipants?: any[];
 }
 
-export default function GroupTaskCard({ commitment, conversationId: manualConversationId }: GroupTaskCardProps) {
+export default function GroupTaskCard({ 
+    commitment, 
+    conversationId: manualConversationId,
+    groupParticipants = []
+}: GroupTaskCardProps) {
     const queryClient = useQueryClient();
     const conversationId = manualConversationId || commitment.group_conversation_id;
     const { user } = useAuth();
@@ -124,31 +108,55 @@ export default function GroupTaskCard({ commitment, conversationId: manualConver
     };
 
     const handlePostpone = () => {
-        setEditData({ ...commitment, dueAt: commitment.due_at });
+        setEditData({ 
+            id: commitment.id,
+            title: commitment.title,
+            dueAt: commitment.due_at,
+            type: commitment.type,
+            assignedToUserId: commitment.assigned_to_user_id,
+            groupConversationId: commitment.group_conversation_id
+        });
         setShowEditModal(true);
     };
 
     const handleEdit = () => {
-        setEditData({ ...commitment, dueAt: commitment.due_at });
+        setEditData({ 
+            id: commitment.id,
+            title: commitment.title,
+            dueAt: commitment.due_at,
+            type: commitment.type,
+            assignedToUserId: commitment.assigned_to_user_id,
+            groupConversationId: commitment.group_conversation_id
+        });
         setShowEditModal(true);
     };
 
     const onConfirmEdit = async () => {
         if (!editData) return;
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        await updateCommitment({ 
-            id: commitment.id, 
-            data: { 
-                title: editData.title, 
+        try {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            // Map camelCase to snake_case for API
+            const payload = {
+                title: editData.title,
                 due_at: editData.dueAt,
-                assigned_to_user_id: editData.assigned_to_user_id 
-            } 
-        });
-        // Force refresh of messages to show system message
-        if (conversationId) {
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                assigned_to_user_id: editData.assignedToUserId
+            };
+
+            await updateCommitment({ 
+                id: commitment.id, 
+                data: payload 
+            });
+            
+            // Force refresh of messages to show system message with the NEW time
+            if (conversationId) {
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            }
+            setShowEditModal(false);
+            setEditData(null);
+        } catch (err) {
+            console.error('[GroupTaskCard] Edit confirm failed:', err);
         }
-        setShowEditModal(false);
     };
 
     const handlePing = () => {
@@ -299,11 +307,22 @@ export default function GroupTaskCard({ commitment, conversationId: manualConver
                         suggestionData={editData}
                         user={user}
                         isGroup={true}
-                        groupParticipants={[]} // We should probably pass participants properly or use a simplified version
-                        onClose={() => setShowEditModal(false)}
+                        groupParticipants={groupParticipants}
+                        avatarColor={(str: string) => {
+                            // Simple hash for consistent colors
+                            let hash = 0;
+                            for (let i = 0; i < str.length; i++) {
+                                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                            }
+                            const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
+                            return colors[Math.abs(hash) % colors.length];
+                        }}
+                        onClose={() => {
+                            setShowEditModal(false);
+                            setEditData(null);
+                        }}
                         onUpdateData={setEditData}
                         onConfirm={onConfirmEdit}
-                        avatarColor={() => '#6366f1'}
                     />
                 </View>
             )}

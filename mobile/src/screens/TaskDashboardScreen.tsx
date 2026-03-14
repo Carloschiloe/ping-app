@@ -287,7 +287,7 @@ export default function TaskDashboardScreen() {
                 data={filteredData}
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.listContent}
-                renderItem={({ item }) => <GroupTaskCard commitment={item} />}
+                renderItem={({ item }) => <GroupTaskCard commitment={item} groupParticipants={teamMembers} />}
                 onRefresh={refetch}
                 refreshing={isLoading}
                 ListEmptyComponent={

@@ -26,13 +26,14 @@ interface MessageItemProps {
     formatTime: (iso: string) => string;
     avatarColor: (str: string) => string;
     swipeableRowRefs: React.MutableRefObject<Map<string, any>>;
+    groupParticipants?: any[];
 }
 
 const MessageItemComponent = ({
     item, user, isGroup, isMultiSelecting, isSelected,
     highlightedMsgId, groupTasks, onPress, onLongPress,
     onToggleSelect, onSwipeLeft, onViewReactions,
-    formatTime, avatarColor, swipeableRowRefs
+    formatTime, avatarColor, swipeableRowRefs, groupParticipants = []
 }: MessageItemProps) => {
     // DEBUG: Tracing Rendering
     if (item.meta?.suggestedTask || (groupTasks && groupTasks.some(t => t.message_id === item.id))) {
@@ -353,6 +354,7 @@ const MessageItemComponent = ({
                             _isEveryoneSummary: !myTask && tasks.length > 1 
                         }} 
                         conversationId={item.conversation_id}
+                        groupParticipants={groupParticipants}
                     />
                 );
             })()}
@@ -370,7 +372,8 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.item.status === next.item.status &&
         // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
         JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
-        prev.groupTasks === next.groupTasks
+        prev.groupTasks === next.groupTasks &&
+        prev.groupParticipants === next.groupParticipants
     );
 });
 

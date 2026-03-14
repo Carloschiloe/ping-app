@@ -265,6 +265,7 @@ export default function ChatScreen({ navigation }: any) {
                     isSelected={multiSelect.includes(item.id)}
                     highlightedMsgId={highlightedMsgId}
                     groupTasks={groupTasks}
+                    groupParticipants={groupParticipants}
                     onPress={(msg) => {
                         if (isMultiSelecting) { toggleSelect(msg.id); return; }
                         if (msg?._isSuggestionTap || msg?.meta?.suggestedTask) {
