@@ -85,7 +85,7 @@ export default function ChatInfoScreen() {
         return { images, docs, audios };
     }, [mediaMessages, isGroup]);
 
-    const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
+    const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' | 'doc', message?: any } | null>(null);
     const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
     const { mutate: updateGroup } = useUpdateGroup(conversationId);
 
@@ -173,14 +173,12 @@ export default function ChatInfoScreen() {
             }
         } catch (error) {
             Alert.alert('Error', 'No se pudo compartir el archivo.');
-        } finally {
-            setIsMediaMenuVisible(false);
         }
     };
 
     const handleDownloadMedia = async () => {
-        if (!selectedMedia) return;
-        const url = selectedMedia.parsedUrl || selectedMedia.text.match(/\](http.*)$/)?.[1];
+        const media = viewerMedia?.message || selectedMedia;
+        const url = media?.parsedUrl || (media?.text.startsWith('[document=') ? media.text.match(/\](.*?)$/)?.[1].trim() : null);
         if (!url) return;
 
         try {
@@ -196,28 +194,29 @@ export default function ChatInfoScreen() {
             Alert.alert('✅ Guardado', 'El archivo se guardó en tu galería.');
         } catch (error) {
             Alert.alert('Error', 'No se pudo descargar el archivo.');
-        } finally {
-            setIsMediaMenuVisible(false);
         }
     };
 
     const handleDeleteMedia = () => {
-        if (!selectedMedia) return;
+        const media = viewerMedia?.message || selectedMedia;
+        if (!media) return;
+        
         Alert.alert(
             'Eliminar archivo',
-            '¿Estás seguro de que quieres eliminar este archivo?',
+            '¿Estás seguro de que quieres eliminar este archivo para todos?',
             [
                 { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
+                { 
+                    text: 'Eliminar', 
                     style: 'destructive',
-                    onPress: () => {
-                        deleteMessage(selectedMedia.id, {
-                            onSuccess: () => {
-                                setIsMediaMenuVisible(false);
-                                setSelectedMedia(null);
-                            }
-                        });
+                    onPress: async () => {
+                        try {
+                            deleteMessage(media.id);
+                            setIsMediaMenuVisible(false); // Deprecated, but keeping for safety
+                            setViewerMedia(null);
+                        } catch (err) {
+                            Alert.alert('Error', 'No se pudo eliminar el archivo.');
+                        }
                     }
                 }
             ]
@@ -225,27 +224,20 @@ export default function ChatInfoScreen() {
     };
 
     const handleViewMedia = () => {
-        setIsMediaMenuVisible(false);
-        if (!selectedMedia) return;
-
-        const isImage = selectedMedia.text.startsWith('[imagen]');
-        const isDoc = selectedMedia.text.startsWith('[document=');
-        const url = selectedMedia.parsedUrl;
-
-        if (isDoc) {
-            const match = selectedMedia.text.match(/^\[document=([^\]]+)\](.*)$/);
-            if (match) {
-                Linking.openURL(match[2].trim());
-            }
-        } else if (isImage || url.toLowerCase().includes('.mp4')) {
-            setViewerMedia({ url, type: isImage ? 'image' : 'video' });
-        }
+        // Obsoleto, ya no se usa menú intermedio
     };
 
     const handleForwardMedia = () => {
-        if (!selectedMedia) return;
-        setIsMediaMenuVisible(false);
-        navigation.navigate('ForwardMessage', { message: selectedMedia });
+        const media = viewerMedia?.message || selectedMedia;
+        if (!media) return;
+        setIsMediaMenuVisible(false); // Deprecated, but keeping for safety
+        setViewerMedia(null);
+        navigation.navigate('ForwardMessage', { 
+            message: {
+                ...media,
+                text: `[media]${media.parsedUrl || media.text}`
+            } 
+        });
     };
 
     const renderMember = ({ item }: { item: any }) => (
@@ -346,8 +338,11 @@ export default function ChatInfoScreen() {
                                 <TouchableOpacity
                                     style={styles.mediaItem}
                                     onPress={() => {
-                                        setSelectedMedia(item);
-                                        setIsMediaMenuVisible(true);
+                                        setViewerMedia({ 
+                                            url, 
+                                            type: isImage ? 'image' : 'video',
+                                            message: item
+                                        });
                                     }}
                                 >
                                     {isImage || url.toLowerCase().includes('.mp4') ? (
@@ -382,8 +377,11 @@ export default function ChatInfoScreen() {
                                 key={docMsg.id} 
                                 style={styles.docRow} 
                                 onPress={() => {
-                                    setSelectedMedia({ ...docMsg, parsedUrl: docUrl });
-                                    setIsMediaMenuVisible(true);
+                                    setViewerMedia({
+                                        url: docUrl,
+                                        type: 'doc',
+                                        message: { ...docMsg, parsedUrl: docUrl }
+                                    });
                                 }}
                             >
                                 <View style={styles.docIcon}>
@@ -454,27 +452,70 @@ export default function ChatInfoScreen() {
             <Modal visible={!!viewerMedia} transparent={true} animationType="fade">
                 <View style={styles.viewerContainer}>
                     <SafeAreaView style={{ flex: 1 }}>
-                        <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
-                            <Ionicons name="close" size={32} color="white" />
-                        </TouchableOpacity>
-                        {viewerMedia?.type === 'image' && (
-                            <Image source={{ uri: viewerMedia.url }} style={styles.viewerImage} resizeMode="contain" />
-                        )}
-                        {viewerMedia?.type === 'video' && (
-                            <Video
-                                source={{ uri: viewerMedia.url }}
-                                style={styles.viewerImage}
-                                resizeMode={ResizeMode.CONTAIN}
-                                useNativeControls
-                                shouldPlay
-                            />
-                        )}
+                        <View style={styles.viewerHeader}>
+                            <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
+                                <Ionicons name="arrow-back" size={28} color="white" />
+                            </TouchableOpacity>
+                            <View style={styles.viewerHeaderText}>
+                                <Text style={styles.viewerSender}>{viewerMedia?.message?.profiles?.full_name || (viewerMedia?.message?.sender_id === user?.id ? 'Tú' : 'Usuario')}</Text>
+                                <Text style={styles.viewerDate}>
+                                    {viewerMedia?.message?.created_at ? new Date(viewerMedia.message.created_at).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.viewerContent}>
+                            {viewerMedia?.type === 'image' && (
+                                <Image source={{ uri: viewerMedia.url }} style={styles.viewerImage} resizeMode="contain" />
+                            )}
+                            {viewerMedia?.type === 'video' && (
+                                <Video
+                                    source={{ uri: viewerMedia.url }}
+                                    style={styles.viewerImage}
+                                    useNativeControls
+                                    resizeMode={ResizeMode.CONTAIN}
+                                    shouldPlay
+                                />
+                            )}
+                            {viewerMedia?.type === 'doc' && (
+                                <View style={styles.docViewerContent}>
+                                    <Ionicons name="document-text" size={80} color="white" />
+                                    <Text style={styles.docViewerName}>
+                                        {viewerMedia.message?.text.match(/\[document=([^\]]+)\]/)?.[1] || 'Documento'}
+                                    </Text>
+                                    <TouchableOpacity 
+                                        style={styles.openDocBtn} 
+                                        onPress={() => Linking.openURL(viewerMedia.url)}
+                                    >
+                                        <Text style={styles.openDocBtnText}>Abrir documento</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Viewer Toolbar */}
+                        <View style={styles.viewerToolbar}>
+                            <TouchableOpacity style={styles.toolbarItem} onPress={handleShareMedia}>
+                                <Ionicons name="share-outline" size={26} color="white" />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.toolbarItem} onPress={handleForwardMedia}>
+                                <Ionicons name="arrow-redo-outline" size={26} color="white" />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.toolbarItem} onPress={handleDownloadMedia}>
+                                <Ionicons name="download-outline" size={26} color="white" />
+                            </TouchableOpacity>
+                            {(viewerMedia?.message?.sender_id === user?.id || isAdmin) && (
+                                <TouchableOpacity style={styles.toolbarItem} onPress={handleDeleteMedia}>
+                                    <Ionicons name="trash-outline" size={26} color="#ef4444" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </SafeAreaView>
                 </View>
             </Modal>
 
-            {/* Media Options Menu */}
-            <Modal visible={isMediaMenuVisible} transparent={true} animationType="slide">
+            {/* Obsolete Media Options Menu (Removed from flow but keeping state to avoid refactor break) */}
+            <Modal visible={false} transparent={true} animationType="slide">
                 <TouchableOpacity 
                     style={styles.menuOverlay} 
                     activeOpacity={1} 
@@ -588,9 +629,69 @@ const styles = StyleSheet.create({
     },
     docName: { flex: 1, fontSize: 14, color: '#374151', fontWeight: '500' },
 
-    viewerContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
-    viewerClose: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
-    viewerImage: { width: '100%', height: '100%', flex: 1 },
+    viewerContainer: { flex: 1, backgroundColor: 'black' },
+    viewerHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+    },
+    viewerHeaderText: {
+        marginLeft: 16,
+    },
+    viewerSender: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    viewerDate: {
+        color: '#9ca3af',
+        fontSize: 12,
+    },
+    viewerClose: {
+        padding: 4,
+    },
+    viewerContent: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    viewerImage: { width: '100%', height: '100%' },
+    viewerToolbar: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        paddingVertical: 20,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        borderTopWidth: 0.5,
+        borderTopColor: '#374151',
+    },
+    toolbarItem: {
+        padding: 10,
+    },
+    docViewerContent: {
+        alignItems: 'center',
+        padding: 40,
+    },
+    docViewerName: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: '500',
+        marginTop: 20,
+        textAlign: 'center',
+    },
+    openDocBtn: {
+        marginTop: 30,
+        backgroundColor: '#1e3a5f',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 25,
+    },
+    openDocBtnText: {
+        color: 'white',
+        fontWeight: '600',
+    },
 
     audioRowItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
     audioDate: { fontSize: 12, color: '#9ca3af', marginLeft: 8 },
