@@ -14,6 +14,7 @@ interface ChatInputProps {
     recordingUri: string | null;
     isRecording: boolean;
     onPickMedia: () => void;
+    onShareLocation: () => void;
     onStartRecording: () => void;
     onStopRecording: () => void;
     onCancelAudio: () => void;
@@ -30,6 +31,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     recordingUri,
     isRecording,
     onPickMedia,
+    onShareLocation,
     onStartRecording,
     onStopRecording,
     onCancelAudio,
@@ -69,6 +71,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 disabled={sendingMedia || isPending}
             >
                 <Ionicons name="image-outline" size={24} color={theme.colors.text.secondary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.mediaBtn}
+                onPress={onShareLocation}
+                disabled={sendingMedia || isPending}
+            >
+                <Ionicons name="location-outline" size={22} color={theme.colors.text.secondary} />
             </TouchableOpacity>
             <TextInput
                 style={styles.input}

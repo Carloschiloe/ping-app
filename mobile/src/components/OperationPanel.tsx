@@ -23,15 +23,11 @@ interface OperationPanelProps {
     pinnedMessage?: any;
     checklists?: any[];
     checklist?: any;
-    latestLocation?: any;
-    latestShiftReport?: any;
     openTasksCount?: number;
     onOpenPinnedMessage: (messageId: string) => void;
     onClearPinnedMessage: () => void;
     onSaveChecklist: (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => Promise<any> | void;
     onToggleChecklistItem: (itemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) => void;
-    onCreateShiftReport: (body: string) => Promise<any> | void;
-    onShareLocation: () => Promise<any> | void;
     onCommitmentAction: (payload: {
         action: 'acknowledged' | 'arrived' | 'completed';
         completionNote?: string | null;
@@ -302,81 +298,25 @@ function ChecklistSheet({
     );
 }
 
-function ShiftSheet({ visible, latestShiftReport, shiftBody, setShiftBody, onClose, onSave }: any) {
-    return (
-        <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-            <SafeAreaView style={styles.modalRoot}>
-                <Pressable style={styles.modalBackdrop} onPress={onClose} />
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
-                    style={styles.sheetHost}
-                >
-                    <View style={styles.sheet}>
-                        <View style={styles.sheetHeader}>
-                            <Text style={styles.sheetTitle}>Registro</Text>
-                            <TouchableOpacity onPress={onClose}>
-                                <Ionicons name="close" size={24} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
-                            {latestShiftReport?.body ? (
-                                <View style={styles.sheetSection}>
-                                    <Text style={styles.sheetSectionTitle}>Ultimo registro</Text>
-                                    <Text style={styles.latestBody}>{latestShiftReport.body}</Text>
-                                    <Text style={styles.latestMeta}>{formatShortDate(latestShiftReport.created_at)}</Text>
-                                </View>
-                            ) : null}
-
-                            <View style={styles.sheetSection}>
-                                <Text style={styles.sheetSectionTitle}>Registrar ahora</Text>
-                                <TextInput
-                                    value={shiftBody}
-                                    onChangeText={setShiftBody}
-                                    placeholder="Que paso, que se hizo o que debe quedar registrado"
-                                    style={[styles.input, styles.textArea]}
-                                    placeholderTextColor="#94a3b8"
-                                    multiline
-                                    textAlignVertical="top"
-                                />
-                                <TouchableOpacity style={styles.primaryButton} onPress={onSave}>
-                                    <Text style={styles.primaryButtonText}>Guardar resumen</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </ScrollView>
-                    </View>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
-        </Modal>
-    );
-}
-
 export function OperationPanel({
     loading,
     activeCommitment,
     pinnedMessage,
     checklists = [],
     checklist,
-    latestLocation,
-    latestShiftReport,
     openTasksCount = 0,
     onOpenPinnedMessage,
     onClearPinnedMessage,
     onSaveChecklist,
     onToggleChecklistItem,
-    onCreateShiftReport,
-    onShareLocation,
     onCommitmentAction,
     onClearActiveCommitment,
     pendingAction = null,
     feedbackMessage = null,
 }: OperationPanelProps) {
     const [showChecklistModal, setShowChecklistModal] = useState(false);
-    const [showShiftModal, setShowShiftModal] = useState(false);
     const [checklistTitle, setChecklistTitle] = useState(checklist?.title || 'Checklist diario');
     const [checklistItemsText, setChecklistItemsText] = useState('');
-    const [shiftBody, setShiftBody] = useState('');
     const [isExpanded, setIsExpanded] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [completionNote, setCompletionNote] = useState('');
@@ -439,13 +379,6 @@ export function OperationPanel({
         });
         setIsCreatingChecklist(false);
         setShowChecklistModal(false);
-    };
-
-    const saveShift = async () => {
-        if (!shiftBody.trim()) return;
-        await onCreateShiftReport(shiftBody.trim());
-        setShiftBody('');
-        setShowShiftModal(false);
     };
 
     const handleConfirmCompletion = () => {
@@ -539,7 +472,7 @@ export function OperationPanel({
                                         : 'Crea o agenda una tarea para usar este modo sin enredar el chat.'}
                                 </Text>
                             ) : (
-                                <Text style={styles.helperTextCompact}>Ver operacion para checklist, ubicacion y registro.</Text>
+                                <Text style={styles.helperTextCompact}>Ver operacion para revisar la tarea activa y su checklist.</Text>
                             )}
                         </>
                     )}
@@ -562,20 +495,6 @@ export function OperationPanel({
                         <TouchableOpacity style={styles.quickAction} onPress={() => setShowChecklistModal(true)} activeOpacity={0.85}>
                             <Text style={styles.quickActionTitle}>Checklist</Text>
                             <Text style={styles.quickActionSubtitle}>{checklists.length > 1 ? `${checklists.length} listas · ${checklistProgress || '0/0'}` : (checklistProgress || 'Crear')}</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.quickAction} onPress={onShareLocation} activeOpacity={0.85}>
-                            <Text style={styles.quickActionTitle}>Ubicacion</Text>
-                            <Text style={styles.quickActionSubtitle} numberOfLines={1}>
-                                {latestLocation?.meta?.location?.label || 'Compartir'}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.quickAction} onPress={() => setShowShiftModal(true)} activeOpacity={0.85}>
-                            <Text style={styles.quickActionTitle}>Registro</Text>
-                            <Text style={styles.quickActionSubtitle} numberOfLines={1}>
-                                {latestShiftReport?.created_at ? formatShortDate(latestShiftReport.created_at) : 'Registrar'}
-                            </Text>
                         </TouchableOpacity>
                     </View>
                 ) : null}
@@ -603,15 +522,6 @@ export function OperationPanel({
                 onClose={() => setShowChecklistModal(false)}
                 onSave={saveChecklist}
                 onToggleChecklistItem={onToggleChecklistItem}
-            />
-
-            <ShiftSheet
-                visible={showShiftModal}
-                latestShiftReport={latestShiftReport}
-                shiftBody={shiftBody}
-                setShiftBody={setShiftBody}
-                onClose={() => setShowShiftModal(false)}
-                onSave={saveShift}
             />
 
             <CompletionSheet

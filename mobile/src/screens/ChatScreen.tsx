@@ -15,7 +15,6 @@ import {
     useConversationOperationState,
     useSaveOperationChecklist,
     useToggleOperationChecklistItem,
-    useCreateShiftReport,
     useCommitmentOperationAction,
     useSetPinnedMessage,
     useSetActiveOperationCommitment,
@@ -116,7 +115,6 @@ export default function ChatScreen({ navigation }: any) {
     const { mutate: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
     const { mutateAsync: saveChecklist } = useSaveOperationChecklist(conversationId);
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
-    const { mutateAsync: createShiftReport } = useCreateShiftReport(conversationId);
     const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
     const { mutate: setActiveCommitment } = useSetActiveOperationCommitment(conversationId);
@@ -464,15 +462,11 @@ export default function ChatScreen({ navigation }: any) {
                             pinnedMessage={operationState?.pinnedMessage}
                             checklists={operationState?.checklists || []}
                             checklist={operationState?.activeChecklist}
-                            latestLocation={operationState?.latestLocation}
-                            latestShiftReport={operationState?.latestShiftReport}
                             openTasksCount={openOperationTasks.length}
                             onOpenPinnedMessage={scrollToMessage}
                             onClearPinnedMessage={handleClearPinnedMessage}
                             onSaveChecklist={saveChecklist}
                             onToggleChecklistItem={(itemId, result) => toggleChecklistItem({ id: itemId, result })}
-                            onCreateShiftReport={async (body) => { await createShiftReport({ body, source: 'text' }); }}
-                            onShareLocation={handleShareLocation}
                             onCommitmentAction={handleOperationAction}
                             onClearActiveCommitment={handleClearActiveCommitment}
                             pendingAction={pendingOperationAction}
@@ -538,6 +532,7 @@ export default function ChatScreen({ navigation }: any) {
                     recordingUri={recordingUri}
                     isRecording={isRecording}
                     onPickMedia={pickMediaSource}
+                    onShareLocation={handleShareLocation}
                     onStartRecording={startRecording}
                     onStopRecording={stopRecording}
                     onCancelAudio={cancelAudio}

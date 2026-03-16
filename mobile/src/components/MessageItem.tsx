@@ -89,6 +89,7 @@ const MessageItemComponent = ({
                                 Alert.alert(
                                     'Cierre de tarea',
                                     [
+                                        `Cerro: ${completion.completed_by_name || 'Alguien'}`,
                                         `Resultado: ${outcomeMap[completion.outcome] || 'Resuelto'}`,
                                         `Hora: ${formatTime(completion.completed_at || item.created_at)}`,
                                         completion.note ? `Observacion: ${completion.note}` : 'Sin observacion final',

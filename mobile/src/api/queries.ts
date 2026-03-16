@@ -443,6 +443,48 @@ export const useToggleOperationChecklistItem = (conversationId: string) => {
     return useMutation({
         mutationFn: async ({ id, result }: { id: string; result: 'good' | 'regular' | 'bad' | 'na' | null }) =>
             apiClient.patch(`/operation-checklist-run-items/${id}/toggle`, { result }),
+        onMutate: async ({ id, result }) => {
+            await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            const previous = queryClient.getQueryData(['conversation-operation-state', conversationId]);
+
+            queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
+                if (!old) return old;
+
+                const updateChecklist = (checklist: any) => {
+                    if (!checklist?.run?.items) return checklist;
+                    return {
+                        ...checklist,
+                        run: {
+                            ...checklist.run,
+                            items: checklist.run.items.map((item: any) =>
+                                item.id === id
+                                    ? {
+                                        ...item,
+                                        is_checked: !!result,
+                                        result,
+                                        checked_at: result ? new Date().toISOString() : null,
+                                        profiles: result ? item.profiles || { full_name: 'Tú' } : null,
+                                    }
+                                    : item
+                            ),
+                        },
+                    };
+                };
+
+                return {
+                    ...old,
+                    activeChecklist: updateChecklist(old.activeChecklist),
+                    checklists: Array.isArray(old.checklists) ? old.checklists.map(updateChecklist) : old.checklists,
+                };
+            });
+
+            return { previous };
+        },
+        onError: (_err, _variables, context: any) => {
+            if (context?.previous) {
+                queryClient.setQueryData(['conversation-operation-state', conversationId], context.previous);
+            }
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },
