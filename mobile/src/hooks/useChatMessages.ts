@@ -107,9 +107,51 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 schema: 'public',
                 table: 'conversations',
                 filter: `id=eq.${conversationId}`
-            }, () => {
+            }, (payload: any) => {
+                const nextActiveCommitmentId = payload.new?.active_commitment_id || null;
+
+                queryClient.setQueriesData({ queryKey: ['conversations'] }, (old: any) => {
+                    if (!old?.conversations || !Array.isArray(old.conversations)) return old;
+
+                    return {
+                        ...old,
+                        conversations: old.conversations.map((conversation: any) =>
+                            conversation.id === conversationId
+                                ? {
+                                    ...conversation,
+                                    mode: payload.new?.mode || conversation.mode,
+                                    pinnedMessageId: payload.new?.pinned_message_id ?? conversation.pinnedMessageId,
+                                    activeCommitmentId: nextActiveCommitmentId,
+                                }
+                                : conversation
+                        ),
+                    };
+                });
+
+                queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
+                    if (!old) return old;
+
+                    const taskQueries = queryClient.getQueriesData({ queryKey: ['group-tasks-conv', conversationId] });
+                    const groupTasks = taskQueries.flatMap(([, data]: any) => Array.isArray(data) ? data : []);
+                    const nextActiveCommitment = nextActiveCommitmentId
+                        ? groupTasks.find((task: any) => task.id === nextActiveCommitmentId) || old.activeCommitment
+                        : null;
+
+                    return {
+                        ...old,
+                        conversation: {
+                            ...old.conversation,
+                            mode: payload.new?.mode || old.conversation?.mode,
+                            pinned_message_id: payload.new?.pinned_message_id ?? old.conversation?.pinned_message_id,
+                            active_commitment_id: nextActiveCommitmentId,
+                        },
+                        activeCommitment: nextActiveCommitment,
+                    };
+                });
+
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
                 queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
             })
             .on('postgres_changes', {
                 event: '*',
