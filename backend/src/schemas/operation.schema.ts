@@ -64,5 +64,7 @@ export const commitmentOperationActionSchema = z.object({
     body: z.object({
         action: z.enum(['acknowledged', 'arrived', 'completed']),
         location_message_id: z.string().uuid().optional().nullable(),
+        completion_note: z.string().max(1000).optional().nullable(),
+        completion_outcome: z.enum(['resolved', 'pending_followup', 'needs_review']).optional().nullable(),
     }),
 });

@@ -88,8 +88,15 @@ export const registerCommitmentOperationAction = async (req: Request, res: Respo
     try {
         const userId = req.user!.id;
         const id = req.params.id as string;
-        const { action, location_message_id } = req.body;
-        const data = await operationService.registerCommitmentOperationAction(userId, id, action, location_message_id);
+        const { action, location_message_id, completion_note, completion_outcome } = req.body;
+        const data = await operationService.registerCommitmentOperationAction(
+            userId,
+            id,
+            action,
+            location_message_id,
+            completion_note,
+            completion_outcome
+        );
         res.status(200).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

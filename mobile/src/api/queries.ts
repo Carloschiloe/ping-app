@@ -690,7 +690,12 @@ export const useDeleteCommitment = () => {
     });
 };
 
-function applyOperationActionToCommitment(commitment: any, action: 'acknowledged' | 'arrived' | 'completed') {
+function applyOperationActionToCommitment(
+    commitment: any,
+    action: 'acknowledged' | 'arrived' | 'completed',
+    completionNote?: string | null,
+    completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null
+) {
     if (!commitment) return commitment;
 
     const now = new Date().toISOString();
@@ -713,6 +718,8 @@ function applyOperationActionToCommitment(commitment: any, action: 'acknowledged
 
     if (action === 'completed') {
         operational.completed_at = now;
+        operational.completion_note = completionNote || null;
+        operational.completion_outcome = completionOutcome || 'resolved';
         commitment = { ...commitment, status: 'completed' };
     }
 
@@ -725,28 +732,40 @@ function applyOperationActionToCommitment(commitment: any, action: 'acknowledged
     };
 }
 
-function updateGroupTaskCaches(queryClient: any, conversationId: string, commitmentId: string, action: 'acknowledged' | 'arrived' | 'completed') {
+function updateGroupTaskCaches(
+    queryClient: any,
+    conversationId: string,
+    commitmentId: string,
+    action: 'acknowledged' | 'arrived' | 'completed',
+    completionNote?: string | null,
+    completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null
+) {
     const taskQueries = queryClient.getQueriesData({ queryKey: ['group-tasks-conv', conversationId] });
 
     taskQueries.forEach(([key, data]: any) => {
         if (!Array.isArray(data)) return;
-        queryClient.setQueryData(key, data.map((task: any) => task.id === commitmentId ? applyOperationActionToCommitment(task, action) : task));
+        queryClient.setQueryData(
+            key,
+            data.map((task: any) => task.id === commitmentId
+                ? applyOperationActionToCommitment(task, action, completionNote, completionOutcome)
+                : task)
+        );
     });
 }
 
 export const useCommitmentOperationAction = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, action, location_message_id, conversationId }: { id: string; action: 'acknowledged' | 'arrived' | 'completed'; location_message_id?: string | null; conversationId?: string }) =>
-            apiClient.post(`/commitments/${id}/operation-action`, { action, location_message_id, conversationId }),
+        mutationFn: async ({ id, action, location_message_id, conversationId, completion_note, completion_outcome }: { id: string; action: 'acknowledged' | 'arrived' | 'completed'; location_message_id?: string | null; conversationId?: string; completion_note?: string | null; completion_outcome?: 'resolved' | 'pending_followup' | 'needs_review' | null }) =>
+            apiClient.post(`/commitments/${id}/operation-action`, { action, location_message_id, conversationId, completion_note, completion_outcome }),
         onMutate: async (variables) => {
-            const { conversationId, id, action } = variables;
+            const { conversationId, id, action, completion_note, completion_outcome } = variables;
             if (!conversationId) return {};
 
             await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });
             const previousOperationState = queryClient.getQueryData(['conversation-operation-state', conversationId]);
 
-            updateGroupTaskCaches(queryClient, conversationId, id, action);
+            updateGroupTaskCaches(queryClient, conversationId, id, action, completion_note, completion_outcome);
 
             queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
                 if (!old) return old;
@@ -754,7 +773,13 @@ export const useCommitmentOperationAction = () => {
 
                 return {
                     ...old,
-                    activeCommitment: applyOperationActionToCommitment(old.activeCommitment, action),
+                    conversation: {
+                        ...old.conversation,
+                        active_commitment_id: action === 'completed' ? null : old.conversation?.active_commitment_id,
+                    },
+                    activeCommitment: action === 'completed'
+                        ? null
+                        : applyOperationActionToCommitment(old.activeCommitment, action, completion_note, completion_outcome),
                 };
             });
 

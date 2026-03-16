@@ -272,13 +272,21 @@ export default function ChatScreen({ navigation }: any) {
         }
     };
 
-    const handleOperationAction = async (action: 'acknowledged' | 'arrived' | 'completed') => {
+    const handleOperationAction = async ({
+        action,
+        completionNote,
+        completionOutcome,
+    }: {
+        action: 'acknowledged' | 'arrived' | 'completed';
+        completionNote?: string | null;
+        completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null;
+    }) => {
         if (!activeOperationCommitment) return;
 
         const feedbackMap = {
-            acknowledged: 'Marcado como entendido',
+            acknowledged: 'Inicio marcado',
             arrived: 'Marcado como llegue',
-            completed: 'Marcado como terminado',
+            completed: 'Tarea cerrada',
         } as const;
 
         setPendingOperationAction(action);
@@ -299,6 +307,8 @@ export default function ChatScreen({ navigation }: any) {
                 action,
                 location_message_id: locationMessageId,
                 conversationId,
+                completion_note: completionNote,
+                completion_outcome: completionOutcome,
             });
 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

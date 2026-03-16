@@ -31,10 +31,86 @@ interface OperationPanelProps {
     onToggleChecklistItem: (itemId: string, isChecked: boolean) => void;
     onCreateShiftReport: (body: string) => Promise<any> | void;
     onShareLocation: () => Promise<any> | void;
-    onCommitmentAction: (action: 'acknowledged' | 'arrived' | 'completed') => void;
+    onCommitmentAction: (payload: {
+        action: 'acknowledged' | 'arrived' | 'completed';
+        completionNote?: string | null;
+        completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null;
+    }) => void;
     onClearActiveCommitment: () => void;
     pendingAction?: 'acknowledged' | 'arrived' | 'completed' | null;
     feedbackMessage?: string | null;
+}
+
+function CompletionSheet({
+    visible,
+    note,
+    setNote,
+    outcome,
+    setOutcome,
+    onClose,
+    onConfirm,
+}: any) {
+    const outcomes = [
+        { key: 'resolved', label: 'Resuelto' },
+        { key: 'pending_followup', label: 'Queda pendiente' },
+        { key: 'needs_review', label: 'Requiere revision' },
+    ];
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+            <SafeAreaView style={styles.modalRoot}>
+                <Pressable style={styles.modalBackdrop} onPress={onClose} />
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+                    style={styles.sheetHost}
+                >
+                    <View style={styles.sheet}>
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>Cerrar tarea</Text>
+                            <TouchableOpacity onPress={onClose}>
+                                <Ionicons name="close" size={24} color="#64748b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+                            <View style={styles.sheetSection}>
+                                <Text style={styles.sheetSectionTitle}>Resultado</Text>
+                                <View style={styles.outcomeRow}>
+                                    {outcomes.map((item) => (
+                                        <TouchableOpacity
+                                            key={item.key}
+                                            style={[styles.outcomeChip, outcome === item.key && styles.outcomeChipActive]}
+                                            onPress={() => setOutcome(item.key)}
+                                        >
+                                            <Text style={[styles.outcomeChipText, outcome === item.key && styles.outcomeChipTextActive]}>{item.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+
+                            <View style={styles.sheetSection}>
+                                <Text style={styles.sheetSectionTitle}>Observacion final</Text>
+                                <TextInput
+                                    value={note}
+                                    onChangeText={setNote}
+                                    placeholder="Que paso al cerrar la tarea"
+                                    style={[styles.input, styles.textArea]}
+                                    placeholderTextColor="#94a3b8"
+                                    multiline
+                                    textAlignVertical="top"
+                                />
+                            </View>
+
+                            <TouchableOpacity style={styles.primaryButton} onPress={onConfirm}>
+                                <Text style={styles.primaryButtonText}>Confirmar cierre</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
+            </SafeAreaView>
+        </Modal>
+    );
 }
 
 function formatShortDate(iso?: string | null) {
@@ -52,11 +128,13 @@ function getOperationState(commitment?: any) {
     const completed = !!operational.completed_at || commitment?.status === 'completed';
     const arrived = !!operational.arrived_at;
     const acknowledged = !!operational.acknowledged_at;
+    const accepted = commitment?.status === 'accepted' || commitment?.status === 'in_progress';
 
-    if (completed) return { label: 'Terminado', color: '#166534', bg: '#dcfce7' };
-    if (arrived) return { label: 'En sitio', color: '#1d4ed8', bg: '#dbeafe' };
-    if (acknowledged) return { label: 'Entendido', color: '#92400e', bg: '#fef3c7' };
-    return { label: 'Por iniciar', color: '#475569', bg: '#e2e8f0' };
+    if (completed) return { key: 'completed', label: 'Terminado', color: '#166534', bg: '#dcfce7' };
+    if (arrived) return { key: 'arrived', label: 'En sitio', color: '#1d4ed8', bg: '#dbeafe' };
+    if (acknowledged) return { key: 'started', label: 'Iniciada', color: '#7c3aed', bg: '#ede9fe' };
+    if (accepted) return { key: 'ready', label: 'Lista', color: '#0f766e', bg: '#ccfbf1' };
+    return { key: 'pending', label: 'Pendiente', color: '#475569', bg: '#e2e8f0' };
 }
 
 function getCommitmentMeta(commitment?: any) {
@@ -241,8 +319,16 @@ export function OperationPanel({
     const [checklistItemsText, setChecklistItemsText] = useState('');
     const [shiftBody, setShiftBody] = useState('');
     const [isExpanded, setIsExpanded] = useState(false);
+    const [showCompletionModal, setShowCompletionModal] = useState(false);
+    const [completionNote, setCompletionNote] = useState('');
+    const [completionOutcome, setCompletionOutcome] = useState<'resolved' | 'pending_followup' | 'needs_review'>('resolved');
 
     const state = useMemo(() => getOperationState(activeCommitment), [activeCommitment]);
+    const primaryActionLabel = state.key === 'ready'
+        ? 'Dar inicio'
+        : pendingAction === 'acknowledged'
+            ? 'Marcando...'
+            : 'Iniciada';
     const checklistProgress = useMemo(() => {
         const items = checklist?.run?.items || [];
         if (!items.length) return null;
@@ -289,6 +375,17 @@ export function OperationPanel({
         setShowShiftModal(false);
     };
 
+    const handleConfirmCompletion = () => {
+        onCommitmentAction({
+            action: 'completed',
+            completionNote: completionNote.trim() || null,
+            completionOutcome,
+        });
+        setCompletionNote('');
+        setCompletionOutcome('resolved');
+        setShowCompletionModal(false);
+    };
+
     return (
         <>
             <View style={styles.panel}>
@@ -296,7 +393,7 @@ export function OperationPanel({
 
                 <View style={styles.heroCard}>
                     <View style={styles.heroHeader}>
-                        <Text style={styles.eyebrow}>{activeCommitment ? 'En curso' : 'Modo operacion'}</Text>
+                        <Text style={styles.eyebrow}>{activeCommitment ? 'Operacion activa' : 'Modo operacion'}</Text>
                         <View style={styles.headerActions}>
                             <TouchableOpacity style={styles.expandButton} onPress={() => setIsExpanded((value) => !value)}>
                                 <Text style={styles.expandButtonText}>{isExpanded ? 'Ocultar' : 'Ver operacion'}</Text>
@@ -324,27 +421,27 @@ export function OperationPanel({
 
                             {isExpanded ? (
                                 <>
-                                    <Text style={styles.helperText}>Planificacion en la tarjeta del chat. Ejecucion desde aqui.</Text>
+                                    <Text style={styles.helperText}>Aqui marcas el avance real. La tarjeta del chat queda como respaldo y coordinacion.</Text>
 
                                     <View style={styles.actionsRow}>
                                         <TouchableOpacity
                                             style={styles.actionButton}
-                                            onPress={() => onCommitmentAction('acknowledged')}
-                                            disabled={!!pendingAction || state.label === 'Entendido' || state.label === 'En sitio' || state.label === 'Terminado'}
+                                            onPress={() => onCommitmentAction({ action: 'acknowledged' })}
+                                            disabled={!!pendingAction || state.key !== 'ready'}
                                         >
-                                            <Text style={styles.actionButtonText}>{pendingAction === 'acknowledged' ? 'Marcando...' : 'Entendido'}</Text>
+                                            <Text style={styles.actionButtonText}>{primaryActionLabel}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={styles.actionButton}
-                                            onPress={() => onCommitmentAction('arrived')}
-                                            disabled={!!pendingAction || state.label === 'En sitio' || state.label === 'Terminado'}
+                                            onPress={() => onCommitmentAction({ action: 'arrived' })}
+                                            disabled={!!pendingAction || !['started', 'arrived'].includes(state.key)}
                                         >
                                             <Text style={styles.actionButtonText}>{pendingAction === 'arrived' ? 'Marcando...' : 'Llegue'}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.actionButton, styles.actionButtonPrimary]}
-                                            onPress={() => onCommitmentAction('completed')}
-                                            disabled={!!pendingAction || state.label === 'Terminado'}
+                                            onPress={() => setShowCompletionModal(true)}
+                                            disabled={!!pendingAction || !['started', 'arrived'].includes(state.key)}
                                         >
                                             <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>{pendingAction === 'completed' ? 'Marcando...' : 'Terminado'}</Text>
                                         </TouchableOpacity>
@@ -431,6 +528,16 @@ export function OperationPanel({
                 onClose={() => setShowShiftModal(false)}
                 onSave={saveShift}
             />
+
+            <CompletionSheet
+                visible={showCompletionModal}
+                note={completionNote}
+                setNote={setCompletionNote}
+                outcome={completionOutcome}
+                setOutcome={setCompletionOutcome}
+                onClose={() => setShowCompletionModal(false)}
+                onConfirm={handleConfirmCompletion}
+            />
         </>
     );
 }
@@ -443,12 +550,17 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     heroCard: {
-        backgroundColor: '#ffffff',
-        borderRadius: 18,
+        backgroundColor: '#eef6ff',
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#dbe4f0',
+        borderColor: '#bfdbfe',
         padding: 12,
         gap: 8,
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 2,
     },
     heroHeader: {
         flexDirection: 'row',
@@ -461,11 +573,16 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     eyebrow: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '800',
-        color: '#334155',
+        color: '#1d4ed8',
         textTransform: 'uppercase',
         letterSpacing: 0.4,
+        backgroundColor: '#dbeafe',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
     },
     expandButton: {
         flexDirection: 'row',
@@ -495,7 +612,7 @@ const styles = StyleSheet.create({
         fontSize: 17,
         lineHeight: 22,
         fontWeight: '700',
-        color: '#0f172a',
+        color: '#172554',
     },
     helperText: {
         fontSize: 12,
@@ -509,7 +626,7 @@ const styles = StyleSheet.create({
     },
     commitmentMeta: {
         fontSize: 13,
-        color: '#64748b',
+        color: '#475569',
         marginTop: 1,
     },
     stateRow: {
@@ -532,13 +649,16 @@ const styles = StyleSheet.create({
     },
     actionButton: {
         flex: 1,
-        backgroundColor: '#eef2ff',
+        backgroundColor: '#ffffff',
         borderRadius: 12,
         paddingVertical: 10,
         alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#dbeafe',
     },
     actionButtonPrimary: {
         backgroundColor: '#dbeafe',
+        borderColor: '#93c5fd',
     },
     actionButtonText: {
         fontSize: 13,
@@ -591,22 +711,47 @@ const styles = StyleSheet.create({
     },
     quickAction: {
         flex: 1,
-        backgroundColor: '#f8fafc',
+        backgroundColor: '#ffffff',
         borderRadius: 14,
         paddingHorizontal: 12,
         paddingVertical: 10,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: '#dbeafe',
     },
     quickActionTitle: {
         fontSize: 12,
         fontWeight: '800',
-        color: '#334155',
+        color: '#1e3a5f',
         marginBottom: 3,
     },
     quickActionSubtitle: {
         fontSize: 12,
         color: '#64748b',
+    },
+    outcomeRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    outcomeChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    outcomeChipActive: {
+        backgroundColor: '#dbeafe',
+        borderColor: '#93c5fd',
+    },
+    outcomeChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    outcomeChipTextActive: {
+        color: '#1d4ed8',
     },
     modalRoot: {
         flex: 1,

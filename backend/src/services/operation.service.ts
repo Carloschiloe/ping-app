@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { insertSystemMessage } from './message.service';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -41,6 +42,16 @@ async function addOperationReaction(messageId: string | null | undefined, userId
         user_id: userId,
         emoji,
     });
+}
+
+async function getUserDisplayName(userId: string) {
+    const { data } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', userId)
+        .maybeSingle();
+
+    return data?.full_name || data?.email?.split('@')[0] || 'Alguien';
 }
 
 async function ensureChecklistRun(checklist: any, userId: string) {
@@ -392,7 +403,9 @@ export async function registerCommitmentOperationAction(
     userId: string,
     commitmentId: string,
     action: 'acknowledged' | 'arrived' | 'completed',
-    locationMessageId?: string | null
+    locationMessageId?: string | null,
+    completionNote?: string | null,
+    completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null
 ) {
     const { data: commitment, error: commitmentError } = await supabaseAdmin
         .from('commitments')
@@ -444,6 +457,8 @@ export async function registerCommitmentOperationAction(
     if (action === 'completed') {
         nextOperational.completed_at = now;
         nextOperational.completed_by_user_id = userId;
+        nextOperational.completion_note = completionNote || null;
+        nextOperational.completion_outcome = completionOutcome || 'resolved';
         updates.status = 'completed';
     }
 
@@ -463,6 +478,32 @@ export async function registerCommitmentOperationAction(
     if (error) throw error;
 
     await addOperationReaction(commitment.message_id, userId, action);
+
+    if (action === 'completed' && commitment.group_conversation_id) {
+        await supabaseAdmin
+            .from('conversations')
+            .update({ active_commitment_id: null })
+            .eq('id', commitment.group_conversation_id)
+            .eq('active_commitment_id', commitment.id);
+
+        const userName = await getUserDisplayName(userId);
+        await insertSystemMessage(
+            commitment.group_conversation_id,
+            `${userName} termino "${commitment.title}"`,
+            userId,
+            {
+                messageType: 'operation_completion',
+                operationCompletion: {
+                    commitment_id: commitment.id,
+                    title: commitment.title,
+                    completed_by_name: userName,
+                    completed_at: now,
+                    outcome: completionOutcome || 'resolved',
+                    note: completionNote || null,
+                },
+            }
+        );
+    }
 
     return data;
 }

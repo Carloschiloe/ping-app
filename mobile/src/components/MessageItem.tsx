@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform
+    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
@@ -71,6 +71,38 @@ const MessageItemComponent = ({
     }
 
     if (isSystem) {
+        const completion = item.meta?.operationCompletion;
+        if (item.meta?.messageType === 'operation_completion' && completion) {
+            const outcomeMap: Record<string, string> = {
+                resolved: 'Resuelto',
+                pending_followup: 'Queda pendiente',
+                needs_review: 'Requiere revision',
+            };
+
+            return (
+                <View style={styles.systemWrap}>
+                    <View style={styles.systemBubbleSpecial}>
+                        <Text style={styles.systemText}>{msgText}</Text>
+                        <TouchableOpacity
+                            style={styles.systemActionChip}
+                            onPress={() => {
+                                Alert.alert(
+                                    'Cierre de tarea',
+                                    [
+                                        `Resultado: ${outcomeMap[completion.outcome] || 'Resuelto'}`,
+                                        `Hora: ${formatTime(completion.completed_at || item.created_at)}`,
+                                        completion.note ? `Observacion: ${completion.note}` : 'Sin observacion final',
+                                    ].join('\n')
+                                );
+                            }}
+                        >
+                            <Text style={styles.systemActionChipText}>Ver cierre</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            );
+        }
+
         return (
             <View style={styles.systemWrap}>
                 <View style={styles.systemBubble}>
@@ -478,7 +510,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16, paddingVertical: 8,
         borderWidth: 1, borderColor: '#a7f3d0', maxWidth: '90%',
     },
+    systemBubbleSpecial: {
+        backgroundColor: '#eff6ff', borderRadius: 14,
+        paddingHorizontal: 16, paddingVertical: 10,
+        borderWidth: 1, borderColor: '#bfdbfe', maxWidth: '92%',
+        alignItems: 'center',
+        gap: 8,
+    },
     systemText: { fontSize: 13, color: '#065f46', textAlign: 'center', fontWeight: '500' },
+    systemActionChip: {
+        backgroundColor: '#dbeafe',
+        borderRadius: 999,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    systemActionChipText: {
+        color: '#1d4ed8',
+        fontSize: 12,
+        fontWeight: '700',
+    },
     checkbox: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
     checkCircle: {
         width: 22, height: 22, borderRadius: 11,

@@ -200,7 +200,7 @@ export const getMessages = async (userId: string, limit = 50, offset = 0) => {
     return { messages: data, count };
 };
 
-export const insertSystemMessage = async (conversationId: string, text: string, userId?: string) => {
+export const insertSystemMessage = async (conversationId: string, text: string, userId?: string, extraMeta: any = {}) => {
     const { data, error } = await supabaseAdmin
         .from('messages')
         .insert({
@@ -208,7 +208,7 @@ export const insertSystemMessage = async (conversationId: string, text: string, 
             sender_id: userId || null,
             user_id: userId || null, // Keep for now
             text,
-            meta: { isSystem: true },
+            meta: { isSystem: true, ...extraMeta },
             status: 'sent'
         })
         .select()
