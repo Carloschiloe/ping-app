@@ -343,7 +343,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isOperationMode && !isRejected && !isDone && canSetOperationFocus && (
+                        {isOperationMode && !isRejected && !isDone && canSetOperationFocus && isAccepted && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f5f9' }]}
                                 onPress={() => {

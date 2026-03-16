@@ -368,7 +368,7 @@ export async function setActiveCommitment(userId: string, conversationId: string
     if (commitmentId) {
         const { data: commitment, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, group_conversation_id, title, assigned_to_user_id')
+            .select('id, group_conversation_id, title, assigned_to_user_id, status')
             .eq('id', commitmentId)
             .eq('group_conversation_id', conversationId)
             .maybeSingle();
@@ -376,6 +376,9 @@ export async function setActiveCommitment(userId: string, conversationId: string
         if (error || !commitment) throw new Error('Commitment not found in this conversation');
         if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
             throw new Error('Only the assigned user can put this task in progress');
+        }
+        if (!['accepted', 'in_progress'].includes(commitment.status)) {
+            throw new Error('Task must be accepted before putting it in progress');
         }
     }
 
