@@ -32,7 +32,12 @@ export const saveChecklistSchema = z.object({
         id: z.string().uuid(),
     }),
     body: z.object({
+        checklistId: z.string().uuid().optional().nullable(),
         title: z.string().min(2).max(120),
+        categoryLabel: z.string().max(80).optional().nullable(),
+        responsibleUserId: z.string().uuid().optional().nullable(),
+        responsibleRoleLabel: z.string().max(80).optional().nullable(),
+        frequency: z.enum(['manual', 'daily', 'shift']).optional(),
         items: z.array(z.string().min(1).max(160)).min(1).max(12),
     }),
 });

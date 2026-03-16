@@ -54,6 +54,83 @@ async function getUserDisplayName(userId: string) {
     return data?.full_name || data?.email?.split('@')[0] || 'Alguien';
 }
 
+async function getOperationFocus(userId: string, conversationId: string) {
+    const { data } = await supabaseAdmin
+        .from('conversation_operation_focuses')
+        .select('id, conversation_id, user_id, commitment_id, created_at, updated_at')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    return data || null;
+}
+
+async function getOperationProgress(commitmentId: string, userId: string) {
+    const { data } = await supabaseAdmin
+        .from('commitment_operation_progress')
+        .select('*')
+        .eq('commitment_id', commitmentId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    return data || null;
+}
+
+async function getTeamProgressPreview(conversationId: string) {
+    const { data: focuses } = await supabaseAdmin
+        .from('conversation_operation_focuses')
+        .select('commitment_id, user_id, updated_at')
+        .eq('conversation_id', conversationId)
+        .order('updated_at', { ascending: false });
+
+    const focusRows = focuses || [];
+    if (focusRows.length === 0) return [];
+
+    const commitmentIds = [...new Set(focusRows.map((item: any) => item.commitment_id))];
+    const userIds = [...new Set(focusRows.map((item: any) => item.user_id))];
+
+    const [{ data: commitments }, { data: profiles }, { data: progressRows }] = await Promise.all([
+        supabaseAdmin.from('commitments').select('id, title, due_at').in('id', commitmentIds),
+        supabaseAdmin.from('profiles').select('id, full_name, email, avatar_url').in('id', userIds),
+        supabaseAdmin.from('commitment_operation_progress').select('commitment_id, user_id, status').in('commitment_id', commitmentIds).in('user_id', userIds),
+    ]);
+
+    const commitmentMap = new Map((commitments || []).map((item: any) => [item.id, item]));
+    const profileMap = new Map((profiles || []).map((item: any) => [item.id, item]));
+    const progressMap = new Map((progressRows || []).map((item: any) => [`${item.commitment_id}:${item.user_id}`, item]));
+
+    return focusRows.map((item: any) => ({
+        user_id: item.user_id,
+        user_name: profileMap.get(item.user_id)?.full_name || profileMap.get(item.user_id)?.email?.split('@')[0] || 'Alguien',
+        commitment_id: item.commitment_id,
+        commitment_title: commitmentMap.get(item.commitment_id)?.title || 'Tarea',
+        due_at: commitmentMap.get(item.commitment_id)?.due_at || null,
+        status: progressMap.get(`${item.commitment_id}:${item.user_id}`)?.status || 'ready',
+    }));
+}
+
+function mergeCommitmentWithProgress(commitment: any, progress: any) {
+    if (!commitment) return null;
+    if (!progress) return commitment;
+
+    return {
+        ...commitment,
+        meta: {
+            ...(commitment.meta || {}),
+            operational: {
+                ...((commitment.meta || {}).operational || {}),
+                acknowledged_at: progress.acknowledged_at || null,
+                arrived_at: progress.arrived_at || null,
+                completed_at: progress.completed_at || null,
+                arrived_location_message_id: progress.latest_location_message_id || null,
+                completion_note: progress.completion_note || null,
+                completion_outcome: progress.completion_outcome || null,
+            },
+        },
+        operation_progress: progress,
+    };
+}
+
 async function ensureChecklistRun(checklist: any, userId: string) {
     const today = getTodayDate();
 
@@ -183,23 +260,23 @@ export async function getConversationOperationState(userId: string, conversation
 
     if (error || !conversation) throw error || new Error('Conversation not found');
 
-    const [pinnedMessage, activeCommitment, activeChecklist, latestShiftReport, latestLocation] = await Promise.all([
+    const [pinnedMessage, operationFocus, checklists, latestShiftReport, latestLocation, teamProgressPreview] = await Promise.all([
         getPinnedMessage(conversation.pinned_message_id),
-        getCommitmentSummary(conversation.active_commitment_id),
+        getOperationFocus(userId, conversationId),
         (async () => {
-            const { data: checklist } = await supabaseAdmin
+            const { data } = await supabaseAdmin
                 .from('operation_checklists')
-                .select('id, conversation_id, title, created_at, updated_at')
+                .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency, created_at, updated_at')
                 .eq('conversation_id', conversationId)
                 .eq('is_active', true)
-                .order('updated_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+                .order('updated_at', { ascending: false });
 
-            if (!checklist) return null;
+            const enriched = await Promise.all((data || []).map(async (checklist: any) => ({
+                ...checklist,
+                run: await ensureChecklistRun(checklist, userId),
+            })));
 
-            const run = await ensureChecklistRun(checklist, userId);
-            return { ...checklist, run };
+            return enriched;
         })(),
         (async () => {
             const { data } = await supabaseAdmin
@@ -213,20 +290,41 @@ export async function getConversationOperationState(userId: string, conversation
             return data || null;
         })(),
         getLatestLocation(conversationId),
+        getTeamProgressPreview(conversationId),
     ]);
 
+    const focusCommitmentId = operationFocus?.commitment_id || conversation.active_commitment_id || null;
+    const rawFocusCommitment = await getCommitmentSummary(focusCommitmentId);
+    const myProgress = focusCommitmentId ? await getOperationProgress(focusCommitmentId, userId) : null;
+    const activeCommitment = mergeCommitmentWithProgress(rawFocusCommitment, myProgress);
+    const activeChecklist = (checklists || []).find((item: any) => item.responsible_user_id === userId) || (checklists || [])[0] || null;
+
     return {
-        conversation,
+        conversation: {
+            ...conversation,
+            active_commitment_id: focusCommitmentId,
+        },
+        myFocus: operationFocus,
+        myProgress,
         activeCommitment,
         pinnedMessage,
+        checklists: checklists || [],
         activeChecklist,
         latestShiftReport,
         latestLocation,
+        teamProgressPreview,
     };
 }
 
 export async function updateConversationMode(userId: string, conversationId: string, mode: 'chat' | 'operation') {
     await assertParticipant(userId, conversationId);
+
+    if (mode === 'chat') {
+        await supabaseAdmin
+            .from('conversation_operation_focuses')
+            .delete()
+            .eq('conversation_id', conversationId);
+    }
 
     const { data, error } = await supabaseAdmin
         .from('conversations')
@@ -278,18 +376,53 @@ export async function setActiveCommitment(userId: string, conversationId: string
         if (error || !commitment) throw new Error('Commitment not found in this conversation');
     }
 
-    const { data, error: updateError } = await supabaseAdmin
+    if (!commitmentId) {
+        const { error: deleteError } = await supabaseAdmin
+            .from('conversation_operation_focuses')
+            .delete()
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId);
+
+        if (deleteError) throw deleteError;
+    } else {
+        const { error: upsertError } = await supabaseAdmin
+            .from('conversation_operation_focuses')
+            .upsert({
+                conversation_id: conversationId,
+                user_id: userId,
+                commitment_id: commitmentId,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'conversation_id,user_id' });
+
+        if (upsertError) throw upsertError;
+    }
+
+    const { data: conversation, error: conversationError } = await supabaseAdmin
         .from('conversations')
-        .update({ active_commitment_id: commitmentId })
-        .eq('id', conversationId)
         .select('id, mode, pinned_message_id, active_commitment_id')
+        .eq('id', conversationId)
         .single();
 
-    if (updateError) throw updateError;
-    return data;
+    if (conversationError) throw conversationError;
+    return {
+        ...conversation,
+        active_commitment_id: commitmentId,
+    };
 }
 
-export async function saveChecklistTemplate(userId: string, conversationId: string, title: string, items: string[]) {
+export async function saveChecklistTemplate(
+    userId: string,
+    conversationId: string,
+    title: string,
+    items: string[],
+    options: {
+        checklistId?: string | null;
+        categoryLabel?: string | null;
+        responsibleUserId?: string | null;
+        responsibleRoleLabel?: string | null;
+        frequency?: 'manual' | 'daily' | 'shift';
+    } = {}
+) {
     await assertParticipant(userId, conversationId);
 
     const cleanedItems = items
@@ -301,35 +434,59 @@ export async function saveChecklistTemplate(userId: string, conversationId: stri
         throw new Error('Checklist must contain at least one item');
     }
 
-    await supabaseAdmin
-        .from('operation_checklists')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('conversation_id', conversationId)
-        .eq('is_active', true);
+    let checklist: any = null;
 
-    const { data: checklist, error: checklistError } = await supabaseAdmin
-        .from('operation_checklists')
-        .insert({
-            conversation_id: conversationId,
-            title,
-            created_by_user_id: userId,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-        })
-        .select('id, conversation_id, title, created_at, updated_at')
-        .single();
+    if (options.checklistId) {
+        const { data: updatedChecklist, error: checklistError } = await supabaseAdmin
+            .from('operation_checklists')
+            .update({
+                title,
+                category_label: options.categoryLabel || null,
+                responsible_user_id: options.responsibleUserId || null,
+                responsible_role_label: options.responsibleRoleLabel || null,
+                frequency: options.frequency || 'manual',
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', options.checklistId)
+            .eq('conversation_id', conversationId)
+            .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency, created_at, updated_at')
+            .single();
 
-    if (checklistError) throw checklistError;
+        if (checklistError) throw checklistError;
+        checklist = updatedChecklist;
 
-    const { error: itemsError } = await supabaseAdmin
-        .from('operation_checklist_items')
-        .insert(
-            cleanedItems.map((label, index) => ({
-                checklist_id: checklist.id,
-                label,
-                sort_order: index,
-            }))
-        );
+        await supabaseAdmin
+            .from('operation_checklist_items')
+            .delete()
+            .eq('checklist_id', checklist.id);
+    } else {
+        const { data: createdChecklist, error: checklistError } = await supabaseAdmin
+            .from('operation_checklists')
+            .insert({
+                conversation_id: conversationId,
+                title,
+                created_by_user_id: userId,
+                is_active: true,
+                category_label: options.categoryLabel || null,
+                responsible_user_id: options.responsibleUserId || null,
+                responsible_role_label: options.responsibleRoleLabel || null,
+                frequency: options.frequency || 'manual',
+                updated_at: new Date().toISOString(),
+            })
+            .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency, created_at, updated_at')
+            .single();
+
+        if (checklistError) throw checklistError;
+        checklist = createdChecklist;
+    }
+
+    const { error: itemsError } = await supabaseAdmin.from('operation_checklist_items').insert(
+        cleanedItems.map((label, index) => ({
+            checklist_id: checklist.id,
+            label,
+            sort_order: index,
+        }))
+    );
 
     if (itemsError) throw itemsError;
 
@@ -419,6 +576,13 @@ export async function registerCommitmentOperationAction(
         await assertParticipant(userId, commitment.group_conversation_id);
     }
 
+    const { data: existingProgress } = await supabaseAdmin
+        .from('commitment_operation_progress')
+        .select('*')
+        .eq('commitment_id', commitmentId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
     const now = new Date().toISOString();
     const currentMeta = commitment.meta || {};
     const operational = currentMeta.operational || {};
@@ -464,6 +628,25 @@ export async function registerCommitmentOperationAction(
 
     updates.meta.operational = nextOperational;
 
+    const progressPayload: any = {
+        commitment_id: commitmentId,
+        user_id: userId,
+        status: action === 'acknowledged' ? 'started' : action === 'arrived' ? 'arrived' : 'completed',
+        acknowledged_at: action === 'acknowledged' ? now : existingProgress?.acknowledged_at || null,
+        arrived_at: action === 'arrived' ? now : existingProgress?.arrived_at || null,
+        completed_at: action === 'completed' ? now : existingProgress?.completed_at || null,
+        latest_location_message_id: action === 'arrived' ? locationMessageId || existingProgress?.latest_location_message_id || null : existingProgress?.latest_location_message_id || null,
+        completion_note: action === 'completed' ? completionNote || null : existingProgress?.completion_note || null,
+        completion_outcome: action === 'completed' ? completionOutcome || 'resolved' : existingProgress?.completion_outcome || null,
+        updated_at: now,
+    };
+
+    const { error: progressError } = await supabaseAdmin
+        .from('commitment_operation_progress')
+        .upsert(progressPayload, { onConflict: 'commitment_id,user_id' });
+
+    if (progressError) throw progressError;
+
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update(updates)
@@ -481,10 +664,11 @@ export async function registerCommitmentOperationAction(
 
     if (action === 'completed' && commitment.group_conversation_id) {
         await supabaseAdmin
-            .from('conversations')
-            .update({ active_commitment_id: null })
-            .eq('id', commitment.group_conversation_id)
-            .eq('active_commitment_id', commitment.id);
+            .from('conversation_operation_focuses')
+            .delete()
+            .eq('conversation_id', commitment.group_conversation_id)
+            .eq('user_id', userId)
+            .eq('commitment_id', commitment.id);
 
         const userName = await getUserDisplayName(userId);
         await insertSystemMessage(
@@ -505,5 +689,5 @@ export async function registerCommitmentOperationAction(
         );
     }
 
-    return data;
+    return mergeCommitmentWithProgress(data, { ...existingProgress, ...progressPayload });
 }

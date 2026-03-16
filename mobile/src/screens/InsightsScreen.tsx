@@ -32,6 +32,10 @@ function getStateTone(state?: string) {
             return { bg: '#dcfce7', color: '#166534' };
         case 'En sitio':
             return { bg: '#dbeafe', color: '#1d4ed8' };
+        case 'Iniciada':
+            return { bg: '#ede9fe', color: '#7c3aed' };
+        case 'Lista':
+            return { bg: '#ccfbf1', color: '#0f766e' };
         case 'Entendido':
             return { bg: '#fef3c7', color: '#92400e' };
         case 'Aceptada':
@@ -259,6 +263,21 @@ export default function InsightsScreen() {
                                     ? `${group.pending_for_me} pendiente(s) tuyas`
                                     : group.active_commitment?.title || 'Sin foco activo ahora'}
                             </Text>
+                            {group.team_preview?.length ? (
+                                <View style={styles.teamPreviewList}>
+                                    {group.team_preview.slice(0, 3).map((entry: any) => {
+                                        const tone = getStateTone(entry.state);
+                                        return (
+                                            <View key={`${group.conversation_id}-${entry.user_id}-${entry.commitment_id}`} style={styles.teamPreviewRow}>
+                                                <Text style={styles.teamPreviewName} numberOfLines={1}>{entry.user_name}</Text>
+                                                <View style={[styles.teamPreviewBadge, { backgroundColor: tone.bg }]}>
+                                                    <Text style={[styles.teamPreviewBadgeText, { color: tone.color }]}>{entry.state}</Text>
+                                                </View>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            ) : null}
                         </TouchableOpacity>
                     ))
                 )}
@@ -497,5 +516,30 @@ const styles = StyleSheet.create({
     groupMeta: {
         fontSize: 13,
         color: '#64748b',
+    },
+    teamPreviewList: {
+        gap: 6,
+        marginTop: 4,
+    },
+    teamPreviewRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+    },
+    teamPreviewName: {
+        flex: 1,
+        fontSize: 12,
+        color: '#334155',
+        fontWeight: '600',
+    },
+    teamPreviewBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+    },
+    teamPreviewBadgeText: {
+        fontSize: 11,
+        fontWeight: '800',
     },
 });

@@ -353,7 +353,7 @@ export default function GroupTaskCard({
                             >
                                 <Ionicons name={isActiveOperation ? 'close-circle' : 'flash'} size={24} color="#2563eb" />
                                 <Text style={[styles.menuItemText, { color: '#2563eb' }]}>
-                                    {isActiveOperation ? 'Quitar de operación' : 'Usar en operación'}
+                                    {isActiveOperation ? 'Quitar de operación' : 'Poner en curso'}
                                 </Text>
                             </TouchableOpacity>
                         )}

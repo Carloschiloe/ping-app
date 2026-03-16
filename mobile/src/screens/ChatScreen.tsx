@@ -123,7 +123,7 @@ export default function ChatScreen({ navigation }: any) {
 
     const conversationMode = operationState?.conversation?.mode || route.params?.mode || 'chat';
     const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
-    const activeOperationCommitmentId = operationState?.conversation?.active_commitment_id || null;
+    const activeOperationCommitmentId = operationState?.myFocus?.commitment_id || operationState?.conversation?.active_commitment_id || null;
     const activeOperationCommitment = (activeOperationCommitmentId
         ? groupTasks.find((task: any) => task.id === activeOperationCommitmentId)
         : null) || operationState?.activeCommitment || null;
@@ -462,6 +462,7 @@ export default function ChatScreen({ navigation }: any) {
                             loading={isOperationStateLoading}
                             activeCommitment={activeOperationCommitment}
                             pinnedMessage={operationState?.pinnedMessage}
+                            checklists={operationState?.checklists || []}
                             checklist={operationState?.activeChecklist}
                             latestLocation={operationState?.latestLocation}
                             latestShiftReport={operationState?.latestShiftReport}

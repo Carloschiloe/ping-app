@@ -21,13 +21,14 @@ interface OperationPanelProps {
     loading?: boolean;
     activeCommitment?: any;
     pinnedMessage?: any;
+    checklists?: any[];
     checklist?: any;
     latestLocation?: any;
     latestShiftReport?: any;
     openTasksCount?: number;
     onOpenPinnedMessage: (messageId: string) => void;
     onClearPinnedMessage: () => void;
-    onSaveChecklist: (data: { title: string; items: string[] }) => Promise<any> | void;
+    onSaveChecklist: (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => Promise<any> | void;
     onToggleChecklistItem: (itemId: string, isChecked: boolean) => void;
     onCreateShiftReport: (body: string) => Promise<any> | void;
     onShareLocation: () => Promise<any> | void;
@@ -152,7 +153,11 @@ function getCommitmentMeta(commitment?: any) {
 
 function ChecklistSheet({
     visible,
+    checklists,
     checklist,
+    selectedChecklistId,
+    onSelectChecklist,
+    onCreateNew,
     checklistTitle,
     checklistItemsText,
     setChecklistTitle,
@@ -185,6 +190,30 @@ function ChecklistSheet({
                         </View>
 
                         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+                            {checklists?.length ? (
+                                <View style={styles.sheetSection}>
+                                    <View style={styles.sheetSectionHeader}>
+                                        <Text style={styles.sheetSectionTitle}>Plantillas</Text>
+                                        <TouchableOpacity onPress={onCreateNew}>
+                                            <Text style={styles.sheetLink}>Nueva</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={styles.templateRow}>
+                                        {checklists.map((list: any) => (
+                                            <TouchableOpacity
+                                                key={list.id}
+                                                style={[styles.templateChip, selectedChecklistId === list.id && styles.templateChipActive]}
+                                                onPress={() => onSelectChecklist(list.id)}
+                                            >
+                                                <Text style={[styles.templateChipText, selectedChecklistId === list.id && styles.templateChipTextActive]} numberOfLines={1}>
+                                                    {list.title}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </View>
+                            ) : null}
+
                             {checklist?.run?.items?.length ? (
                                 <View style={styles.sheetSection}>
                                     <View style={styles.sheetSectionHeader}>
@@ -298,6 +327,7 @@ export function OperationPanel({
     loading,
     activeCommitment,
     pinnedMessage,
+    checklists = [],
     checklist,
     latestLocation,
     latestShiftReport,
@@ -322,30 +352,42 @@ export function OperationPanel({
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [completionNote, setCompletionNote] = useState('');
     const [completionOutcome, setCompletionOutcome] = useState<'resolved' | 'pending_followup' | 'needs_review'>('resolved');
+    const [selectedChecklistId, setSelectedChecklistId] = useState<string | null>(checklist?.id || null);
+    const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
 
     const state = useMemo(() => getOperationState(activeCommitment), [activeCommitment]);
+    const selectedChecklist = useMemo(() => {
+        if (isCreatingChecklist) return null;
+        return checklists.find((item: any) => item.id === selectedChecklistId) || checklist || checklists[0] || null;
+    }, [checklists, selectedChecklistId, checklist, isCreatingChecklist]);
     const primaryActionLabel = state.key === 'ready'
         ? 'Dar inicio'
         : pendingAction === 'acknowledged'
             ? 'Marcando...'
             : 'Iniciada';
     const checklistProgress = useMemo(() => {
-        const items = checklist?.run?.items || [];
+        const items = selectedChecklist?.run?.items || [];
         if (!items.length) return null;
         const done = items.filter((item: any) => item.is_checked).length;
         return `${done}/${items.length}`;
-    }, [checklist]);
+    }, [selectedChecklist]);
 
     useEffect(() => {
-        if (!checklist) {
+        if (checklists.length > 0 && !selectedChecklistId && !isCreatingChecklist) {
+            setSelectedChecklistId(checklists[0].id);
+        }
+    }, [checklists, selectedChecklistId, isCreatingChecklist]);
+
+    useEffect(() => {
+        if (!selectedChecklist) {
             setChecklistTitle('Checklist diario');
             setChecklistItemsText('');
             return;
         }
 
-        setChecklistTitle(checklist.title || 'Checklist diario');
-        setChecklistItemsText((checklist.run?.items || []).map((item: any) => item.label).join('\n'));
-    }, [checklist]);
+        setChecklistTitle(selectedChecklist.title || 'Checklist diario');
+        setChecklistItemsText((selectedChecklist.run?.items || []).map((item: any) => item.label).join('\n'));
+    }, [selectedChecklist]);
 
     useEffect(() => {
         if (pendingAction || feedbackMessage) {
@@ -362,9 +404,11 @@ export function OperationPanel({
         if (!items.length) return;
 
         await onSaveChecklist({
+            checklistId: isCreatingChecklist ? null : selectedChecklist?.id || null,
             title: checklistTitle.trim() || 'Checklist diario',
             items,
         });
+        setIsCreatingChecklist(false);
         setShowChecklistModal(false);
     };
 
@@ -488,7 +532,7 @@ export function OperationPanel({
                     <View style={styles.quickActionsRow}>
                         <TouchableOpacity style={styles.quickAction} onPress={() => setShowChecklistModal(true)} activeOpacity={0.85}>
                             <Text style={styles.quickActionTitle}>Checklist</Text>
-                            <Text style={styles.quickActionSubtitle}>{checklistProgress || 'Crear'}</Text>
+                            <Text style={styles.quickActionSubtitle}>{checklists.length > 1 ? `${checklists.length} listas · ${checklistProgress || '0/0'}` : (checklistProgress || 'Crear')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.quickAction} onPress={onShareLocation} activeOpacity={0.85}>
@@ -510,7 +554,19 @@ export function OperationPanel({
 
             <ChecklistSheet
                 visible={showChecklistModal}
-                checklist={checklist}
+                checklists={checklists}
+                checklist={selectedChecklist}
+                selectedChecklistId={selectedChecklistId}
+                onSelectChecklist={(id: string) => {
+                    setSelectedChecklistId(id);
+                    setIsCreatingChecklist(false);
+                }}
+                onCreateNew={() => {
+                    setSelectedChecklistId(null);
+                    setChecklistTitle('Checklist diario');
+                    setChecklistItemsText('');
+                    setIsCreatingChecklist(true);
+                }}
                 checklistTitle={checklistTitle}
                 checklistItemsText={checklistItemsText}
                 setChecklistTitle={setChecklistTitle}
@@ -751,6 +807,32 @@ const styles = StyleSheet.create({
         color: '#475569',
     },
     outcomeChipTextActive: {
+        color: '#1d4ed8',
+    },
+    templateRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    templateChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#dbeafe',
+        maxWidth: '100%',
+    },
+    templateChipActive: {
+        backgroundColor: '#dbeafe',
+        borderColor: '#93c5fd',
+    },
+    templateChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    templateChipTextActive: {
         color: '#1d4ed8',
     },
     modalRoot: {

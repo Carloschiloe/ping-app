@@ -156,6 +156,24 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
+                table: 'conversation_operation_focuses',
+                filter: `conversation_id=eq.${conversationId}`
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['insights'] });
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'commitment_operation_progress'
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['insights'] });
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
                 table: 'message_reactions'
             }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });

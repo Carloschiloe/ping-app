@@ -408,6 +408,7 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
                         ...old.conversation,
                         active_commitment_id: commitmentId,
                     },
+                    myFocus: commitmentId ? { ...(old.myFocus || {}), conversation_id: conversationId, commitment_id: commitmentId } : null,
                     activeCommitment,
                 };
             });
@@ -430,7 +431,7 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
 export const useSaveOperationChecklist = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (data: { title: string; items: string[] }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
+        mutationFn: async (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },
@@ -777,6 +778,7 @@ export const useCommitmentOperationAction = () => {
                         ...old.conversation,
                         active_commitment_id: action === 'completed' ? null : old.conversation?.active_commitment_id,
                     },
+                    myFocus: action === 'completed' ? null : old.myFocus,
                     activeCommitment: action === 'completed'
                         ? null
                         : applyOperationActionToCommitment(old.activeCommitment, action, completion_note, completion_outcome),

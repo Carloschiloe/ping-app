@@ -52,8 +52,14 @@ export const saveChecklistTemplate = async (req: Request, res: Response): Promis
     try {
         const userId = req.user!.id;
         const conversationId = req.params.id as string;
-        const { title, items } = req.body;
-        const data = await operationService.saveChecklistTemplate(userId, conversationId, title, items);
+        const { title, items, checklistId, categoryLabel, responsibleUserId, responsibleRoleLabel, frequency } = req.body;
+        const data = await operationService.saveChecklistTemplate(userId, conversationId, title, items, {
+            checklistId,
+            categoryLabel,
+            responsibleUserId,
+            responsibleRoleLabel,
+            frequency,
+        });
         res.status(201).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
