@@ -142,7 +142,7 @@ function getCommitmentMeta(commitment?: any) {
     if (!commitment) return '';
 
     const due = commitment.due_at
-        ? format(new Date(commitment.due_at), 'HH:mm', { locale: es })
+        ? format(new Date(commitment.due_at), 'dd/MM · HH:mm', { locale: es })
         : null;
     const responsible = commitment.assigned_to_user_id
         ? (commitment.assignee?.full_name || 'Responsable')
