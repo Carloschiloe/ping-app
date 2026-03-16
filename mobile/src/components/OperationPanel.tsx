@@ -324,7 +324,7 @@ export function OperationPanel({
 
                             {isExpanded ? (
                                 <>
-                                    <Text style={styles.helperText}>Acciones sobre esta tarea o reunion.</Text>
+                                    <Text style={styles.helperText}>Planificacion en la tarjeta del chat. Ejecucion desde aqui.</Text>
 
                                     <View style={styles.actionsRow}>
                                         <TouchableOpacity

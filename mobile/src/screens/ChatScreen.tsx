@@ -90,6 +90,7 @@ export default function ChatScreen({ navigation }: any) {
     const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
     const [pendingOperationAction, setPendingOperationAction] = useState<'acknowledged' | 'arrived' | 'completed' | null>(null);
     const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
+    const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
 
     const menuAnim = useRef(new Animated.Value(300)).current;
     const listRef = useRef<FlatList>(null);
@@ -122,7 +123,10 @@ export default function ChatScreen({ navigation }: any) {
 
     const conversationMode = operationState?.conversation?.mode || route.params?.mode || 'chat';
     const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
-    const activeOperationCommitment = operationState?.activeCommitment || null;
+    const activeOperationCommitmentId = operationState?.conversation?.active_commitment_id || null;
+    const activeOperationCommitment = (activeOperationCommitmentId
+        ? groupTasks.find((task: any) => task.id === activeOperationCommitmentId)
+        : null) || operationState?.activeCommitment || null;
     const openOperationTasks = groupTasks.filter((task: any) => !['completed', 'rejected'].includes(task.status));
 
     // ─── Phase 7/26: Fetch Group Participants ──────────────────────────────
@@ -259,6 +263,8 @@ export default function ChatScreen({ navigation }: any) {
                 },
             });
 
+            setLocationFeedback('Ubicacion enviada');
+            setTimeout(() => setLocationFeedback(null), 1800);
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         } catch (err) {
             console.error('[Location] Failed to share location:', err);
@@ -459,7 +465,7 @@ export default function ChatScreen({ navigation }: any) {
                             onCommitmentAction={handleOperationAction}
                             onClearActiveCommitment={handleClearActiveCommitment}
                             pendingAction={pendingOperationAction}
-                            feedbackMessage={operationFeedback}
+                            feedbackMessage={operationFeedback || locationFeedback}
                         />
                     )}
 

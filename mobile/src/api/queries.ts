@@ -422,6 +422,7 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
         },
     });
 };
@@ -584,6 +585,7 @@ export const useCreateCommitment = () => {
     return useMutation({
         mutationFn: async (data: any) => apiClient.post('/commitments', data),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -598,6 +600,7 @@ export const useAcceptCommitment = () => {
     return useMutation({
         mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/accept`, {}),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -613,6 +616,7 @@ export const useRejectCommitment = () => {
         mutationFn: async ({ id, reason }: { id: string, reason: string }) =>
             apiClient.post(`/commitments/${id}/reject`, { reason }),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -627,6 +631,7 @@ export const usePostponeCommitment = () => {
         mutationFn: async ({ id, newDate }: { id: string, newDate: string }) =>
             apiClient.post(`/commitments/${id}/postpone`, { newDate }),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -641,6 +646,7 @@ export const useUpdateCommitmentStatus = () => {
         mutationFn: async ({ id, status }: { id: string, status: string }) =>
             apiClient.patch(`/commitments/${id}`, { status }),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -656,6 +662,7 @@ export const useUpdateCommitment = () => {
         mutationFn: async ({ id, data }: { id: string, data: any }) =>
             apiClient.patch(`/commitments/${id}`, data),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
@@ -760,6 +767,7 @@ export const useCommitmentOperationAction = () => {
             }
         },
         onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });

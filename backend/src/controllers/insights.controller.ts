@@ -1,8 +1,37 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { differenceInHours } from 'date-fns';
-import * as aiService from '../services/ai.service';
 
+const OPEN_STATUSES = ['pending', 'proposed', 'accepted', 'counter_proposal', 'in_progress'];
+const PENDING_RESPONSE_STATUSES = ['pending', 'proposed', 'counter_proposal'];
+const UPCOMING_STATUSES = ['accepted', 'in_progress'];
+
+function buildConversationLabel(conversation: any) {
+    if (conversation?.name) return conversation.name;
+    return conversation?.is_group ? 'Grupo' : 'Chat';
+}
+
+function buildOperationalState(commitment: any) {
+    const operational = commitment?.meta?.operational || {};
+
+    if (operational.completed_at || commitment?.status === 'completed') return 'Terminado';
+    if (operational.arrived_at) return 'En sitio';
+    if (operational.acknowledged_at) return 'Entendido';
+    if (commitment?.status === 'accepted' || commitment?.status === 'in_progress') return 'Aceptada';
+    if (commitment?.status === 'counter_proposal') return 'Reagendar';
+    if (commitment?.status === 'proposed' || commitment?.status === 'pending') return 'Pendiente';
+    return 'Abierta';
+}
+
+function enrichCommitment(commitment: any, conversation: any) {
+    return {
+        ...commitment,
+        conversation_id: conversation?.id || commitment.group_conversation_id || null,
+        conversation_name: buildConversationLabel(conversation),
+        conversation_mode: conversation?.mode || 'chat',
+        conversation_avatar_url: conversation?.avatar_url || null,
+        operational_state: buildOperationalState(commitment),
+    };
+}
 
 export const getInsights = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -12,77 +41,107 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        // 1. Get Pending/Proposed/Accepted Commitments for the next 48h
-        const { data: commitments } = await supabaseAdmin
-            .from('commitments')
-            .select('*')
-            .eq('owner_user_id', userId)
-            .in('status', ['pending', 'proposed', 'accepted', 'counter_proposal'])
-            .order('due_at', { ascending: true });
-
-        // 2. Detect "Ghosted" Chats (User sent last message > 24h ago and no reply)
-        const { data: participations } = await supabaseAdmin
+        const { data: participations, error: participationsError } = await supabaseAdmin
             .from('conversation_participants')
             .select('conversation_id')
             .eq('user_id', userId);
 
-        const convIds = (participations || []).map(p => p.conversation_id);
+        if (participationsError) throw participationsError;
 
-        const { data: lastMessages } = await supabaseAdmin
+        const conversationIds = (participations || []).map((item) => item.conversation_id);
+        if (conversationIds.length === 0) {
+            res.status(200).json({
+                inProgress: [],
+                pendingResponse: [],
+                upcoming: [],
+                groupsSummary: [],
+                counts: { inProgress: 0, pendingResponse: 0, upcoming: 0, groups: 0 },
+            });
+            return;
+        }
+
+        const { data: conversations, error: conversationsError } = await supabaseAdmin
             .from('conversations')
+            .select('id, name, is_group, avatar_url, mode, active_commitment_id')
+            .in('id', conversationIds);
+
+        if (conversationsError) throw conversationsError;
+
+        const conversationMap = new Map((conversations || []).map((conversation) => [conversation.id, conversation]));
+
+        const { data: commitments, error: commitmentsError } = await supabaseAdmin
+            .from('commitments')
             .select(`
-                id,
-                name,
-                is_group,
-                last_message_at,
-                last_message_text,
-                last_message_id
+                *,
+                owner:owner_user_id(id, full_name, email, avatar_url),
+                assignee:assigned_to_user_id(id, full_name, email, avatar_url)
             `)
-            .in('id', convIds)
-            .not('last_message_id', 'is', null);
+            .in('group_conversation_id', conversationIds)
+            .in('status', OPEN_STATUSES)
+            .order('due_at', { ascending: true });
 
-        // Fetch sender info and TEXT for last messages
-        const lastMsgIds = (lastMessages || []).map(m => m.last_message_id);
-        const { data: msgDetails } = await supabaseAdmin
-            .from('messages')
-            .select('id, sender_id, text, profiles:sender_id(full_name)')
-            .in('id', lastMsgIds);
+        if (commitmentsError) throw commitmentsError;
 
-        const candidates = (lastMessages || []).filter((c: any) => {
-            const msgInfo = (msgDetails || []).find(s => s.id === c.last_message_id);
-            if (!msgInfo) return false;
-            const isMe = msgInfo.sender_id === userId;
-            const hoursSince = differenceInHours(new Date(), new Date(c.last_message_at));
-            return isMe && hoursSince >= 24 && hoursSince <= 600;
-        }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()).slice(0, 5);
+        const enrichedCommitments = (commitments || []).map((commitment) =>
+            enrichCommitment(commitment, conversationMap.get(commitment.group_conversation_id))
+        );
 
-        const ghostedChats = (await Promise.all(candidates.map(async (c: any) => {
-            const msgInfo = (msgDetails || []).find(s => s.id === c.last_message_id);
-            const textToTest = c.last_message_text || msgInfo?.text || '';
+        const activeCommitmentIds = new Set(
+            (conversations || [])
+                .map((conversation) => conversation.active_commitment_id)
+                .filter(Boolean)
+        );
 
-            const { isActionable: aiActionable, reason } = await aiService.analyzeActionability(textToTest);
-            if (!aiActionable) return null;
+        const inProgress = enrichedCommitments.filter((commitment) => activeCommitmentIds.has(commitment.id));
 
-            const profilesData = msgInfo?.profiles;
-            const profile = Array.isArray(profilesData) ? profilesData[0] : profilesData;
+        const pendingResponse = enrichedCommitments.filter((commitment) =>
+            commitment.assigned_to_user_id === userId && PENDING_RESPONSE_STATUSES.includes(commitment.status)
+        );
 
-            return {
-                id: c.id,
-                name: c.name || profile?.full_name || 'Alguien',
-                last_msg_at: c.last_message_at,
-                last_msg_text: textToTest,
-                hours: differenceInHours(new Date(), new Date(c.last_message_at)),
-                reason
-            };
-        }))).filter(Boolean);
+        const upcoming = enrichedCommitments.filter((commitment) => {
+            if (activeCommitmentIds.has(commitment.id)) return false;
+            if (!UPCOMING_STATUSES.includes(commitment.status)) return false;
+            return commitment.assigned_to_user_id === userId || !commitment.assigned_to_user_id;
+        });
 
-        // 3. Generate an AI-powered Briefing
-        const briefingData = await aiService.generateBriefing(userId, commitments || [], ghostedChats as any[]);
+        const groupsSummary = (conversations || [])
+            .filter((conversation) => conversation.is_group)
+            .map((conversation) => {
+                const items = enrichedCommitments.filter((commitment) => commitment.group_conversation_id === conversation.id);
+                const activeCommitment = items.find((commitment) => commitment.id === conversation.active_commitment_id) || null;
+                const pendingForMe = items.filter((commitment) =>
+                    commitment.assigned_to_user_id === userId && PENDING_RESPONSE_STATUSES.includes(commitment.status)
+                ).length;
+
+                return {
+                    conversation_id: conversation.id,
+                    conversation_name: buildConversationLabel(conversation),
+                    conversation_avatar_url: conversation.avatar_url || null,
+                    mode: conversation.mode || 'chat',
+                    active_count: activeCommitment ? 1 : 0,
+                    open_count: items.length,
+                    pending_for_me: pendingForMe,
+                    active_commitment: activeCommitment,
+                };
+            })
+            .filter((group) => group.mode === 'operation' || group.open_count > 0)
+            .sort((a, b) => {
+                if (b.active_count !== a.active_count) return b.active_count - a.active_count;
+                if (b.pending_for_me !== a.pending_for_me) return b.pending_for_me - a.pending_for_me;
+                return b.open_count - a.open_count;
+            });
 
         res.status(200).json({
-            briefing: briefingData,
-            commitments: commitments || [],
-            ghostedChats
+            inProgress,
+            pendingResponse,
+            upcoming,
+            groupsSummary,
+            counts: {
+                inProgress: inProgress.length,
+                pendingResponse: pendingResponse.length,
+                upcoming: upcoming.length,
+                groups: groupsSummary.length,
+            },
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });

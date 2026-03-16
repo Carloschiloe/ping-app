@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -56,15 +56,13 @@ export default function GroupTaskCard({
     const isCounter = status === 'counter_proposal';
     const isAccepted = status === 'accepted' || status === 'in_progress';
 
-    // Improve name resolution
-    const requesterName = commitment.owner?.full_name || (isOwner ? 'Mí' : 'Alguien');
+    const requesterName = commitment.owner?.full_name || (isOwner ? 'Tú' : 'Alguien');
     const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id
         ? 'Todos'
-        : (commitment.assignee?.full_name || (isAssignee ? 'Mí' : 'Alguien'));
+        : (currentUserId === assignedId ? 'Tú' : (commitment.assignee?.full_name || 'Alguien'));
 
-    const displayName = isAssignee
-        ? `De: ${requesterName}`
-        : (isOwner ? `Para: ${assigneeName}` : `Para: ${assigneeName}`);
+    const responsibilityLabel = `Responsable: ${assigneeName}`;
+    const requesterLabel = isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`;
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
@@ -75,6 +73,7 @@ export default function GroupTaskCard({
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
     const isOperationMode = conversationMode === 'operation';
     const isActiveOperation = !!activeCommitmentId && activeCommitmentId === commitment.id;
+    const isCompactOperationCard = isOperationMode && isActiveOperation && !isProposed;
 
     const handleMarkDone = () => {
         Alert.alert(
@@ -236,30 +235,23 @@ export default function GroupTaskCard({
                 
                 <View style={styles.footerRow}>
                     <View style={styles.assigneeInfo}>
-                        <View style={styles.avatarStack}>
-                            {/* Simple avatar summary or single avatar */}
-                            {commitment.assignee?.avatar_url ? (
-                                <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.miniAvatar} />
-                            ) : (
-                                <View style={[styles.miniAvatar, styles.miniAvatarFallback]}>
-                                    <Text style={styles.miniAvatarLetter}>{assigneeName[0]}</Text>
-                                </View>
-                            )}
-                        </View>
-                        <Text style={styles.assigneeText} numberOfLines={1}>{displayName}</Text>
+                        <Text style={styles.assigneeText} numberOfLines={1}>{responsibilityLabel}</Text>
+                        <Text style={styles.requesterText} numberOfLines={1}>{requesterLabel}</Text>
                     </View>
 
                     <View style={styles.badgesRow}>
                         {isActiveOperation && (
                             <View style={styles.activeOperationBadge}>
-                                <Text style={styles.activeOperationBadgeText}>ACTIVA</Text>
+                                <Text style={styles.activeOperationBadgeText}>EN OPERACION</Text>
                             </View>
                         )}
+                        {!isCompactOperationCard && (
                         <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}> 
                             <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
                                 {statusInfo.label.split(' ')[1] || statusInfo.label}
                             </Text>
                         </View>
+                        )}
                     </View>
                 </View>
 
@@ -268,7 +260,11 @@ export default function GroupTaskCard({
                 )}
 
                 {isOperationMode && isActiveOperation && (
-                    <Text style={styles.operationHint}>Se gestiona desde la franja superior.</Text>
+                    <Text style={styles.operationHint}>
+                        {isProposed
+                            ? 'Acepta o ajusta esta tarea aqui. Luego sigue la ejecucion desde la franja superior.'
+                            : 'La planificacion queda aqui. La ejecucion se marca desde la franja superior.'}
+                    </Text>
                 )}
             </View>
 
@@ -283,7 +279,7 @@ export default function GroupTaskCard({
                         <Ionicons name="checkmark" size={18} color="white" />
                     </TouchableOpacity>
                 )}
-                {!isDone && !isRejected && (
+                {!isDone && !isRejected && !isCompactOperationCard && (
                     <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
                         <Ionicons name="ellipsis-vertical" size={20} color="#94a3b8" />
                     </TouchableOpacity>
@@ -490,34 +486,18 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     assigneeInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    avatarStack: {
-        flexDirection: 'row',
-    },
-    miniAvatar: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: 'white',
-    },
-    miniAvatarFallback: {
-        backgroundColor: '#e2e8f0',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    miniAvatarLetter: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        color: '#64748b',
+        flex: 1,
+        minWidth: 0,
     },
     assigneeText: {
         fontSize: 12,
+        color: '#334155',
+        fontWeight: '700',
+    },
+    requesterText: {
+        fontSize: 11,
         color: '#64748b',
-        fontWeight: '500',
+        marginTop: 2,
     },
     statusBadge: {
         paddingHorizontal: 8,

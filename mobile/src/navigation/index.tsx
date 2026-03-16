@@ -114,7 +114,7 @@ const MainTabs = () => (
                 } else if (route.name === 'Tablero') {
                     iconName = focused ? 'layers' : 'layers-outline';
                 } else if (route.name === 'Insights') {
-                    iconName = focused ? 'sparkles' : 'sparkles-outline';
+                    iconName = focused ? 'pulse' : 'pulse-outline';
                 } else if (route.name === 'Perfil') {
                     iconName = focused ? 'person-circle' : 'person-circle-outline';
                 }
@@ -124,7 +124,7 @@ const MainTabs = () => (
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Tablero" component={TaskDashboardScreen} options={{ title: 'Tablero' }} />
-        <Tab.Screen name="Insights" component={InsightsScreen} options={{ title: 'Insights' }} />
+        <Tab.Screen name="Insights" component={InsightsScreen} options={{ title: 'Operación' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
 );
