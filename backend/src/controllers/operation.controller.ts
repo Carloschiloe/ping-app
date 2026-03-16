@@ -70,8 +70,8 @@ export const toggleChecklistItem = async (req: Request, res: Response): Promise<
     try {
         const userId = req.user!.id;
         const id = req.params.id as string;
-        const { is_checked } = req.body;
-        const data = await operationService.toggleChecklistItem(userId, id, is_checked);
+        const { result } = req.body;
+        const data = await operationService.toggleChecklistItem(userId, id, result);
         res.status(200).json(data);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

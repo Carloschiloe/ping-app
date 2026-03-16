@@ -441,8 +441,8 @@ export const useSaveOperationChecklist = (conversationId: string) => {
 export const useToggleOperationChecklistItem = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, is_checked }: { id: string; is_checked: boolean }) =>
-            apiClient.patch(`/operation-checklist-run-items/${id}/toggle`, { is_checked }),
+        mutationFn: async ({ id, result }: { id: string; result: 'good' | 'regular' | 'bad' | 'na' | null }) =>
+            apiClient.patch(`/operation-checklist-run-items/${id}/toggle`, { result }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },

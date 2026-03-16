@@ -470,7 +470,7 @@ export default function ChatScreen({ navigation }: any) {
                             onOpenPinnedMessage={scrollToMessage}
                             onClearPinnedMessage={handleClearPinnedMessage}
                             onSaveChecklist={saveChecklist}
-                            onToggleChecklistItem={(itemId, isChecked) => toggleChecklistItem({ id: itemId, is_checked: isChecked })}
+                            onToggleChecklistItem={(itemId, result) => toggleChecklistItem({ id: itemId, result })}
                             onCreateShiftReport={async (body) => { await createShiftReport({ body, source: 'text' }); }}
                             onShareLocation={handleShareLocation}
                             onCommitmentAction={handleOperationAction}

@@ -29,7 +29,7 @@ interface OperationPanelProps {
     onOpenPinnedMessage: (messageId: string) => void;
     onClearPinnedMessage: () => void;
     onSaveChecklist: (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => Promise<any> | void;
-    onToggleChecklistItem: (itemId: string, isChecked: boolean) => void;
+    onToggleChecklistItem: (itemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) => void;
     onCreateShiftReport: (body: string) => Promise<any> | void;
     onShareLocation: () => Promise<any> | void;
     onCommitmentAction: (payload: {
@@ -167,6 +167,12 @@ function ChecklistSheet({
     onToggleChecklistItem,
 }: any) {
     const [isEditingTemplate, setIsEditingTemplate] = useState(!checklist);
+    const resultOptions = [
+        { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
+        { key: 'regular', label: 'Regular', color: '#92400e', bg: '#fef3c7' },
+        { key: 'bad', label: 'Malo', color: '#991b1b', bg: '#fee2e2' },
+        { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+    ] as const;
 
     useEffect(() => {
         setIsEditingTemplate(!checklist);
@@ -224,19 +230,42 @@ function ChecklistSheet({
                                     </View>
 
                                     {checklist.run.items.map((item: any) => (
-                                        <TouchableOpacity
-                                            key={item.id}
-                                            style={styles.sheetCheckRow}
-                                            activeOpacity={0.8}
-                                            onPress={() => onToggleChecklistItem(item.id, !item.is_checked)}
-                                        >
-                                            <Ionicons
-                                                name={item.is_checked ? 'checkmark-circle' : 'ellipse-outline'}
-                                                size={20}
-                                                color={item.is_checked ? '#16a34a' : '#64748b'}
-                                            />
-                                            <Text style={[styles.sheetCheckText, item.is_checked && styles.sheetCheckTextDone]}>{item.label}</Text>
-                                        </TouchableOpacity>
+                                        <View key={item.id} style={styles.sheetCheckCard}>
+                                            <View style={styles.sheetCheckRow}>
+                                                <Ionicons
+                                                    name={item.result ? 'checkmark-circle' : 'ellipse-outline'}
+                                                    size={20}
+                                                    color={item.result ? '#16a34a' : '#64748b'}
+                                                />
+                                                <Text style={[styles.sheetCheckText, item.result && styles.sheetCheckTextDone]}>{item.label}</Text>
+                                            </View>
+                                            <View style={styles.sheetResultRow}>
+                                                {resultOptions.map((option) => (
+                                                    <TouchableOpacity
+                                                        key={option.key}
+                                                        style={[
+                                                            styles.resultChip,
+                                                            item.result === option.key && { backgroundColor: option.bg, borderColor: option.bg },
+                                                        ]}
+                                                        onPress={() => onToggleChecklistItem(item.id, item.result === option.key ? null : option.key)}
+                                                    >
+                                                        <Text
+                                                            style={[
+                                                                styles.resultChipText,
+                                                                item.result === option.key && { color: option.color },
+                                                            ]}
+                                                        >
+                                                            {option.label}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </View>
+                                            {item.checked_at ? (
+                                                <Text style={styles.sheetAuditText}>
+                                                    {item.profiles?.full_name || item.profiles?.email?.split('@')[0] || 'Alguien'} · {formatShortDate(item.checked_at)}
+                                                </Text>
+                                            ) : null}
+                                        </View>
                                     ))}
                                 </View>
                             ) : null}
@@ -844,6 +873,7 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
     },
     sheetHost: {
+        flex: 1,
         justifyContent: 'flex-end',
     },
     sheet: {
@@ -871,7 +901,7 @@ const styles = StyleSheet.create({
     sheetContent: {
         padding: 20,
         gap: 18,
-        paddingBottom: 34,
+        paddingBottom: 220,
     },
     sheetSection: {
         gap: 12,
@@ -891,11 +921,18 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#2563eb',
     },
+    sheetCheckCard: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        padding: 12,
+        gap: 10,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
     sheetCheckRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        paddingVertical: 4,
     },
     sheetCheckText: {
         flex: 1,
@@ -903,7 +940,29 @@ const styles = StyleSheet.create({
         color: '#0f172a',
     },
     sheetCheckTextDone: {
-        textDecorationLine: 'line-through',
+        color: '#0f172a',
+        fontWeight: '700',
+    },
+    sheetResultRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    resultChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: '#ffffff',
+        borderWidth: 1,
+        borderColor: '#dbeafe',
+    },
+    resultChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    sheetAuditText: {
+        fontSize: 11,
         color: '#64748b',
     },
     latestBody: {

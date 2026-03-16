@@ -47,7 +47,7 @@ export const toggleChecklistItemSchema = z.object({
         id: z.string().uuid(),
     }),
     body: z.object({
-        is_checked: z.boolean(),
+        result: z.enum(['good', 'regular', 'bad', 'na']).nullable(),
     }),
 });
 

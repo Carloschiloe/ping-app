@@ -74,6 +74,7 @@ export default function GroupTaskCard({
     const isOperationMode = conversationMode === 'operation';
     const isActiveOperation = !!activeCommitmentId && activeCommitmentId === commitment.id;
     const isCompactOperationCard = isOperationMode && isActiveOperation && !isProposed;
+    const canSetOperationFocus = !commitment.assigned_to_user_id || currentUserId === assignedId;
 
     const handleMarkDone = () => {
         Alert.alert(
@@ -342,7 +343,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isOperationMode && !isRejected && !isDone && (
+                        {isOperationMode && !isRejected && !isDone && canSetOperationFocus && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f5f9' }]}
                                 onPress={() => {

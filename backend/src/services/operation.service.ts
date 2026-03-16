@@ -144,7 +144,7 @@ async function ensureChecklistRun(checklist: any, userId: string) {
     if (existingRun) {
         const { data: runItems, error } = await supabaseAdmin
             .from('operation_checklist_run_items')
-            .select('*')
+            .select('*, profiles:checked_by_user_id(id, full_name, email, avatar_url)')
             .eq('run_id', existingRun.id)
             .order('sort_order', { ascending: true });
 
@@ -195,7 +195,7 @@ async function ensureChecklistRun(checklist: any, userId: string) {
 
     const { data: runItems, error: runItemsError } = await supabaseAdmin
         .from('operation_checklist_run_items')
-        .select('*')
+        .select('*, profiles:checked_by_user_id(id, full_name, email, avatar_url)')
         .eq('run_id', run.id)
         .order('sort_order', { ascending: true });
 
@@ -368,12 +368,15 @@ export async function setActiveCommitment(userId: string, conversationId: string
     if (commitmentId) {
         const { data: commitment, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, group_conversation_id, title')
+            .select('id, group_conversation_id, title, assigned_to_user_id')
             .eq('id', commitmentId)
             .eq('group_conversation_id', conversationId)
             .maybeSingle();
 
         if (error || !commitment) throw new Error('Commitment not found in this conversation');
+        if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
+            throw new Error('Only the assigned user can put this task in progress');
+        }
     }
 
     if (!commitmentId) {
@@ -494,7 +497,7 @@ export async function saveChecklistTemplate(
     return { ...checklist, run };
 }
 
-export async function toggleChecklistItem(userId: string, runItemId: string, isChecked: boolean) {
+export async function toggleChecklistItem(userId: string, runItemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) {
     const { data: runItem, error: fetchError } = await supabaseAdmin
         .from('operation_checklist_run_items')
         .select('id, run_id')
@@ -514,14 +517,16 @@ export async function toggleChecklistItem(userId: string, runItemId: string, isC
     const conversationId = run.conversation_id;
     await assertParticipant(userId, conversationId);
 
-    const payload = isChecked
+    const payload = result
         ? {
             is_checked: true,
+            result,
             checked_at: new Date().toISOString(),
             checked_by_user_id: userId,
         }
         : {
             is_checked: false,
+            result: null,
             checked_at: null,
             checked_by_user_id: null,
         };
@@ -530,7 +535,7 @@ export async function toggleChecklistItem(userId: string, runItemId: string, isC
         .from('operation_checklist_run_items')
         .update(payload)
         .eq('id', runItemId)
-        .select('*')
+        .select('*, profiles:checked_by_user_id(id, full_name, email, avatar_url)')
         .single();
 
     if (error) throw error;
