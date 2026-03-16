@@ -18,6 +18,15 @@ export const setPinnedMessageSchema = z.object({
     }),
 });
 
+export const setActiveCommitmentSchema = z.object({
+    params: z.object({
+        id: z.string().uuid(),
+    }),
+    body: z.object({
+        commitmentId: z.string().uuid().nullable(),
+    }),
+});
+
 export const saveChecklistSchema = z.object({
     params: z.object({
         id: z.string().uuid(),

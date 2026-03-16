@@ -1,5 +1,4 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { insertSystemMessage } from './message.service';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -16,14 +15,32 @@ async function assertParticipant(userId: string, conversationId: string) {
     }
 }
 
-async function getUserName(userId: string) {
-    const { data } = await supabaseAdmin
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', userId)
-        .single();
+const OPERATION_REACTION_EMOJIS = {
+    acknowledged: '👌',
+    arrived: '📍',
+    completed: '✅',
+} as const;
 
-    return data?.full_name || data?.email?.split('@')[0] || 'Alguien';
+async function addOperationReaction(messageId: string | null | undefined, userId: string, action: 'acknowledged' | 'arrived' | 'completed') {
+    if (!messageId) return;
+
+    const emoji = OPERATION_REACTION_EMOJIS[action];
+
+    const { data: existing } = await supabaseAdmin
+        .from('message_reactions')
+        .select('id')
+        .eq('message_id', messageId)
+        .eq('user_id', userId)
+        .eq('emoji', emoji)
+        .maybeSingle();
+
+    if (existing?.id) return;
+
+    await supabaseAdmin.from('message_reactions').insert({
+        message_id: messageId,
+        user_id: userId,
+        emoji,
+    });
 }
 
 async function ensureChecklistRun(checklist: any, userId: string) {
@@ -115,6 +132,22 @@ async function getPinnedMessage(pinnedMessageId?: string | null) {
     return data || null;
 }
 
+async function getCommitmentSummary(commitmentId?: string | null) {
+    if (!commitmentId) return null;
+
+    const { data } = await supabaseAdmin
+        .from('commitments')
+        .select(`
+            *,
+            owner:owner_user_id(id, full_name, email, avatar_url),
+            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
+        `)
+        .eq('id', commitmentId)
+        .maybeSingle();
+
+    return data || null;
+}
+
 async function getLatestLocation(conversationId: string) {
     const { data } = await supabaseAdmin
         .from('messages')
@@ -133,14 +166,15 @@ export async function getConversationOperationState(userId: string, conversation
 
     const { data: conversation, error } = await supabaseAdmin
         .from('conversations')
-        .select('id, mode, pinned_message_id')
+        .select('id, mode, pinned_message_id, active_commitment_id')
         .eq('id', conversationId)
         .single();
 
     if (error || !conversation) throw error || new Error('Conversation not found');
 
-    const [pinnedMessage, activeChecklist, latestShiftReport, latestLocation] = await Promise.all([
+    const [pinnedMessage, activeCommitment, activeChecklist, latestShiftReport, latestLocation] = await Promise.all([
         getPinnedMessage(conversation.pinned_message_id),
+        getCommitmentSummary(conversation.active_commitment_id),
         (async () => {
             const { data: checklist } = await supabaseAdmin
                 .from('operation_checklists')
@@ -172,6 +206,7 @@ export async function getConversationOperationState(userId: string, conversation
 
     return {
         conversation,
+        activeCommitment,
         pinnedMessage,
         activeChecklist,
         latestShiftReport,
@@ -184,9 +219,9 @@ export async function updateConversationMode(userId: string, conversationId: str
 
     const { data, error } = await supabaseAdmin
         .from('conversations')
-        .update({ mode })
+        .update(mode === 'chat' ? { mode, active_commitment_id: null } : { mode })
         .eq('id', conversationId)
-        .select('id, mode, pinned_message_id')
+        .select('id, mode, pinned_message_id, active_commitment_id')
         .single();
 
     if (error) throw error;
@@ -211,7 +246,32 @@ export async function setPinnedMessage(userId: string, conversationId: string, m
         .from('conversations')
         .update({ pinned_message_id: messageId })
         .eq('id', conversationId)
-        .select('id, mode, pinned_message_id')
+        .select('id, mode, pinned_message_id, active_commitment_id')
+        .single();
+
+    if (updateError) throw updateError;
+    return data;
+}
+
+export async function setActiveCommitment(userId: string, conversationId: string, commitmentId: string | null) {
+    await assertParticipant(userId, conversationId);
+
+    if (commitmentId) {
+        const { data: commitment, error } = await supabaseAdmin
+            .from('commitments')
+            .select('id, group_conversation_id, title')
+            .eq('id', commitmentId)
+            .eq('group_conversation_id', conversationId)
+            .maybeSingle();
+
+        if (error || !commitment) throw new Error('Commitment not found in this conversation');
+    }
+
+    const { data, error: updateError } = await supabaseAdmin
+        .from('conversations')
+        .update({ active_commitment_id: commitmentId })
+        .eq('id', conversationId)
+        .select('id, mode, pinned_message_id, active_commitment_id')
         .single();
 
     if (updateError) throw updateError;
@@ -402,15 +462,7 @@ export async function registerCommitmentOperationAction(
 
     if (error) throw error;
 
-    const userName = await getUserName(userId);
-    if (commitment.group_conversation_id) {
-        const actionLabel = action === 'acknowledged'
-            ? 'marco "Entendido"'
-            : action === 'arrived'
-                ? 'marco "Llegue"'
-                : 'marco "Terminado"';
-        await insertSystemMessage(commitment.group_conversation_id, `🛠️ ${userName} ${actionLabel}: ${commitment.title}`, userId);
-    }
+    await addOperationReaction(commitment.message_id, userId, action);
 
     return data;
 }

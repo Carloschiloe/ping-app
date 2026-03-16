@@ -28,13 +28,14 @@ interface MessageItemProps {
     swipeableRowRefs: React.MutableRefObject<Map<string, any>>;
     groupParticipants?: any[];
     conversationMode?: 'chat' | 'operation';
+    activeCommitmentId?: string | null;
 }
 
 const MessageItemComponent = ({
     item, user, isGroup, isMultiSelecting, isSelected,
     highlightedMsgId, groupTasks, onPress, onLongPress,
     onToggleSelect, onSwipeLeft, onViewReactions,
-    formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat'
+    formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat', activeCommitmentId = null
 }: MessageItemProps) => {
 
     if (item.type === 'divider') {
@@ -158,7 +159,7 @@ const MessageItemComponent = ({
             }}
         >
             <View>
-                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 14 : 2 }]}>
+                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 6 : 2 }]}> 
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -283,10 +284,14 @@ const MessageItemComponent = ({
                         ) : isLocationShare ? (
                             <TouchableOpacity
                                 style={styles.locationCard}
-                                onPress={() => {
+                                onPress={async () => {
                                     const location = item.meta?.location;
                                     if (!location?.latitude || !location?.longitude) return;
-                                    Linking.openURL(`https://www.google.com/maps?q=${location.latitude},${location.longitude}`);
+                                    const query = `${location.latitude},${location.longitude}`;
+                                    const nativeUrl = `https://maps.apple.com/?ll=${query}`;
+                                    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+                                    const targetUrl = await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl;
+                                    Linking.openURL(targetUrl);
                                 }}
                                 activeOpacity={0.8}
                             >
@@ -386,6 +391,7 @@ const MessageItemComponent = ({
                         conversationId={item.conversation_id}
                         groupParticipants={groupParticipants}
                         conversationMode={conversationMode}
+                        activeCommitmentId={activeCommitmentId}
                     />
                 );
             })()}
@@ -401,9 +407,11 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.isMultiSelecting === next.isMultiSelecting &&
         prev.highlightedMsgId === next.highlightedMsgId &&
         prev.item.status === next.item.status &&
+        JSON.stringify(prev.item.message_reactions) === JSON.stringify(next.item.message_reactions) &&
         // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
         JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
         prev.conversationMode === next.conversationMode &&
+        prev.activeCommitmentId === next.activeCommitmentId &&
         prev.groupTasks === next.groupTasks &&
         prev.groupParticipants === next.groupParticipants
     );
@@ -476,9 +484,9 @@ const styles = StyleSheet.create({
     quotedThem: { backgroundColor: theme.colors.background, borderLeftColor: theme.colors.secondary },
     quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
     quotedText: { fontSize: 12 },
-    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', position: 'absolute', bottom: -10, gap: 4, zIndex: 100 },
-    reactionsMe: { right: 8 },
-    reactionsThem: { left: 8 },
+    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+    reactionsMe: { alignSelf: 'flex-end' },
+    reactionsThem: { alignSelf: 'flex-start' },
     reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.white, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.border, gap: 2, shadowColor: theme.colors.black, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
     reactionCount: { fontSize: 11, fontWeight: '700', color: theme.colors.text.secondary },
     suggestionChip: {

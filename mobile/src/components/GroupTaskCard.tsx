@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
 import { AISuggestionModal } from './AISuggestionModal';
-import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment, useUpdateCommitment, useCommitmentOperationAction } from '../api/queries';
+import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment, useUpdateCommitment, useSetActiveOperationCommitment } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { apiClient } from '../api/client';
 
@@ -17,6 +17,7 @@ interface GroupTaskCardProps {
     isTimelineNode?: boolean;
     isPast?: boolean;
     conversationMode?: 'chat' | 'operation';
+    activeCommitmentId?: string | null;
 }
 
 export default function GroupTaskCard({ 
@@ -25,7 +26,8 @@ export default function GroupTaskCard({
     groupParticipants = [],
     isTimelineNode = false,
     isPast = false,
-    conversationMode = 'chat'
+    conversationMode = 'chat',
+    activeCommitmentId = null,
 }: GroupTaskCardProps) {
     const queryClient = useQueryClient();
     const conversationId = manualConversationId || commitment.group_conversation_id;
@@ -35,7 +37,7 @@ export default function GroupTaskCard({
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
-    const { mutate: runOperationAction, isPending: isRunningOperationAction } = useCommitmentOperationAction();
+    const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const [showActions, setShowActions] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
@@ -48,7 +50,6 @@ export default function GroupTaskCard({
     const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
 
     const status = commitment.status;
-    const operationMeta = commitment.meta?.operational || {};
     const isDone = status === 'completed';
     const isProposed = status === 'proposed' || status === 'pending'; // Combined for robustness
     const isRejected = status === 'rejected';
@@ -73,11 +74,7 @@ export default function GroupTaskCard({
     const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(commitment.title || '');
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
     const isOperationMode = conversationMode === 'operation';
-    const opStatus = {
-        acknowledged: !!operationMeta.acknowledged_at,
-        arrived: !!operationMeta.arrived_at,
-        completed: !!operationMeta.completed_at || isDone,
-    };
+    const isActiveOperation = !!activeCommitmentId && activeCommitmentId === commitment.id;
 
     const handleMarkDone = () => {
         Alert.alert(
@@ -190,10 +187,10 @@ export default function GroupTaskCard({
         );
     };
 
-    const handleOperationAction = (action: 'acknowledged' | 'arrived' | 'completed') => {
+    const handleSetActiveCommitment = (nextCommitmentId: string | null) => {
         if (!conversationId) return;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        runOperationAction({ id: commitment.id, action, conversationId });
+        setActiveCommitment(nextCommitmentId);
     };
 
     const getStatusInfo = () => {
@@ -252,10 +249,17 @@ export default function GroupTaskCard({
                         <Text style={styles.assigneeText} numberOfLines={1}>{displayName}</Text>
                     </View>
 
-                    <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                        <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-                            {statusInfo.label.split(' ')[1] || statusInfo.label}
-                        </Text>
+                    <View style={styles.badgesRow}>
+                        {isActiveOperation && (
+                            <View style={styles.activeOperationBadge}>
+                                <Text style={styles.activeOperationBadgeText}>ACTIVA</Text>
+                            </View>
+                        )}
+                        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}> 
+                            <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
+                                {statusInfo.label.split(' ')[1] || statusInfo.label}
+                            </Text>
+                        </View>
                     </View>
                 </View>
 
@@ -263,30 +267,8 @@ export default function GroupTaskCard({
                     <Text style={styles.rejectionText}>Motivo: {commitment.rejection_reason}</Text>
                 )}
 
-                {isOperationMode && isAssignee && !isRejected && (
-                    <View style={styles.operationRow}>
-                        <TouchableOpacity
-                            style={[styles.operationBtn, opStatus.acknowledged && styles.operationBtnDone]}
-                            onPress={() => handleOperationAction('acknowledged')}
-                            disabled={opStatus.acknowledged || isRunningOperationAction}
-                        >
-                            <Text style={[styles.operationBtnText, opStatus.acknowledged && styles.operationBtnTextDone]}>Entendido</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.operationBtn, opStatus.arrived && styles.operationBtnDone]}
-                            onPress={() => handleOperationAction('arrived')}
-                            disabled={opStatus.arrived || isRunningOperationAction}
-                        >
-                            <Text style={[styles.operationBtnText, opStatus.arrived && styles.operationBtnTextDone]}>Llegué</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.operationBtn, opStatus.completed && styles.operationBtnDone]}
-                            onPress={() => handleOperationAction('completed')}
-                            disabled={opStatus.completed || isRunningOperationAction}
-                        >
-                            <Text style={[styles.operationBtnText, opStatus.completed && styles.operationBtnTextDone]}>Terminado</Text>
-                        </TouchableOpacity>
-                    </View>
+                {isOperationMode && isActiveOperation && (
+                    <Text style={styles.operationHint}>Se gestiona desde la franja superior.</Text>
                 )}
             </View>
 
@@ -361,6 +343,22 @@ export default function GroupTaskCard({
                             >
                                 <Ionicons name="close-circle" size={24} color="#ef4444" />
                                 <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Rechazar</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {isOperationMode && !isRejected && !isDone && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f5f9' }]}
+                                onPress={() => {
+                                    setShowActions(false);
+                                    handleSetActiveCommitment(isActiveOperation ? null : commitment.id);
+                                }}
+                                disabled={isSettingActiveCommitment}
+                            >
+                                <Ionicons name={isActiveOperation ? 'close-circle' : 'flash'} size={24} color="#2563eb" />
+                                <Text style={[styles.menuItemText, { color: '#2563eb' }]}>
+                                    {isActiveOperation ? 'Quitar de operación' : 'Usar en operación'}
+                                </Text>
                             </TouchableOpacity>
                         )}
 
@@ -486,6 +484,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
     },
+    badgesRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
     assigneeInfo: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -532,28 +535,21 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
         marginTop: 6,
     },
-    operationRow: {
-        flexDirection: 'row',
-        gap: 8,
+    operationHint: {
+        fontSize: 12,
+        color: '#64748b',
         marginTop: 10,
     },
-    operationBtn: {
-        flex: 1,
-        paddingVertical: 8,
-        borderRadius: 10,
-        backgroundColor: '#e2e8f0',
-        alignItems: 'center',
+    activeOperationBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        backgroundColor: '#dbeafe',
     },
-    operationBtnDone: {
-        backgroundColor: '#dcfce7',
-    },
-    operationBtnText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#0f172a',
-    },
-    operationBtnTextDone: {
-        color: '#166534',
+    activeOperationBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#1d4ed8',
     },
     rightActions: {
         width: 40,

@@ -369,6 +369,18 @@ export const useSetPinnedMessage = (conversationId: string) => {
     });
 };
 
+export const useSetActiveOperationCommitment = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (commitmentId: string | null) => apiClient.patch(`/conversations/${conversationId}/active-commitment`, { commitmentId }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+        },
+    });
+};
+
 export const useSaveOperationChecklist = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({

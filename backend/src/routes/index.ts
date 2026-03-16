@@ -53,6 +53,7 @@ router.get('/conversations/:id/participants', requireAuth, groupController.getPa
 router.get('/conversations/:id/operation-state', requireAuth, operationController.getConversationOperationState);
 router.patch('/conversations/:id/mode', requireAuth, validateRequest(operationSchema.updateConversationModeSchema), operationController.updateConversationMode);
 router.patch('/conversations/:id/pin', requireAuth, validateRequest(operationSchema.setPinnedMessageSchema), operationController.setPinnedMessage);
+router.patch('/conversations/:id/active-commitment', requireAuth, validateRequest(operationSchema.setActiveCommitmentSchema), operationController.setActiveCommitment);
 router.post('/conversations/:id/checklists', requireAuth, validateRequest(operationSchema.saveChecklistSchema), operationController.saveChecklistTemplate);
 router.post('/conversations/:id/shift-reports', requireAuth, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);

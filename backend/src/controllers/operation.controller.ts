@@ -36,6 +36,18 @@ export const setPinnedMessage = async (req: Request, res: Response): Promise<voi
     }
 };
 
+export const setActiveCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const conversationId = req.params.id as string;
+        const { commitmentId } = req.body;
+        const data = await operationService.setActiveCommitment(userId, conversationId, commitmentId);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export const saveChecklistTemplate = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;

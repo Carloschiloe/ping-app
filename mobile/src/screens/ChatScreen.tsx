@@ -18,6 +18,7 @@ import {
     useCreateShiftReport,
     useCommitmentOperationAction,
     useSetPinnedMessage,
+    useSetActiveOperationCommitment,
 } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -115,10 +116,12 @@ export default function ChatScreen({ navigation }: any) {
     const { mutateAsync: createShiftReport } = useCreateShiftReport(conversationId);
     const { mutate: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
+    const { mutate: setActiveCommitment } = useSetActiveOperationCommitment(conversationId);
 
     const conversationMode = operationState?.conversation?.mode || route.params?.mode || 'chat';
     const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
-    const activeOperationCommitment = groupTasks.find((task: any) => !['completed', 'rejected'].includes(task.status));
+    const activeOperationCommitment = operationState?.activeCommitment || null;
+    const openOperationTasks = groupTasks.filter((task: any) => !['completed', 'rejected'].includes(task.status));
 
     // ─── Phase 7/26: Fetch Group Participants ──────────────────────────────
     useEffect(() => {
@@ -281,6 +284,14 @@ export default function ChatScreen({ navigation }: any) {
         });
     };
 
+    const handleClearActiveCommitment = () => {
+        setActiveCommitment(null);
+    };
+
+    const handleClearPinnedMessage = () => {
+        setPinnedMessage(null);
+    };
+
     const { pickMediaSource } = useMediaPicker({
         onMediaSent: (t) => sendMessage({ text: t, reply_to_id: replyingToMsg?.id }),
         setSendingMedia
@@ -372,6 +383,7 @@ export default function ChatScreen({ navigation }: any) {
                     avatarColor={avatarColor}
                     swipeableRowRefs={swipeableRowRefs}
                     conversationMode={conversationMode}
+                    activeCommitmentId={activeOperationCommitment?.id || null}
                 />
             </>
         );
@@ -410,17 +422,20 @@ export default function ChatScreen({ navigation }: any) {
                     {conversationMode === 'operation' && (
                         <OperationPanel
                             loading={isOperationStateLoading}
+                            activeCommitment={activeOperationCommitment}
                             pinnedMessage={operationState?.pinnedMessage}
                             checklist={operationState?.activeChecklist}
                             latestLocation={operationState?.latestLocation}
                             latestShiftReport={operationState?.latestShiftReport}
-                            activeCommitment={activeOperationCommitment}
+                            openTasksCount={openOperationTasks.length}
                             onOpenPinnedMessage={scrollToMessage}
+                            onClearPinnedMessage={handleClearPinnedMessage}
                             onSaveChecklist={saveChecklist}
                             onToggleChecklistItem={(itemId, isChecked) => toggleChecklistItem({ id: itemId, is_checked: isChecked })}
                             onCreateShiftReport={async (body) => { await createShiftReport({ body, source: 'text' }); }}
                             onShareLocation={handleShareLocation}
                             onCommitmentAction={handleOperationAction}
+                            onClearActiveCommitment={handleClearActiveCommitment}
                         />
                     )}
 
