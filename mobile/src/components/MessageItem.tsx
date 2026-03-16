@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking
+    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
@@ -9,6 +9,15 @@ import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { theme } from '../theme/theme';
+
+function buildMapUrl(latitude: number, longitude: number) {
+    const query = `${latitude},${longitude}`;
+    if (Platform.OS === 'ios') {
+        return `http://maps.apple.com/?ll=${query}`;
+    }
+
+    return `geo:${query}?q=${query}`;
+}
 
 interface MessageItemProps {
     item: any;
@@ -287,9 +296,8 @@ const MessageItemComponent = ({
                                 onPress={async () => {
                                     const location = item.meta?.location;
                                     if (!location?.latitude || !location?.longitude) return;
-                                    const query = `${location.latitude},${location.longitude}`;
-                                    const nativeUrl = `https://maps.apple.com/?ll=${query}`;
-                                    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+                                    const nativeUrl = buildMapUrl(location.latitude, location.longitude);
+                                    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
                                     const targetUrl = await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl;
                                     Linking.openURL(targetUrl);
                                 }}
@@ -333,22 +341,6 @@ const MessageItemComponent = ({
                         </View>
                     </TouchableOpacity>
 
-                    {/* ─── AI Suggestion Chip ─── */}
-                    {item.meta?.suggestedTask && (
-                        <TouchableOpacity
-                            style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
-                            onPress={() => {
-                                console.warn('[DEBUG-CHIP] Chip Pressed for:', item.id);
-                                onPress({ ...item, _isSuggestionTap: true });
-                            }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.suggestionIcon}>✨</Text>
-                            <Text style={styles.suggestionText} numberOfLines={1}>
-                                ¿Agendar: {item.meta.suggestedTask.title}?
-                            </Text>
-                        </TouchableOpacity>
-                    )}
                     {/* ─── Reactions ─── */}
                     {item.message_reactions && item.message_reactions.length > 0 && (
                         <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
@@ -369,6 +361,22 @@ const MessageItemComponent = ({
                                 ));
                             })()}
                         </View>
+                    )}
+                    {/* ─── AI Suggestion Chip ─── */}
+                    {item.meta?.suggestedTask && (
+                        <TouchableOpacity
+                            style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
+                            onPress={() => {
+                                console.warn('[DEBUG-CHIP] Chip Pressed for:', item.id);
+                                onPress({ ...item, _isSuggestionTap: true });
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.suggestionIcon}>✨</Text>
+                            <Text style={styles.suggestionText} numberOfLines={1}>
+                                ¿Agendar: {item.meta.suggestedTask.title}?
+                            </Text>
+                        </TouchableOpacity>
                     )}
                 </View>
                 {highlightedMsgId === item.id && (
@@ -484,7 +492,7 @@ const styles = StyleSheet.create({
     quotedThem: { backgroundColor: theme.colors.background, borderLeftColor: theme.colors.secondary },
     quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
     quotedText: { fontSize: 12 },
-    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, marginBottom: 2 },
     reactionsMe: { alignSelf: 'flex-end' },
     reactionsThem: { alignSelf: 'flex-start' },
     reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.white, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.border, gap: 2, shadowColor: theme.colors.black, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
@@ -496,7 +504,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         paddingHorizontal: 12,
         paddingVertical: 8,
-        marginTop: 8,
+        marginTop: 6,
         marginBottom: 4,
         borderWidth: 1.5,
         borderColor: '#818cf8', // Indigo 400

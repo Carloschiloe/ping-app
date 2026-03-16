@@ -14,6 +14,8 @@ import {
     View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -53,6 +55,19 @@ function getOperationState(commitment?: any) {
     if (arrived) return { label: 'En sitio', color: '#1d4ed8', bg: '#dbeafe' };
     if (acknowledged) return { label: 'Entendido', color: '#92400e', bg: '#fef3c7' };
     return { label: 'Por iniciar', color: '#475569', bg: '#e2e8f0' };
+}
+
+function getCommitmentMeta(commitment?: any) {
+    if (!commitment) return '';
+
+    const due = commitment.due_at
+        ? format(new Date(commitment.due_at), 'HH:mm', { locale: es })
+        : null;
+    const responsible = commitment.assigned_to_user_id
+        ? (commitment.assignee?.full_name || 'Responsable')
+        : 'Todos';
+
+    return [due, responsible].filter(Boolean).join(' · ');
 }
 
 function ChecklistSheet({
@@ -270,7 +285,7 @@ export function OperationPanel({
 
                 <View style={styles.heroCard}>
                     <View style={styles.heroHeader}>
-                        <Text style={styles.eyebrow}>{activeCommitment ? 'Actividad activa' : 'Modo operacion'}</Text>
+                        <Text style={styles.eyebrow}>{activeCommitment ? 'En curso' : 'Modo operacion'}</Text>
                         {activeCommitment ? (
                             <TouchableOpacity style={styles.headerAction} onPress={onClearActiveCommitment}>
                                 <Ionicons name="close-circle-outline" size={18} color="#64748b" />
@@ -281,11 +296,12 @@ export function OperationPanel({
                     {activeCommitment ? (
                         <>
                             <Text style={styles.heroTitle} numberOfLines={2}>{activeCommitment.title}</Text>
+                            <Text style={styles.commitmentMeta} numberOfLines={1}>{getCommitmentMeta(activeCommitment)}</Text>
                             <View style={styles.stateRow}>
                                 <View style={[styles.statePill, { backgroundColor: state.bg }]}> 
                                     <Text style={[styles.statePillText, { color: state.color }]}>{state.label}</Text>
                                 </View>
-                                <Text style={styles.helperText} numberOfLines={1}>Estas acciones aplican solo a esta actividad.</Text>
+                                <Text style={styles.helperText} numberOfLines={1}>Acciones sobre esta tarea o reunion.</Text>
                             </View>
 
                             <View style={styles.actionsRow}>
@@ -423,6 +439,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         lineHeight: 17,
         color: '#64748b',
+    },
+    commitmentMeta: {
+        fontSize: 13,
+        color: '#64748b',
+        marginTop: -2,
     },
     stateRow: {
         flexDirection: 'row',

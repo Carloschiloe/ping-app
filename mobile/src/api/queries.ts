@@ -362,6 +362,24 @@ export const useSetPinnedMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (messageId: string | null) => apiClient.patch(`/conversations/${conversationId}/pin`, { messageId }),
+        onMutate: async (messageId) => {
+            await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            const previous = queryClient.getQueryData(['conversation-operation-state', conversationId]);
+            queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => old ? {
+                ...old,
+                conversation: {
+                    ...old.conversation,
+                    pinned_message_id: messageId,
+                },
+                pinnedMessage: messageId ? old.pinnedMessage : null,
+            } : old);
+            return { previous };
+        },
+        onError: (_err, _variables, context: any) => {
+            if (context?.previous) {
+                queryClient.setQueryData(['conversation-operation-state', conversationId], context.previous);
+            }
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
@@ -373,6 +391,33 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (commitmentId: string | null) => apiClient.patch(`/conversations/${conversationId}/active-commitment`, { commitmentId }),
+        onMutate: async (commitmentId) => {
+            await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            const previous = queryClient.getQueryData(['conversation-operation-state', conversationId]);
+            queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
+                if (!old) return old;
+                const groupTaskQueries = queryClient.getQueriesData({ queryKey: ['group-tasks-conv', conversationId] });
+                const groupTasks = groupTaskQueries.flatMap(([, data]: any) => Array.isArray(data) ? data : []);
+                const activeCommitment = commitmentId
+                    ? groupTasks.find((task: any) => task.id === commitmentId) || old.activeCommitment
+                    : null;
+
+                return {
+                    ...old,
+                    conversation: {
+                        ...old.conversation,
+                        active_commitment_id: commitmentId,
+                    },
+                    activeCommitment,
+                };
+            });
+            return { previous };
+        },
+        onError: (_err, _variables, context: any) => {
+            if (context?.previous) {
+                queryClient.setQueryData(['conversation-operation-state', conversationId], context.previous);
+            }
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });

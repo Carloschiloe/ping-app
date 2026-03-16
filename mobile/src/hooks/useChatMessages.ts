@@ -103,6 +103,15 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         const realtimeChannel = supabase
             .channel(`realtime-${conversationId}`)
             .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'conversations',
+                filter: `id=eq.${conversationId}`
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            })
+            .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'message_reactions'

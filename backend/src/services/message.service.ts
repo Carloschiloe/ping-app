@@ -22,9 +22,16 @@ async function downloadFile(url: string, targetPath: string) {
     });
 }
 
-export const processUserMessage = async (userId: string, text: string, conversationId?: string, replyToId?: string, mentionedUserId?: string) => {
+export const processUserMessage = async (
+    userId: string,
+    text: string,
+    conversationId?: string,
+    replyToId?: string,
+    mentionedUserId?: string,
+    incomingMeta?: any
+) => {
     let processingText = text;
-    let meta: any = {};
+    let meta: any = incomingMeta ? { ...incomingMeta } : {};
     let imageUrl: string | undefined;
 
     // 1. Handle Multimedia (Audio/Image/Video/Document)
