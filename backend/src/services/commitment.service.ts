@@ -226,11 +226,13 @@ export const acceptCommitment = async (userId: string, id: string) => {
 };
 
 export const rejectCommitment = async (userId: string, id: string, reason?: string) => {
+    const { data: currentTask } = await supabaseAdmin.from('commitments').select('meta').eq('id', id).single();
+
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update({ 
             status: 'rejected',
-            meta: { rejection_reason: reason } 
+            meta: { ...(currentTask?.meta || {}), rejection_reason: reason } 
         })
         .eq('id', id)
         .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)

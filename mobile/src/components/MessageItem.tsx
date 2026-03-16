@@ -27,13 +27,14 @@ interface MessageItemProps {
     avatarColor: (str: string) => string;
     swipeableRowRefs: React.MutableRefObject<Map<string, any>>;
     groupParticipants?: any[];
+    conversationMode?: 'chat' | 'operation';
 }
 
 const MessageItemComponent = ({
     item, user, isGroup, isMultiSelecting, isSelected,
     highlightedMsgId, groupTasks, onPress, onLongPress,
     onToggleSelect, onSwipeLeft, onViewReactions,
-    formatTime, avatarColor, swipeableRowRefs, groupParticipants = []
+    formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat'
 }: MessageItemProps) => {
 
     if (item.type === 'divider') {
@@ -74,6 +75,7 @@ const MessageItemComponent = ({
     const isAudio = trimmedText.startsWith('[audio]');
     let isVideo = trimmedText.startsWith('[video]');
     const isDocument = trimmedText.startsWith('[document=');
+    const isLocationShare = item.meta?.messageType === 'location_share';
 
     let mediaUrl = null;
     let documentName = '';
@@ -278,6 +280,26 @@ const MessageItemComponent = ({
                                 </View>
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { paddingHorizontal: 8, paddingBottom: 4, fontSize: 14 }]}>{description}</Text> : null}
                             </View>
+                        ) : isLocationShare ? (
+                            <TouchableOpacity
+                                style={styles.locationCard}
+                                onPress={() => {
+                                    const location = item.meta?.location;
+                                    if (!location?.latitude || !location?.longitude) return;
+                                    Linking.openURL(`https://www.google.com/maps?q=${location.latitude},${location.longitude}`);
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                <View style={[styles.locationIconWrap, isMe ? styles.locationIconWrapMe : styles.locationIconWrapThem]}>
+                                    <Ionicons name="location" size={18} color={isMe ? theme.colors.white : '#2563eb'} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '700' }]} numberOfLines={1}>
+                                        {item.meta?.location?.label || 'Ubicacion compartida'}
+                                    </Text>
+                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2 }]}>Abrir en mapa</Text>
+                                </View>
+                            </TouchableOpacity>
                         ) : (
                             <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
                                 {msgText}
@@ -363,6 +385,7 @@ const MessageItemComponent = ({
                         }} 
                         conversationId={item.conversation_id}
                         groupParticipants={groupParticipants}
+                        conversationMode={conversationMode}
                     />
                 );
             })()}
@@ -380,6 +403,7 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.item.status === next.item.status &&
         // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
         JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
+        prev.conversationMode === next.conversationMode &&
         prev.groupTasks === next.groupTasks &&
         prev.groupParticipants === next.groupParticipants
     );
@@ -427,6 +451,10 @@ const styles = StyleSheet.create({
         justifyContent: 'center', alignItems: 'center',
     },
     documentBubble: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, paddingVertical: 4, paddingRight: 8 },
+    locationCard: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, gap: 10 },
+    locationIconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    locationIconWrapMe: { backgroundColor: 'rgba(255,255,255,0.2)' },
+    locationIconWrapThem: { backgroundColor: '#dbeafe' },
     docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
     systemWrap: { alignItems: 'center', marginVertical: 6 },
     systemBubble: {

@@ -8,7 +8,17 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
-import { useConversationGroupTasks, useCreateCommitment } from '../api/queries';
+import * as Location from 'expo-location';
+import {
+    useConversationGroupTasks,
+    useCreateCommitment,
+    useConversationOperationState,
+    useSaveOperationChecklist,
+    useToggleOperationChecklistItem,
+    useCreateShiftReport,
+    useCommitmentOperationAction,
+    useSetPinnedMessage,
+} from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import MentionPopup from '../components/MentionPopup';
@@ -22,6 +32,7 @@ import { useChatMessages } from '../hooks/useChatMessages';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatInput } from '../components/ChatInput';
 import { AISuggestionModal } from '../components/AISuggestionModal';
+import { OperationPanel } from '../components/OperationPanel';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
@@ -97,7 +108,17 @@ export default function ChatScreen({ navigation }: any) {
 
     const { activeTypers, handleTyping, broadcastRecording } = useChatPresence(conversationId, user);
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
+    const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
     const { mutate: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
+    const { mutateAsync: saveChecklist } = useSaveOperationChecklist(conversationId);
+    const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
+    const { mutateAsync: createShiftReport } = useCreateShiftReport(conversationId);
+    const { mutate: runCommitmentAction } = useCommitmentOperationAction();
+    const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
+
+    const conversationMode = operationState?.conversation?.mode || route.params?.mode || 'chat';
+    const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
+    const activeOperationCommitment = groupTasks.find((task: any) => !['completed', 'rejected'].includes(task.status));
 
     // ─── Phase 7/26: Fetch Group Participants ──────────────────────────────
     useEffect(() => {
@@ -134,14 +155,14 @@ export default function ChatScreen({ navigation }: any) {
                     onSummarize={handleSummarize}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'voice' })}
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'video' })}
-                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup })}
+                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup, isSelf, mode: conversationMode })}
                 />
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
             headerTintColor: theme.colors.white,
             headerRight: () => null, // Explicitly clear any right buttons
         });
-    }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing]);
+    }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing, conversationMode]);
 
     // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -197,6 +218,67 @@ export default function ChatScreen({ navigation }: any) {
         setText(`${before}@${p.full_name || p.email.split('@')[0]} `);
         setMentionedUserId(p.id);
         setMentionQuery(null);
+    };
+
+    const scrollToMessage = (messageId: string) => {
+        const index = messages.findIndex(m => m.id === messageId);
+        if (index !== -1) {
+            setHighlightedMsgId(messageId);
+            setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 100);
+            setTimeout(() => setHighlightedMsgId(null), 3000);
+        }
+    };
+
+    const handleShareLocation = async () => {
+        try {
+            const permission = await Location.requestForegroundPermissionsAsync();
+            if (permission.status !== 'granted') {
+                Alert.alert('Permiso requerido', 'Activa la ubicacion para compartirla en este chat.');
+                return;
+            }
+
+            const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const reverse = await Location.reverseGeocodeAsync(position.coords);
+            const address = reverse[0];
+            const label = [address?.street, address?.district || address?.city].filter(Boolean).join(', ') || 'Ubicacion actual';
+
+            sendMessage({
+                text: `[location] ${label}`,
+                meta: {
+                    messageType: 'location_share',
+                    location: {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        label,
+                    },
+                },
+            });
+
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        } catch (err) {
+            console.error('[Location] Failed to share location:', err);
+            Alert.alert('Error', 'No se pudo compartir la ubicacion.');
+        }
+    };
+
+    const handleOperationAction = async (action: 'acknowledged' | 'arrived' | 'completed') => {
+        if (!activeOperationCommitment) return;
+
+        let locationMessageId: string | null = null;
+        if (action === 'arrived' && !operationState?.latestLocation) {
+            await handleShareLocation();
+        }
+
+        if (action === 'arrived') {
+            locationMessageId = operationState?.latestLocation?.id || null;
+        }
+
+        runCommitmentAction({
+            id: activeOperationCommitment.id,
+            action,
+            location_message_id: locationMessageId,
+            conversationId,
+        });
     };
 
     const { pickMediaSource } = useMediaPicker({
@@ -289,6 +371,7 @@ export default function ChatScreen({ navigation }: any) {
                     formatTime={formatTime}
                     avatarColor={avatarColor}
                     swipeableRowRefs={swipeableRowRefs}
+                    conversationMode={conversationMode}
                 />
             </>
         );
@@ -324,6 +407,23 @@ export default function ChatScreen({ navigation }: any) {
                 />
 
                 <View style={styles.chatBg}>
+                    {conversationMode === 'operation' && (
+                        <OperationPanel
+                            loading={isOperationStateLoading}
+                            pinnedMessage={operationState?.pinnedMessage}
+                            checklist={operationState?.activeChecklist}
+                            latestLocation={operationState?.latestLocation}
+                            latestShiftReport={operationState?.latestShiftReport}
+                            activeCommitment={activeOperationCommitment}
+                            onOpenPinnedMessage={scrollToMessage}
+                            onSaveChecklist={saveChecklist}
+                            onToggleChecklistItem={(itemId, isChecked) => toggleChecklistItem({ id: itemId, is_checked: isChecked })}
+                            onCreateShiftReport={async (body) => { await createShiftReport({ body, source: 'text' }); }}
+                            onShareLocation={handleShareLocation}
+                            onCommitmentAction={handleOperationAction}
+                        />
+                    )}
+
                     {isMessagesLoading ? (
                         <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
                     ) : (
@@ -472,6 +572,19 @@ export default function ChatScreen({ navigation }: any) {
                                     <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" />
                                     <Text style={styles.menuActionLabel}>Seleccionar</Text>
                                 </TouchableOpacity>
+                                {conversationMode === 'operation' && (
+                                    <TouchableOpacity
+                                        style={styles.menuActionVertical}
+                                        onPress={() => {
+                                            const nextPinnedId = pinnedMessageId === selectedMsg?.id ? null : selectedMsg?.id;
+                                            setPinnedMessage(nextPinnedId);
+                                            setSelectedMsg(null);
+                                        }}
+                                    >
+                                        <Ionicons name={pinnedMessageId === selectedMsg?.id ? 'pin-outline' : 'pin'} size={22} color="#2563eb" />
+                                        <Text style={styles.menuActionLabel}>{pinnedMessageId === selectedMsg?.id ? 'Desfijar principal' : 'Fijar principal'}</Text>
+                                    </TouchableOpacity>
+                                )}
                                 {selectedMsg?.sender_id === user?.id && (
                                     <TouchableOpacity style={[styles.menuActionVertical, { borderBottomWidth: 0 }]} onPress={() => {
                                         supabase.from('messages').delete().eq('id', selectedMsg.id).then(() => setSelectedMsg(null));

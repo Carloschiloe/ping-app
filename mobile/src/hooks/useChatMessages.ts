@@ -108,6 +108,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 table: 'message_reactions'
             }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             })
             .on('postgres_changes', {
                 event: 'UPDATE',
@@ -117,6 +118,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             }, (payload) => {
                 console.warn('[DEBUG-REALTIME] Message UPDATE received. ID:', payload.new.id, 'Meta:', JSON.stringify(payload.new.meta));
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             })
             .on('postgres_changes', {
                 event: '*',
@@ -126,6 +128,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 console.warn('[DEBUG-REALTIME] Commitment CHANGE received:', payload.eventType, 'Status:', payload.new?.status);
                 queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             })
             .subscribe();
 
@@ -145,7 +148,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         });
 
         if (hasUnread) {
-            markAsRead();
+            markAsRead(undefined);
         }
     }, [messages, user, isFocused, markAsRead]);
 

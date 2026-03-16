@@ -5,7 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
-import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment } from '../api/queries';
+import { AISuggestionModal } from './AISuggestionModal';
+import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment, useUpdateCommitment, useCommitmentOperationAction } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { apiClient } from '../api/client';
 
@@ -13,12 +14,18 @@ interface GroupTaskCardProps {
     commitment: any;
     conversationId?: string;
     groupParticipants?: any[];
+    isTimelineNode?: boolean;
+    isPast?: boolean;
+    conversationMode?: 'chat' | 'operation';
 }
 
 export default function GroupTaskCard({ 
     commitment, 
     conversationId: manualConversationId,
-    groupParticipants = []
+    groupParticipants = [],
+    isTimelineNode = false,
+    isPast = false,
+    conversationMode = 'chat'
 }: GroupTaskCardProps) {
     const queryClient = useQueryClient();
     const conversationId = manualConversationId || commitment.group_conversation_id;
@@ -28,6 +35,7 @@ export default function GroupTaskCard({
     const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
     const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
+    const { mutate: runOperationAction, isPending: isRunningOperationAction } = useCommitmentOperationAction();
     const [showActions, setShowActions] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
@@ -40,6 +48,7 @@ export default function GroupTaskCard({
     const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
 
     const status = commitment.status;
+    const operationMeta = commitment.meta?.operational || {};
     const isDone = status === 'completed';
     const isProposed = status === 'proposed' || status === 'pending'; // Combined for robustness
     const isRejected = status === 'rejected';
@@ -63,6 +72,12 @@ export default function GroupTaskCard({
     const isMeetingRaw = commitment.type === 'meeting';
     const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(commitment.title || '');
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
+    const isOperationMode = conversationMode === 'operation';
+    const opStatus = {
+        acknowledged: !!operationMeta.acknowledged_at,
+        arrived: !!operationMeta.arrived_at,
+        completed: !!operationMeta.completed_at || isDone,
+    };
 
     const handleMarkDone = () => {
         Alert.alert(
@@ -175,6 +190,12 @@ export default function GroupTaskCard({
         );
     };
 
+    const handleOperationAction = (action: 'acknowledged' | 'arrived' | 'completed') => {
+        if (!conversationId) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        runOperationAction({ id: commitment.id, action, conversationId });
+    };
+
     const getStatusInfo = () => {
         if (isDone) return { label: '✅ Completada', color: '#166534', bg: '#dcfce7' };
         if (isRejected) return { label: '❌ Rechazada', color: '#991b1b', bg: '#fee2e2' };
@@ -186,55 +207,110 @@ export default function GroupTaskCard({
     const statusInfo = getStatusInfo();
 
     return (
-        <View style={[styles.row, isRejected && styles.rowRejected]}>
-            <View style={styles.leftContent}>
-                <View style={styles.timeBadgeContainer}>
-                    <Text style={styles.timeBadgeText}>{dueDateStr || '--:--'}</Text>
+        <View style={[
+            styles.cardContainer,
+            isTimelineNode && styles.timelineCard,
+            isMeeting && styles.cardMeeting,
+            isPast && styles.cardPast,
+            isRejected && styles.cardRejected
+        ]}>
+            {/* Left side: Time or Timeline Circle */}
+            <View style={styles.leftTimeline}>
+                <View style={[
+                    styles.nodeCircle,
+                    isMeeting && styles.nodeCircleMeeting,
+                    isDone && styles.nodeCircleDone,
+                    isPast && styles.nodeCirclePast
+                ]}>
+                   <Ionicons 
+                        name={isMeeting ? "calendar" : isDone ? "checkmark" : "list"} 
+                        size={12} 
+                        color="white" 
+                    />
                 </View>
+                <Text style={styles.nodeTime}>{dueDateStr || '--:--'}</Text>
             </View>
 
-            <View style={styles.centerContent}>
-                <Text style={styles.taskTitle} numberOfLines={1}>{commitment.title}</Text>
-                <View style={styles.metaRow}>
-                    <View style={[styles.miniBadge, { backgroundColor: statusInfo.bg }]}>
-                        <Text style={[styles.miniBadgeText, { color: statusInfo.color }]}>
+            {/* Center: Main Info */}
+            <View style={styles.mainContent}>
+                <Text style={[styles.taskTitle, isDone && styles.textDone]} numberOfLines={2}>
+                    {commitment.title}
+                </Text>
+                
+                <View style={styles.footerRow}>
+                    <View style={styles.assigneeInfo}>
+                        <View style={styles.avatarStack}>
+                            {/* Simple avatar summary or single avatar */}
+                            {commitment.assignee?.avatar_url ? (
+                                <Image source={{ uri: commitment.assignee.avatar_url }} style={styles.miniAvatar} />
+                            ) : (
+                                <View style={[styles.miniAvatar, styles.miniAvatarFallback]}>
+                                    <Text style={styles.miniAvatarLetter}>{assigneeName[0]}</Text>
+                                </View>
+                            )}
+                        </View>
+                        <Text style={styles.assigneeText} numberOfLines={1}>{displayName}</Text>
+                    </View>
+
+                    <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                        <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
                             {statusInfo.label.split(' ')[1] || statusInfo.label}
                         </Text>
                     </View>
-                    <Text style={styles.metaText}>
-                        • {format(new Date(commitment.due_at), "d MMM", { locale: es })}
-                    </Text>
-                    <Text style={styles.metaText} numberOfLines={1}>• {displayName}</Text>
                 </View>
 
                 {isRejected && commitment.rejection_reason && (
-                    <Text style={styles.rejectionMini}>Motivo: {commitment.rejection_reason}</Text>
+                    <Text style={styles.rejectionText}>Motivo: {commitment.rejection_reason}</Text>
+                )}
+
+                {isOperationMode && isAssignee && !isRejected && (
+                    <View style={styles.operationRow}>
+                        <TouchableOpacity
+                            style={[styles.operationBtn, opStatus.acknowledged && styles.operationBtnDone]}
+                            onPress={() => handleOperationAction('acknowledged')}
+                            disabled={opStatus.acknowledged || isRunningOperationAction}
+                        >
+                            <Text style={[styles.operationBtnText, opStatus.acknowledged && styles.operationBtnTextDone]}>Entendido</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.operationBtn, opStatus.arrived && styles.operationBtnDone]}
+                            onPress={() => handleOperationAction('arrived')}
+                            disabled={opStatus.arrived || isRunningOperationAction}
+                        >
+                            <Text style={[styles.operationBtnText, opStatus.arrived && styles.operationBtnTextDone]}>Llegué</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.operationBtn, opStatus.completed && styles.operationBtnDone]}
+                            onPress={() => handleOperationAction('completed')}
+                            disabled={opStatus.completed || isRunningOperationAction}
+                        >
+                            <Text style={[styles.operationBtnText, opStatus.completed && styles.operationBtnTextDone]}>Terminado</Text>
+                        </TouchableOpacity>
+                    </View>
                 )}
             </View>
 
-            <View style={styles.rightContent}>
-                {isAssignee && isAccepted && !isDone && (
+            {/* Right: Quick Actions */}
+            <View style={styles.rightActions}>
+                {isAssignee && isAccepted && !isDone && !isOperationMode && (
                     <TouchableOpacity
-                        style={styles.circleComplete}
+                        style={styles.actionBtnPrimary}
                         onPress={handleMarkDone}
                         disabled={isMarkingDone}
-                        activeOpacity={0.7}
                     >
-                        {isMarkingDone ? (
-                            <Text style={{ fontSize: 8, color: 'white' }}>...</Text>
-                        ) : (
-                            <Ionicons name="checkmark" size={20} color="white" />
-                        )}
+                        <Ionicons name="checkmark" size={18} color="white" />
                     </TouchableOpacity>
                 )}
-
-                {(isAssignee || isOwner) && !isDone && !isRejected && (
-                    <TouchableOpacity onPress={() => setShowActions(true)} style={styles.actionsBtn}>
-                        <Ionicons name="ellipsis-horizontal-circle" size={26} color="#6366f1" />
+                {!isDone && !isRejected && (
+                    <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
+                        <Ionicons name="ellipsis-vertical" size={20} color="#94a3b8" />
                     </TouchableOpacity>
                 )}
-
-                {isDone && <Ionicons name="checkmark-done-circle" size={26} color="#22c55e" />}
+                {isDone && (
+                    <View style={styles.doneIcon}>
+                        <Ionicons name="checkmark-done-circle" size={24} color="#10b981" />
+                    </View>
+                )}
             </View>
 
             {/* Actions Modal */}
@@ -327,104 +403,167 @@ export default function GroupTaskCard({
     );
 }
 
-// Inline Mock/Import AISuggestionModal if needed, but it should be available in the project
-import { AISuggestionModal } from './AISuggestionModal';
-import { useUpdateCommitment } from '../api/queries';
-
 const styles = StyleSheet.create({
-    row: {
+    cardContainer: {
         flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 16,
         backgroundColor: 'white',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
+        borderRadius: 20,
+        padding: 12,
+        marginVertical: 4,
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
     },
-    rowRejected: {
-        backgroundColor: '#fff1f1',
+    timelineCard: {
+        marginLeft: 0, 
     },
-    leftContent: {
-        marginRight: 10,
-        width: 55,
-        alignItems: 'center',
+    cardMeeting: {
+        backgroundColor: '#f8faff',
+        borderColor: '#e0e7ff',
+        borderLeftWidth: 4,
+        borderLeftColor: '#6366f1',
     },
-    timeBadgeContainer: {
+    cardPast: {
+        opacity: 0.6,
         backgroundColor: '#f8fafc',
-        paddingVertical: 6,
-        paddingHorizontal: 4,
-        borderRadius: 8,
-        borderWidth: 1.5,
-        borderColor: '#e2e8f0',
-        width: '100%',
+    },
+    cardRejected: {
+        backgroundColor: '#fff1f1',
+        borderColor: '#fee2e2',
+    },
+    leftTimeline: {
+        width: 40,
         alignItems: 'center',
+        paddingTop: 4,
+        marginRight: 8,
     },
-    timeBadgeText: {
-        fontSize: 13,
-        fontWeight: '800',
-        color: '#1e293b',
-    },
-    avatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-    },
-    avatarFallback: {
-        backgroundColor: '#6366f1',
+    nodeCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#10b981', // Task green
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: 'white',
+        zIndex: 5,
     },
-    avatarLetter: {
-        color: 'white',
-        fontWeight: '700',
-        fontSize: 12,
+    nodeCircleMeeting: {
+        backgroundColor: '#6366f1', // Meeting indigo
     },
-    centerContent: {
+    nodeCircleDone: {
+        backgroundColor: '#10b981',
+    },
+    nodeCirclePast: {
+        backgroundColor: '#94a3b8',
+    },
+    nodeTime: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#64748b',
+        marginTop: 6,
+    },
+    mainContent: {
         flex: 1,
         justifyContent: 'center',
     },
     taskTitle: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '700',
-        color: '#0f172a',
-        marginBottom: 2,
+        color: '#1e293b',
+        marginBottom: 8,
     },
-    metaRow: {
+    textDone: {
+        textDecorationLine: 'line-through',
+        color: '#94a3b8',
+    },
+    footerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    assigneeInfo: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
     },
-    metaText: {
-        fontSize: 11,
+    avatarStack: {
+        flexDirection: 'row',
+    },
+    miniAvatar: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'white',
+    },
+    miniAvatarFallback: {
+        backgroundColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    miniAvatarLetter: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        color: '#64748b',
+    },
+    assigneeText: {
+        fontSize: 12,
         color: '#64748b',
         fontWeight: '500',
     },
-    miniBadge: {
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        borderRadius: 4,
+    statusBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
     },
-    miniBadgeText: {
-        fontSize: 9,
+    statusBadgeText: {
+        fontSize: 10,
         fontWeight: '800',
         textTransform: 'uppercase',
     },
-    rejectionMini: {
-        fontSize: 10,
+    rejectionText: {
+        fontSize: 11,
         color: '#ef4444',
         fontStyle: 'italic',
-        marginTop: 2,
+        marginTop: 6,
     },
-    rightContent: {
-        marginLeft: 10,
+    operationRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 10,
+    },
+    operationBtn: {
+        flex: 1,
+        paddingVertical: 8,
+        borderRadius: 10,
+        backgroundColor: '#e2e8f0',
         alignItems: 'center',
-        justifyContent: 'center',
-        width: 44,
     },
-    circleComplete: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+    operationBtnDone: {
+        backgroundColor: '#dcfce7',
+    },
+    operationBtnText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    operationBtnTextDone: {
+        color: '#166534',
+    },
+    rightActions: {
+        width: 40,
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+    },
+    actionBtnPrimary: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         backgroundColor: '#6366f1',
         alignItems: 'center',
         justifyContent: 'center',
@@ -432,10 +571,14 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 6,
-        elevation: 4,
+        elevation: 3,
     },
-    actionsBtn: {
+    moreBtn: {
         padding: 4,
+    },
+    doneIcon: {
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     modalOverlay: {
         flex: 1,
@@ -447,13 +590,13 @@ const styles = StyleSheet.create({
     actionMenu: {
         width: '100%',
         backgroundColor: 'white',
-        borderRadius: 16,
-        padding: 20,
+        borderRadius: 24,
+        padding: 24,
         alignItems: 'stretch',
     },
     actionMenuTitle: {
-        fontSize: 16,
-        fontWeight: '700',
+        fontSize: 18,
+        fontWeight: '800',
         color: '#0f172a',
         marginBottom: 20,
         textAlign: 'center',
@@ -461,7 +604,7 @@ const styles = StyleSheet.create({
     menuItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 15,
+        paddingVertical: 16,
         gap: 12,
     },
     menuItemText: {
@@ -476,7 +619,7 @@ const styles = StyleSheet.create({
     },
     cancelBtnText: {
         fontSize: 15,
-        fontWeight: '600',
+        fontWeight: '700',
         color: '#64748b',
     },
 });

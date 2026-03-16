@@ -137,7 +137,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // Fetch conversation metadata (is_group, name, avatar)
         const { data: conversationsData, error: cErr } = await supabaseAdmin
             .from('conversations')
-            .select('id, is_group, name, avatar_url, admin_id')
+            .select('id, is_group, name, avatar_url, admin_id, mode, pinned_message_id')
             .in('id', conversationIds);
 
         if (cErr) throw cErr;
@@ -218,6 +218,8 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             return {
                 id,
                 isGroup,
+                mode: conv?.mode || 'chat',
+                pinnedMessageId: conv?.pinned_message_id || null,
                 otherUser,
                 groupMetadata,
                 lastMessage: lastMsgMap[id] || null,

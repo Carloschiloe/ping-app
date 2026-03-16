@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup, useConversationMedia } from '../api/queries';
+import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -26,6 +26,9 @@ export default function ChatInfoScreen() {
 
     const { data: convData } = useConversations();
     const currentConv = convData?.conversations?.find((c: any) => c.id === conversationId);
+    const { data: operationState } = useConversationOperationState(conversationId);
+    const { mutate: updateConversationMode, isPending: isUpdatingMode } = useUpdateConversationMode(conversationId);
+    const conversationMode = operationState?.conversation?.mode || currentConv?.mode || 'chat';
 
     // Dynamic Header Info
     let name = 'Chat';
@@ -321,6 +324,31 @@ export default function ChatInfoScreen() {
                 </View>
             )}
 
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Modo de conversación</Text>
+                <View style={styles.modeToggle}>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, conversationMode === 'chat' && styles.modeBtnActive]}
+                        disabled={isUpdatingMode}
+                        onPress={() => updateConversationMode('chat')}
+                    >
+                        <Text style={[styles.modeBtnText, conversationMode === 'chat' && styles.modeBtnTextActive]}>Chat</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.modeBtn, conversationMode === 'operation' && styles.modeBtnActive]}
+                        disabled={isUpdatingMode}
+                        onPress={() => updateConversationMode('operation')}
+                    >
+                        <Text style={[styles.modeBtnText, conversationMode === 'operation' && styles.modeBtnTextActive]}>Operación</Text>
+                    </TouchableOpacity>
+                </View>
+                <Text style={styles.modeHelpText}>
+                    {conversationMode === 'operation'
+                        ? 'Activa fijado, checklist, ubicación y resumen de turno sobre el chat.'
+                        : 'Mantiene el chat limpio, sin capa operativa extra.'}
+                </Text>
+            </View>
+
             {/* Visual Media Section (Images & Videos) */}
             {mediaFiles.images.length > 0 && (
                 <View style={styles.section}>
@@ -609,6 +637,35 @@ const styles = StyleSheet.create({
         borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#e5e7eb',
     },
     sectionTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 12 },
+    modeToggle: {
+        flexDirection: 'row',
+        backgroundColor: '#e2e8f0',
+        borderRadius: 12,
+        padding: 4,
+        gap: 4,
+    },
+    modeBtn: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    modeBtnActive: {
+        backgroundColor: '#2563eb',
+    },
+    modeBtnText: {
+        color: '#475569',
+        fontWeight: '700',
+    },
+    modeBtnTextActive: {
+        color: 'white',
+    },
+    modeHelpText: {
+        marginTop: 10,
+        fontSize: 13,
+        lineHeight: 18,
+        color: '#64748b',
+    },
     mediaItem: {
         width: 70, height: 70, borderRadius: 8, backgroundColor: '#f3f4f6',
         marginRight: 8, overflow: 'hidden', justifyContent: 'center', alignItems: 'center'

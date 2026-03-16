@@ -298,10 +298,13 @@ export const useUpdateMessageStatus = (conversationId: string) => {
 export const useMarkConversationAsRead = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async () => apiClient.patch(`/conversations/${conversationId}/read`, {}),
-        onSuccess: () => {
+        mutationFn: async (overrideConversationId?: string) => apiClient.patch(`/conversations/${overrideConversationId || conversationId}/read`, {}),
+        onSuccess: (_data, overrideConversationId) => {
+            const targetConversationId = overrideConversationId || conversationId;
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            if (targetConversationId) {
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', targetConversationId] });
+            }
         }
     });
 };
@@ -329,6 +332,71 @@ export const useCreateConversation = () => {
             apiClient.post('/conversations', { otherUserId }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
+    });
+};
+
+export const useConversationOperationState = (conversationId: string | null) => {
+    return useQuery({
+        queryKey: ['conversation-operation-state', conversationId],
+        queryFn: async () => {
+            if (!conversationId) return null;
+            return apiClient.get(`/conversations/${conversationId}/operation-state`);
+        },
+        enabled: !!conversationId,
+    });
+};
+
+export const useUpdateConversationMode = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (mode: 'chat' | 'operation') => apiClient.patch(`/conversations/${conversationId}/mode`, { mode }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
+export const useSetPinnedMessage = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (messageId: string | null) => apiClient.patch(`/conversations/${conversationId}/pin`, { messageId }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
+export const useSaveOperationChecklist = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { title: string; items: string[] }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
+export const useToggleOperationChecklistItem = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, is_checked }: { id: string; is_checked: boolean }) =>
+            apiClient.patch(`/operation-checklist-run-items/${id}/toggle`, { is_checked }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
+export const useCreateShiftReport = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { body: string; source?: 'text' | 'audio'; meta?: any }) =>
+            apiClient.post(`/conversations/${conversationId}/shift-reports`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },
     });
 };
@@ -554,6 +622,24 @@ export const useDeleteCommitment = () => {
         mutationFn: async (id: string) => apiClient.delete(`/commitments/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
+        },
+    });
+};
+
+export const useCommitmentOperationAction = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, action, location_message_id, conversationId }: { id: string; action: 'acknowledged' | 'arrived' | 'completed'; location_message_id?: string | null; conversationId?: string }) =>
+            apiClient.post(`/commitments/${id}/operation-action`, { action, location_message_id, conversationId }),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            if (variables.conversationId) {
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', variables.conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', variables.conversationId] });
+            }
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
         },
     });
 };

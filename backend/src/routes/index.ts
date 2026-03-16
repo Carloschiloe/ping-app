@@ -11,11 +11,13 @@ import * as aiController from '../controllers/ai.controller';
 import * as insightsController from '../controllers/insights.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import * as agoraController from '../controllers/agora.controller';
+import * as operationController from '../controllers/operation.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
+import * as operationSchema from '../schemas/operation.schema';
 
 export const router = Router();
 
@@ -48,6 +50,11 @@ router.get('/conversations/:id/messages', requireAuth, conversationController.ge
 router.get('/conversations/:id/media', requireAuth, conversationController.getConversationMedia);
 router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
+router.get('/conversations/:id/operation-state', requireAuth, operationController.getConversationOperationState);
+router.patch('/conversations/:id/mode', requireAuth, validateRequest(operationSchema.updateConversationModeSchema), operationController.updateConversationMode);
+router.patch('/conversations/:id/pin', requireAuth, validateRequest(operationSchema.setPinnedMessageSchema), operationController.setPinnedMessage);
+router.post('/conversations/:id/checklists', requireAuth, validateRequest(operationSchema.saveChecklistSchema), operationController.saveChecklistTemplate);
+router.post('/conversations/:id/shift-reports', requireAuth, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);
 router.post('/conversations/:id/ping', requireAuth, conversationController.pingConversation);
@@ -71,7 +78,12 @@ router.post('/commitments', requireAuth, validateRequest(commitmentSchema.create
 router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
 router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
 router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
+router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
+router.post('/commitments/:id/operation-action', requireAuth, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
 router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
+router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
+
+router.patch('/operation-checklist-run-items/:id/toggle', requireAuth, validateRequest(operationSchema.toggleChecklistItemSchema), operationController.toggleChecklistItem);
 
 // Search
 router.get('/search', requireAuth, searchController.search);

@@ -207,11 +207,11 @@ export default function ConversationsScreen({ navigation }: any) {
     const handleGlobalResultPress = async (item: any, type: string) => {
         if (type === 'person') {
             const res = await createConversation(item.id);
-            navigation.navigate('Chat', { conversationId: res.id, otherUser: item, isGroup: false });
+            navigation.navigate('Chat', { conversationId: res.conversationId, otherUser: item, isGroup: false, mode: 'chat' });
             return;
         }
         if (type === 'group') {
-            navigation.navigate('Chat', { conversationId: item.id, otherUser: null, isGroup: true, groupMetadata: item });
+            navigation.navigate('Chat', { conversationId: item.id, otherUser: null, isGroup: true, groupMetadata: item, mode: item.mode || 'chat' });
             return;
         }
         const isCommitment = type === 'tasks';
@@ -223,7 +223,8 @@ export default function ConversationsScreen({ navigation }: any) {
             isGroup: conv?.isGroup,
             otherUser: conv?.otherUser,
             groupMetadata: conv?.groupMetadata,
-            isSelf: !conversationId || conv?.isSelf
+            isSelf: !conversationId || conv?.isSelf,
+            mode: conv?.mode || 'chat'
         });
     };
 
@@ -319,7 +320,7 @@ export default function ConversationsScreen({ navigation }: any) {
                 <TouchableOpacity
                     style={styles.row}
                     activeOpacity={0.6}
-                    onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser, isGroup, groupMetadata: groupMeta })}
+                    onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser, isGroup, groupMetadata: groupMeta, mode: item.mode || 'chat' })}
                 >
                     <View style={styles.avatarContainer}>
                         <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
