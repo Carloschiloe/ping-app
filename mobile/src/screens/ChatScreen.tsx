@@ -88,6 +88,8 @@ export default function ChatScreen({ navigation }: any) {
     const [mentionedUserId, setMentionedUserId] = useState<string | null>(null);
     const [groupParticipants, setGroupParticipants] = useState<{ id: string; full_name: string; email: string }[]>([]);
     const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
+    const [pendingOperationAction, setPendingOperationAction] = useState<'acknowledged' | 'arrived' | 'completed' | null>(null);
+    const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
 
     const menuAnim = useRef(new Animated.Value(300)).current;
     const listRef = useRef<FlatList>(null);
@@ -114,7 +116,7 @@ export default function ChatScreen({ navigation }: any) {
     const { mutateAsync: saveChecklist } = useSaveOperationChecklist(conversationId);
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
     const { mutateAsync: createShiftReport } = useCreateShiftReport(conversationId);
-    const { mutate: runCommitmentAction } = useCommitmentOperationAction();
+    const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
     const { mutate: setActiveCommitment } = useSetActiveOperationCommitment(conversationId);
 
@@ -267,21 +269,41 @@ export default function ChatScreen({ navigation }: any) {
     const handleOperationAction = async (action: 'acknowledged' | 'arrived' | 'completed') => {
         if (!activeOperationCommitment) return;
 
+        const feedbackMap = {
+            acknowledged: 'Marcado como entendido',
+            arrived: 'Marcado como llegue',
+            completed: 'Marcado como terminado',
+        } as const;
+
+        setPendingOperationAction(action);
+        setOperationFeedback(feedbackMap[action]);
+
         let locationMessageId: string | null = null;
-        if (action === 'arrived' && !operationState?.latestLocation) {
-            await handleShareLocation();
-        }
+        try {
+            if (action === 'arrived' && !operationState?.latestLocation) {
+                await handleShareLocation();
+            }
 
-        if (action === 'arrived') {
-            locationMessageId = operationState?.latestLocation?.id || null;
-        }
+            if (action === 'arrived') {
+                locationMessageId = operationState?.latestLocation?.id || null;
+            }
 
-        runCommitmentAction({
-            id: activeOperationCommitment.id,
-            action,
-            location_message_id: locationMessageId,
-            conversationId,
-        });
+            await runCommitmentAction({
+                id: activeOperationCommitment.id,
+                action,
+                location_message_id: locationMessageId,
+                conversationId,
+            });
+
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+            console.error('[Operation] Failed action:', error);
+            setOperationFeedback('No se pudo guardar la accion');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } finally {
+            setPendingOperationAction(null);
+            setTimeout(() => setOperationFeedback(null), 1800);
+        }
     };
 
     const handleClearActiveCommitment = () => {
@@ -436,6 +458,8 @@ export default function ChatScreen({ navigation }: any) {
                             onShareLocation={handleShareLocation}
                             onCommitmentAction={handleOperationAction}
                             onClearActiveCommitment={handleClearActiveCommitment}
+                            pendingAction={pendingOperationAction}
+                            feedbackMessage={operationFeedback}
                         />
                     )}
 

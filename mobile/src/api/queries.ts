@@ -683,11 +683,82 @@ export const useDeleteCommitment = () => {
     });
 };
 
+function applyOperationActionToCommitment(commitment: any, action: 'acknowledged' | 'arrived' | 'completed') {
+    if (!commitment) return commitment;
+
+    const now = new Date().toISOString();
+    const meta = { ...(commitment.meta || {}) };
+    const operational = { ...(meta.operational || {}) };
+
+    if (action === 'acknowledged') {
+        operational.acknowledged_at = now;
+        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+            commitment = { ...commitment, status: 'accepted' };
+        }
+    }
+
+    if (action === 'arrived') {
+        operational.arrived_at = now;
+        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+            commitment = { ...commitment, status: 'accepted' };
+        }
+    }
+
+    if (action === 'completed') {
+        operational.completed_at = now;
+        commitment = { ...commitment, status: 'completed' };
+    }
+
+    return {
+        ...commitment,
+        meta: {
+            ...meta,
+            operational,
+        },
+    };
+}
+
+function updateGroupTaskCaches(queryClient: any, conversationId: string, commitmentId: string, action: 'acknowledged' | 'arrived' | 'completed') {
+    const taskQueries = queryClient.getQueriesData({ queryKey: ['group-tasks-conv', conversationId] });
+
+    taskQueries.forEach(([key, data]: any) => {
+        if (!Array.isArray(data)) return;
+        queryClient.setQueryData(key, data.map((task: any) => task.id === commitmentId ? applyOperationActionToCommitment(task, action) : task));
+    });
+}
+
 export const useCommitmentOperationAction = () => {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async ({ id, action, location_message_id, conversationId }: { id: string; action: 'acknowledged' | 'arrived' | 'completed'; location_message_id?: string | null; conversationId?: string }) =>
             apiClient.post(`/commitments/${id}/operation-action`, { action, location_message_id, conversationId }),
+        onMutate: async (variables) => {
+            const { conversationId, id, action } = variables;
+            if (!conversationId) return {};
+
+            await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });
+            const previousOperationState = queryClient.getQueryData(['conversation-operation-state', conversationId]);
+
+            updateGroupTaskCaches(queryClient, conversationId, id, action);
+
+            queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
+                if (!old) return old;
+                if (!old.activeCommitment || old.activeCommitment.id !== id) return old;
+
+                return {
+                    ...old,
+                    activeCommitment: applyOperationActionToCommitment(old.activeCommitment, action),
+                };
+            });
+
+            return { previousOperationState };
+        },
+        onError: (_error, variables, context: any) => {
+            if (variables.conversationId && context?.previousOperationState) {
+                queryClient.setQueryData(['conversation-operation-state', variables.conversationId], context.previousOperationState);
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', variables.conversationId] });
+            }
+        },
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
             queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });

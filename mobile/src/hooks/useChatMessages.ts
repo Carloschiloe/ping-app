@@ -135,6 +135,29 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 table: 'commitments'
             }, (payload: any) => {
                 console.warn('[DEBUG-REALTIME] Commitment CHANGE received:', payload.eventType, 'Status:', payload.new?.status);
+                if (payload.new?.group_conversation_id === conversationId) {
+                    queryClient.setQueriesData({ queryKey: ['group-tasks-conv', conversationId] }, (old: any) => {
+                        if (!Array.isArray(old)) return old;
+                        const exists = old.some((task: any) => task.id === payload.new.id);
+                        if (!exists && payload.eventType === 'INSERT') {
+                            return [payload.new, ...old];
+                        }
+
+                        return old.map((task: any) => task.id === payload.new.id ? { ...task, ...payload.new, meta: payload.new.meta ?? task.meta } : task);
+                    });
+
+                    queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
+                        if (!old?.activeCommitment || old.activeCommitment.id !== payload.new.id) return old;
+                        return {
+                            ...old,
+                            activeCommitment: {
+                                ...old.activeCommitment,
+                                ...payload.new,
+                                meta: payload.new.meta ?? old.activeCommitment.meta,
+                            },
+                        };
+                    });
+                }
                 queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
                 queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });

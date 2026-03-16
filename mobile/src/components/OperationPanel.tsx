@@ -33,6 +33,8 @@ interface OperationPanelProps {
     onShareLocation: () => Promise<any> | void;
     onCommitmentAction: (action: 'acknowledged' | 'arrived' | 'completed') => void;
     onClearActiveCommitment: () => void;
+    pendingAction?: 'acknowledged' | 'arrived' | 'completed' | null;
+    feedbackMessage?: string | null;
 }
 
 function formatShortDate(iso?: string | null) {
@@ -230,12 +232,15 @@ export function OperationPanel({
     onShareLocation,
     onCommitmentAction,
     onClearActiveCommitment,
+    pendingAction = null,
+    feedbackMessage = null,
 }: OperationPanelProps) {
     const [showChecklistModal, setShowChecklistModal] = useState(false);
     const [showShiftModal, setShowShiftModal] = useState(false);
     const [checklistTitle, setChecklistTitle] = useState(checklist?.title || 'Checklist diario');
     const [checklistItemsText, setChecklistItemsText] = useState('');
     const [shiftBody, setShiftBody] = useState('');
+    const [isExpanded, setIsExpanded] = useState(false);
 
     const state = useMemo(() => getOperationState(activeCommitment), [activeCommitment]);
     const checklistProgress = useMemo(() => {
@@ -255,6 +260,12 @@ export function OperationPanel({
         setChecklistTitle(checklist.title || 'Checklist diario');
         setChecklistItemsText((checklist.run?.items || []).map((item: any) => item.label).join('\n'));
     }, [checklist]);
+
+    useEffect(() => {
+        if (pendingAction || feedbackMessage) {
+            setIsExpanded(true);
+        }
+    }, [pendingAction, feedbackMessage]);
 
     const saveChecklist = async () => {
         const items = checklistItemsText
@@ -286,60 +297,84 @@ export function OperationPanel({
                 <View style={styles.heroCard}>
                     <View style={styles.heroHeader}>
                         <Text style={styles.eyebrow}>{activeCommitment ? 'En curso' : 'Modo operacion'}</Text>
-                        {activeCommitment ? (
-                            <TouchableOpacity style={styles.headerAction} onPress={onClearActiveCommitment}>
-                                <Ionicons name="close-circle-outline" size={18} color="#64748b" />
+                        <View style={styles.headerActions}>
+                            <TouchableOpacity style={styles.expandButton} onPress={() => setIsExpanded((value) => !value)}>
+                                <Text style={styles.expandButtonText}>{isExpanded ? 'Ocultar' : 'Ver operacion'}</Text>
+                                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#2563eb" />
                             </TouchableOpacity>
-                        ) : null}
+                            {activeCommitment ? (
+                                <TouchableOpacity style={styles.headerAction} onPress={onClearActiveCommitment}>
+                                    <Ionicons name="close-circle-outline" size={18} color="#64748b" />
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
                     </View>
 
                     {activeCommitment ? (
                         <>
-                            <Text style={styles.heroTitle} numberOfLines={2}>{activeCommitment.title}</Text>
-                            <Text style={styles.commitmentMeta} numberOfLines={1}>{getCommitmentMeta(activeCommitment)}</Text>
-                            <View style={styles.stateRow}>
+                            <View style={styles.heroCompactRow}>
+                                <View style={styles.heroTextWrap}>
+                                    <Text style={styles.heroTitle} numberOfLines={1}>{activeCommitment.title}</Text>
+                                    <Text style={styles.commitmentMeta} numberOfLines={1}>{getCommitmentMeta(activeCommitment)}</Text>
+                                </View>
                                 <View style={[styles.statePill, { backgroundColor: state.bg }]}> 
                                     <Text style={[styles.statePillText, { color: state.color }]}>{state.label}</Text>
                                 </View>
-                                <Text style={styles.helperText} numberOfLines={1}>Acciones sobre esta tarea o reunion.</Text>
                             </View>
 
-                            <View style={styles.actionsRow}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => onCommitmentAction('acknowledged')}
-                                    disabled={state.label === 'Entendido' || state.label === 'En sitio' || state.label === 'Terminado'}
-                                >
-                                    <Text style={styles.actionButtonText}>Entendido</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => onCommitmentAction('arrived')}
-                                    disabled={state.label === 'En sitio' || state.label === 'Terminado'}
-                                >
-                                    <Text style={styles.actionButtonText}>Llegue</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.actionButton, styles.actionButtonPrimary]}
-                                    onPress={() => onCommitmentAction('completed')}
-                                    disabled={state.label === 'Terminado'}
-                                >
-                                    <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>Terminado</Text>
-                                </TouchableOpacity>
-                            </View>
+                            {isExpanded ? (
+                                <>
+                                    <Text style={styles.helperText}>Acciones sobre esta tarea o reunion.</Text>
+
+                                    <View style={styles.actionsRow}>
+                                        <TouchableOpacity
+                                            style={styles.actionButton}
+                                            onPress={() => onCommitmentAction('acknowledged')}
+                                            disabled={!!pendingAction || state.label === 'Entendido' || state.label === 'En sitio' || state.label === 'Terminado'}
+                                        >
+                                            <Text style={styles.actionButtonText}>{pendingAction === 'acknowledged' ? 'Marcando...' : 'Entendido'}</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.actionButton}
+                                            onPress={() => onCommitmentAction('arrived')}
+                                            disabled={!!pendingAction || state.label === 'En sitio' || state.label === 'Terminado'}
+                                        >
+                                            <Text style={styles.actionButtonText}>{pendingAction === 'arrived' ? 'Marcando...' : 'Llegue'}</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.actionButton, styles.actionButtonPrimary]}
+                                            onPress={() => onCommitmentAction('completed')}
+                                            disabled={!!pendingAction || state.label === 'Terminado'}
+                                        >
+                                            <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>{pendingAction === 'completed' ? 'Marcando...' : 'Terminado'}</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {feedbackMessage ? (
+                                        <View style={styles.feedbackRow}>
+                                            <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+                                            <Text style={styles.feedbackText}>{feedbackMessage}</Text>
+                                        </View>
+                                    ) : null}
+                                </>
+                            ) : null}
                         </>
                     ) : (
                         <>
                             <Text style={styles.heroTitle}>Sin actividad activa</Text>
-                            <Text style={styles.helperText}>
-                                {openTasksCount > 0
-                                    ? 'Elige una tarea del chat y marcala como activa desde su menu.'
-                                    : 'Crea o agenda una tarea para usar este modo sin enredar el chat.'}
-                            </Text>
+                            {isExpanded ? (
+                                <Text style={styles.helperText}>
+                                    {openTasksCount > 0
+                                        ? 'Elige una tarea del chat y marcala como activa desde su menu.'
+                                        : 'Crea o agenda una tarea para usar este modo sin enredar el chat.'}
+                                </Text>
+                            ) : (
+                                <Text style={styles.helperTextCompact}>Ver operacion para checklist, ubicacion y registro.</Text>
+                            )}
                         </>
                     )}
 
-                    {pinnedMessage ? (
+                    {isExpanded && pinnedMessage ? (
                         <View style={styles.pinnedRow}>
                             <TouchableOpacity style={styles.pinnedPreview} activeOpacity={0.8} onPress={() => onOpenPinnedMessage(pinnedMessage.id)}>
                                 <Ionicons name="pin" size={14} color="#2563eb" />
@@ -352,26 +387,28 @@ export function OperationPanel({
                     ) : null}
                 </View>
 
-                <View style={styles.quickActionsRow}>
-                    <TouchableOpacity style={styles.quickAction} onPress={() => setShowChecklistModal(true)} activeOpacity={0.85}>
-                        <Text style={styles.quickActionTitle}>Checklist</Text>
-                        <Text style={styles.quickActionSubtitle}>{checklistProgress || 'Crear'}</Text>
-                    </TouchableOpacity>
+                {isExpanded ? (
+                    <View style={styles.quickActionsRow}>
+                        <TouchableOpacity style={styles.quickAction} onPress={() => setShowChecklistModal(true)} activeOpacity={0.85}>
+                            <Text style={styles.quickActionTitle}>Checklist</Text>
+                            <Text style={styles.quickActionSubtitle}>{checklistProgress || 'Crear'}</Text>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.quickAction} onPress={onShareLocation} activeOpacity={0.85}>
-                        <Text style={styles.quickActionTitle}>Ubicacion</Text>
-                        <Text style={styles.quickActionSubtitle} numberOfLines={1}>
-                            {latestLocation?.meta?.location?.label || 'Compartir'}
-                        </Text>
-                    </TouchableOpacity>
+                        <TouchableOpacity style={styles.quickAction} onPress={onShareLocation} activeOpacity={0.85}>
+                            <Text style={styles.quickActionTitle}>Ubicacion</Text>
+                            <Text style={styles.quickActionSubtitle} numberOfLines={1}>
+                                {latestLocation?.meta?.location?.label || 'Compartir'}
+                            </Text>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.quickAction} onPress={() => setShowShiftModal(true)} activeOpacity={0.85}>
-                        <Text style={styles.quickActionTitle}>Registro</Text>
-                        <Text style={styles.quickActionSubtitle} numberOfLines={1}>
-                            {latestShiftReport?.created_at ? formatShortDate(latestShiftReport.created_at) : 'Registrar'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                        <TouchableOpacity style={styles.quickAction} onPress={() => setShowShiftModal(true)} activeOpacity={0.85}>
+                            <Text style={styles.quickActionTitle}>Registro</Text>
+                            <Text style={styles.quickActionSubtitle} numberOfLines={1}>
+                                {latestShiftReport?.created_at ? formatShortDate(latestShiftReport.created_at) : 'Registrar'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
             </View>
 
             <ChecklistSheet
@@ -401,22 +438,27 @@ export function OperationPanel({
 const styles = StyleSheet.create({
     panel: {
         paddingHorizontal: 12,
-        paddingTop: 10,
-        paddingBottom: 6,
-        gap: 8,
+        paddingTop: 8,
+        paddingBottom: 4,
+        gap: 6,
     },
     heroCard: {
         backgroundColor: '#ffffff',
         borderRadius: 18,
         borderWidth: 1,
         borderColor: '#dbe4f0',
-        padding: 14,
-        gap: 10,
+        padding: 12,
+        gap: 8,
     },
     heroHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     eyebrow: {
         fontSize: 12,
@@ -425,25 +467,50 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         letterSpacing: 0.4,
     },
+    expandButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingVertical: 2,
+    },
+    expandButtonText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#2563eb',
+    },
     headerAction: {
         padding: 2,
     },
+    heroCompactRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+    },
+    heroTextWrap: {
+        flex: 1,
+        minWidth: 0,
+    },
     heroTitle: {
-        fontSize: 18,
-        lineHeight: 24,
+        fontSize: 17,
+        lineHeight: 22,
         fontWeight: '700',
         color: '#0f172a',
     },
     helperText: {
-        flex: 1,
         fontSize: 12,
         lineHeight: 17,
+        color: '#64748b',
+    },
+    helperTextCompact: {
+        fontSize: 12,
+        lineHeight: 16,
         color: '#64748b',
     },
     commitmentMeta: {
         fontSize: 13,
         color: '#64748b',
-        marginTop: -2,
+        marginTop: 1,
     },
     stateRow: {
         flexDirection: 'row',
@@ -480,6 +547,17 @@ const styles = StyleSheet.create({
     },
     actionButtonTextPrimary: {
         color: '#1d4ed8',
+    },
+    feedbackRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 2,
+    },
+    feedbackText: {
+        fontSize: 12,
+        color: '#166534',
+        fontWeight: '600',
     },
     pinnedRow: {
         flexDirection: 'row',
