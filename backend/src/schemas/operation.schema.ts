@@ -38,7 +38,13 @@ export const saveChecklistSchema = z.object({
         responsibleUserId: z.string().uuid().optional().nullable(),
         responsibleRoleLabel: z.string().max(80).optional().nullable(),
         frequency: z.enum(['manual', 'daily', 'shift']).optional(),
-        items: z.array(z.string().min(1).max(160)).min(1).max(12),
+        items: z.array(z.union([
+            z.string().min(1).max(160),
+            z.object({
+                label: z.string().min(1).max(160),
+                responseType: z.enum(['condition', 'severity', 'yes_no', 'text']).optional(),
+            })
+        ])).min(1).max(12),
     }),
 });
 
@@ -54,7 +60,7 @@ export const toggleChecklistItemSchema = z.object({
         id: z.string().uuid(),
     }),
     body: z.object({
-        result: z.enum(['good', 'regular', 'bad', 'na']).nullable(),
+        result: z.enum(['good', 'regular', 'bad', 'na', 'high', 'medium', 'low', 'yes', 'no']).nullable(),
     }),
 });
 

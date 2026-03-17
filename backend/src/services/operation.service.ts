@@ -225,6 +225,7 @@ async function ensureChecklistRun(checklist: any, userId: string) {
                     template_item_id: item.id,
                     label: item.label,
                     sort_order: item.sort_order,
+                    response_type: item.response_type || 'condition',
                 }))
             );
 
@@ -278,6 +279,7 @@ async function syncChecklistRunItems(checklistId: string, userId: string) {
                     template_item_id: item.id,
                     label: item.label,
                     sort_order: item.sort_order,
+                    response_type: item.response_type || 'condition',
                     is_checked: false,
                     checked_at: null,
                     checked_by_user_id: null,
@@ -347,17 +349,20 @@ export async function getConversationOperationState(userId: string, conversation
         (async () => {
             const { data } = await supabaseAdmin
                 .from('operation_checklists')
-                .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency, created_at, updated_at')
+                .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency, is_active, created_at, updated_at')
                 .eq('conversation_id', conversationId)
-                .eq('is_active', true)
                 .order('updated_at', { ascending: false });
 
-            const enriched = await Promise.all((data || []).map(async (checklist: any) => ({
+            const active = (data || []).filter((checklist: any) => checklist.is_active !== false);
+
+            const enriched = await Promise.all(active.map(async (checklist: any) => ({
                 ...checklist,
                 run: await ensureChecklistRun(checklist, userId),
             })));
 
-            return enriched;
+            const archived = (data || []).filter((checklist: any) => checklist.is_active === false);
+
+            return { active: enriched, archived };
         })(),
         (async () => {
             const { data } = await supabaseAdmin
@@ -378,7 +383,9 @@ export async function getConversationOperationState(userId: string, conversation
     const rawFocusCommitment = await getCommitmentSummary(focusCommitmentId);
     const myProgress = focusCommitmentId ? await getOperationProgress(focusCommitmentId, userId) : null;
     const activeCommitment = mergeCommitmentWithProgress(rawFocusCommitment, myProgress);
-    const activeChecklist = (checklists || []).find((item: any) => item.responsible_user_id === userId) || (checklists || [])[0] || null;
+    const activeChecklistList = checklists?.active || [];
+    const archivedChecklists = checklists?.archived || [];
+    const activeChecklist = activeChecklistList.find((item: any) => item.responsible_user_id === userId) || activeChecklistList[0] || null;
 
     return {
         conversation: {
@@ -389,7 +396,8 @@ export async function getConversationOperationState(userId: string, conversation
         myProgress,
         activeCommitment,
         pinnedMessage,
-        checklists: checklists || [],
+        checklists: activeChecklistList,
+        archivedChecklists,
         activeChecklist,
         latestShiftReport,
         latestLocation,
@@ -501,7 +509,7 @@ export async function saveChecklistTemplate(
     userId: string,
     conversationId: string,
     title: string,
-    items: string[],
+    items: Array<string | { label: string; responseType?: 'condition' | 'severity' | 'yes_no' | 'text' }>,
     options: {
         checklistId?: string | null;
         categoryLabel?: string | null;
@@ -513,8 +521,10 @@ export async function saveChecklistTemplate(
     await assertParticipant(userId, conversationId);
 
     const cleanedItems = items
-        .map((item) => item.trim())
-        .filter(Boolean)
+        .map((item) => typeof item === 'string'
+            ? { label: item.trim(), responseType: 'condition' as const }
+            : { label: item.label.trim(), responseType: item.responseType || 'condition' })
+        .filter((item) => item.label)
         .slice(0, 12);
 
     if (cleanedItems.length === 0) {
@@ -568,9 +578,10 @@ export async function saveChecklistTemplate(
     }
 
     const { error: itemsError } = await supabaseAdmin.from('operation_checklist_items').insert(
-        cleanedItems.map((label, index) => ({
+        cleanedItems.map((item, index) => ({
             checklist_id: checklist.id,
-            label,
+            label: item.label,
+            response_type: item.responseType,
             sort_order: index,
         }))
     );
@@ -601,6 +612,22 @@ export async function archiveChecklistTemplate(userId: string, conversationId: s
     return data;
 }
 
+export async function restoreChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
+    await assertParticipant(userId, conversationId);
+    await assertGroupAdmin(userId, conversationId);
+
+    const { data, error } = await supabaseAdmin
+        .from('operation_checklists')
+        .update({ is_active: true, updated_at: new Date().toISOString() })
+        .eq('id', checklistId)
+        .eq('conversation_id', conversationId)
+        .select('id, conversation_id, title, is_active')
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
 export async function duplicateChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
     await assertParticipant(userId, conversationId);
     await assertGroupAdmin(userId, conversationId);
@@ -616,7 +643,7 @@ export async function duplicateChecklistTemplate(userId: string, conversationId:
 
     const { data: items, error: itemsError } = await supabaseAdmin
         .from('operation_checklist_items')
-        .select('label, sort_order')
+        .select('label, sort_order, response_type')
         .eq('checklist_id', checklistId)
         .order('sort_order', { ascending: true });
 
@@ -626,7 +653,7 @@ export async function duplicateChecklistTemplate(userId: string, conversationId:
         userId,
         conversationId,
         `${checklist.title} copia`,
-        (items || []).map((item: any) => item.label),
+        (items || []).map((item: any) => ({ label: item.label, responseType: item.response_type || 'condition' })),
         {
             categoryLabel: checklist.category_label,
             responsibleUserId: checklist.responsible_user_id,

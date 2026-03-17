@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist } from '../api/queries';
+import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist, useRestoreOperationChecklist } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -33,6 +33,7 @@ export default function ChatInfoScreen() {
     const { mutate: updateParticipantRole, isPending: isUpdatingParticipantRole } = useUpdateGroupParticipantRole(conversationId);
     const { mutate: archiveChecklist } = useArchiveOperationChecklist(conversationId);
     const { mutate: duplicateChecklist } = useDuplicateOperationChecklist(conversationId);
+    const { mutate: restoreChecklist } = useRestoreOperationChecklist(conversationId);
     const conversationMode = operationState?.conversation?.mode || currentConv?.mode || 'chat';
 
     // Dynamic Header Info
@@ -72,7 +73,10 @@ export default function ChatInfoScreen() {
     const [checklistCategory, setChecklistCategory] = useState('');
     const [checklistRole, setChecklistRole] = useState('');
     const [checklistFrequency, setChecklistFrequency] = useState<'manual' | 'daily' | 'shift'>('manual');
-    const [checklistItems, setChecklistItems] = useState('');
+    const [checklistItems, setChecklistItems] = useState<Array<{ label: string; responseType: 'condition' | 'severity' | 'yes_no' | 'text' }>>([]);
+    const [draftChecklistItem, setDraftChecklistItem] = useState('');
+    const [draftChecklistItemType, setDraftChecklistItemType] = useState<'condition' | 'severity' | 'yes_no' | 'text'>('condition');
+    const [checklistsFilter, setChecklistsFilter] = useState<'active' | 'archived'>('active');
 
     // Get media from messages
     const { data: mediaMessages, isLoading: isMediaLoading } = useConversationMedia(conversationId);
@@ -165,15 +169,19 @@ export default function ChatInfoScreen() {
         setChecklistCategory(checklist?.category_label || '');
         setChecklistRole(checklist?.responsible_role_label || '');
         setChecklistFrequency(checklist?.frequency || 'manual');
-        setChecklistItems((checklist?.run?.items || []).map((item: any) => item.label).join('\n'));
+        setChecklistItems((checklist?.run?.items || []).map((item: any) => ({
+            label: item.label,
+            responseType: item.response_type || 'condition',
+        })));
+        setDraftChecklistItem('');
+        setDraftChecklistItemType('condition');
         setChecklistModalVisible(true);
     };
 
     const handleSaveChecklistTemplate = async () => {
         const items = checklistItems
-            .split('\n')
-            .map((item) => item.trim())
-            .filter(Boolean);
+            .map((item) => ({ label: item.label.trim(), responseType: item.responseType }))
+            .filter((item) => item.label);
 
         if (!checklistTitle.trim() || items.length === 0) {
             Alert.alert('Checklist incompleto', 'Agrega un nombre y al menos un item.');
@@ -194,10 +202,24 @@ export default function ChatInfoScreen() {
             setChecklistTitle('');
             setChecklistCategory('');
             setChecklistRole('');
-            setChecklistItems('');
+            setChecklistItems([]);
+            setDraftChecklistItem('');
+            setDraftChecklistItemType('condition');
         } catch (error: any) {
             Alert.alert('Error', error?.response?.data?.error || 'No se pudo guardar el checklist');
         }
+    };
+
+    const addChecklistItem = () => {
+        const label = draftChecklistItem.trim();
+        if (!label) return;
+        setChecklistItems((prev) => [...prev, { label, responseType: draftChecklistItemType }]);
+        setDraftChecklistItem('');
+        setDraftChecklistItemType('condition');
+    };
+
+    const removeChecklistItem = (index: number) => {
+        setChecklistItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
     };
 
     const handleToggleAdmin = (member: any) => {
@@ -218,6 +240,19 @@ export default function ChatInfoScreen() {
 
     const handleChecklistAction = (list: any) => {
         if (!isAdmin) return;
+
+        if (list.is_active === false) {
+            Alert.alert(
+                list.title,
+                'Esta plantilla está archivada.',
+                [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Restaurar', onPress: () => restoreChecklist(list.id) },
+                    { text: 'Duplicar', onPress: () => duplicateChecklist(list.id) },
+                ]
+            );
+            return;
+        }
 
         Alert.alert(
             list.title,
@@ -376,6 +411,15 @@ export default function ChatInfoScreen() {
         'Revisar nivel de aceite',
         'Registrar observaciones',
     ];
+    const checklistTypeOptions = [
+        { key: 'condition', label: 'Bueno/Regular/Malo' },
+        { key: 'severity', label: 'Alto/Medio/Bajo' },
+        { key: 'yes_no', label: 'Si/No' },
+        { key: 'text', label: 'Texto' },
+    ] as const;
+    const displayedChecklists = checklistsFilter === 'active'
+        ? (operationState?.checklists || [])
+        : (operationState?.archivedChecklists || []);
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -599,8 +643,23 @@ export default function ChatInfoScreen() {
                         )}
                     </View>
 
-                    {operationState?.checklists?.length ? (
-                        operationState.checklists.map((list: any) => (
+                    <View style={styles.checklistsFilterRow}>
+                        <TouchableOpacity
+                            style={[styles.checklistsFilterChip, checklistsFilter === 'active' && styles.checklistsFilterChipActive]}
+                            onPress={() => setChecklistsFilter('active')}
+                        >
+                            <Text style={[styles.checklistsFilterChipText, checklistsFilter === 'active' && styles.checklistsFilterChipTextActive]}>Activos</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.checklistsFilterChip, checklistsFilter === 'archived' && styles.checklistsFilterChipActive]}
+                            onPress={() => setChecklistsFilter('archived')}
+                        >
+                            <Text style={[styles.checklistsFilterChipText, checklistsFilter === 'archived' && styles.checklistsFilterChipTextActive]}>Archivados</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {displayedChecklists.length ? (
+                        displayedChecklists.map((list: any) => (
                             <TouchableOpacity
                                 key={list.id}
                                 style={styles.checklistCard}
@@ -624,7 +683,7 @@ export default function ChatInfoScreen() {
                     ) : (
                         <View style={styles.emptyMedia}>
                             <Ionicons name="checkmark-done-outline" size={44} color="#9ca3af" />
-                            <Text style={styles.emptyMediaText}>Aún no hay checklists creados en este grupo</Text>
+                            <Text style={styles.emptyMediaText}>{checklistsFilter === 'active' ? 'Aún no hay checklists activos en este grupo' : 'No hay checklists archivados'}</Text>
                         </View>
                     )}
                 </View>
@@ -719,24 +778,57 @@ export default function ChatInfoScreen() {
 
                                 <TextInput
                                     style={styles.modalTextArea}
-                                    placeholder="Un item por línea"
-                                    value={checklistItems}
-                                    onChangeText={setChecklistItems}
+                                    placeholder="Nuevo item"
+                                    value={draftChecklistItem}
+                                    onChangeText={setDraftChecklistItem}
                                     multiline
                                     textAlignVertical="top"
                                 />
+                                <Text style={styles.modalHelperText}>Tipo de respuesta del item</Text>
+                                <View style={styles.frequencyRow}>
+                                    {checklistTypeOptions.map((option) => (
+                                        <TouchableOpacity
+                                            key={option.key}
+                                            style={[styles.frequencyChip, draftChecklistItemType === option.key && styles.frequencyChipActive]}
+                                            onPress={() => setDraftChecklistItemType(option.key)}
+                                        >
+                                            <Text style={[styles.frequencyChipText, draftChecklistItemType === option.key && styles.frequencyChipTextActive]}>{option.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TouchableOpacity style={styles.addChecklistItemBtn} onPress={addChecklistItem}>
+                                    <Text style={styles.addChecklistItemBtnText}>Agregar item</Text>
+                                </TouchableOpacity>
                                 <Text style={styles.modalHelperText}>Sugerencias rápidas</Text>
                                 <View style={styles.suggestionRow}>
                                     {checklistItemSuggestions.map((suggestion) => (
                                         <TouchableOpacity
                                             key={suggestion}
                                             style={styles.suggestionChip}
-                                            onPress={() => setChecklistItems((prev) => prev ? `${prev}\n${suggestion}` : suggestion)}
+                                            onPress={() => setDraftChecklistItem(suggestion)}
                                         >
                                             <Text style={styles.suggestionChipText}>{suggestion}</Text>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
+                                {checklistItems.length ? (
+                                    <View style={styles.createdItemsWrap}>
+                                        {checklistItems.map((item, index) => {
+                                            const typeLabel = checklistTypeOptions.find((option) => option.key === item.responseType)?.label || 'Bueno/Regular/Malo';
+                                            return (
+                                                <View key={`${item.label}-${index}`} style={styles.createdItemCard}>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.createdItemTitle}>{item.label}</Text>
+                                                        <Text style={styles.createdItemMeta}>{typeLabel}</Text>
+                                                    </View>
+                                                    <TouchableOpacity onPress={() => removeChecklistItem(index)}>
+                                                        <Ionicons name="close-circle" size={20} color="#94a3b8" />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                ) : null}
 
                                 <TouchableOpacity
                                     style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
@@ -985,6 +1077,28 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         fontSize: 12,
     },
+    checklistsFilterRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 12,
+    },
+    checklistsFilterChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: '#f3f4f6',
+    },
+    checklistsFilterChipActive: {
+        backgroundColor: '#dbeafe',
+    },
+    checklistsFilterChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    checklistsFilterChipTextActive: {
+        color: '#2563eb',
+    },
     checklistCard: {
         borderWidth: 1,
         borderColor: '#e5e7eb',
@@ -1222,6 +1336,18 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         fontSize: 15,
     },
+    addChecklistItemBtn: {
+        backgroundColor: '#eff6ff',
+        borderRadius: 12,
+        paddingVertical: 12,
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    addChecklistItemBtnText: {
+        color: '#2563eb',
+        fontWeight: '700',
+        fontSize: 14,
+    },
     modalHelperText: {
         fontSize: 12,
         color: '#64748b',
@@ -1244,6 +1370,30 @@ const styles = StyleSheet.create({
         color: '#2563eb',
         fontSize: 12,
         fontWeight: '700',
+    },
+    createdItemsWrap: {
+        gap: 8,
+        marginBottom: 14,
+    },
+    createdItemCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        padding: 12,
+        borderRadius: 12,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+    },
+    createdItemTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#111827',
+    },
+    createdItemMeta: {
+        fontSize: 12,
+        color: '#64748b',
+        marginTop: 2,
     },
 
     menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

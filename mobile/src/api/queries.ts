@@ -443,7 +443,7 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
 export const useSaveOperationChecklist = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
+        mutationFn: async (data: { checklistId?: string | null; title: string; items: Array<string | { label: string; responseType?: 'condition' | 'severity' | 'yes_no' | 'text' }>; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },
@@ -470,10 +470,20 @@ export const useArchiveOperationChecklist = (conversationId: string) => {
     });
 };
 
+export const useRestoreOperationChecklist = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (checklistId: string) => apiClient.patch(`/conversations/${conversationId}/checklists/${checklistId}/restore`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
 export const useToggleOperationChecklistItem = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, result }: { id: string; result: 'good' | 'regular' | 'bad' | 'na' | null }) =>
+        mutationFn: async ({ id, result }: { id: string; result: 'good' | 'regular' | 'bad' | 'na' | 'high' | 'medium' | 'low' | 'yes' | 'no' | null }) =>
             apiClient.patch(`/operation-checklist-run-items/${id}/toggle`, { result }),
         onMutate: async ({ id, result }) => {
             await queryClient.cancelQueries({ queryKey: ['conversation-operation-state', conversationId] });

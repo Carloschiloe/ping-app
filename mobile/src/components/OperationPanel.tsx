@@ -26,7 +26,7 @@ interface OperationPanelProps {
     openTasksCount?: number;
     onOpenPinnedMessage: (messageId: string) => void;
     onClearPinnedMessage: () => void;
-    onToggleChecklistItem: (itemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) => void;
+    onToggleChecklistItem: (itemId: string, result: 'good' | 'regular' | 'bad' | 'na' | 'high' | 'medium' | 'low' | 'yes' | 'no' | null) => void;
     onCommitmentAction: (payload: {
         action: 'acknowledged' | 'arrived' | 'completed';
         completionNote?: string | null;
@@ -155,12 +155,26 @@ function ChecklistSheet({
     onClose,
     onToggleChecklistItem,
 }: any) {
-    const resultOptions = [
-        { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
-        { key: 'regular', label: 'Regular', color: '#92400e', bg: '#fef3c7' },
-        { key: 'bad', label: 'Malo', color: '#991b1b', bg: '#fee2e2' },
-        { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
-    ] as const;
+    const resultOptionsByType = {
+        condition: [
+            { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
+            { key: 'regular', label: 'Regular', color: '#92400e', bg: '#fef3c7' },
+            { key: 'bad', label: 'Malo', color: '#991b1b', bg: '#fee2e2' },
+            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+        ],
+        severity: [
+            { key: 'high', label: 'Alto', color: '#991b1b', bg: '#fee2e2' },
+            { key: 'medium', label: 'Medio', color: '#92400e', bg: '#fef3c7' },
+            { key: 'low', label: 'Bajo', color: '#166534', bg: '#dcfce7' },
+            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+        ],
+        yes_no: [
+            { key: 'yes', label: 'Si', color: '#166534', bg: '#dcfce7' },
+            { key: 'no', label: 'No', color: '#991b1b', bg: '#fee2e2' },
+            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+        ],
+        text: [],
+    } as const;
 
     return (
         <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
@@ -215,27 +229,31 @@ function ChecklistSheet({
                                                 />
                                                 <Text style={[styles.sheetCheckText, item.result && styles.sheetCheckTextDone]}>{item.label}</Text>
                                             </View>
-                                            <View style={styles.sheetResultRow}>
-                                                {resultOptions.map((option) => (
-                                                    <TouchableOpacity
-                                                        key={option.key}
-                                                        style={[
-                                                            styles.resultChip,
-                                                            item.result === option.key && { backgroundColor: option.bg, borderColor: option.bg },
-                                                        ]}
-                                                        onPress={() => onToggleChecklistItem(item.id, item.result === option.key ? null : option.key)}
-                                                    >
-                                                        <Text
+                                            {item.response_type === 'text' ? (
+                                                <Text style={styles.sheetHintText}>Este item usa texto libre. Lo dejamos preparado para una siguiente iteración.</Text>
+                                            ) : (
+                                                <View style={styles.sheetResultRow}>
+                                                    {(resultOptionsByType[item.response_type as keyof typeof resultOptionsByType] || resultOptionsByType.condition).map((option) => (
+                                                        <TouchableOpacity
+                                                            key={option.key}
                                                             style={[
-                                                                styles.resultChipText,
-                                                                item.result === option.key && { color: option.color },
+                                                                styles.resultChip,
+                                                                item.result === option.key && { backgroundColor: option.bg, borderColor: option.bg },
                                                             ]}
+                                                            onPress={() => onToggleChecklistItem(item.id, item.result === option.key ? null : option.key)}
                                                         >
-                                                            {option.label}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                ))}
-                                            </View>
+                                                            <Text
+                                                                style={[
+                                                                    styles.resultChipText,
+                                                                    item.result === option.key && { color: option.color },
+                                                                ]}
+                                                            >
+                                                                {option.label}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            )}
                                             {item.checked_at ? (
                                                 <Text style={styles.sheetAuditText}>
                                                     {item.profiles?.full_name || item.profiles?.email?.split('@')[0] || 'Alguien'} · {formatShortDate(item.checked_at)}
