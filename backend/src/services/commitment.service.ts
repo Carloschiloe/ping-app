@@ -3,8 +3,8 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { AppError } from '../utils/AppError';
 import { assertCommitmentConversationParticipant, assertConversationParticipant } from '../utils/authz';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -320,7 +320,7 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
         .from('commitments')
         .update({ 
             due_at: newDate,
-            status: 'proposed',
+            status: 'counter_proposal',
             meta: { ...(currentTask?.meta || {}), original_due_at: currentTask?.due_at } 
         })
         .eq('id', id)
@@ -356,11 +356,22 @@ export const getCommitments = async (userId: string, status?: string, conversati
         query = query.or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`);
     }
 
-    if (status) query = query.eq('status', status);
+    if (status) {
+        query = query.in('status', status === 'proposed'
+            ? ['proposed', 'pending']
+            : status === 'accepted'
+                ? ['accepted', 'in_progress']
+                : status === 'completed'
+                    ? ['completed', 'done']
+                    : [status]);
+    }
 
     const { data, error } = await query;
     if (error) throw error;
-    return data;
+    return (data || []).map((item: any) => ({
+        ...item,
+        status: normalizeCommitmentStatus(item.status),
+    }));
 };
 
 export const updateCommitment = async (userId: string, id: string, updates: any) => {

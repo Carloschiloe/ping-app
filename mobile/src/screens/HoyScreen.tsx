@@ -10,12 +10,13 @@ import { apiClient } from '../api/client';
 import { format, addDays, startOfWeek, isSameDay, getYear, getMonth, startOfMonth, endOfMonth, isToday } from 'date-fns';
 import { es } from 'date-fns/locale/es';
 import { useQueryClient } from '@tanstack/react-query';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 type ViewMode = 'year' | 'month' | 'agenda';
 
 export default function HoyScreen() {
-    const { data: commitments, isLoading } = useCommitments('pending');
+    const { data: commitments, isLoading } = useCommitments('accepted');
     const { mutate: markDone } = useMarkCommitmentDone();
     const { mutate: deleteCommitment } = useDeleteCommitment();
     const navigation = useNavigation<any>();
@@ -38,7 +39,7 @@ export default function HoyScreen() {
     useEffect(() => {
         if (commitments && commitments.length > 0) {
             commitments.forEach((c: any) => {
-                if (c.status === 'pending' && c.due_at) {
+                if (normalizeCommitmentStatus(c.status) === 'accepted' && c.due_at) {
                     scheduleCommitmentReminder(c);
                 }
             });

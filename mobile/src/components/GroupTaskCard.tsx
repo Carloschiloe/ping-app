@@ -9,6 +9,7 @@ import { AISuggestionModal } from './AISuggestionModal';
 import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment, useUpdateCommitment, useSetActiveOperationCommitment } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { apiClient } from '../api/client';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 interface GroupTaskCardProps {
     commitment: any;
@@ -49,12 +50,12 @@ export default function GroupTaskCard({
     // You are an assignee if it's assigned to you specifically, or if it's for everyone and you're not the owner
     const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
 
-    const status = commitment.status;
+    const status = normalizeCommitmentStatus(commitment.status);
     const isDone = status === 'completed';
-    const isProposed = status === 'proposed' || status === 'pending'; // Combined for robustness
+    const isProposed = status === 'proposed';
     const isRejected = status === 'rejected';
     const isCounter = status === 'counter_proposal';
-    const isAccepted = status === 'accepted' || status === 'in_progress';
+    const isAccepted = status === 'accepted';
 
     const requesterName = commitment.owner?.full_name || (isOwner ? 'Tú' : 'Alguien');
     const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id

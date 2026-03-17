@@ -62,11 +62,11 @@ export const checkDueCommitments = async () => {
             const endOfMinute = new Date(targetTime);
             endOfMinute.setSeconds(59, 999);
 
-            // Find pending commitments due in this window
+            // Find accepted commitments due in this window
             const { data: commitments, error } = await supabaseAdmin
                 .from('commitments')
                 .select('*')
-                .eq('status', 'pending')
+                .in('status', ['accepted', 'in_progress'])
                 .gte('due_at', startOfMinute.toISOString())
                 .lte('due_at', endOfMinute.toISOString());
 
@@ -76,15 +76,6 @@ export const checkDueCommitments = async () => {
             console.log(`🔔 [${window.label}] Sending ${commitments.length} reminder(s)`);
             await sendPushBatch(commitments, window.title);
 
-            // Only mark as done on the exact-time notification
-            if (window.offsetMinutes === 0) {
-                for (const c of commitments) {
-                    await supabaseAdmin
-                        .from('commitments')
-                        .update({ status: 'done' })
-                        .eq('id', c.id);
-                }
-            }
         }
     } catch (err) {
         console.error('[Push] checkDueCommitments error:', err);

@@ -4,6 +4,7 @@ import { generateMorningSummary, generateWeeklyReview } from './ai.service';
 import { sendPushNotification } from './push.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { isOpenCommitmentStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 /**
  * Phase 24: Ping Morning Routine
@@ -23,7 +24,7 @@ async function runMorningRoutine() {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // 1. Get all pending commitments for today with profile info in ONE query (Batching)
+    // 1. Get all open commitments for today with profile info in ONE query (Batching)
     const { data: allCommitments, error: fetchError } = await supabaseAdmin
         .from('commitments')
         .select(`
@@ -31,7 +32,7 @@ async function runMorningRoutine() {
             owner_user_id, 
             profiles!inner(full_name, expo_push_token)
         `)
-        .eq('status', 'pending')
+        .in('status', ['proposed', 'pending', 'accepted', 'in_progress', 'counter_proposal'])
         .gte('due_at', startOfDay.toISOString())
         .lte('due_at', endOfDay.toISOString());
 
@@ -166,9 +167,10 @@ async function runWeeklyReview() {
                 pending: [] 
             };
         }
-        if (c.status === 'done') {
+        const normalizedStatus = normalizeCommitmentStatus(c.status);
+        if (normalizedStatus === 'completed') {
             userMap[userId].completed++;
-        } else {
+        } else if (isOpenCommitmentStatus(normalizedStatus)) {
             if (userMap[userId].pending.length < 10) {
                 userMap[userId].pending.push(c.title);
             }

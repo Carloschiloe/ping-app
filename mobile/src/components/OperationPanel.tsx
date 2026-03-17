@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -124,7 +125,7 @@ function getOperationState(commitment?: any) {
     const completed = !!operational.completed_at || commitment?.status === 'completed';
     const arrived = !!operational.arrived_at;
     const acknowledged = !!operational.acknowledged_at;
-    const accepted = commitment?.status === 'accepted' || commitment?.status === 'in_progress';
+    const accepted = normalizeCommitmentStatus(commitment?.status) === 'accepted';
 
     if (completed) return { key: 'completed', label: 'Terminado', color: '#166534', bg: '#dcfce7' };
     if (arrived) return { key: 'arrived', label: 'En sitio', color: '#1d4ed8', bg: '#dbeafe' };

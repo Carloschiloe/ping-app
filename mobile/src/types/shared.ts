@@ -1,5 +1,5 @@
 
-export type CommitmentStatus = 'pending' | 'proposed' | 'accepted' | 'rejected' | 'completed' | 'postponed' | 'counter_proposal' | 'done';
+export type CommitmentStatus = 'proposed' | 'accepted' | 'rejected' | 'completed' | 'counter_proposal';
 
 export interface Profile {
     id: string;

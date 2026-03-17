@@ -9,9 +9,10 @@ import { apiClient } from '../api/client';
 import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 import { isRedDay } from '../utils/holidays';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 type FilterType = 'todo' | 'delegated';
-type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'done';
+type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'completed';
 
 export default function TaskDashboardScreen() {
     const { user } = useAuth();
@@ -66,6 +67,7 @@ export default function TaskDashboardScreen() {
 
     const groupedData = useMemo(() => {
         const filtered = commitments.filter((c: any) => {
+            const normalizedStatus = normalizeCommitmentStatus(c.status);
             const taskDate = c.due_at ? startOfDay(new Date(c.due_at)) : null;
             if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
 
@@ -79,10 +81,10 @@ export default function TaskDashboardScreen() {
             }
 
             if (statusFilter !== 'all') {
-                if (statusFilter === 'proposed' && c.status !== 'proposed') return false;
-                if (statusFilter === 'accepted' && (c.status !== 'accepted' && c.status !== 'pending' && c.status !== 'in_progress')) return false;
-                if (statusFilter === 'rejected' && c.status !== 'rejected') return false;
-                if (statusFilter === 'done' && c.status !== 'completed') return false;
+                if (statusFilter === 'proposed' && normalizedStatus !== 'proposed') return false;
+                if (statusFilter === 'accepted' && normalizedStatus !== 'accepted') return false;
+                if (statusFilter === 'rejected' && normalizedStatus !== 'rejected') return false;
+                if (statusFilter === 'completed' && normalizedStatus !== 'completed') return false;
             }
             return true;
         });
@@ -262,7 +264,7 @@ export default function TaskDashboardScreen() {
                     <StatusChip label="Todas" value="all" icon="layers-outline" />
                     <StatusChip label="Nuevas" value="proposed" icon="mail-unread-outline" />
                     <StatusChip label="Activas" value="accepted" icon="flash-outline" />
-                    <StatusChip label="Completas" value="done" icon="checkmark-circle-outline" />
+                    <StatusChip label="Completas" value="completed" icon="checkmark-circle-outline" />
                     <StatusChip label="Rechazadas" value="rejected" icon="close-circle-outline" />
                 </ScrollView>
             </View>

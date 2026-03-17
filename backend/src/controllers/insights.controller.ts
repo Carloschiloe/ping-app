@@ -1,11 +1,9 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-
-const PENDING_RESPONSE_STATUSES = ['pending', 'proposed', 'counter_proposal'];
-const UPCOMING_STATUSES = ['accepted', 'in_progress'];
+import { isOpenCommitmentStatus, isPendingResponseStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 function mapProgressState(item: any) {
-    if (item?.completed_at || item?.status === 'completed') return 'Terminado';
+    if (item?.completed_at || normalizeCommitmentStatus(item?.status) === 'completed') return 'Terminado';
     if (item?.arrived_at || item?.status === 'arrived') return 'En sitio';
     if (item?.acknowledged_at || item?.status === 'started') return 'Iniciada';
     if (item?.status === 'ready') return 'Lista';
@@ -58,7 +56,7 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
                     assignee:assigned_to_user_id(id, full_name, email, avatar_url)
                 `)
                 .in('group_conversation_id', conversationIds)
-                .in('status', ['pending', 'proposed', 'accepted', 'counter_proposal', 'in_progress', 'completed']),
+                .in('status', ['pending', 'proposed', 'accepted', 'counter_proposal', 'in_progress', 'completed', 'done']),
             supabaseAdmin
                 .from('conversation_operation_focuses')
                 .select('conversation_id, user_id, commitment_id, updated_at')
@@ -86,8 +84,10 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         const enrichCommitment = (commitment: any) => {
             const conversation = conversationMap.get(commitment.group_conversation_id);
             const progress = progressByCommitmentUser.get(`${commitment.id}:${commitment.assigned_to_user_id || userId}`) || null;
+            const normalizedStatus = normalizeCommitmentStatus(commitment.status);
             return {
                 ...commitment,
+                status: normalizedStatus,
                 conversation_id: commitment.group_conversation_id,
                 conversation_name: conversationLabel(conversation),
                 conversation_mode: conversation?.mode || 'chat',
@@ -107,7 +107,7 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         const inProgress = myFocuses;
 
         const pendingResponse = commitments
-            .filter((commitment: any) => commitment.assigned_to_user_id === userId && PENDING_RESPONSE_STATUSES.includes(commitment.status))
+            .filter((commitment: any) => commitment.assigned_to_user_id === userId && isPendingResponseStatus(commitment.status))
             .map(enrichCommitment)
             .sort((a: any, b: any) => new Date(a.due_at || 0).getTime() - new Date(b.due_at || 0).getTime());
 
@@ -115,7 +115,7 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         const upcoming = commitments
             .filter((commitment: any) => {
                 if (focusedIds.has(commitment.id)) return false;
-                if (!UPCOMING_STATUSES.includes(commitment.status)) return false;
+                if (normalizeCommitmentStatus(commitment.status) !== 'accepted') return false;
                 return commitment.assigned_to_user_id === userId || !commitment.assigned_to_user_id;
             })
             .map(enrichCommitment)
@@ -141,8 +141,8 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
                     };
                 });
 
-                const openCount = commitments.filter((item: any) => item.group_conversation_id === conversation.id && item.status !== 'rejected').length;
-                const pendingForMe = commitments.filter((item: any) => item.group_conversation_id === conversation.id && item.assigned_to_user_id === userId && PENDING_RESPONSE_STATUSES.includes(item.status)).length;
+                const openCount = commitments.filter((item: any) => item.group_conversation_id === conversation.id && isOpenCommitmentStatus(item.status)).length;
+                const pendingForMe = commitments.filter((item: any) => item.group_conversation_id === conversation.id && item.assigned_to_user_id === userId && isPendingResponseStatus(item.status)).length;
 
                 return {
                     conversation_id: conversation.id,

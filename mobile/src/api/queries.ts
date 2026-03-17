@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { apiClient } from './client';
 import { useAuth } from '../context/AuthContext';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 // ─── Self-chat (legacy) ───────────────────────────────────────────────
 
@@ -802,14 +803,14 @@ function applyOperationActionToCommitment(
 
     if (action === 'acknowledged') {
         operational.acknowledged_at = now;
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+        if (normalizeCommitmentStatus(commitment.status) === 'proposed') {
             commitment = { ...commitment, status: 'accepted' };
         }
     }
 
     if (action === 'arrived') {
         operational.arrived_at = now;
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+        if (normalizeCommitmentStatus(commitment.status) === 'proposed') {
             commitment = { ...commitment, status: 'accepted' };
         }
     }

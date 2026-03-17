@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { insertSystemMessage } from './message.service';
 import { NotificationService } from './notification.service';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -316,7 +317,7 @@ async function getCommitmentSummary(commitmentId?: string | null) {
         .eq('id', commitmentId)
         .maybeSingle();
 
-    return data || null;
+    return data ? { ...data, status: normalizeCommitmentStatus(data.status) } : null;
 }
 
 async function getLatestLocation(conversationId: string) {
