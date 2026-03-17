@@ -3,26 +3,29 @@ import { AppError } from '../utils/AppError';
 import { ZodError } from 'zod';
 
 export const globalErrorHandler = (err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error('🔥 [ERROR]', err);
+    const requestId = (req as any).requestId;
+    console.error('🔥 [ERROR]', requestId ? `[${requestId}]` : '', err);
 
     if (err instanceof ZodError) {
         return res.status(400).json({
             status: 'error',
             message: 'Validation failed',
-            errors: (err as any).errors
+            requestId,
+            errors: err.issues,
         });
     }
 
     if (err instanceof AppError) {
         return res.status(err.statusCode).json({
             status: 'error',
-            message: err.message
+            message: err.message,
+            requestId,
         });
     }
 
-    // Fallback for unhandled errors
     return res.status(500).json({
         status: 'error',
-        message: err.message || 'Internal Server Error'
+        message: 'Internal Server Error',
+        requestId,
     });
 };

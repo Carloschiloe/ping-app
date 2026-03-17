@@ -519,6 +519,7 @@ export async function saveChecklistTemplate(
     } = {}
 ) {
     await assertParticipant(userId, conversationId);
+    await assertGroupAdmin(userId, conversationId);
 
     const cleanedItems = items
         .map((item) => typeof item === 'string'
@@ -663,7 +664,7 @@ export async function duplicateChecklistTemplate(userId: string, conversationId:
     );
 }
 
-export async function toggleChecklistItem(userId: string, runItemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) {
+export async function toggleChecklistItem(userId: string, runItemId: string, result: 'good' | 'regular' | 'bad' | 'na' | 'high' | 'medium' | 'low' | 'yes' | 'no' | null) {
     const { data: runItem, error: fetchError } = await supabaseAdmin
         .from('operation_checklist_run_items')
         .select('id, run_id')
@@ -745,6 +746,10 @@ export async function registerCommitmentOperationAction(
 
     if (commitment.group_conversation_id) {
         await assertParticipant(userId, commitment.group_conversation_id);
+    }
+
+    if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
+        throw new Error('Only the assigned user can update this operational status');
     }
 
     const { data: existingProgress } = await supabaseAdmin

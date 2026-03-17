@@ -3,6 +3,8 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { AppError } from '../utils/AppError';
+import { assertCommitmentConversationParticipant, assertConversationParticipant } from '../utils/authz';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -246,6 +248,7 @@ async function notifyUser(userId: string | null | undefined, title: string, body
 
 export const acceptCommitment = async (userId: string, id: string) => {
     console.log(`[Commitment Service] acceptCommitment: userId=${userId}, commitmentId=${id}`);
+    await assertCommitmentConversationParticipant(userId, id);
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update({ 
@@ -278,6 +281,7 @@ export const acceptCommitment = async (userId: string, id: string) => {
 };
 
 export const rejectCommitment = async (userId: string, id: string, reason?: string) => {
+    await assertCommitmentConversationParticipant(userId, id);
     const { data: currentTask } = await supabaseAdmin.from('commitments').select('meta').eq('id', id).single();
 
     const { data, error } = await supabaseAdmin
@@ -308,6 +312,7 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
 };
 
 export const postponeCommitment = async (userId: string, id: string, newDate: string) => {
+    await assertCommitmentConversationParticipant(userId, id);
     // Fetch current state to merge meta
     const { data: currentTask } = await supabaseAdmin.from('commitments').select('due_at, meta').eq('id', id).single();
 
@@ -333,6 +338,10 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
 };
 
 export const getCommitments = async (userId: string, status?: string, conversationId?: string) => {
+    if (conversationId) {
+        await assertConversationParticipant(userId, conversationId);
+    }
+
     let query = supabaseAdmin
         .from('commitments')
         .select(`
@@ -355,6 +364,7 @@ export const getCommitments = async (userId: string, status?: string, conversati
 };
 
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
+    await assertCommitmentConversationParticipant(userId, id);
     // Fetch old record for message comparison
     const { data: oldCommitment } = await supabaseAdmin.from('commitments').select('*').eq('id', id).single();
 
@@ -398,6 +408,7 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
 };
 
 export const deleteCommitment = async (userId: string, id: string) => {
+    await assertCommitmentConversationParticipant(userId, id);
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .delete()
@@ -411,6 +422,8 @@ export const deleteCommitment = async (userId: string, id: string) => {
 };
 
 export const pingCommitment = async (userId: string, id: string) => {
+    await assertCommitmentConversationParticipant(userId, id);
+
     // Basic push reminder
     const { data: c } = await supabaseAdmin.from('commitments').select('*, profiles:assigned_to_user_id(expo_push_token, full_name)').eq('id', id).single();
     if (c?.profiles?.expo_push_token) {

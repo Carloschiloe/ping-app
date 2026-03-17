@@ -4,16 +4,20 @@ import * as agoraService from '../services/agora.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from '../services/notification.service';
 import { processCallRecording } from '../services/ai.service';
+import { AppError } from '../utils/AppError';
+import { assertCallConversationParticipant, assertConversationParticipant } from '../utils/authz';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
     try {
         const channelName = req.params.channelName as string;
-        const userId = (req as any).user?.id || '0';
+        const userId = req.user!.id;
 
         if (!channelName) {
             res.status(400).json({ error: 'Channel name is required' });
             return;
         }
+
+        await assertConversationParticipant(userId, channelName);
 
         const token = agoraService.generateRtcToken(channelName, userId);
         res.status(200).json({ token, appId: process.env.AGORA_APP_ID });
@@ -26,12 +30,18 @@ export const getToken = async (req: Request, res: Response): Promise<void> => {
 export const startRecording = async (req: Request, res: Response): Promise<void> => {
     try {
         const { channelName, conversationId, callId } = req.body;
-        const userId = (req as any).user?.id;
+        const userId = req.user!.id;
 
         if (!channelName || !conversationId) {
             res.status(400).json({ error: 'channelName and conversationId are required' });
             return;
         }
+
+        if (channelName !== conversationId) {
+            throw new AppError('channelName must match conversationId', 400);
+        }
+
+        await assertConversationParticipant(userId, conversationId);
 
         // 1. Acquire Resource
         const recorderUid = Math.floor(Math.random() * 1000000);
@@ -74,7 +84,10 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
 
 export const stopRecording = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { callId } = req.params;
+        const callId = req.params.callId as string;
+        const userId = req.user!.id;
+
+        await assertCallConversationParticipant(userId, callId);
 
         // 1. Fetch call info
         const { data: call, error: fetchErr } = await supabaseAdmin
@@ -125,12 +138,14 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
 export const notifyCall = async (req: Request, res: Response): Promise<void> => {
     try {
         const { conversationId, callType = 'voice' } = req.body;
-        const callerId = (req as any).user?.id;
+        const callerId = req.user!.id;
 
         if (!conversationId) {
             res.status(400).json({ error: 'conversationId is required' });
             return;
         }
+
+        await assertConversationParticipant(callerId, conversationId);
 
         // 1. Get caller's profile
         const { data: callerProfile } = await supabaseAdmin

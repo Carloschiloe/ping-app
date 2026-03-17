@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { processUserMessage } from '../services/message.service';
 import { NotificationService } from '../services/notification.service';
 import { AppError } from '../utils/AppError';
+import { assertConversationParticipant } from '../utils/authz';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -486,7 +487,9 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
 export const pingConversation = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
-        const { id: conversationId } = req.params;
+        const conversationId = req.params.id as string;
+
+        await assertConversationParticipant(userId, conversationId);
 
         // 1. Get recipients (all participants except sender)
         const { data: recipients } = await supabaseAdmin
@@ -532,7 +535,9 @@ export const pingConversation = async (req: Request, res: Response): Promise<voi
 
 export const getConversationMedia = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { id: conversationId } = req.params;
+        const userId = req.user!.id;
+        const conversationId = req.params.id as string;
+        await assertConversationParticipant(userId, conversationId);
         
         // Buscamos mensajes que empiecen con los prefijos de media conocidos
         const { data, error } = await supabaseAdmin

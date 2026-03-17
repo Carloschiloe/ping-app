@@ -179,7 +179,18 @@ export const updateGroup = async (req: Request, res: Response, next: NextFunctio
 };
 export const getParticipants = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+        const requesterId = req.user!.id;
         const conversationId = req.params.id as string;
+        const { data: membership, error: membershipError } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('user_id')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', requesterId)
+            .maybeSingle();
+
+        if (membershipError) throw new AppError(membershipError.message, 500);
+        if (!membership) throw new AppError('You do not have access to this group', 403);
+
         const { data, error } = await supabaseAdmin
             .from('conversation_participants')
             .select('user_id, role, profiles(id, full_name, email, avatar_url)')

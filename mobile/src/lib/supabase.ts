@@ -18,6 +18,10 @@ const ExpoSecureStoreAdapter = {
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'YOUR_SUPABASE_URL';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
 
+if ((!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) && !__DEV__) {
+    throw new Error('Supabase environment variables are required in production');
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
         storage: ExpoSecureStoreAdapter as any,

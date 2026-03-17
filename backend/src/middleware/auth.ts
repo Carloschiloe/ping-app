@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { AppError } from '../utils/AppError';
 
 // Extend Express Request interface to include user
 declare global {
@@ -9,35 +10,29 @@ declare global {
                 id: string;
                 email?: string;
             };
+            requestId?: string;
         }
     }
 }
 
 export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        let token = '';
         const authHeader = req.headers.authorization;
 
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            token = authHeader.replace('Bearer ', '');
-        } else if (req.query.token) {
-            token = req.query.token as string;
-        }
-
-        if (!token) {
-            res.status(401).json({ error: 'Missing or invalid Authorization header or token' });
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            next(new AppError('Missing or invalid Authorization header', 401));
             return;
         }
 
-        // We use the Supabase Admin client to get the user from the token
+        const token = authHeader.replace('Bearer ', '').trim();
+
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
         if (error || !user) {
-            res.status(401).json({ error: 'Invalid token or unauthorized' });
+            next(new AppError('Invalid token or unauthorized', 401));
             return;
         }
 
-        // Attach user to request object
         req.user = {
             id: user.id,
             email: user.email,
@@ -46,6 +41,6 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
         next();
     } catch (error) {
         console.error('Auth middleware error:', error);
-        res.status(500).json({ error: 'Internal server error during authentication' });
+        next(new AppError('Internal server error during authentication', 500));
     }
 };
