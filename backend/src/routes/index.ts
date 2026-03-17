@@ -55,6 +55,8 @@ router.patch('/conversations/:id/mode', requireAuth, validateRequest(operationSc
 router.patch('/conversations/:id/pin', requireAuth, validateRequest(operationSchema.setPinnedMessageSchema), operationController.setPinnedMessage);
 router.patch('/conversations/:id/active-commitment', requireAuth, validateRequest(operationSchema.setActiveCommitmentSchema), operationController.setActiveCommitment);
 router.post('/conversations/:id/checklists', requireAuth, validateRequest(operationSchema.saveChecklistSchema), operationController.saveChecklistTemplate);
+router.post('/conversations/:id/checklists/:checklistId/duplicate', requireAuth, validateRequest(operationSchema.checklistActionSchema), operationController.duplicateChecklistTemplate);
+router.patch('/conversations/:id/checklists/:checklistId/archive', requireAuth, validateRequest(operationSchema.checklistActionSchema), operationController.archiveChecklistTemplate);
 router.post('/conversations/:id/shift-reports', requireAuth, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);

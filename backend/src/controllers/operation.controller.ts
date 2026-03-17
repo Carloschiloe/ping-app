@@ -78,6 +78,30 @@ export const toggleChecklistItem = async (req: Request, res: Response): Promise<
     }
 };
 
+export const archiveChecklistTemplate = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const conversationId = req.params.id as string;
+        const checklistId = req.params.checklistId as string;
+        const data = await operationService.archiveChecklistTemplate(userId, conversationId, checklistId);
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const duplicateChecklistTemplate = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const conversationId = req.params.id as string;
+        const checklistId = req.params.checklistId as string;
+        const data = await operationService.duplicateChecklistTemplate(userId, conversationId, checklistId);
+        res.status(201).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export const createShiftReport = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;

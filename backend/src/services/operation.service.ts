@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { insertSystemMessage } from './message.service';
+import { NotificationService } from './notification.service';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -13,6 +14,23 @@ async function assertParticipant(userId: string, conversationId: string) {
 
     if (error || !data) {
         throw new Error('Not a participant in this conversation');
+    }
+}
+
+async function assertGroupAdmin(userId: string, conversationId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('role')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .single();
+
+    if (error || !data) {
+        throw new Error('Participant not found');
+    }
+
+    if (data.role !== 'admin') {
+        throw new Error('Only group admins can manage checklists');
     }
 }
 
@@ -52,6 +70,26 @@ async function getUserDisplayName(userId: string) {
         .maybeSingle();
 
     return data?.full_name || data?.email?.split('@')[0] || 'Alguien';
+}
+
+async function notifyProfile(userId: string | null | undefined, title: string, body: string, data: any = {}) {
+    if (!userId) return;
+
+    const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('expo_push_token')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (!profile?.expo_push_token) return;
+
+    await NotificationService.sendPushNotifications({
+        to: profile.expo_push_token,
+        title,
+        body,
+        data,
+        sound: 'default',
+    });
 }
 
 async function getOperationFocus(userId: string, conversationId: string) {
@@ -206,6 +244,49 @@ async function ensureChecklistRun(checklist: any, userId: string) {
         run_date: run.run_date,
         items: runItems || [],
     };
+}
+
+async function syncChecklistRunItems(checklistId: string, userId: string) {
+    const today = getTodayDate();
+
+    const { data: run } = await supabaseAdmin
+        .from('operation_checklist_runs')
+        .select('id, run_date')
+        .eq('checklist_id', checklistId)
+        .eq('run_date', today)
+        .maybeSingle();
+
+    if (!run?.id) return;
+
+    await supabaseAdmin
+        .from('operation_checklist_run_items')
+        .delete()
+        .eq('run_id', run.id);
+
+    const { data: templateItems } = await supabaseAdmin
+        .from('operation_checklist_items')
+        .select('*')
+        .eq('checklist_id', checklistId)
+        .order('sort_order', { ascending: true });
+
+    if ((templateItems || []).length > 0) {
+        const { error: cloneError } = await supabaseAdmin
+            .from('operation_checklist_run_items')
+            .insert(
+                (templateItems || []).map((item: any) => ({
+                    run_id: run.id,
+                    template_item_id: item.id,
+                    label: item.label,
+                    sort_order: item.sort_order,
+                    is_checked: false,
+                    checked_at: null,
+                    checked_by_user_id: null,
+                    result: null,
+                }))
+            );
+
+        if (cloneError) throw cloneError;
+    }
 }
 
 async function getPinnedMessage(pinnedMessageId?: string | null) {
@@ -496,8 +577,63 @@ export async function saveChecklistTemplate(
 
     if (itemsError) throw itemsError;
 
+    if (options.checklistId) {
+        await syncChecklistRunItems(checklist.id, userId);
+    }
+
     const run = await ensureChecklistRun(checklist, userId);
     return { ...checklist, run };
+}
+
+export async function archiveChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
+    await assertParticipant(userId, conversationId);
+    await assertGroupAdmin(userId, conversationId);
+
+    const { data, error } = await supabaseAdmin
+        .from('operation_checklists')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', checklistId)
+        .eq('conversation_id', conversationId)
+        .select('id, conversation_id, title, is_active')
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+export async function duplicateChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
+    await assertParticipant(userId, conversationId);
+    await assertGroupAdmin(userId, conversationId);
+
+    const { data: checklist, error: checklistError } = await supabaseAdmin
+        .from('operation_checklists')
+        .select('id, conversation_id, title, category_label, responsible_user_id, responsible_role_label, frequency')
+        .eq('id', checklistId)
+        .eq('conversation_id', conversationId)
+        .single();
+
+    if (checklistError || !checklist) throw checklistError || new Error('Checklist not found');
+
+    const { data: items, error: itemsError } = await supabaseAdmin
+        .from('operation_checklist_items')
+        .select('label, sort_order')
+        .eq('checklist_id', checklistId)
+        .order('sort_order', { ascending: true });
+
+    if (itemsError) throw itemsError;
+
+    return saveChecklistTemplate(
+        userId,
+        conversationId,
+        `${checklist.title} copia`,
+        (items || []).map((item: any) => item.label),
+        {
+            categoryLabel: checklist.category_label,
+            responsibleUserId: checklist.responsible_user_id,
+            responsibleRoleLabel: checklist.responsible_role_label,
+            frequency: checklist.frequency,
+        }
+    );
 }
 
 export async function toggleChecklistItem(userId: string, runItemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) {
@@ -695,6 +831,15 @@ export async function registerCommitmentOperationAction(
                 },
             }
         );
+
+        if (commitment.owner_user_id && commitment.owner_user_id !== userId) {
+            await notifyProfile(
+                commitment.owner_user_id,
+                'Tarea terminada',
+                `${userName} cerro "${commitment.title}"`,
+                { type: 'operation_completed', commitmentId: commitment.id, conversationId: commitment.group_conversation_id }
+            );
+        }
     }
 
     return mergeCommitmentWithProgress(data, { ...existingProgress, ...progressPayload });

@@ -53,6 +53,18 @@ function EmptyState({ text }: { text: string }) {
     );
 }
 
+function SectionBlock({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+    return (
+        <View style={styles.sectionBlock}>
+            <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{title}</Text>
+                <Text style={styles.sectionCaption}>{subtitle}</Text>
+            </View>
+            {children}
+        </View>
+    );
+}
+
 export default function InsightsScreen() {
     const navigation = useNavigation<any>();
     const { data, isLoading, isError, refetch, isRefetching } = useInsights();
@@ -141,56 +153,13 @@ export default function InsightsScreen() {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.summaryRow}>
-                <View style={styles.summaryCard}>
-                    <Text style={styles.summaryNumber}>{counts.inProgress}</Text>
-                    <Text style={styles.summaryLabel}>En curso</Text>
-                </View>
-                <View style={styles.summaryCard}>
-                    <Text style={styles.summaryNumber}>{counts.pendingResponse}</Text>
-                    <Text style={styles.summaryLabel}>Por responder</Text>
-                </View>
-                <View style={styles.summaryCard}>
-                    <Text style={styles.summaryNumber}>{counts.upcoming}</Text>
-                    <Text style={styles.summaryLabel}>Próximas</Text>
-                </View>
+            <View style={styles.topPillsRow}>
+                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.pendingResponse} por responder</Text></View>
+                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.inProgress} en curso</Text></View>
+                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.upcoming} próximas</Text></View>
             </View>
 
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>En curso</Text>
-                    <Text style={styles.sectionCaption}>Lo que ya se está ejecutando</Text>
-                </View>
-
-                {inProgress.length === 0 ? (
-                    <EmptyState text="No hay tareas en curso ahora." />
-                ) : (
-                    inProgress.map((item: any) => {
-                        const tone = getStateTone(item.operational_state);
-                        return (
-                            <TouchableOpacity key={item.id} style={styles.workCard} onPress={() => goToChat(item)} activeOpacity={0.85}>
-                                <View style={styles.workTopRow}>
-                                    <Text style={styles.workGroup}>{item.conversation_name}</Text>
-                                    <View style={[styles.stateBadge, { backgroundColor: tone.bg }]}>
-                                        <Text style={[styles.stateBadgeText, { color: tone.color }]}>{item.operational_state}</Text>
-                                    </View>
-                                </View>
-                                <Text style={styles.workTitle}>{item.title}</Text>
-                                <Text style={styles.workMeta}>
-                                    {formatWhen(item.due_at)} · Responsable: {item.assignee?.full_name || 'Todos'}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })
-                )}
-            </View>
-
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Pendiente tu respuesta</Text>
-                    <Text style={styles.sectionCaption}>Lo que te asignaron y espera confirmación</Text>
-                </View>
-
+            <SectionBlock title="Pendiente tu respuesta" subtitle="Lo que espera tu confirmación">
                 {pendingResponse.length === 0 ? (
                     <EmptyState text="No tienes tareas pendientes de aceptar o rechazar." />
                 ) : (
@@ -213,13 +182,34 @@ export default function InsightsScreen() {
                         </View>
                     ))
                 )}
-            </View>
+            </SectionBlock>
 
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Próximas</Text>
-                    <Text style={styles.sectionCaption}>Aceptadas, pero todavía no en ejecución</Text>
-                </View>
+            <SectionBlock title="En curso" subtitle="Lo que ya estas ejecutando">
+                
+                {inProgress.length === 0 ? (
+                    <EmptyState text="No hay tareas en curso ahora." />
+                ) : (
+                    inProgress.map((item: any) => {
+                        const tone = getStateTone(item.operational_state);
+                        return (
+                            <TouchableOpacity key={item.id} style={styles.workCard} onPress={() => goToChat(item)} activeOpacity={0.85}>
+                                <View style={styles.workTopRow}>
+                                    <Text style={styles.workGroup}>{item.conversation_name}</Text>
+                                    <View style={[styles.stateBadge, { backgroundColor: tone.bg }]}>
+                                        <Text style={[styles.stateBadgeText, { color: tone.color }]}>{item.operational_state}</Text>
+                                    </View>
+                                </View>
+                                <Text style={styles.workTitle}>{item.title}</Text>
+                                <Text style={styles.workMeta}>
+                                    {formatWhen(item.due_at)} · Responsable: {item.assignee?.full_name || 'Todos'}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
+            </SectionBlock>
+
+            <SectionBlock title="Próximas" subtitle="Aceptadas, pero todavía no en ejecución">
 
                 {upcoming.length === 0 ? (
                     <EmptyState text="No hay tareas próximas por ahora." />
@@ -234,13 +224,9 @@ export default function InsightsScreen() {
                         </TouchableOpacity>
                     ))
                 )}
-            </View>
+            </SectionBlock>
 
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Grupos</Text>
-                    <Text style={styles.sectionCaption}>Dónde hay movimiento ahora</Text>
-                </View>
+            <SectionBlock title="Grupos" subtitle="Dónde conviene entrar ahora">
 
                 {groupsSummary.length === 0 ? (
                     <EmptyState text="Todavía no hay grupos con operación activa." />
@@ -254,34 +240,18 @@ export default function InsightsScreen() {
                         >
                             <View style={styles.groupTopRow}>
                                 <Text style={styles.groupName}>{group.conversation_name}</Text>
-                                <Text style={styles.groupCounts}>
-                                    {group.active_count} en curso · {group.open_count} abiertas
-                                </Text>
+                                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
                             </View>
                             <Text style={styles.groupMeta}>
                                 {group.pending_for_me > 0
                                     ? `${group.pending_for_me} pendiente(s) tuyas`
-                                    : group.active_commitment?.title || 'Sin foco activo ahora'}
+                                    : `${group.active_count} en curso · ${group.open_count} abiertas`}
                             </Text>
-                            {group.team_preview?.length ? (
-                                <View style={styles.teamPreviewList}>
-                                    {group.team_preview.slice(0, 3).map((entry: any) => {
-                                        const tone = getStateTone(entry.state);
-                                        return (
-                                            <View key={`${group.conversation_id}-${entry.user_id}-${entry.commitment_id}`} style={styles.teamPreviewRow}>
-                                                <Text style={styles.teamPreviewName} numberOfLines={1}>{entry.user_name}</Text>
-                                                <View style={[styles.teamPreviewBadge, { backgroundColor: tone.bg }]}>
-                                                    <Text style={[styles.teamPreviewBadgeText, { color: tone.color }]}>{entry.state}</Text>
-                                                </View>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-                            ) : null}
+                            {group.team_preview?.[0] ? <Text style={styles.groupSubmeta}>{group.team_preview[0].user_name} · {group.team_preview[0].state}</Text> : null}
                         </TouchableOpacity>
                     ))
                 )}
-            </View>
+            </SectionBlock>
         </ScrollView>
     );
 }
@@ -340,33 +310,23 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#64748b',
     },
-    summaryRow: {
+    topPillsRow: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 8,
     },
-    summaryCard: {
-        flex: 1,
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        paddingVertical: 14,
+    topPill: {
+        backgroundColor: '#e0e7ff',
+        borderRadius: 999,
         paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
+        paddingVertical: 8,
     },
-    summaryNumber: {
-        fontSize: 22,
-        fontWeight: '800',
-        color: '#0f172a',
-    },
-    summaryLabel: {
-        marginTop: 4,
+    topPillText: {
+        color: '#3730a3',
         fontSize: 12,
-        color: '#64748b',
-        fontWeight: '700',
+        fontWeight: '800',
     },
-    section: {
-        gap: 10,
-    },
+    sectionBlock: { gap: 10 },
     sectionHeader: {
         gap: 2,
     },
@@ -517,29 +477,10 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#64748b',
     },
-    teamPreviewList: {
-        gap: 6,
+    groupSubmeta: {
         marginTop: 4,
-    },
-    teamPreviewRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 8,
-    },
-    teamPreviewName: {
-        flex: 1,
-        fontSize: 12,
-        color: '#334155',
-        fontWeight: '600',
-    },
-    teamPreviewBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 999,
-    },
-    teamPreviewBadgeText: {
         fontSize: 11,
-        fontWeight: '800',
+        color: '#94a3b8',
+        fontWeight: '700',
     },
 });

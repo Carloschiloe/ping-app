@@ -169,6 +169,25 @@ export const createCommitment = async (userId: string, data: any) => {
         }
     }
 
+    if (assigned_to_user_id && assigned_to_user_id !== userId) {
+        const senderName = await getUserName(userId);
+        const dateObj = new Date(due_at);
+        const when = dateObj.toLocaleString('es-CL', {
+            timeZone: 'America/Santiago',
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        await notifyUser(
+            assigned_to_user_id,
+            'Nueva tarea para ti',
+            `${senderName} te asigno "${title}" para ${when}`,
+            { type: 'commitment_assigned', commitmentId: commitment.id, conversationId: group_conversation_id }
+        );
+    }
+
     return commitment;
 };
 
@@ -200,6 +219,31 @@ async function getUserName(userId: string) {
     return data?.full_name || 'Alguien';
 }
 
+async function getPushProfile(userId?: string | null) {
+    if (!userId) return null;
+
+    const { data } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, expo_push_token')
+        .eq('id', userId)
+        .maybeSingle();
+
+    return data || null;
+}
+
+async function notifyUser(userId: string | null | undefined, title: string, body: string, data: any = {}) {
+    const profile = await getPushProfile(userId);
+    if (!profile?.expo_push_token) return;
+
+    await NotificationService.sendPushNotifications({
+        to: profile.expo_push_token,
+        title,
+        body,
+        data,
+        sound: 'default',
+    });
+}
+
 export const acceptCommitment = async (userId: string, id: string) => {
     console.log(`[Commitment Service] acceptCommitment: userId=${userId}, commitmentId=${id}`);
     const { data, error } = await supabaseAdmin
@@ -221,6 +265,14 @@ export const acceptCommitment = async (userId: string, id: string) => {
     console.log(`[Commitment Service] Commitment updated to accepted: ${data.id}`);
     const userName = await getUserName(userId);
     await insertSystemMessage(userId, data.group_conversation_id, `✅ ${userName} aceptó la propuesta: "${data.title}"`);
+    if (data.owner_user_id && data.owner_user_id !== userId) {
+        await notifyUser(
+            data.owner_user_id,
+            'Tarea aceptada',
+            `${userName} acepto "${data.title}"`,
+            { type: 'commitment_accepted', commitmentId: data.id, conversationId: data.group_conversation_id }
+        );
+    }
 
     return data;
 };
@@ -243,6 +295,14 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
 
     const userName = await getUserName(userId);
     await insertSystemMessage(userId, data.group_conversation_id, `❌ ${userName} rechazó la propuesta: "${data.title}"${reason ? ` (Motivo: ${reason})` : ''}`);
+    if (data.owner_user_id && data.owner_user_id !== userId) {
+        await notifyUser(
+            data.owner_user_id,
+            'Tarea rechazada',
+            `${userName} rechazo "${data.title}"`,
+            { type: 'commitment_rejected', commitmentId: data.id, conversationId: data.group_conversation_id }
+        );
+    }
 
     return data;
 };

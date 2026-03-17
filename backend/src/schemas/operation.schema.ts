@@ -42,6 +42,13 @@ export const saveChecklistSchema = z.object({
     }),
 });
 
+export const checklistActionSchema = z.object({
+    params: z.object({
+        id: z.string().uuid(),
+        checklistId: z.string().uuid(),
+    }),
+});
+
 export const toggleChecklistItemSchema = z.object({
     params: z.object({
         id: z.string().uuid(),

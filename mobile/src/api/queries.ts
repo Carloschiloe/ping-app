@@ -450,6 +450,26 @@ export const useSaveOperationChecklist = (conversationId: string) => {
     });
 };
 
+export const useDuplicateOperationChecklist = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (checklistId: string) => apiClient.post(`/conversations/${conversationId}/checklists/${checklistId}/duplicate`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
+export const useArchiveOperationChecklist = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (checklistId: string) => apiClient.patch(`/conversations/${conversationId}/checklists/${checklistId}/archive`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+        },
+    });
+};
+
 export const useToggleOperationChecklistItem = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({

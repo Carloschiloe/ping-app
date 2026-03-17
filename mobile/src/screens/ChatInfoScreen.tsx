@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole } from '../api/queries';
+import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -31,6 +31,8 @@ export default function ChatInfoScreen() {
     const { mutate: updateConversationMode, isPending: isUpdatingMode } = useUpdateConversationMode(conversationId);
     const { mutateAsync: saveChecklistTemplate, isPending: isSavingChecklist } = useSaveOperationChecklist(conversationId);
     const { mutate: updateParticipantRole, isPending: isUpdatingParticipantRole } = useUpdateGroupParticipantRole(conversationId);
+    const { mutate: archiveChecklist } = useArchiveOperationChecklist(conversationId);
+    const { mutate: duplicateChecklist } = useDuplicateOperationChecklist(conversationId);
     const conversationMode = operationState?.conversation?.mode || currentConv?.mode || 'chat';
 
     // Dynamic Header Info
@@ -209,6 +211,28 @@ export default function ChatInfoScreen() {
                 {
                     text: 'Confirmar',
                     onPress: () => updateParticipantRole({ userId: member.id, role: nextRole }),
+                },
+            ]
+        );
+    };
+
+    const handleChecklistAction = (list: any) => {
+        if (!isAdmin) return;
+
+        Alert.alert(
+            list.title,
+            'Elige una acción para esta plantilla.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Editar', onPress: () => openChecklistEditor(list) },
+                {
+                    text: 'Duplicar',
+                    onPress: () => duplicateChecklist(list.id),
+                },
+                {
+                    text: 'Archivar',
+                    style: 'destructive',
+                    onPress: () => archiveChecklist(list.id),
                 },
             ]
         );
@@ -581,7 +605,7 @@ export default function ChatInfoScreen() {
                                 key={list.id}
                                 style={styles.checklistCard}
                                 activeOpacity={0.85}
-                                onPress={() => isAdmin && openChecklistEditor(list)}
+                                onPress={() => isAdmin ? handleChecklistAction(list) : undefined}
                             >
                                 <View style={styles.checklistCardHeader}>
                                     <Text style={styles.checklistCardTitle}>{list.title}</Text>
@@ -632,90 +656,98 @@ export default function ChatInfoScreen() {
 
             <Modal visible={checklistModalVisible} transparent animationType="slide" onRequestClose={() => setChecklistModalVisible(false)}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.checklistModalCard}>
-                        <View style={styles.modalHeaderRow}> 
-                            <Text style={styles.modalTitleText}>{editingChecklist ? 'Editar checklist' : 'Nuevo checklist'}</Text>
-                            <TouchableOpacity onPress={() => setChecklistModalVisible(false)}>
-                                <Ionicons name="close" size={24} color="#64748b" />
-                            </TouchableOpacity>
-                        </View>
-
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="Nombre del checklist"
-                            value={checklistTitle}
-                            onChangeText={setChecklistTitle}
-                        />
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="Categoría (ej. Mantención)"
-                            value={checklistCategory}
-                            onChangeText={setChecklistCategory}
-                        />
-                        <View style={styles.suggestionRow}>
-                            {checklistCategorySuggestions.map((suggestion) => (
-                                <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistCategory(suggestion)}>
-                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+                        style={styles.modalKeyboardHost}
+                    >
+                        <View style={styles.checklistModalCard}>
+                            <View style={styles.modalHeaderRow}> 
+                                <Text style={styles.modalTitleText}>{editingChecklist ? 'Editar checklist' : 'Nuevo checklist'}</Text>
+                                <TouchableOpacity onPress={() => setChecklistModalVisible(false)}>
+                                    <Ionicons name="close" size={24} color="#64748b" />
                                 </TouchableOpacity>
-                            ))}
-                        </View>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="Rol responsable (ej. Maquinista)"
-                            value={checklistRole}
-                            onChangeText={setChecklistRole}
-                        />
-                        <View style={styles.suggestionRow}>
-                            {checklistRoleSuggestions.map((suggestion) => (
-                                <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistRole(suggestion)}>
-                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                            </View>
 
-                        <View style={styles.frequencyRow}>
-                            {(['manual', 'daily', 'shift'] as const).map((frequency) => (
+                            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Nombre del checklist"
+                                    value={checklistTitle}
+                                    onChangeText={setChecklistTitle}
+                                />
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Categoría (ej. Mantención)"
+                                    value={checklistCategory}
+                                    onChangeText={setChecklistCategory}
+                                />
+                                <View style={styles.suggestionRow}>
+                                    {checklistCategorySuggestions.map((suggestion) => (
+                                        <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistCategory(suggestion)}>
+                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Rol responsable (ej. Maquinista)"
+                                    value={checklistRole}
+                                    onChangeText={setChecklistRole}
+                                />
+                                <View style={styles.suggestionRow}>
+                                    {checklistRoleSuggestions.map((suggestion) => (
+                                        <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistRole(suggestion)}>
+                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <View style={styles.frequencyRow}>
+                                    {(['manual', 'daily', 'shift'] as const).map((frequency) => (
+                                        <TouchableOpacity
+                                            key={frequency}
+                                            style={[styles.frequencyChip, checklistFrequency === frequency && styles.frequencyChipActive]}
+                                            onPress={() => setChecklistFrequency(frequency)}
+                                        >
+                                            <Text style={[styles.frequencyChipText, checklistFrequency === frequency && styles.frequencyChipTextActive]}>
+                                                {frequency === 'manual' ? 'Manual' : frequency === 'daily' ? 'Diario' : 'Por turno'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TextInput
+                                    style={styles.modalTextArea}
+                                    placeholder="Un item por línea"
+                                    value={checklistItems}
+                                    onChangeText={setChecklistItems}
+                                    multiline
+                                    textAlignVertical="top"
+                                />
+                                <Text style={styles.modalHelperText}>Sugerencias rápidas</Text>
+                                <View style={styles.suggestionRow}>
+                                    {checklistItemSuggestions.map((suggestion) => (
+                                        <TouchableOpacity
+                                            key={suggestion}
+                                            style={styles.suggestionChip}
+                                            onPress={() => setChecklistItems((prev) => prev ? `${prev}\n${suggestion}` : suggestion)}
+                                        >
+                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
                                 <TouchableOpacity
-                                    key={frequency}
-                                    style={[styles.frequencyChip, checklistFrequency === frequency && styles.frequencyChipActive]}
-                                    onPress={() => setChecklistFrequency(frequency)}
+                                    style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
+                                    onPress={handleSaveChecklistTemplate}
+                                    disabled={isSavingChecklist}
                                 >
-                                    <Text style={[styles.frequencyChipText, checklistFrequency === frequency && styles.frequencyChipTextActive]}>
-                                        {frequency === 'manual' ? 'Manual' : frequency === 'daily' ? 'Diario' : 'Por turno'}
-                                    </Text>
+                                    <Text style={styles.saveChecklistBtnText}>{isSavingChecklist ? 'Guardando...' : 'Guardar checklist'}</Text>
                                 </TouchableOpacity>
-                            ))}
+                            </ScrollView>
                         </View>
-
-                        <TextInput
-                            style={styles.modalTextArea}
-                            placeholder="Un item por línea"
-                            value={checklistItems}
-                            onChangeText={setChecklistItems}
-                            multiline
-                            textAlignVertical="top"
-                        />
-                        <Text style={styles.modalHelperText}>Sugerencias rápidas</Text>
-                        <View style={styles.suggestionRow}>
-                            {checklistItemSuggestions.map((suggestion) => (
-                                <TouchableOpacity
-                                    key={suggestion}
-                                    style={styles.suggestionChip}
-                                    onPress={() => setChecklistItems((prev) => prev ? `${prev}\n${suggestion}` : suggestion)}
-                                >
-                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        <TouchableOpacity
-                            style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
-                            onPress={handleSaveChecklistTemplate}
-                            disabled={isSavingChecklist}
-                        >
-                            <Text style={styles.saveChecklistBtnText}>{isSavingChecklist ? 'Guardando...' : 'Guardar checklist'}</Text>
-                        </TouchableOpacity>
-                    </View>
+                    </KeyboardAvoidingView>
                 </View>
             </Modal>
 
@@ -1108,12 +1140,21 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 20,
     },
+    modalKeyboardHost: {
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     checklistModalCard: {
         backgroundColor: 'white',
         borderRadius: 20,
         padding: 20,
         width: '100%',
         maxWidth: 440,
+        maxHeight: '82%',
+    },
+    modalScrollContent: {
+        paddingBottom: 40,
     },
     modalHeaderRow: {
         flexDirection: 'row',
