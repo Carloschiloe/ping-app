@@ -15,6 +15,7 @@ import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useAcceptCommitment, useInsights, useRejectCommitment } from '../api/queries';
+import type { ChatsTabNavigationProp } from '../navigation/types';
 
 function formatWhen(iso?: string | null) {
     if (!iso) return 'Sin hora';
@@ -66,7 +67,7 @@ function SectionBlock({ title, subtitle, children }: { title: string; subtitle: 
 }
 
 export default function InsightsScreen() {
-    const navigation = useNavigation<any>();
+    const navigation = useNavigation<ChatsTabNavigationProp>();
     const { data, isLoading, isError, refetch, isRefetching } = useInsights();
     const { mutate: acceptCommitment } = useAcceptCommitment();
     const { mutate: rejectCommitment } = useRejectCommitment();

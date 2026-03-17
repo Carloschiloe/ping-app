@@ -12,10 +12,11 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { useDeleteMessage } from '../api/queries';
+import type { ChatInfoScreenProps } from '../navigation/types';
 
 export default function ChatInfoScreen() {
-    const route = useRoute<any>();
-    const navigation = useNavigation<any>();
+    const route = useRoute<ChatInfoScreenProps['route']>();
+    const navigation = useNavigation<ChatInfoScreenProps['navigation']>();
     const { user } = useAuth();
 
     const conversationId = route.params?.conversationId;
@@ -369,7 +370,7 @@ export default function ChatInfoScreen() {
         if (!media) return;
         setIsMediaMenuVisible(false); // Deprecated, but keeping for safety
         setViewerMedia(null);
-        navigation.navigate('ForwardMessage', { 
+        (navigation as any).navigate('ForwardMessage', { 
             message: {
                 ...media,
                 text: `[media]${media.parsedUrl || media.text}`

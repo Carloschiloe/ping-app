@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 
 import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
@@ -21,17 +22,18 @@ import TaskDashboardScreen from '../screens/TaskDashboardScreen';
 import CallScreen from '../screens/CallScreen';
 import IncomingCallScreen from '../screens/IncomingCallScreen';
 
-const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const ConversationsStackNav = createNativeStackNavigator<ConversationsStackParamList>();
+const Tab = createBottomTabNavigator<MainTabParamList>();
 
 const ConversationsStack = () => (
-    <Stack.Navigator>
-        <Stack.Screen
+    <ConversationsStackNav.Navigator>
+        <ConversationsStackNav.Screen
             name="ConversationsList"
             component={ConversationsScreen}
             options={{ headerShown: false }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="Chat"
             component={ChatScreen}
             options={({ route }: any) => ({
@@ -42,12 +44,12 @@ const ConversationsStack = () => (
                 headerTitleStyle: { fontWeight: '700', color: 'white' },
             })}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="NewChat"
             component={NewChatScreen}
             options={{ headerShown: false }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="NewGroup"
             component={NewGroupScreen}
             options={{
@@ -58,7 +60,7 @@ const ConversationsStack = () => (
                 headerTintColor: 'white',
             }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="ChatInfo"
             component={ChatInfoScreen}
             options={{
@@ -69,7 +71,7 @@ const ConversationsStack = () => (
                 headerTintColor: 'white',
             }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="AddParticipants"
             component={AddParticipantsScreen}
             options={{
@@ -80,17 +82,17 @@ const ConversationsStack = () => (
                 headerTintColor: 'white',
             }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="PingAI"
             component={PingAIScreen}
             options={{ headerShown: false }}
         />
-        <Stack.Screen
+        <ConversationsStackNav.Screen
             name="QuickCapture"
             component={QuickCaptureScreen}
             options={{ headerShown: false, presentation: 'modal' }}
         />
-    </Stack.Navigator>
+    </ConversationsStackNav.Navigator>
 );
 
 const MainTabs = () => (
@@ -129,7 +131,7 @@ const MainTabs = () => (
     </Tab.Navigator>
 );
 
-export const navigationRef = createNavigationContainerRef();
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 // Inner component to use hooks with navigation context
 const PushNotificationHandler = () => {
@@ -151,24 +153,24 @@ export const AppNavigator = () => {
     return (
         <NavigationContainer ref={navigationRef}>
             <PushNotificationHandler />
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <RootStack.Navigator screenOptions={{ headerShown: false }}>
                 {session ? (
-                    <Stack.Screen name="Main" component={MainTabs} />
+                    <RootStack.Screen name="Main" component={MainTabs} />
                 ) : (
-                    <Stack.Screen name="Auth" component={AuthScreen} />
+                    <RootStack.Screen name="Auth" component={AuthScreen} />
                 )}
                 {/* Always registered so navigationRef can reach them from root */}
-                <Stack.Screen
+                <RootStack.Screen
                     name="IncomingCall"
                     component={IncomingCallScreen}
                     options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
                 />
-                <Stack.Screen
+                <RootStack.Screen
                     name="Call"
                     component={CallScreen}
                     options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
                 />
-            </Stack.Navigator>
+            </RootStack.Navigator>
         </NavigationContainer>
     );
 };

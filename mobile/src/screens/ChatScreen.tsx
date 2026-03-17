@@ -3,12 +3,10 @@ import {
     View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
     StatusBar, Image, Alert, TouchableOpacity, Share, Animated, Linking, ScrollView, Modal
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
-import * as Location from 'expo-location';
 import {
     useConversationGroupTasks,
     useCreateCommitment,
@@ -36,6 +34,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { theme } from '../theme/theme';
+import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
+import { useNavigation } from '@react-navigation/native';
+import { useChatOperation } from '../hooks/useChatOperation';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -62,8 +63,8 @@ function avatarColor(str: string) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function ChatScreen({ navigation }: any) {
-    const route = useRoute<any>();
+export default function ChatScreen({ route }: ChatScreenProps) {
+    const navigation = useNavigation<ChatCompositeNavigationProp>();
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
     const { user } = useAuth();
     const isFocused = useIsFocused();
@@ -86,10 +87,6 @@ export default function ChatScreen({ navigation }: any) {
     const [mentionedUserId, setMentionedUserId] = useState<string | null>(null);
     const [groupParticipants, setGroupParticipants] = useState<{ id: string; full_name: string; email: string }[]>([]);
     const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
-    const [pendingOperationAction, setPendingOperationAction] = useState<'acknowledged' | 'arrived' | 'completed' | null>(null);
-    const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
-    const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
-
     const menuAnim = useRef(new Animated.Value(300)).current;
     const listRef = useRef<FlatList>(null);
     const swipeableRowRefs = useRef(new Map());
@@ -117,13 +114,29 @@ export default function ChatScreen({ navigation }: any) {
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
     const { mutate: setActiveCommitment } = useSetActiveOperationCommitment(conversationId);
 
-    const conversationMode = operationState?.conversation?.mode || route.params?.mode || 'chat';
-    const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
-    const activeOperationCommitmentId = operationState?.myFocus?.commitment_id || operationState?.conversation?.active_commitment_id || null;
-    const activeOperationCommitment = (activeOperationCommitmentId
-        ? groupTasks.find((task: any) => task.id === activeOperationCommitmentId)
-        : null) || operationState?.activeCommitment || null;
-    const openOperationTasks = groupTasks.filter((task: any) => !['completed', 'rejected'].includes(task.status));
+    const {
+        conversationMode,
+        pinnedMessageId,
+        activeOperationCommitment,
+        openOperationTasks,
+        pendingOperationAction,
+        operationFeedback,
+        locationFeedback,
+        handleShareLocation,
+        handleOperationAction,
+        handleClearActiveCommitment,
+        handleClearPinnedMessage,
+    } = useChatOperation({
+        conversationId,
+        routeMode: route.params.mode,
+        operationState,
+        groupTasks,
+        sendMessage,
+        runCommitmentAction,
+        setPinnedMessage,
+        setActiveCommitment,
+        invalidateOperationState: () => queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] }),
+    });
 
     // ─── Phase 7/26: Fetch Group Participants ──────────────────────────────
     useEffect(() => {
@@ -155,12 +168,12 @@ export default function ChatScreen({ navigation }: any) {
                 <ChatHeader
                     chatTitle={isSelf ? 'Mi Espacio' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
                     avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
-                    isGroup={isGroup}
+                    isGroup={!!isGroup}
                     isSummarizing={isSummarizing}
                     onSummarize={handleSummarize}
-                    onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'voice' })}
-                    onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup, type: 'video' })}
-                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup, isSelf, mode: conversationMode })}
+                    onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}
+                    onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
+                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
                 />
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
@@ -234,98 +247,6 @@ export default function ChatScreen({ navigation }: any) {
         }
     };
 
-    const handleShareLocation = async () => {
-        try {
-            const permission = await Location.requestForegroundPermissionsAsync();
-            if (permission.status !== 'granted') {
-                Alert.alert('Permiso requerido', 'Activa la ubicacion para compartirla en este chat.');
-                return;
-            }
-
-            const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            const reverse = await Location.reverseGeocodeAsync(position.coords);
-            const address = reverse[0];
-            const label = [address?.street, address?.district || address?.city].filter(Boolean).join(', ') || 'Ubicacion actual';
-
-            sendMessage({
-                text: `[location] ${label}`,
-                meta: {
-                    messageType: 'location_share',
-                    location: {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        label,
-                    },
-                },
-            });
-
-            setLocationFeedback('Ubicacion enviada');
-            setTimeout(() => setLocationFeedback(null), 1800);
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        } catch (err) {
-            console.error('[Location] Failed to share location:', err);
-            Alert.alert('Error', 'No se pudo compartir la ubicacion.');
-        }
-    };
-
-    const handleOperationAction = async ({
-        action,
-        completionNote,
-        completionOutcome,
-    }: {
-        action: 'acknowledged' | 'arrived' | 'completed';
-        completionNote?: string | null;
-        completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null;
-    }) => {
-        if (!activeOperationCommitment) return;
-
-        const feedbackMap = {
-            acknowledged: 'Inicio marcado',
-            arrived: 'Marcado como llegue',
-            completed: 'Tarea cerrada',
-        } as const;
-
-        setPendingOperationAction(action);
-        setOperationFeedback(feedbackMap[action]);
-
-        let locationMessageId: string | null = null;
-        try {
-            if (action === 'arrived' && !operationState?.latestLocation) {
-                await handleShareLocation();
-            }
-
-            if (action === 'arrived') {
-                locationMessageId = operationState?.latestLocation?.id || null;
-            }
-
-            await runCommitmentAction({
-                id: activeOperationCommitment.id,
-                action,
-                location_message_id: locationMessageId,
-                conversationId,
-                completion_note: completionNote,
-                completion_outcome: completionOutcome,
-            });
-
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (error) {
-            console.error('[Operation] Failed action:', error);
-            setOperationFeedback('No se pudo guardar la accion');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        } finally {
-            setPendingOperationAction(null);
-            setTimeout(() => setOperationFeedback(null), 1800);
-        }
-    };
-
-    const handleClearActiveCommitment = () => {
-        setActiveCommitment(null);
-    };
-
-    const handleClearPinnedMessage = () => {
-        setPinnedMessage(null);
-    };
-
     const { pickMediaSource } = useMediaPicker({
         onMediaSent: (t) => sendMessage({ text: t, reply_to_id: replyingToMsg?.id }),
         setSendingMedia
@@ -387,7 +308,7 @@ export default function ChatScreen({ navigation }: any) {
                 <MessageItem
                     item={item}
                     user={user}
-                    isGroup={isGroup}
+                    isGroup={!!isGroup}
                     isMultiSelecting={isMultiSelecting}
                     isSelected={multiSelect.includes(item.id)}
                     highlightedMsgId={highlightedMsgId}
@@ -436,7 +357,7 @@ export default function ChatScreen({ navigation }: any) {
                     visible={suggestionModalVisible}
                     suggestionData={suggestionData}
                     user={user}
-                    isGroup={isGroup}
+                    isGroup={!!isGroup}
                     groupParticipants={groupParticipants}
                     onClose={() => setSuggestionModalVisible(false)}
                     onUpdateData={setSuggestionData}
@@ -482,6 +403,18 @@ export default function ChatScreen({ navigation }: any) {
                             renderItem={renderMessage}
                             onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
                             onEndReachedThreshold={0.3}
+                            initialNumToRender={20}
+                            maxToRenderPerBatch={12}
+                            windowSize={10}
+                            removeClippedSubviews={Platform.OS === 'android'}
+                            onScrollToIndexFailed={(info) => {
+                                setTimeout(() => {
+                                    listRef.current?.scrollToOffset({
+                                        offset: Math.max(0, info.averageItemLength * info.index),
+                                        animated: true,
+                                    });
+                                }, 150);
+                            }}
                             ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
                             contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
                         />
@@ -523,7 +456,7 @@ export default function ChatScreen({ navigation }: any) {
                     text={text}
                     onTextChange={handleTextChange}
                     onSend={handleSend}
-                    isSelf={isSelf}
+                    isSelf={!!isSelf}
                     isPending={isSending || isPendingCommitment}
                     sendingMedia={sendingMedia}
                     recordingUri={recordingUri}

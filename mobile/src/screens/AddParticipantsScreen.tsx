@@ -4,10 +4,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useUserSearch, useConversations, useAddGroupParticipants } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import type { AddParticipantsScreenProps } from '../navigation/types';
 
 export default function AddParticipantsScreen() {
-    const route = useRoute<any>();
-    const navigation = useNavigation<any>();
+    const route = useRoute<AddParticipantsScreenProps['route']>();
+    const navigation = useNavigation<AddParticipantsScreenProps['navigation']>();
     const { user } = useAuth();
 
     const conversationId = route.params?.conversationId;
