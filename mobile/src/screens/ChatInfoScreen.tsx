@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useConversationMessages, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode } from '../api/queries';
+import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -27,7 +27,10 @@ export default function ChatInfoScreen() {
     const { data: convData } = useConversations();
     const currentConv = convData?.conversations?.find((c: any) => c.id === conversationId);
     const { data: operationState } = useConversationOperationState(conversationId);
+    const { data: participantsData = [] } = useGroupParticipants(isGroup ? conversationId : null);
     const { mutate: updateConversationMode, isPending: isUpdatingMode } = useUpdateConversationMode(conversationId);
+    const { mutateAsync: saveChecklistTemplate, isPending: isSavingChecklist } = useSaveOperationChecklist(conversationId);
+    const { mutate: updateParticipantRole, isPending: isUpdatingParticipantRole } = useUpdateGroupParticipantRole(conversationId);
     const conversationMode = operationState?.conversation?.mode || currentConv?.mode || 'chat';
 
     // Dynamic Header Info
@@ -48,11 +51,26 @@ export default function ChatInfoScreen() {
         initials = otherUser.email.substring(0, 2).toUpperCase();
     }
 
-    const adminId = currentConv?.groupMetadata?.admin_id || groupMetadata?.admin_id;
-    const isAdmin = isGroup && adminId === user?.id;
+    const members = useMemo(() => {
+        if (!isGroup) return [];
+        return participantsData.map((entry: any) => ({
+            id: entry.user_id,
+            role: entry.role || 'member',
+            ...(Array.isArray(entry.profiles) ? entry.profiles[0] : entry.profiles),
+        }));
+    }, [participantsData, isGroup]);
 
-    // Get members (only for groups)
-    const members = isGroup ? (currentConv?.groupMetadata?.participants || []) : [];
+    const currentMembership = members.find((member: any) => member.id === user?.id);
+    const isAdmin = isGroup && currentMembership?.role === 'admin';
+
+    const [infoTab, setInfoTab] = useState<'files' | 'checklists'>('files');
+    const [checklistModalVisible, setChecklistModalVisible] = useState(false);
+    const [editingChecklist, setEditingChecklist] = useState<any>(null);
+    const [checklistTitle, setChecklistTitle] = useState('');
+    const [checklistCategory, setChecklistCategory] = useState('');
+    const [checklistRole, setChecklistRole] = useState('');
+    const [checklistFrequency, setChecklistFrequency] = useState<'manual' | 'daily' | 'shift'>('manual');
+    const [checklistItems, setChecklistItems] = useState('');
 
     // Get media from messages
     const { data: mediaMessages, isLoading: isMediaLoading } = useConversationMedia(conversationId);
@@ -137,6 +155,63 @@ export default function ChatInfoScreen() {
                 Alert.alert('✅ Nombre actualizado', 'El nombre del grupo ha sido actualizado.');
             }
         });
+    };
+
+    const openChecklistEditor = (checklist?: any) => {
+        setEditingChecklist(checklist || null);
+        setChecklistTitle(checklist?.title || '');
+        setChecklistCategory(checklist?.category_label || '');
+        setChecklistRole(checklist?.responsible_role_label || '');
+        setChecklistFrequency(checklist?.frequency || 'manual');
+        setChecklistItems((checklist?.run?.items || []).map((item: any) => item.label).join('\n'));
+        setChecklistModalVisible(true);
+    };
+
+    const handleSaveChecklistTemplate = async () => {
+        const items = checklistItems
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+        if (!checklistTitle.trim() || items.length === 0) {
+            Alert.alert('Checklist incompleto', 'Agrega un nombre y al menos un item.');
+            return;
+        }
+
+        try {
+            await saveChecklistTemplate({
+                checklistId: editingChecklist?.id || null,
+                title: checklistTitle.trim(),
+                categoryLabel: checklistCategory.trim() || null,
+                responsibleRoleLabel: checklistRole.trim() || null,
+                frequency: checklistFrequency,
+                items,
+            });
+            setChecklistModalVisible(false);
+            setEditingChecklist(null);
+            setChecklistTitle('');
+            setChecklistCategory('');
+            setChecklistRole('');
+            setChecklistItems('');
+        } catch (error: any) {
+            Alert.alert('Error', error?.response?.data?.error || 'No se pudo guardar el checklist');
+        }
+    };
+
+    const handleToggleAdmin = (member: any) => {
+        const nextRole = member.role === 'admin' ? 'member' : 'admin';
+        const actionLabel = nextRole === 'admin' ? 'nombrar administrador' : 'quitar permisos de administrador';
+        Alert.alert(
+            'Administradores',
+            `¿Quieres ${actionLabel} a ${member.full_name || member.email}?`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Confirmar',
+                    onPress: () => updateParticipantRole({ userId: member.id, role: nextRole }),
+                },
+            ]
+        );
     };
 
     const handleDeleteGroup = () => {
@@ -246,16 +321,26 @@ export default function ChatInfoScreen() {
     const renderMember = ({ item }: { item: any }) => (
         <View style={styles.memberRow}>
             <View style={styles.memberAvatar}>
-                {item.avatarUrl ? (
-                    <Image source={{ uri: item.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                {item.avatar_url ? (
+                    <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%' }} />
                 ) : (
                     <Text style={styles.memberInitials}>{item.email.substring(0, 2).toUpperCase()}</Text>
                 )}
             </View>
             <View style={styles.memberInfo}>
-                <Text style={styles.memberEmail}>{item.email}</Text>
-                {item.id === adminId && <Text style={styles.adminBadge}>Admin</Text>}
+                <Text style={styles.memberEmail}>{item.full_name || item.email}</Text>
+                <Text style={styles.memberSubline}>{item.email}</Text>
+                {item.role === 'admin' && <Text style={styles.adminBadge}>Admin</Text>}
             </View>
+            {isAdmin && item.id !== user?.id && (
+                <TouchableOpacity
+                    style={[styles.memberRoleBtn, isUpdatingParticipantRole && { opacity: 0.6 }]}
+                    onPress={() => handleToggleAdmin(item)}
+                    disabled={isUpdatingParticipantRole}
+                >
+                    <Text style={styles.memberRoleBtnText}>{item.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</Text>
+                </TouchableOpacity>
+            )}
         </View>
     );
 
@@ -349,8 +434,28 @@ export default function ChatInfoScreen() {
                 </Text>
             </View>
 
+            {isGroup && (
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Recursos del grupo</Text>
+                    <View style={styles.resourceTabs}>
+                        <TouchableOpacity
+                            style={[styles.resourceTab, infoTab === 'files' && styles.resourceTabActive]}
+                            onPress={() => setInfoTab('files')}
+                        >
+                            <Text style={[styles.resourceTabText, infoTab === 'files' && styles.resourceTabTextActive]}>Archivos</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.resourceTab, infoTab === 'checklists' && styles.resourceTabActive]}
+                            onPress={() => setInfoTab('checklists')}
+                        >
+                            <Text style={[styles.resourceTabText, infoTab === 'checklists' && styles.resourceTabTextActive]}>Checklists</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
+
             {/* Visual Media Section (Images & Videos) */}
-            {mediaFiles.images.length > 0 && (
+            {infoTab === 'files' && mediaFiles.images.length > 0 && (
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Fotos y Videos</Text>
                     <FlatList
@@ -393,7 +498,7 @@ export default function ChatInfoScreen() {
             )}
 
             {/* Documents Section */}
-            {mediaFiles.docs.length > 0 && (
+            {infoTab === 'files' && mediaFiles.docs.length > 0 && (
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Documentos</Text>
                     {mediaFiles.docs.map(docMsg => {
@@ -424,7 +529,7 @@ export default function ChatInfoScreen() {
             )}
 
             {/* Audios Section */}
-            {mediaFiles.audios.length > 0 && (
+            {infoTab === 'files' && mediaFiles.audios.length > 0 && (
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Notas de Voz</Text>
                     {mediaFiles.audios.map((audioMsg: any) => {
@@ -442,10 +547,53 @@ export default function ChatInfoScreen() {
             )}
 
             {/* Empty Media State */}
-            {!isMediaLoading && mediaFiles.images.length === 0 && mediaFiles.docs.length === 0 && mediaFiles.audios.length === 0 && (
+            {infoTab === 'files' && !isMediaLoading && mediaFiles.images.length === 0 && mediaFiles.docs.length === 0 && mediaFiles.audios.length === 0 && (
                 <View style={styles.emptyMedia}>
                     <Ionicons name="images-outline" size={48} color="#9ca3af" />
                     <Text style={styles.emptyMediaText}>No hay archivos compartidos aún</Text>
+                </View>
+            )}
+
+            {isGroup && infoTab === 'checklists' && (
+                <View style={styles.section}>
+                    <View style={styles.checklistHeaderRow}>
+                        <Text style={styles.sectionTitle}>Checklists del grupo</Text>
+                        {isAdmin && (
+                            <TouchableOpacity style={styles.newChecklistBtn} onPress={() => openChecklistEditor()}>
+                                <Ionicons name="add" size={16} color="white" />
+                                <Text style={styles.newChecklistBtnText}>Nuevo</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    {operationState?.checklists?.length ? (
+                        operationState.checklists.map((list: any) => (
+                            <TouchableOpacity
+                                key={list.id}
+                                style={styles.checklistCard}
+                                activeOpacity={0.85}
+                                onPress={() => isAdmin && openChecklistEditor(list)}
+                            >
+                                <View style={styles.checklistCardHeader}>
+                                    <Text style={styles.checklistCardTitle}>{list.title}</Text>
+                                    <Text style={styles.checklistCardCount}>{list.run?.items?.length || 0} items</Text>
+                                </View>
+                                <Text style={styles.checklistCardMeta}>
+                                    {list.category_label || 'General'} · {list.responsible_role_label || 'Sin rol'} · {list.frequency || 'manual'}
+                                </Text>
+                                {list.run?.items?.length ? (
+                                    <Text style={styles.checklistCardSubtext} numberOfLines={2}>
+                                        {list.run.items.map((item: any) => item.label).join(' · ')}
+                                    </Text>
+                                ) : null}
+                            </TouchableOpacity>
+                        ))
+                    ) : (
+                        <View style={styles.emptyMedia}>
+                            <Ionicons name="checkmark-done-outline" size={44} color="#9ca3af" />
+                            <Text style={styles.emptyMediaText}>Aún no hay checklists creados en este grupo</Text>
+                        </View>
+                    )}
                 </View>
             )}
 
@@ -475,6 +623,69 @@ export default function ChatInfoScreen() {
                     </Text>
                 </TouchableOpacity>
             )}
+
+            <Modal visible={checklistModalVisible} transparent animationType="slide" onRequestClose={() => setChecklistModalVisible(false)}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.checklistModalCard}>
+                        <View style={styles.modalHeaderRow}> 
+                            <Text style={styles.modalTitleText}>{editingChecklist ? 'Editar checklist' : 'Nuevo checklist'}</Text>
+                            <TouchableOpacity onPress={() => setChecklistModalVisible(false)}>
+                                <Ionicons name="close" size={24} color="#64748b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="Nombre del checklist"
+                            value={checklistTitle}
+                            onChangeText={setChecklistTitle}
+                        />
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="Categoría (ej. Mantención)"
+                            value={checklistCategory}
+                            onChangeText={setChecklistCategory}
+                        />
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="Rol responsable (ej. Maquinista)"
+                            value={checklistRole}
+                            onChangeText={setChecklistRole}
+                        />
+
+                        <View style={styles.frequencyRow}>
+                            {(['manual', 'daily', 'shift'] as const).map((frequency) => (
+                                <TouchableOpacity
+                                    key={frequency}
+                                    style={[styles.frequencyChip, checklistFrequency === frequency && styles.frequencyChipActive]}
+                                    onPress={() => setChecklistFrequency(frequency)}
+                                >
+                                    <Text style={[styles.frequencyChipText, checklistFrequency === frequency && styles.frequencyChipTextActive]}>
+                                        {frequency === 'manual' ? 'Manual' : frequency === 'daily' ? 'Diario' : 'Por turno'}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <TextInput
+                            style={styles.modalTextArea}
+                            placeholder="Un item por línea"
+                            value={checklistItems}
+                            onChangeText={setChecklistItems}
+                            multiline
+                            textAlignVertical="top"
+                        />
+
+                        <TouchableOpacity
+                            style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
+                            onPress={handleSaveChecklistTemplate}
+                            disabled={isSavingChecklist}
+                        >
+                            <Text style={styles.saveChecklistBtnText}>{isSavingChecklist ? 'Guardando...' : 'Guardar checklist'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Fullscreen Media Viewer */}
             <Modal visible={!!viewerMedia} transparent={true} animationType="fade">
@@ -666,6 +877,85 @@ const styles = StyleSheet.create({
         lineHeight: 18,
         color: '#64748b',
     },
+    resourceTabs: {
+        flexDirection: 'row',
+        backgroundColor: '#e2e8f0',
+        borderRadius: 12,
+        padding: 4,
+        gap: 4,
+    },
+    resourceTab: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    resourceTabActive: {
+        backgroundColor: '#2563eb',
+    },
+    resourceTabText: {
+        fontWeight: '700',
+        color: '#475569',
+    },
+    resourceTabTextActive: {
+        color: 'white',
+    },
+    checklistHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    newChecklistBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#2563eb',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 10,
+    },
+    newChecklistBtnText: {
+        color: 'white',
+        fontWeight: '700',
+        fontSize: 12,
+    },
+    checklistCard: {
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 10,
+        backgroundColor: '#f8fafc',
+    },
+    checklistCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+    },
+    checklistCardTitle: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#111827',
+    },
+    checklistCardCount: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#2563eb',
+    },
+    checklistCardMeta: {
+        marginTop: 6,
+        fontSize: 12,
+        color: '#64748b',
+    },
+    checklistCardSubtext: {
+        marginTop: 8,
+        fontSize: 12,
+        color: '#475569',
+        lineHeight: 18,
+    },
     mediaItem: {
         width: 70, height: 70, borderRadius: 8, backgroundColor: '#f3f4f6',
         marginRight: 8, overflow: 'hidden', justifyContent: 'center', alignItems: 'center'
@@ -761,7 +1051,15 @@ const styles = StyleSheet.create({
     memberInitials: { fontSize: 16, fontWeight: '700', color: 'white' },
     memberInfo: { flex: 1 },
     memberEmail: { fontSize: 16, fontWeight: '500', color: '#111827' },
+    memberSubline: { fontSize: 12, color: '#6b7280', marginTop: 2 },
     adminBadge: { fontSize: 12, color: '#10b981', fontWeight: 'bold', marginTop: 2 },
+    memberRoleBtn: {
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 10,
+        backgroundColor: '#eff6ff',
+    },
+    memberRoleBtnText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
 
     deleteBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -770,6 +1068,86 @@ const styles = StyleSheet.create({
     deleteBtnText: { color: '#ef4444', fontWeight: '600', fontSize: 16 },
     emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, opacity: 0.6 },
     emptyMediaText: { marginTop: 12, color: '#6b7280', fontSize: 14, fontWeight: '500' },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.35)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    checklistModalCard: {
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 20,
+        width: '100%',
+        maxWidth: 440,
+    },
+    modalHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    modalTitleText: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#111827',
+    },
+    modalInput: {
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        fontSize: 15,
+        marginBottom: 10,
+        color: '#111827',
+    },
+    modalTextArea: {
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        fontSize: 15,
+        minHeight: 140,
+        color: '#111827',
+        marginBottom: 14,
+    },
+    frequencyRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 12,
+    },
+    frequencyChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: '#f3f4f6',
+    },
+    frequencyChipActive: {
+        backgroundColor: '#dbeafe',
+    },
+    frequencyChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    frequencyChipTextActive: {
+        color: '#2563eb',
+    },
+    saveChecklistBtn: {
+        backgroundColor: '#2563eb',
+        borderRadius: 14,
+        paddingVertical: 14,
+        alignItems: 'center',
+    },
+    saveChecklistBtnText: {
+        color: 'white',
+        fontWeight: '700',
+        fontSize: 15,
+    },
 
     menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     menuContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },

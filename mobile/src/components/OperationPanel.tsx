@@ -26,7 +26,6 @@ interface OperationPanelProps {
     openTasksCount?: number;
     onOpenPinnedMessage: (messageId: string) => void;
     onClearPinnedMessage: () => void;
-    onSaveChecklist: (data: { checklistId?: string | null; title: string; items: string[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => Promise<any> | void;
     onToggleChecklistItem: (itemId: string, result: 'good' | 'regular' | 'bad' | 'na' | null) => void;
     onCommitmentAction: (payload: {
         action: 'acknowledged' | 'arrived' | 'completed';
@@ -153,26 +152,15 @@ function ChecklistSheet({
     checklist,
     selectedChecklistId,
     onSelectChecklist,
-    onCreateNew,
-    checklistTitle,
-    checklistItemsText,
-    setChecklistTitle,
-    setChecklistItemsText,
     onClose,
-    onSave,
     onToggleChecklistItem,
 }: any) {
-    const [isEditingTemplate, setIsEditingTemplate] = useState(!checklist);
     const resultOptions = [
         { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
         { key: 'regular', label: 'Regular', color: '#92400e', bg: '#fef3c7' },
         { key: 'bad', label: 'Malo', color: '#991b1b', bg: '#fee2e2' },
         { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
     ] as const;
-
-    useEffect(() => {
-        setIsEditingTemplate(!checklist);
-    }, [checklist, visible]);
 
     return (
         <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
@@ -196,9 +184,6 @@ function ChecklistSheet({
                                 <View style={styles.sheetSection}>
                                     <View style={styles.sheetSectionHeader}>
                                         <Text style={styles.sheetSectionTitle}>Plantillas</Text>
-                                        <TouchableOpacity onPress={onCreateNew}>
-                                            <Text style={styles.sheetLink}>Nueva</Text>
-                                        </TouchableOpacity>
                                     </View>
                                     <View style={styles.templateRow}>
                                         {checklists.map((list: any) => (
@@ -218,12 +203,7 @@ function ChecklistSheet({
 
                             {checklist?.run?.items?.length ? (
                                 <View style={styles.sheetSection}>
-                                    <View style={styles.sheetSectionHeader}>
-                                        <Text style={styles.sheetSectionTitle}>Checklist de hoy</Text>
-                                        <TouchableOpacity onPress={() => setIsEditingTemplate((value) => !value)}>
-                                            <Text style={styles.sheetLink}>{isEditingTemplate ? 'Cerrar edición' : 'Editar lista'}</Text>
-                                        </TouchableOpacity>
-                                    </View>
+                                    <Text style={styles.sheetSectionTitle}>Checklist de hoy</Text>
 
                                     {checklist.run.items.map((item: any) => (
                                         <View key={item.id} style={styles.sheetCheckCard}>
@@ -264,32 +244,12 @@ function ChecklistSheet({
                                         </View>
                                     ))}
                                 </View>
-                            ) : null}
-
-                            {isEditingTemplate ? (
+                            ) : (
                                 <View style={styles.sheetSection}>
-                                    <Text style={styles.sheetSectionTitle}>{checklist ? 'Actualizar plantilla' : 'Crear checklist'}</Text>
-                                    <TextInput
-                                        value={checklistTitle}
-                                        onChangeText={setChecklistTitle}
-                                        placeholder="Titulo"
-                                        style={styles.input}
-                                        placeholderTextColor="#94a3b8"
-                                    />
-                                    <TextInput
-                                        value={checklistItemsText}
-                                        onChangeText={setChecklistItemsText}
-                                        placeholder="Un item por linea"
-                                        style={[styles.input, styles.textArea]}
-                                        placeholderTextColor="#94a3b8"
-                                        multiline
-                                        textAlignVertical="top"
-                                    />
-                                    <TouchableOpacity style={styles.primaryButton} onPress={onSave}>
-                                        <Text style={styles.primaryButtonText}>Guardar checklist</Text>
-                                    </TouchableOpacity>
+                                    <Text style={styles.sheetSectionTitle}>Checklist</Text>
+                                    <Text style={styles.sheetHintText}>Este grupo todavía no tiene una plantilla disponible. Pide a un administrador que la cree desde la información del grupo.</Text>
                                 </View>
-                            ) : null}
+                            )}
                         </ScrollView>
                     </View>
                 </KeyboardAvoidingView>
@@ -307,7 +267,6 @@ export function OperationPanel({
     openTasksCount = 0,
     onOpenPinnedMessage,
     onClearPinnedMessage,
-    onSaveChecklist,
     onToggleChecklistItem,
     onCommitmentAction,
     onClearActiveCommitment,
@@ -315,20 +274,16 @@ export function OperationPanel({
     feedbackMessage = null,
 }: OperationPanelProps) {
     const [showChecklistModal, setShowChecklistModal] = useState(false);
-    const [checklistTitle, setChecklistTitle] = useState(checklist?.title || 'Checklist diario');
-    const [checklistItemsText, setChecklistItemsText] = useState('');
     const [isExpanded, setIsExpanded] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [completionNote, setCompletionNote] = useState('');
     const [completionOutcome, setCompletionOutcome] = useState<'resolved' | 'pending_followup' | 'needs_review'>('resolved');
     const [selectedChecklistId, setSelectedChecklistId] = useState<string | null>(checklist?.id || null);
-    const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
 
     const state = useMemo(() => getOperationState(activeCommitment), [activeCommitment]);
     const selectedChecklist = useMemo(() => {
-        if (isCreatingChecklist) return null;
         return checklists.find((item: any) => item.id === selectedChecklistId) || checklist || checklists[0] || null;
-    }, [checklists, selectedChecklistId, checklist, isCreatingChecklist]);
+    }, [checklists, selectedChecklistId, checklist]);
     const primaryActionLabel = state.key === 'ready'
         ? 'Dar inicio'
         : pendingAction === 'acknowledged'
@@ -342,44 +297,16 @@ export function OperationPanel({
     }, [selectedChecklist]);
 
     useEffect(() => {
-        if (checklists.length > 0 && !selectedChecklistId && !isCreatingChecklist) {
+        if (checklists.length > 0 && !selectedChecklistId) {
             setSelectedChecklistId(checklists[0].id);
         }
-    }, [checklists, selectedChecklistId, isCreatingChecklist]);
-
-    useEffect(() => {
-        if (!selectedChecklist) {
-            setChecklistTitle('Checklist diario');
-            setChecklistItemsText('');
-            return;
-        }
-
-        setChecklistTitle(selectedChecklist.title || 'Checklist diario');
-        setChecklistItemsText((selectedChecklist.run?.items || []).map((item: any) => item.label).join('\n'));
-    }, [selectedChecklist]);
+    }, [checklists, selectedChecklistId]);
 
     useEffect(() => {
         if (pendingAction || feedbackMessage) {
             setIsExpanded(true);
         }
     }, [pendingAction, feedbackMessage]);
-
-    const saveChecklist = async () => {
-        const items = checklistItemsText
-            .split('\n')
-            .map((item) => item.trim())
-            .filter(Boolean);
-
-        if (!items.length) return;
-
-        await onSaveChecklist({
-            checklistId: isCreatingChecklist ? null : selectedChecklist?.id || null,
-            title: checklistTitle.trim() || 'Checklist diario',
-            items,
-        });
-        setIsCreatingChecklist(false);
-        setShowChecklistModal(false);
-    };
 
     const handleConfirmCompletion = () => {
         onCommitmentAction({
@@ -507,20 +434,8 @@ export function OperationPanel({
                 selectedChecklistId={selectedChecklistId}
                 onSelectChecklist={(id: string) => {
                     setSelectedChecklistId(id);
-                    setIsCreatingChecklist(false);
                 }}
-                onCreateNew={() => {
-                    setSelectedChecklistId(null);
-                    setChecklistTitle('Checklist diario');
-                    setChecklistItemsText('');
-                    setIsCreatingChecklist(true);
-                }}
-                checklistTitle={checklistTitle}
-                checklistItemsText={checklistItemsText}
-                setChecklistTitle={setChecklistTitle}
-                setChecklistItemsText={setChecklistItemsText}
                 onClose={() => setShowChecklistModal(false)}
-                onSave={saveChecklist}
                 onToggleChecklistItem={onToggleChecklistItem}
             />
 
@@ -825,6 +740,11 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '700',
         color: '#0f172a',
+    },
+    sheetHintText: {
+        fontSize: 13,
+        lineHeight: 19,
+        color: '#64748b',
     },
     sheetLink: {
         fontSize: 12,

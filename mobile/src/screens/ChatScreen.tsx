@@ -13,7 +13,6 @@ import {
     useConversationGroupTasks,
     useCreateCommitment,
     useConversationOperationState,
-    useSaveOperationChecklist,
     useToggleOperationChecklistItem,
     useCommitmentOperationAction,
     useSetPinnedMessage,
@@ -113,7 +112,6 @@ export default function ChatScreen({ navigation }: any) {
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
     const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
     const { mutate: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
-    const { mutateAsync: saveChecklist } = useSaveOperationChecklist(conversationId);
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
     const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
@@ -465,7 +463,6 @@ export default function ChatScreen({ navigation }: any) {
                             openTasksCount={openOperationTasks.length}
                             onOpenPinnedMessage={scrollToMessage}
                             onClearPinnedMessage={handleClearPinnedMessage}
-                            onSaveChecklist={saveChecklist}
                             onToggleChecklistItem={(itemId, result) => toggleChecklistItem({ id: itemId, result })}
                             onCommitmentAction={handleOperationAction}
                             onClearActiveCommitment={handleClearActiveCommitment}

@@ -64,6 +64,7 @@ router.post('/conversations/:id/ping', requireAuth, conversationController.pingC
 router.post('/groups', requireAuth, validateRequest(groupSchema.createGroupSchema), groupController.createGroup);
 router.patch('/groups/:id', requireAuth, validateRequest(groupSchema.updateGroupSchema), groupController.updateGroup);
 router.post('/groups/:id/participants', requireAuth, validateRequest(groupSchema.addParticipantsSchema), groupController.addParticipants);
+router.patch('/groups/:id/participants/:userId/role', requireAuth, validateRequest(groupSchema.updateParticipantRoleSchema), groupController.updateParticipantRole);
 router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 
 // Legacy self-chat message routes (kept for backward compatibility)

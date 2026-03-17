@@ -32,3 +32,13 @@ export const deleteGroupSchema = z.object({
         id: z.string().uuid()
     })
 });
+
+export const updateParticipantRoleSchema = z.object({
+    params: z.object({
+        id: z.string().uuid(),
+        userId: z.string().uuid(),
+    }),
+    body: z.object({
+        role: z.enum(['member', 'admin'])
+    })
+});

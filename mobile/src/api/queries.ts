@@ -347,6 +347,18 @@ export const useConversationOperationState = (conversationId: string | null) => 
     });
 };
 
+export const useGroupParticipants = (conversationId: string | null) => {
+    return useQuery({
+        queryKey: ['group-participants', conversationId],
+        queryFn: async () => {
+            if (!conversationId) return [];
+            const response = await apiClient.get(`/conversations/${conversationId}/participants`);
+            return response.data || [];
+        },
+        enabled: !!conversationId,
+    });
+};
+
 export const useUpdateConversationMode = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -533,6 +545,19 @@ export const useAddGroupParticipants = (conversationId: string) => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
             queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['group-participants', conversationId] });
+        },
+    });
+};
+
+export const useUpdateGroupParticipantRole = (conversationId: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ userId, role }: { userId: string; role: 'member' | 'admin' }) =>
+            apiClient.patch(`/groups/${conversationId}/participants/${userId}/role`, { role }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['group-participants', conversationId] });
         },
     });
 };
