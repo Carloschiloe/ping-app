@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole } from '../api/queries';
@@ -344,8 +344,17 @@ export default function ChatInfoScreen() {
         </View>
     );
 
+    const checklistCategorySuggestions = ['Mantención', 'Prevención', 'Seguridad', 'Patrón'];
+    const checklistRoleSuggestions = ['Maquinista', 'Patrón', 'Jefe de plataforma', 'Todos'];
+    const checklistItemSuggestions = [
+        'Revisar estado general motor',
+        'Revisar correas',
+        'Revisar nivel de aceite',
+        'Registrar observaciones',
+    ];
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
             {/* Header / Avatar */}
             <View style={styles.header}>
                 <TouchableOpacity
@@ -599,14 +608,11 @@ export default function ChatInfoScreen() {
 
             {/* Participants (Only for Groups) */}
             {isGroup && (
-                <View style={[styles.section, { flex: 1 }]}>
+                <View style={styles.section}> 
                     <Text style={styles.sectionTitle}>{members.length} Integrantes</Text>
-                    <FlatList
-                        data={members}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderMember}
-                        showsVerticalScrollIndicator={false}
-                    />
+                    {members.map((member: any) => (
+                        <View key={member.id}>{renderMember({ item: member })}</View>
+                    ))}
                 </View>
             )}
 
@@ -646,12 +652,26 @@ export default function ChatInfoScreen() {
                             value={checklistCategory}
                             onChangeText={setChecklistCategory}
                         />
+                        <View style={styles.suggestionRow}>
+                            {checklistCategorySuggestions.map((suggestion) => (
+                                <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistCategory(suggestion)}>
+                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
                         <TextInput
                             style={styles.modalInput}
                             placeholder="Rol responsable (ej. Maquinista)"
                             value={checklistRole}
                             onChangeText={setChecklistRole}
                         />
+                        <View style={styles.suggestionRow}>
+                            {checklistRoleSuggestions.map((suggestion) => (
+                                <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistRole(suggestion)}>
+                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
 
                         <View style={styles.frequencyRow}>
                             {(['manual', 'daily', 'shift'] as const).map((frequency) => (
@@ -675,6 +695,18 @@ export default function ChatInfoScreen() {
                             multiline
                             textAlignVertical="top"
                         />
+                        <Text style={styles.modalHelperText}>Sugerencias rápidas</Text>
+                        <View style={styles.suggestionRow}>
+                            {checklistItemSuggestions.map((suggestion) => (
+                                <TouchableOpacity
+                                    key={suggestion}
+                                    style={styles.suggestionChip}
+                                    onPress={() => setChecklistItems((prev) => prev ? `${prev}\n${suggestion}` : suggestion)}
+                                >
+                                    <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
 
                         <TouchableOpacity
                             style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
@@ -800,12 +832,13 @@ export default function ChatInfoScreen() {
                     </View>
                 </TouchableOpacity>
             </Modal>
-        </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f3f4f6' },
+    contentContainer: { paddingBottom: 40 },
     header: {
         alignItems: 'center',
         backgroundColor: 'white',
@@ -1147,6 +1180,29 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '700',
         fontSize: 15,
+    },
+    modalHelperText: {
+        fontSize: 12,
+        color: '#64748b',
+        marginBottom: 8,
+        fontWeight: '600',
+    },
+    suggestionRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 12,
+    },
+    suggestionChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: '#eff6ff',
+    },
+    suggestionChipText: {
+        color: '#2563eb',
+        fontSize: 12,
+        fontWeight: '700',
     },
 
     menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
