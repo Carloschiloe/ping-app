@@ -1,19 +1,16 @@
 import { app } from './app';
 import { checkDueCommitments } from './services/push.service';
 import { startMorningRoutineCron } from './services/morningRoutine.service';
+import { getEnvConfig, validateEnvironment } from './config/env';
 
-const PORT = process.env.PORT || 3000;
-
-// Env check
-const requiredEnvs = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
-const missingEnvs = requiredEnvs.filter(env => !process.env[env]);
-
-if (missingEnvs.length > 0) {
-    console.error('❌ ERROR FATAL: Faltan las siguientes variables de entorno:');
-    missingEnvs.forEach(env => console.error(`   - ${env}`));
-    console.error('\nPor favor, crea un archivo .env en la carpeta /backend o configúralas en tu entorno.\n');
+try {
+    validateEnvironment();
+} catch (error: any) {
+    console.error('❌ ERROR FATAL:', error.message);
     process.exit(1);
 }
+
+const env = getEnvConfig();
 
 // Ensure the pushing cron job runs every 60 seconds
 setInterval(() => {
@@ -23,6 +20,6 @@ setInterval(() => {
 // Phase 24: Start morning routine cron job (runs daily at 8 AM Santiago time)
 startMorningRoutineCron();
 
-app.listen(PORT, () => {
-    console.log(`✅ PING Backend listening on port ${PORT}`);
+app.listen(env.port, () => {
+    console.log(`✅ PING Backend listening on port ${env.port} (${env.nodeEnv})`);
 });

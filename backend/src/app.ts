@@ -6,15 +6,14 @@ import rateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
+import { getEnvConfig } from './config/env';
+import { requestLogger } from './middleware/requestLogger';
 
 dotenv.config();
 
 export const app = express();
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const env = getEnvConfig();
 
 app.use((req, res, next) => {
   const requestId = randomUUID();
@@ -23,13 +22,16 @@ app.use((req, res, next) => {
   next();
 });
 
+app.set('trust proxy', 1);
+app.use(requestLogger);
+
 app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (!origin || env.allowedOrigins.length === 0 || env.allowedOrigins.includes(origin)) {
       callback(null, true);
       return;
     }
@@ -46,6 +48,7 @@ app.use(rateLimit({
 }));
 
 app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Main router
 app.use('/api', router);
