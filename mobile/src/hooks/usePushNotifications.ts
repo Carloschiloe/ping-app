@@ -24,11 +24,8 @@ const doNavigate = (navigationRef: any, data: any) => {
 
     const nav = navigationRef?.current ?? navigationRef;
     if (!nav) {
-        console.warn('[CallNav] navigationRef is null');
         return;
     }
-
-    console.log('[CallNav] Navigating to IncomingCall with:', data.conversationId);
 
     // Small delay to ensure navigator is mounted
     setTimeout(() => {
@@ -40,8 +37,8 @@ const doNavigate = (navigationRef: any, data: any) => {
                 callerAvatar: data.callerAvatar || null,
                 callId: data.callId || null,
             });
-        } catch (e: any) {
-            console.error('[CallNav] navigate error:', e.message);
+        } catch {
+            // noop
         }
     }, 300);
 };
@@ -57,7 +54,6 @@ export const usePushNotifications = (navigationRef?: any) => {
         // Register push token
         registerPushToken().then(token => {
             if (token) {
-                console.log('[Push] Registered token:', token.slice(0, 30) + '...');
                 apiClient.post('/push/token', { token }).catch(e =>
                     console.warn('[Push] Token save failed:', e?.message)
                 );
@@ -67,7 +63,6 @@ export const usePushNotifications = (navigationRef?: any) => {
         // FOREGROUND: navigate immediately when call notification arrives
         notifRef.current = Notifications.addNotificationReceivedListener(notification => {
             const data = notification.request.content.data as any;
-            console.log('[Push] Foreground notification type:', data?.type);
             if (data?.type === 'incoming_call') {
                 doNavigate(navigationRef, data);
             }
@@ -76,7 +71,6 @@ export const usePushNotifications = (navigationRef?: any) => {
         // BACKGROUND/KILLED: user tapped the notification banner
         responseRef.current = Notifications.addNotificationResponseReceivedListener(response => {
             const data = response.notification.request.content.data as any;
-            console.log('[Push] Notification tapped, type:', data?.type);
             if (data?.type === 'incoming_call') {
                 doNavigate(navigationRef, data);
             }

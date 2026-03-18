@@ -60,22 +60,16 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
 
         channel
             .on('broadcast', { event: 'hangup' }, () => {
-                console.log('[IncomingCall] Received hangup broadcast from caller');
                 handleDecline();
             })
-            .subscribe((status) => {
-                console.log(`[IncomingCall] Realtime status: ${status}`);
-            });
+            .subscribe();
 
         channelRef.current = channel;
 
         return () => {
             Vibration.cancel();
-            console.log('[IncomingCall] Cleaning up channel...');
             if (channelRef.current) {
-                supabase.removeChannel(channelRef.current).then(() => {
-                    console.log('[IncomingCall] Channel removed.');
-                });
+                supabase.removeChannel(channelRef.current);
             }
         };
     }, []);
@@ -98,7 +92,6 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
 
         // Tell the caller we declined/hung up
         if (channelRef.current) {
-            console.log('[IncomingCall] Sending decline/hangup broadcast...');
             try {
                 await channelRef.current.send({
                     type: 'broadcast',

@@ -24,9 +24,8 @@ export async function scheduleCommitmentReminder(commitment: { id: string, title
             },
             trigger: { date: reminderDate } as any,
         });
-        console.log(`[Notifications] Scheduled reminder for ${commitment.id} at ${reminderDate.toISOString()}`);
     } catch (error) {
-        console.warn('[Notifications] Error scheduling:', error);
+        console.warn('[Notifications] Error scheduling');
     }
 }
 

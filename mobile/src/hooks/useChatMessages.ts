@@ -23,7 +23,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             });
             return true;
         } catch (e) {
-            console.warn('[ChatMessages] Sync failed:', e);
+            console.warn('[ChatMessages] Sync failed');
             return false;
         }
     }, []);
@@ -45,11 +45,6 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     const messages = useMemo(() => {
         const serverMessages = infiniteData?.pages.flatMap(page => page.messages) || [];
         
-        if (serverMessages.length > 0) {
-            const mediaSample = serverMessages.filter(m => m.text?.startsWith('[')).length;
-            console.warn(`[DEBUG-HOOK] Conv: ${conversationId.substring(0,8)} | Msgs: ${serverMessages.length} | Media-ish: ${mediaSample}`);
-        }
-
         // Filter queue messages for THIS conversation
         const pendingForThisConv = queue
             .filter(q => q.conversationId === conversationId)
@@ -83,7 +78,6 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                     !isConnected;
 
                 if (isNetworkError) {
-                    console.log('[ChatMessages] Network error detected, adding to offline queue');
                     addToQueue({
                         id: `offline-${Date.now()}`,
                         conversationId,
@@ -149,9 +143,6 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                     };
                 });
 
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
-                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
             })
             .on('postgres_changes', {
                 event: '*',
@@ -177,15 +168,13 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 table: 'message_reactions'
             }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             })
             .on('postgres_changes', {
                 event: 'UPDATE',
                 schema: 'public',
                 table: 'messages',
                 filter: `conversation_id=eq.${conversationId}`
-            }, (payload) => {
-                console.warn('[DEBUG-REALTIME] Message UPDATE received. ID:', payload.new.id, 'Meta:', JSON.stringify(payload.new.meta));
+            }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
             })
@@ -194,33 +183,39 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 schema: 'public',
                 table: 'commitments'
             }, (payload: any) => {
-                console.warn('[DEBUG-REALTIME] Commitment CHANGE received:', payload.eventType, 'Status:', payload.new?.status);
-                if (payload.new?.group_conversation_id === conversationId) {
+                const currentPayload = payload.new || payload.old;
+                if (currentPayload?.group_conversation_id === conversationId) {
                     queryClient.setQueriesData({ queryKey: ['group-tasks-conv', conversationId] }, (old: any) => {
                         if (!Array.isArray(old)) return old;
-                        const exists = old.some((task: any) => task.id === payload.new.id);
-                        if (!exists && payload.eventType === 'INSERT') {
+                        const exists = old.some((task: any) => task.id === currentPayload.id);
+                        if (!exists && payload.eventType === 'INSERT' && payload.new) {
                             return [payload.new, ...old];
                         }
 
-                        return old.map((task: any) => task.id === payload.new.id ? { ...task, ...payload.new, meta: payload.new.meta ?? task.meta } : task);
+                        if (payload.eventType === 'DELETE') {
+                            return old.filter((task: any) => task.id !== currentPayload.id);
+                        }
+
+                        return old.map((task: any) => task.id === currentPayload.id ? { ...task, ...payload.new, meta: payload.new?.meta ?? task.meta } : task);
                     });
 
                     queryClient.setQueryData(['conversation-operation-state', conversationId], (old: any) => {
-                        if (!old?.activeCommitment || old.activeCommitment.id !== payload.new.id) return old;
+                        if (!old?.activeCommitment || old.activeCommitment.id !== currentPayload.id) return old;
+                        if (payload.eventType === 'DELETE') {
+                            return { ...old, activeCommitment: null };
+                        }
                         return {
                             ...old,
                             activeCommitment: {
                                 ...old.activeCommitment,
                                 ...payload.new,
-                                meta: payload.new.meta ?? old.activeCommitment.meta,
+                                meta: payload.new?.meta ?? old.activeCommitment.meta,
                             },
                         };
                     });
                 }
-                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
-                queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['insights'] });
             })
             .subscribe();
 

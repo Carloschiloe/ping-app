@@ -30,10 +30,7 @@ const CallScreen = ({ route, navigation }: any) => {
         return () => {
             // Cleanup Realtime channel on unmount
             if (channelRef.current) {
-                console.log('[CallScreen] Removing channel...');
-                supabase.removeChannel(channelRef.current).then(() => {
-                    console.log('[CallScreen] Channel removed.');
-                });
+                supabase.removeChannel(channelRef.current);
             }
         };
     }, []);
@@ -46,7 +43,6 @@ const CallScreen = ({ route, navigation }: any) => {
 
         channel
             .on('broadcast', { event: 'hangup' }, () => {
-                console.log('[Realtime] Received hangup broadcast from other party');
                 // Other party hung up
                 if (!isHangingUp.current) {
                     isHangingUp.current = true;
@@ -54,9 +50,7 @@ const CallScreen = ({ route, navigation }: any) => {
                     navigation.goBack();
                 }
             })
-            .subscribe((status) => {
-                console.log(`[Realtime] Call channel status for ${conversationId}: ${status}`);
-            });
+            .subscribe();
 
         channelRef.current = channel;
     };
@@ -77,24 +71,19 @@ const CallScreen = ({ route, navigation }: any) => {
                     });
                     if (response.callId) {
                         currentCallId.current = response.callId;
-                        console.log('[CallScreen] Call record created/assigned:', response.callId);
                         
                         // START RECORDING (Initiator only for now)
                         apiClient.post('/agora/recording/start', {
                             channelName: conversationId,
                             conversationId,
                             callId: response.callId
-                        }).then(recResp => {
-                            console.log('[CallScreen] Recording started SID:', recResp.sid);
                         }).catch(recErr => {
                             console.warn('[CallScreen] Recording failed to start:', recErr);
                         });
                     }
                 } catch (notifyErr) {
-                    console.log('[notifyCall] soft fail:', notifyErr);
+                    console.warn('[notifyCall] soft fail');
                 }
-            } else {
-                console.log('[CallScreen] Incoming call, skipping notify endpoint. callId:', currentCallId.current);
             }
         } catch (error: any) {
             Alert.alert('Error', 'No se pudo obtener el token de llamada: ' + error.message);
@@ -125,7 +114,6 @@ const CallScreen = ({ route, navigation }: any) => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
 
         // Signal to the other party via Supabase Realtime
-        console.log('[CallScreen] Sending hangup broadcast...');
         if (channelRef.current) {
             try {
                 await channelRef.current.send({
@@ -141,7 +129,6 @@ const CallScreen = ({ route, navigation }: any) => {
         // STOP RECORDING
         if (currentCallId.current) {
             apiClient.post(`/agora/recording/${currentCallId.current}/stop`, {})
-                .then(() => console.log('[CallScreen] Stop recording signal sent'))
                 .catch(err => console.error('[CallScreen] Stop recording failed:', err));
         }
 
@@ -175,7 +162,6 @@ const CallScreen = ({ route, navigation }: any) => {
                 onError={(e: any) => console.error('[WebView Error]', e.nativeEvent.description)}
                 onMessage={(event: any) => {
                     if (event.nativeEvent.data === 'hangup') {
-                        console.log('[CallScreen] Received hangup from WebView');
                         hangup();
                     }
                 }}

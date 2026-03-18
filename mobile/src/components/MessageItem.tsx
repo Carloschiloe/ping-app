@@ -55,20 +55,10 @@ const MessageItemComponent = ({
         );
     }
 
-    // DIAGNOSTIC LOG (Fase 27)
-    if (item.text && (item.text.startsWith('[') || item.text.includes('http'))) {
-        console.warn(`[DEBUG-MSG] ID: ${item.id.substring(0,8)} | Grp: ${isGroup} | Text: "${item.text.substring(0, 60)}..."`);
-    }
-
     const isSystem = item.meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
     const time = formatTime(item.created_at);
     const msgText: string = item.text || '';
-
-    // DIAGNOSTIC LOG (Fase 29)
-    if (msgText.startsWith('[') || msgText.includes('http')) {
-        console.warn(`[DEBUG-MSG] ID: ${item.id.substring(0,8)} | Grp: ${isGroup} | Prefix: ${msgText.substring(0, 15)}...`);
-    }
 
     if (isSystem) {
         const completion = item.meta?.operationCompletion;
@@ -400,7 +390,6 @@ const MessageItemComponent = ({
                         <TouchableOpacity
                             style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
                             onPress={() => {
-                                console.warn('[DEBUG-CHIP] Chip Pressed for:', item.id);
                                 onPress({ ...item, _isSuggestionTap: true });
                             }}
                             activeOpacity={0.7}

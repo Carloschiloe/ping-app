@@ -11,6 +11,8 @@ import { supabase } from '../lib/supabase';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { useQuery } from '@tanstack/react-query';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import type { ConversationsListScreenProps } from '../navigation/types';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -53,12 +55,13 @@ const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
     );
 };
 
-export default function ConversationsScreen({ navigation }: any) {
+export default function ConversationsScreen({ navigation }: ConversationsListScreenProps) {
     const { data, isLoading } = useConversations();
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
+    const debouncedSearchQuery = useDebouncedValue(searchQuery, 220);
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
 
@@ -69,20 +72,20 @@ export default function ConversationsScreen({ navigation }: any) {
     const { mutateAsync: createConversation } = useCreateConversation();
 
     const { data: searchData, isLoading: isSearchingGlobal } = useQuery({
-        queryKey: ['global-search', searchQuery],
+        queryKey: ['global-search', debouncedSearchQuery],
         queryFn: async () => {
-            if (!searchQuery || searchQuery.length <= 1) return null;
+            if (!debouncedSearchQuery || debouncedSearchQuery.length <= 1) return null;
             const { data: { session } } = await supabase.auth.getSession();
-            const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(searchQuery)}`, {
+            const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(debouncedSearchQuery)}`, {
                 headers: { 'Authorization': `Bearer ${session?.access_token}` }
             });
             if (!res.ok) throw new Error('Global search failed');
             return res.json();
         },
-        enabled: searchQuery.length > 1,
+        enabled: debouncedSearchQuery.length > 1,
     });
 
-    const isGlobalSearchActive = searchQuery.length > 1;
+    const isGlobalSearchActive = debouncedSearchQuery.length > 1;
 
     React.useEffect(() => {
         if (!rawConversations.length || !user) return;
@@ -118,7 +121,7 @@ export default function ConversationsScreen({ navigation }: any) {
     const filteredConversations = React.useMemo(() => {
         return rawConversations.filter((c: any) => {
             const name = (c.isGroup ? c.groupMetadata?.name : (c.otherUser?.full_name || c.otherUser?.email)) || '';
-            const nameMatch = name.toLowerCase().includes(searchQuery.toLowerCase());
+            const nameMatch = name.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
             if (!nameMatch) return false;
 
             // Respect archive filter
@@ -130,7 +133,7 @@ export default function ConversationsScreen({ navigation }: any) {
             if (filter === 'private') return !c.isGroup;
             return true;
         });
-    }, [rawConversations, searchQuery, filter]);
+    }, [rawConversations, debouncedSearchQuery, filter]);
 
     const headerHeight = scrollY.interpolate({
         inputRange: [0, 100],
@@ -204,7 +207,7 @@ export default function ConversationsScreen({ navigation }: any) {
         return result;
     }, [searchData]);
 
-    const handleGlobalResultPress = async (item: any, type: string) => {
+    const handleGlobalResultPress = React.useCallback(async (item: any, type: string) => {
         if (type === 'person') {
             const res = await createConversation(item.id);
             navigation.navigate('Chat', { conversationId: res.conversationId, otherUser: item, isGroup: false, mode: 'chat' });
@@ -226,9 +229,9 @@ export default function ConversationsScreen({ navigation }: any) {
             isSelf: !conversationId || conv?.isSelf,
             mode: conv?.mode || 'chat'
         });
-    };
+    }, [createConversation, navigation, rawConversations]);
 
-    const renderGlobalSection = ({ item: section }: { item: any }) => (
+    const renderGlobalSection = React.useCallback(({ item: section }: { item: any }) => (
         <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {section.data.map((item: any) => (
@@ -265,9 +268,9 @@ export default function ConversationsScreen({ navigation }: any) {
                 </TouchableOpacity>
             ))}
         </View>
-    );
+    ), [handleGlobalResultPress, searchQuery]);
 
-    const renderItem = ({ item }: { item: any }) => {
+    const renderItem = React.useCallback(({ item }: { item: any }) => {
         const isGroup = item.isGroup;
         const otherUser = item.otherUser;
         const groupMeta = item.groupMetadata;
@@ -353,7 +356,7 @@ export default function ConversationsScreen({ navigation }: any) {
                 <View style={styles.separator} />
             </Swipeable>
         );
-    };
+    }, [typingUsers, user?.id, filter, navigation, markAsRead, toggleArchive, searchQuery]);
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
@@ -389,6 +392,9 @@ export default function ConversationsScreen({ navigation }: any) {
                         data={globalSections}
                         keyExtractor={item => item.title}
                         renderItem={renderGlobalSection}
+                        initialNumToRender={6}
+                        maxToRenderPerBatch={8}
+                        windowSize={8}
                         contentContainerStyle={styles.listContent}
                         ListHeaderComponent={() => (
                             <View style={styles.searchHeaderLabel}>
@@ -411,6 +417,10 @@ export default function ConversationsScreen({ navigation }: any) {
                         data={filteredConversations}
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
+                        initialNumToRender={10}
+                        maxToRenderPerBatch={10}
+                        windowSize={8}
+                        removeClippedSubviews={Platform.OS === 'android'}
                         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
                         scrollEventThrottle={16}
                         showsVerticalScrollIndicator={false}

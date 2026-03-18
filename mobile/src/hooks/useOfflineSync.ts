@@ -30,7 +30,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
                     setQueue(JSON.parse(stored));
                 }
             } catch (e) {
-                console.error('[OfflineSync] Failed to load queue:', e);
+                console.error('[OfflineSync] Failed to load queue');
             }
         };
         loadQueue();
@@ -42,7 +42,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
             try {
                 await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
             } catch (e) {
-                console.error('[OfflineSync] Failed to save queue:', e);
+                console.error('[OfflineSync] Failed to save queue');
             }
         };
         saveQueue();
@@ -61,7 +61,6 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
         if (isSyncing.current || !isConnected || queue.length === 0 || !onSyncNow) return;
         
         isSyncing.current = true;
-        console.log(`[OfflineSync] 🔄 Attempting to sync ${queue.length} messages...`);
         
         const remaining: PendingMessage[] = [...queue];
         const toDelete: string[] = [];
@@ -77,7 +76,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
                     if (idx !== -1) remaining[idx].retryCount++;
                 }
             } catch (err) {
-                console.warn(`[OfflineSync] ❌ Failed to sync message ${msg.id}:`, err);
+                console.warn(`[OfflineSync] Failed to sync message ${msg.id}`);
             }
         }
 

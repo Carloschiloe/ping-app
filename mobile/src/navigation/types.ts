@@ -56,6 +56,7 @@ export type ConversationsStackNavigationProp = NativeStackNavigationProp<Convers
 export type ChatScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'Chat'>;
 export type ChatInfoScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ChatInfo'>;
 export type AddParticipantsScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AddParticipants'>;
+export type ConversationsListScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ConversationsList'>;
 export type ChatCompositeNavigationProp = CompositeNavigationProp<
     NativeStackNavigationProp<ConversationsStackParamList, 'Chat'>,
     NativeStackNavigationProp<RootStackParamList>
