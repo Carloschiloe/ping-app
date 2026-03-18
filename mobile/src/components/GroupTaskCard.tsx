@@ -165,7 +165,7 @@ export default function GroupTaskCard({
             setShowEditModal(false);
             setEditData(null);
         } catch (err) {
-            console.error('[GroupTaskCard] Edit confirm failed:', err);
+            console.error('[GroupTaskCard] Edit confirm failed');
         }
     };
 

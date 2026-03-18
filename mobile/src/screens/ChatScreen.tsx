@@ -155,7 +155,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     ]);
                 }
             } catch (err) {
-                console.error('[Mention] Failed to fetch participants:', err);
+                console.error('[Mention] Failed to fetch participants');
             }
         };
         fetchParticipants();
@@ -189,8 +189,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         try {
             const res = await apiClient.post('/ai/summarize', { conversationId });
             setSummary(res.summary || 'No se pudo generar el resumen.');
-        } catch (err) {
-            console.error('[AI] Summarize failed:', err);
+        } catch {
+            console.error('[AI] Summarize failed');
             Alert.alert('Error', 'No se pudo generar el resumen.');
         } finally {
             setIsSummarizing(false);

@@ -78,7 +78,7 @@ export function useChatOperation({
             setTimeout(() => setLocationFeedback(null), 1800);
             invalidateOperationState();
         } catch (err) {
-            console.error('[Location] Failed to share location:', err);
+            console.error('[Location] Failed to share location');
             Alert.alert('Error', 'No se pudo compartir la ubicacion.');
         }
     };
@@ -115,8 +115,8 @@ export function useChatOperation({
             });
 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (error) {
-            console.error('[Operation] Failed action:', error);
+        } catch {
+            console.error('[Operation] Failed action');
             setOperationFeedback('No se pudo guardar la accion');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } finally {
