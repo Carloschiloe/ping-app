@@ -13,6 +13,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { useDeleteMessage } from '../api/queries';
 import type { ChatInfoScreenProps } from '../navigation/types';
+import { GroupMembersSection } from '../components/chat-info/GroupMembersSection';
+import { ChecklistEditorModal } from '../components/chat-info/ChecklistEditorModal';
+import { ChecklistManagementSection } from '../components/chat-info/ChecklistManagementSection';
 
 export default function ChatInfoScreen() {
     const route = useRoute<ChatInfoScreenProps['route']>();
@@ -378,32 +381,6 @@ export default function ChatInfoScreen() {
         });
     };
 
-    const renderMember = ({ item }: { item: any }) => (
-        <View style={styles.memberRow}>
-            <View style={styles.memberAvatar}>
-                {item.avatar_url ? (
-                    <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%' }} />
-                ) : (
-                    <Text style={styles.memberInitials}>{item.email.substring(0, 2).toUpperCase()}</Text>
-                )}
-            </View>
-            <View style={styles.memberInfo}>
-                <Text style={styles.memberEmail}>{item.full_name || item.email}</Text>
-                <Text style={styles.memberSubline}>{item.email}</Text>
-                {item.role === 'admin' && <Text style={styles.adminBadge}>Admin</Text>}
-            </View>
-            {isAdmin && item.id !== user?.id && (
-                <TouchableOpacity
-                    style={[styles.memberRoleBtn, isUpdatingParticipantRole && { opacity: 0.6 }]}
-                    onPress={() => handleToggleAdmin(item)}
-                    disabled={isUpdatingParticipantRole}
-                >
-                    <Text style={styles.memberRoleBtnText}>{item.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</Text>
-                </TouchableOpacity>
-            )}
-        </View>
-    );
-
     const checklistCategorySuggestions = ['Mantención', 'Prevención', 'Seguridad', 'Patrón'];
     const checklistRoleSuggestions = ['Maquinista', 'Patrón', 'Jefe de plataforma', 'Todos'];
     const checklistItemSuggestions = [
@@ -633,71 +610,25 @@ export default function ChatInfoScreen() {
             )}
 
             {isGroup && infoTab === 'checklists' && (
-                <View style={styles.section}>
-                    <View style={styles.checklistHeaderRow}>
-                        <Text style={styles.sectionTitle}>Checklists del grupo</Text>
-                        {isAdmin && (
-                            <TouchableOpacity style={styles.newChecklistBtn} onPress={() => openChecklistEditor()}>
-                                <Ionicons name="add" size={16} color="white" />
-                                <Text style={styles.newChecklistBtnText}>Nuevo</Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
-
-                    <View style={styles.checklistsFilterRow}>
-                        <TouchableOpacity
-                            style={[styles.checklistsFilterChip, checklistsFilter === 'active' && styles.checklistsFilterChipActive]}
-                            onPress={() => setChecklistsFilter('active')}
-                        >
-                            <Text style={[styles.checklistsFilterChipText, checklistsFilter === 'active' && styles.checklistsFilterChipTextActive]}>Activos</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.checklistsFilterChip, checklistsFilter === 'archived' && styles.checklistsFilterChipActive]}
-                            onPress={() => setChecklistsFilter('archived')}
-                        >
-                            <Text style={[styles.checklistsFilterChipText, checklistsFilter === 'archived' && styles.checklistsFilterChipTextActive]}>Archivados</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {displayedChecklists.length ? (
-                        displayedChecklists.map((list: any) => (
-                            <TouchableOpacity
-                                key={list.id}
-                                style={styles.checklistCard}
-                                activeOpacity={0.85}
-                                onPress={() => isAdmin ? handleChecklistAction(list) : undefined}
-                            >
-                                <View style={styles.checklistCardHeader}>
-                                    <Text style={styles.checklistCardTitle}>{list.title}</Text>
-                                    <Text style={styles.checklistCardCount}>{list.run?.items?.length || 0} items</Text>
-                                </View>
-                                <Text style={styles.checklistCardMeta}>
-                                    {list.category_label || 'General'} · {list.responsible_role_label || 'Sin rol'} · {list.frequency || 'manual'}
-                                </Text>
-                                {list.run?.items?.length ? (
-                                    <Text style={styles.checklistCardSubtext} numberOfLines={2}>
-                                        {list.run.items.map((item: any) => item.label).join(' · ')}
-                                    </Text>
-                                ) : null}
-                            </TouchableOpacity>
-                        ))
-                    ) : (
-                        <View style={styles.emptyMedia}>
-                            <Ionicons name="checkmark-done-outline" size={44} color="#9ca3af" />
-                            <Text style={styles.emptyMediaText}>{checklistsFilter === 'active' ? 'Aún no hay checklists activos en este grupo' : 'No hay checklists archivados'}</Text>
-                        </View>
-                    )}
-                </View>
+                <ChecklistManagementSection
+                    isAdmin={!!isAdmin}
+                    checklistsFilter={checklistsFilter}
+                    displayedChecklists={displayedChecklists}
+                    onChangeFilter={setChecklistsFilter}
+                    onCreate={() => openChecklistEditor()}
+                    onOpenChecklist={(list) => isAdmin ? handleChecklistAction(list) : undefined}
+                />
             )}
 
             {/* Participants (Only for Groups) */}
             {isGroup && (
-                <View style={styles.section}> 
-                    <Text style={styles.sectionTitle}>{members.length} Integrantes</Text>
-                    {members.map((member: any) => (
-                        <View key={member.id}>{renderMember({ item: member })}</View>
-                    ))}
-                </View>
+                <GroupMembersSection
+                    members={members}
+                    isAdmin={!!isAdmin}
+                    currentUserId={user?.id}
+                    isUpdatingParticipantRole={isUpdatingParticipantRole}
+                    onToggleAdmin={handleToggleAdmin}
+                />
             )}
 
             {/* Delete button */}
@@ -714,135 +645,32 @@ export default function ChatInfoScreen() {
                 </TouchableOpacity>
             )}
 
-            <Modal visible={checklistModalVisible} transparent animationType="slide" onRequestClose={() => setChecklistModalVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-                        style={styles.modalKeyboardHost}
-                    >
-                        <View style={styles.checklistModalCard}>
-                            <View style={styles.modalHeaderRow}> 
-                                <Text style={styles.modalTitleText}>{editingChecklist ? 'Editar checklist' : 'Nuevo checklist'}</Text>
-                                <TouchableOpacity onPress={() => setChecklistModalVisible(false)}>
-                                    <Ionicons name="close" size={24} color="#64748b" />
-                                </TouchableOpacity>
-                            </View>
-
-                            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
-                                <TextInput
-                                    style={styles.modalInput}
-                                    placeholder="Nombre del checklist"
-                                    value={checklistTitle}
-                                    onChangeText={setChecklistTitle}
-                                />
-                                <TextInput
-                                    style={styles.modalInput}
-                                    placeholder="Categoría (ej. Mantención)"
-                                    value={checklistCategory}
-                                    onChangeText={setChecklistCategory}
-                                />
-                                <View style={styles.suggestionRow}>
-                                    {checklistCategorySuggestions.map((suggestion) => (
-                                        <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistCategory(suggestion)}>
-                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                                <TextInput
-                                    style={styles.modalInput}
-                                    placeholder="Rol responsable (ej. Maquinista)"
-                                    value={checklistRole}
-                                    onChangeText={setChecklistRole}
-                                />
-                                <View style={styles.suggestionRow}>
-                                    {checklistRoleSuggestions.map((suggestion) => (
-                                        <TouchableOpacity key={suggestion} style={styles.suggestionChip} onPress={() => setChecklistRole(suggestion)}>
-                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-
-                                <View style={styles.frequencyRow}>
-                                    {(['manual', 'daily', 'shift'] as const).map((frequency) => (
-                                        <TouchableOpacity
-                                            key={frequency}
-                                            style={[styles.frequencyChip, checklistFrequency === frequency && styles.frequencyChipActive]}
-                                            onPress={() => setChecklistFrequency(frequency)}
-                                        >
-                                            <Text style={[styles.frequencyChipText, checklistFrequency === frequency && styles.frequencyChipTextActive]}>
-                                                {frequency === 'manual' ? 'Manual' : frequency === 'daily' ? 'Diario' : 'Por turno'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-
-                                <TextInput
-                                    style={styles.modalTextArea}
-                                    placeholder="Nuevo item"
-                                    value={draftChecklistItem}
-                                    onChangeText={setDraftChecklistItem}
-                                    multiline
-                                    textAlignVertical="top"
-                                />
-                                <Text style={styles.modalHelperText}>Tipo de respuesta del item</Text>
-                                <View style={styles.frequencyRow}>
-                                    {checklistTypeOptions.map((option) => (
-                                        <TouchableOpacity
-                                            key={option.key}
-                                            style={[styles.frequencyChip, draftChecklistItemType === option.key && styles.frequencyChipActive]}
-                                            onPress={() => setDraftChecklistItemType(option.key)}
-                                        >
-                                            <Text style={[styles.frequencyChipText, draftChecklistItemType === option.key && styles.frequencyChipTextActive]}>{option.label}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                                <TouchableOpacity style={styles.addChecklistItemBtn} onPress={addChecklistItem}>
-                                    <Text style={styles.addChecklistItemBtnText}>Agregar item</Text>
-                                </TouchableOpacity>
-                                <Text style={styles.modalHelperText}>Sugerencias rápidas</Text>
-                                <View style={styles.suggestionRow}>
-                                    {checklistItemSuggestions.map((suggestion) => (
-                                        <TouchableOpacity
-                                            key={suggestion}
-                                            style={styles.suggestionChip}
-                                            onPress={() => setDraftChecklistItem(suggestion)}
-                                        >
-                                            <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                                {checklistItems.length ? (
-                                    <View style={styles.createdItemsWrap}>
-                                        {checklistItems.map((item, index) => {
-                                            const typeLabel = checklistTypeOptions.find((option) => option.key === item.responseType)?.label || 'Bueno/Regular/Malo';
-                                            return (
-                                                <View key={`${item.label}-${index}`} style={styles.createdItemCard}>
-                                                    <View style={{ flex: 1 }}>
-                                                        <Text style={styles.createdItemTitle}>{item.label}</Text>
-                                                        <Text style={styles.createdItemMeta}>{typeLabel}</Text>
-                                                    </View>
-                                                    <TouchableOpacity onPress={() => removeChecklistItem(index)}>
-                                                        <Ionicons name="close-circle" size={20} color="#94a3b8" />
-                                                    </TouchableOpacity>
-                                                </View>
-                                            );
-                                        })}
-                                    </View>
-                                ) : null}
-
-                                <TouchableOpacity
-                                    style={[styles.saveChecklistBtn, isSavingChecklist && { opacity: 0.6 }]}
-                                    onPress={handleSaveChecklistTemplate}
-                                    disabled={isSavingChecklist}
-                                >
-                                    <Text style={styles.saveChecklistBtnText}>{isSavingChecklist ? 'Guardando...' : 'Guardar checklist'}</Text>
-                                </TouchableOpacity>
-                            </ScrollView>
-                        </View>
-                    </KeyboardAvoidingView>
-                </View>
-            </Modal>
+            <ChecklistEditorModal
+                visible={checklistModalVisible}
+                editingChecklist={editingChecklist}
+                checklistTitle={checklistTitle}
+                checklistCategory={checklistCategory}
+                checklistRole={checklistRole}
+                checklistFrequency={checklistFrequency}
+                checklistItems={checklistItems}
+                draftChecklistItem={draftChecklistItem}
+                draftChecklistItemType={draftChecklistItemType}
+                checklistCategorySuggestions={checklistCategorySuggestions}
+                checklistRoleSuggestions={checklistRoleSuggestions}
+                checklistItemSuggestions={checklistItemSuggestions}
+                checklistTypeOptions={checklistTypeOptions}
+                isSavingChecklist={isSavingChecklist}
+                onClose={() => setChecklistModalVisible(false)}
+                onSave={handleSaveChecklistTemplate}
+                onChangeTitle={setChecklistTitle}
+                onChangeCategory={setChecklistCategory}
+                onChangeRole={setChecklistRole}
+                onChangeFrequency={setChecklistFrequency}
+                onChangeDraftItem={setDraftChecklistItem}
+                onChangeDraftItemType={setDraftChecklistItemType}
+                onAddChecklistItem={addChecklistItem}
+                onRemoveChecklistItem={removeChecklistItem}
+            />
 
             {/* Fullscreen Media Viewer */}
             <Modal visible={!!viewerMedia} transparent={true} animationType="fade">
