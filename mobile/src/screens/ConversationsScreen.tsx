@@ -13,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import type { ConversationsListScreenProps } from '../navigation/types';
+import { useAppTheme } from '../theme/ThemeContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -36,7 +37,7 @@ function avatarColor(str: string) {
     return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
+const HighlightText = ({ text, highlight, style, numberOfLines, highlightStyle }: any) => {
     if (!highlight.trim()) {
         return <Text style={style} numberOfLines={numberOfLines}>{text}</Text>;
     }
@@ -46,7 +47,7 @@ const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
         <Text style={style} numberOfLines={numberOfLines}>
             {parts.map((part: string, i: number) =>
                 regex.test(part) ? (
-                    <Text key={i} style={{ backgroundColor: '#fef08a', color: '#854d0e', fontWeight: '800' }}>{part}</Text>
+                    <Text key={i} style={highlightStyle}>{part}</Text>
                 ) : (
                     <Text key={i}>{part}</Text>
                 )
@@ -56,6 +57,8 @@ const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
 };
 
 export default function ConversationsScreen({ navigation }: ConversationsListScreenProps) {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const { data, isLoading } = useConversations();
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
@@ -258,6 +261,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             text={item.full_name || item.name || item.title || item.text}
                             highlight={searchQuery}
                             style={styles.resultText}
+                            highlightStyle={styles.resultTextHighlight}
                             numberOfLines={1}
                         />
                         <Text style={styles.resultSubtext}>
@@ -363,7 +367,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
                 <Animated.View style={[styles.headerSection, { height: headerHeight }]}>
-                    <LinearGradient colors={['#0f172a', '#1e3a8a']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+                        <LinearGradient colors={theme.colors.headerGradient as any} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
                     <View style={styles.headerTop}>
                         <Text style={styles.title}>Ping</Text>
                         <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('PingAI')}>
@@ -385,7 +389,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
 
                 {isLoading ? (
                     <View style={styles.loadingContainer}>
-                        {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} />)}
+                        {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} styles={styles} />)}
                     </View>
                 ) : isGlobalSearchActive ? (
                     <FlatList
@@ -428,10 +432,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         ListHeaderComponent={() => (
                             <View style={styles.listHeader}>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsContent}>
-                                    <QuickAction label="Notas" emoji="📌" bg="#e0f2fe" onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
-                                    <QuickAction label="AI" emoji="🤖" bg="#f0fdf4" onPress={() => navigation.navigate('PingAI')} />
-                                    <QuickAction label="Grupo" icon="people" color="#ef4444" bg="#fef2f2" onPress={() => navigation.navigate('NewGroup')} />
-                                    <QuickAction label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg="#faf5ff" onPress={() => navigation.navigate('NewChat')} />
+                                    <QuickAction styles={styles} label="Notas" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
+                                    <QuickAction styles={styles} label="AI" emoji="🤖" bg={theme.isDark ? '#173320' : '#f0fdf4'} onPress={() => navigation.navigate('PingAI')} />
+                                    <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
+                                    <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />
                                 </ScrollView>
                                 <ScrollView
                                     horizontal
@@ -439,17 +443,17 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                     style={styles.filterBarContainer}
                                     contentContainerStyle={styles.filterBar}
                                 >
-                                    <FilterChip label="Todos" active={filter === 'all'} onPress={() => setFilter('all')} />
-                                    <FilterChip label="Sin Leer" active={filter === 'unread'} onPress={() => setFilter('unread')} />
-                                    <FilterChip label="Grupos" active={filter === 'groups'} onPress={() => setFilter('groups')} />
-                                    <FilterChip label="Privados" active={filter === 'private'} onPress={() => setFilter('private')} />
-                                    <FilterChip label="Archivados" active={filter === 'archived'} onPress={() => setFilter('archived')} />
+                                    <FilterChip styles={styles} label="Todos" active={filter === 'all'} onPress={() => setFilter('all')} />
+                                    <FilterChip styles={styles} label="Sin Leer" active={filter === 'unread'} onPress={() => setFilter('unread')} />
+                                    <FilterChip styles={styles} label="Grupos" active={filter === 'groups'} onPress={() => setFilter('groups')} />
+                                    <FilterChip styles={styles} label="Privados" active={filter === 'private'} onPress={() => setFilter('private')} />
+                                    <FilterChip styles={styles} label="Archivados" active={filter === 'archived'} onPress={() => setFilter('archived')} />
                                 </ScrollView>
                             </View>
                         )}
                         ListEmptyComponent={() => (
                             <View style={styles.empty}>
-                                <Ionicons name="chatbubbles-outline" size={80} color="#f1f5f9" />
+                                <Ionicons name="chatbubbles-outline" size={80} color={theme.colors.separator} />
                                 <Text style={styles.emptyTitle}>Nada por aquí</Text>
                                 <Text style={styles.emptyText}>Inicia un hilo o cambia el filtro</Text>
                             </View>
@@ -461,7 +465,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     );
 }
 
-function QuickAction({ label, emoji, icon, color, bg, onPress, disabled }: any) {
+function QuickAction({ styles, label, emoji, icon, color, bg, onPress, disabled }: any) {
     return (
         <TouchableOpacity style={styles.qaCard} onPress={onPress} disabled={disabled} activeOpacity={0.7}>
             <View style={[styles.qaIconWrap, { backgroundColor: bg }]}>{emoji ? <Text style={{ fontSize: 24 }}>{emoji}</Text> : <Ionicons name={icon} size={24} color={color} />}</View>
@@ -470,7 +474,7 @@ function QuickAction({ label, emoji, icon, color, bg, onPress, disabled }: any) 
     );
 }
 
-function FilterChip({ label, active, onPress }: any) {
+function FilterChip({ styles, label, active, onPress }: any) {
     return (
         <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress} activeOpacity={0.8}>
             <Text style={[styles.filterChipText, active && styles.filterChipActiveText]}>{label}</Text>
@@ -478,7 +482,7 @@ function FilterChip({ label, active, onPress }: any) {
     );
 }
 
-function ConversationSkeleton() {
+function ConversationSkeleton({ styles }: any) {
     return (
         <View style={styles.skeletonRow}>
             <View style={styles.skeletonAvatar} />
@@ -490,67 +494,68 @@ function ConversationSkeleton() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#ffffff' },
+const createStyles = (theme: any) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.screen },
     loadingContainer: { flex: 1, paddingTop: 20 },
-    skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14 },
-    skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#f1f5f9', marginRight: 16 },
+    skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16 },
+    skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.surfaceMuted, marginRight: 16 },
     skeletonInfo: { flex: 1 },
-    skeletonLine: { height: 12, borderRadius: 6, backgroundColor: '#f1f5f9' },
+    skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceMuted },
     headerSection: { paddingHorizontal: 24, justifyContent: 'flex-end', paddingBottom: 20, zIndex: 10 },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    title: { fontSize: 34, fontWeight: '900', color: 'white', letterSpacing: -2 },
-    headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+    title: { fontSize: 34, fontWeight: '900', color: theme.colors.white, letterSpacing: -2 },
+    headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
     searchContainer: { width: '100%' },
-    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 16, paddingHorizontal: 16, height: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-    searchInput: { flex: 1, marginLeft: 12, color: 'white', fontSize: 16, fontWeight: '500' },
-    listHeader: { backgroundColor: '#ffffff', borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -20 },
+    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 18, paddingHorizontal: 16, height: 52, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
+    searchInput: { flex: 1, marginLeft: 12, color: theme.colors.white, fontSize: 16, fontWeight: '500' },
+    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -20 },
     quickActionsContent: { paddingHorizontal: 24, paddingVertical: 24, gap: 20 },
     qaCard: { alignItems: 'center', width: 70 },
-    qaIconWrap: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 4 },
-    qaLabel: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
+    qaIconWrap: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: theme.isDark ? 0.15 : 0.05, shadowRadius: 12, elevation: 4 },
+    qaLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text.primary },
     filterBarContainer: { marginBottom: 20 },
     filterBar: { flexDirection: 'row', paddingHorizontal: 24, gap: 8 },
-    filterChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
-    filterChipActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
-    filterChipText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-    filterChipActiveText: { color: 'white' },
+    filterChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
+    filterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+    filterChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
+    filterChipActiveText: { color: theme.colors.white },
     listContent: { paddingBottom: 100 },
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14, backgroundColor: 'white' },
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: theme.colors.surface },
     avatarContainer: { position: 'relative' },
     avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
     avatarImage: { width: '100%', height: '100%' },
-    avatarText: { color: 'white', fontWeight: '900', fontSize: 24 },
-    unreadIndicator: { position: 'absolute', top: -1, right: 14, width: 14, height: 14, borderRadius: 7, backgroundColor: '#4f46e5', borderWidth: 2, borderColor: 'white' },
-    onlineDot: { position: 'absolute', bottom: -1, right: 14, width: 15, height: 15, borderRadius: 7.5, backgroundColor: '#10b981', borderWidth: 2, borderColor: 'white', zIndex: 10 },
+    avatarText: { color: theme.colors.white, fontWeight: '900', fontSize: 24 },
+    unreadIndicator: { position: 'absolute', top: -1, right: 14, width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.unread, borderWidth: 2, borderColor: theme.colors.surface },
+    onlineDot: { position: 'absolute', bottom: -1, right: 14, width: 15, height: 15, borderRadius: 7.5, backgroundColor: theme.colors.online, borderWidth: 2, borderColor: theme.colors.surface, zIndex: 10 },
     info: { flex: 1 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-    name: { fontSize: 17, fontWeight: '600', color: '#64748b' },
-    nameUnread: { color: '#0f172a', fontWeight: '800' },
-    time: { fontSize: 12, color: '#94a3b8', fontWeight: '500' },
-    timeUnread: { color: '#4f46e5', fontWeight: '700' },
+    name: { fontSize: 17, fontWeight: '600', color: theme.colors.text.secondary },
+    nameUnread: { color: theme.colors.text.primary, fontWeight: '800' },
+    time: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '500' },
+    timeUnread: { color: theme.colors.unread, fontWeight: '700' },
     bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     previewWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 },
-    preview: { fontSize: 14, color: '#94a3b8' },
-    previewUnread: { color: '#334155', fontWeight: '600' },
+    preview: { fontSize: 14, color: theme.colors.text.muted },
+    previewUnread: { color: theme.colors.text.primary, fontWeight: '600' },
     unreadBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, minWidth: 24, alignItems: 'center', justifyContent: 'center' },
-    unreadText: { color: 'white', fontSize: 11, fontWeight: '900' },
+    unreadText: { color: theme.colors.white, fontSize: 11, fontWeight: '900' },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
-    emptyTitle: { fontSize: 20, fontWeight: '800', color: '#cbd5e1', marginTop: 12 },
-    emptyText: { fontSize: 15, color: '#94a3b8', marginTop: 4 },
-    leftAction: { flex: 1, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
-    rightAction: { flex: 1, backgroundColor: '#64748b', justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
-    separator: { height: 1, backgroundColor: '#f1f5f9', marginLeft: 96, marginRight: 24 },
+    emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12 },
+    emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },
+    leftAction: { flex: 1, backgroundColor: theme.colors.info, justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
+    rightAction: { flex: 1, backgroundColor: theme.colors.text.secondary, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
+    separator: { height: 1, backgroundColor: theme.colors.separator, marginLeft: 96, marginRight: 24 },
     // Search 2.0 Fusion Styles
-    searchHeaderLabel: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#f8fafc' },
-    searchHeaderLabelText: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    searchHeaderLabel: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: theme.colors.surfaceMuted },
+    searchHeaderLabelText: { fontSize: 11, fontWeight: '900', color: theme.colors.text.muted, letterSpacing: 1 },
     sectionContainer: { marginTop: 16 },
-    sectionTitle: { fontSize: 13, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginHorizontal: 24, marginBottom: 12 },
-    resultCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 12, backgroundColor: 'white' },
+    sectionTitle: { fontSize: 13, fontWeight: '800', color: theme.colors.text.secondary, textTransform: 'uppercase', letterSpacing: 1, marginHorizontal: 24, marginBottom: 12 },
+    resultCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 12, backgroundColor: theme.colors.surface },
     resultIcon: { marginRight: 16 },
     resultIconInner: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     resultAvatar: { width: 36, height: 36, borderRadius: 18 },
     resultInfo: { flex: 1, marginRight: 12 },
-    resultText: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
-    resultSubtext: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+    resultText: { fontSize: 16, fontWeight: '600', color: theme.colors.text.primary },
+    resultTextHighlight: { backgroundColor: theme.colors.highlight, color: theme.colors.highlightText, fontWeight: '800' },
+    resultSubtext: { fontSize: 12, color: theme.colors.text.muted, marginTop: 2 },
 });

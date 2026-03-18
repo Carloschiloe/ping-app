@@ -9,6 +9,7 @@ import { View, Text, StyleSheet, AppState, AppStateStatus } from 'react-native';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
+import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
 
 const queryClient = new QueryClient();
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
@@ -48,9 +49,11 @@ export default function App() {
     return (
         <SafeAreaProvider>
             <QueryClientProvider client={queryClient}>
-                <AuthProvider>
-                    <AppContent />
-                </AuthProvider>
+                <ThemeProvider>
+                    <AuthProvider>
+                        <AppContent />
+                    </AuthProvider>
+                </ThemeProvider>
             </QueryClientProvider>
         </SafeAreaProvider>
     );
@@ -58,6 +61,7 @@ export default function App() {
 
 const AppContent = () => {
     usePushNotifications();
+    const { isDark, theme } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
 
@@ -92,7 +96,7 @@ const AppContent = () => {
         <>
             <BackendBanner />
             <AppNavigator />
-            <StatusBar style="auto" />
+            <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={theme.colors.background} />
             {isLocked && <LockScreen onUnlock={handleUnlock} />}
         </>
     );

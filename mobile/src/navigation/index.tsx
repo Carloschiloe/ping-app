@@ -1,4 +1,4 @@
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
@@ -6,6 +6,7 @@ import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
+import { useAppTheme } from '../theme/ThemeContext';
 
 import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
@@ -26,7 +27,12 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const ConversationsStackNav = createNativeStackNavigator<ConversationsStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const ConversationsStack = () => (
+const ConversationsStack = () => {
+    const { theme: appTheme } = useAppTheme();
+    const stackHeaderStyle = { backgroundColor: appTheme.colors.primary };
+    const stackTintColor = appTheme.colors.white;
+
+    return (
     <ConversationsStackNav.Navigator>
         <ConversationsStackNav.Screen
             name="ConversationsList"
@@ -39,9 +45,9 @@ const ConversationsStack = () => (
             options={({ route }: any) => ({
                 title: route.params?.isSelf ? '📌 Mis Recordatorios' : (route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
                 headerBackTitle: '',
-                headerStyle: { backgroundColor: '#1e3a5f' },
-                headerTintColor: 'white',
-                headerTitleStyle: { fontWeight: '700', color: 'white' },
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
+                headerTitleStyle: { fontWeight: '700', color: stackTintColor },
             })}
         />
         <ConversationsStackNav.Screen
@@ -56,8 +62,8 @@ const ConversationsStack = () => (
                 headerShown: true,
                 title: 'Nuevo Grupo',
                 headerBackTitle: 'Atrás',
-                headerStyle: { backgroundColor: '#1e3a5f' },
-                headerTintColor: 'white',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
             }}
         />
         <ConversationsStackNav.Screen
@@ -67,8 +73,8 @@ const ConversationsStack = () => (
                 headerShown: true,
                 title: 'Info del Chat',
                 headerBackTitle: 'Atrás',
-                headerStyle: { backgroundColor: '#1e3a5f' },
-                headerTintColor: 'white',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
             }}
         />
         <ConversationsStackNav.Screen
@@ -78,8 +84,8 @@ const ConversationsStack = () => (
                 headerShown: true,
                 title: 'Añadir Integrantes',
                 headerBackTitle: 'Atrás',
-                headerStyle: { backgroundColor: '#1e3a5f' },
-                headerTintColor: 'white',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
             }}
         />
         <ConversationsStackNav.Screen
@@ -93,17 +99,21 @@ const ConversationsStack = () => (
             options={{ headerShown: false, presentation: 'modal' }}
         />
     </ConversationsStackNav.Navigator>
-);
+    );
+};
 
-const MainTabs = () => (
+const MainTabs = () => {
+    const { theme: appTheme } = useAppTheme();
+
+    return (
     <Tab.Navigator
         screenOptions={({ route }) => ({
             headerShown: false,
-            tabBarActiveTintColor: '#1e3a5f',
-            tabBarInactiveTintColor: '#9ca3af',
+            tabBarActiveTintColor: appTheme.colors.primary,
+            tabBarInactiveTintColor: appTheme.colors.text.muted,
             tabBarStyle: {
-                backgroundColor: 'white',
-                borderTopColor: '#f0f0f0',
+                backgroundColor: appTheme.colors.surface,
+                borderTopColor: appTheme.colors.separator,
                 height: 60,
                 paddingBottom: 8,
                 paddingTop: 4,
@@ -129,7 +139,8 @@ const MainTabs = () => (
         <Tab.Screen name="Insights" component={InsightsScreen} options={{ title: 'Operación' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
-);
+    );
+};
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
@@ -141,6 +152,7 @@ const PushNotificationHandler = () => {
 
 export const AppNavigator = () => {
     const { session, initialized } = useAuth();
+    const { theme: appTheme, isDark } = useAppTheme();
 
     if (!initialized) {
         return (
@@ -151,7 +163,32 @@ export const AppNavigator = () => {
     }
 
     return (
-        <NavigationContainer ref={navigationRef}>
+        <NavigationContainer
+            ref={navigationRef}
+            theme={isDark ? {
+                ...DarkTheme,
+                colors: {
+                    ...DarkTheme.colors,
+                    background: appTheme.colors.background,
+                    card: appTheme.colors.surface,
+                    text: appTheme.colors.text.primary,
+                    border: appTheme.colors.border,
+                    primary: appTheme.colors.primary,
+                    notification: appTheme.colors.accent,
+                },
+            } : {
+                ...DefaultTheme,
+                colors: {
+                    ...DefaultTheme.colors,
+                    background: appTheme.colors.background,
+                    card: appTheme.colors.surface,
+                    text: appTheme.colors.text.primary,
+                    border: appTheme.colors.border,
+                    primary: appTheme.colors.primary,
+                    notification: appTheme.colors.accent,
+                },
+            }}
+        >
             <PushNotificationHandler />
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
                 {session ? (

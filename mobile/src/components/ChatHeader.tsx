@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { theme } from '../theme/theme';
+import { useAppTheme } from '../theme/ThemeContext';
 
 interface ChatHeaderProps {
     chatTitle: string;
@@ -24,6 +24,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     onVideoCall,
     onInfo
 }) => {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
+
     return (
         <View style={styles.headerContainer}>
             <TouchableOpacity style={styles.titleSection} onPress={onInfo} activeOpacity={0.7}>
@@ -58,7 +61,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     headerContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -97,7 +100,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     summarizeIconBtn: {
-        backgroundColor: 'rgba(251, 191, 36, 0.1)',
+        backgroundColor: theme.isDark ? 'rgba(251, 191, 36, 0.16)' : 'rgba(251, 191, 36, 0.1)',
         borderRadius: 20,
         marginRight: 4,
     }

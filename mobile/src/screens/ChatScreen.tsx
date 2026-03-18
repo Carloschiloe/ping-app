@@ -37,6 +37,7 @@ import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
 import { useNavigation } from '@react-navigation/native';
 import { useChatOperation } from '../hooks/useChatOperation';
+import { useAppTheme } from '../theme/ThemeContext';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ function avatarColor(str: string) {
 
 export default function ChatScreen({ route }: ChatScreenProps) {
     const navigation = useNavigation<ChatCompositeNavigationProp>();
+    const { theme: appTheme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(appTheme), [appTheme]);
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
     const { user } = useAuth();
     const isFocused = useIsFocused();
@@ -588,7 +591,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
 const BG_CHAT = '#ECE5DD';
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.chatBackground },
     chatBg: { flex: 1 },
     dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
@@ -603,19 +606,19 @@ const styles = StyleSheet.create({
     viewerBackdrop: { flex: 1, backgroundColor: theme.colors.black, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },
     viewerClose: { position: 'absolute', top: 50, right: 20 },
-    summaryBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    summarySheet: { backgroundColor: theme.colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' },
+    summaryBackdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
+    summarySheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' },
     summaryHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
     summaryTitle: { fontSize: 18, fontWeight: '700', flex: 1 },
     summaryScroll: { marginBottom: 20 },
     summaryContent: { fontSize: 15, lineHeight: 22, color: theme.colors.text.primary },
     summaryDoneBtn: { backgroundColor: theme.colors.secondary, borderRadius: 12, padding: 16, alignItems: 'center' },
     summaryDoneText: { color: theme.colors.white, fontWeight: '700' },
-    menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-    menuSheet: { backgroundColor: theme.colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
+    menuBackdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
+    menuSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
     menuEmojiRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, paddingHorizontal: 10 },
     emojiBtn: { padding: 8 },
-    menuActionsVertical: { backgroundColor: '#f9fafb', borderRadius: 16, overflow: 'hidden', marginBottom: 15 },
+    menuActionsVertical: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 16, overflow: 'hidden', marginBottom: 15 },
     menuActionVertical: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     menuActionLabel: { fontSize: 16, color: theme.colors.text.primary, fontWeight: '500' },
     menuCancel: { alignItems: 'center', padding: 16 },
@@ -631,7 +634,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 15,
         paddingVertical: 10,
-        backgroundColor: '#f9fafb',
+        backgroundColor: theme.colors.surfaceMuted,
         borderTopWidth: 1,
         borderTopColor: theme.colors.border,
     },

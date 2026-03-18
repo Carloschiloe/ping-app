@@ -2,7 +2,7 @@ import React from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AudioPlayer from './AudioPlayer';
-import { theme } from '../theme/theme';
+import { useAppTheme } from '../theme/ThemeContext';
 
 interface ChatInputProps {
     text: string;
@@ -37,6 +37,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onCancelAudio,
     onUploadAudio
 }) => {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
+
     if (recordingUri) {
         return (
             <View style={styles.inputBar}>
@@ -110,13 +113,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     inputBar: {
         flexDirection: 'row',
         alignItems: 'flex-end',
         paddingHorizontal: 8,
         paddingVertical: 8,
-        backgroundColor: '#f1f0f0',
+        backgroundColor: theme.isDark ? '#101924' : '#f1f0f0',
         paddingBottom: Platform.OS === 'ios' ? 24 : 8,
         gap: 6,
     },
@@ -134,7 +137,7 @@ const styles = StyleSheet.create({
         width: 42,
         height: 42,
         borderRadius: 21,
-        backgroundColor: theme.colors.white,
+        backgroundColor: theme.colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: theme.colors.black,
@@ -144,7 +147,7 @@ const styles = StyleSheet.create({
     },
     input: {
         flex: 1,
-        backgroundColor: theme.colors.white,
+        backgroundColor: theme.colors.surface,
         borderRadius: 24,
         paddingHorizontal: 16,
         paddingVertical: 10,
