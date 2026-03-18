@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { Expo } from 'expo-server-sdk';
 
 export const saveToken = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -11,6 +12,11 @@ export const saveToken = async (req: Request, res: Response): Promise<void> => {
         const { token } = req.body;
         if (!token) {
             res.status(400).json({ error: 'Token is required' });
+            return;
+        }
+
+        if (!Expo.isExpoPushToken(token)) {
+            res.status(400).json({ error: 'Invalid Expo push token' });
             return;
         }
 
