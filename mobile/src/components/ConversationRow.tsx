@@ -93,7 +93,7 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                 <View style={styles.bottomRow}>
                     <View style={styles.previewWrap}>
                         {!isTyping && isByMe && lastMsg && (
-                            <Ionicons name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'} size={16} color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'} style={{ marginRight: 4 }} />
+                            <Ionicons name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'} size={18} color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'} style={{ marginRight: 6 }} />
                         )}
                         <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
                     </View>
