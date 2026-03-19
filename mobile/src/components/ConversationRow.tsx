@@ -68,8 +68,8 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
 
     const color = avatarColor(colorStr);
     const preview = isTyping
-        ? (typers[0].isRecording ? '🎤 Grabando audio...' : '✍️ Escribiendo...')
-        : (lastMsg ? (isSystem ? `🤖 ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún');
+        ? (typers[0].isRecording ? 'Grabando audio…' : 'Escribiendo…')
+        : (lastMsg ? (isSystem ? `Sistema · ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún');
 
     return (
         <TouchableOpacity
@@ -95,7 +95,7 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                         {!isTyping && isByMe && lastMsg && (
                             <Ionicons name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'} size={16} color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'} style={{ marginRight: 4 }} />
                         )}
-                        <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && { color: '#6366f1', fontWeight: '700' }]} numberOfLines={1}>{preview}</Text>
+                        <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
                     </View>
                     {isUnread && (
                         <LinearGradient colors={['#6366f1', '#8b5cf6']} style={styles.unreadBadge} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>

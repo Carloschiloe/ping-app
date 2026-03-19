@@ -34,6 +34,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
+    const [showQuickActions, setShowQuickActions] = React.useState(false);
     const debouncedSearchQuery = useDebouncedValue(searchQuery, 220);
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
@@ -105,7 +106,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
 
     const headerHeight = scrollY.interpolate({
         inputRange: [0, 100],
-        outputRange: [Platform.OS === 'ios' ? 180 : 140, Platform.OS === 'ios' ? 120 : 80],
+        outputRange: [Platform.OS === 'ios' ? 140 : 110, Platform.OS === 'ios' ? 92 : 70],
         extrapolate: 'clamp',
     });
 
@@ -300,20 +301,29 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.listContent}
                         ListHeaderComponent={() => (
-                            <View style={styles.listHeader}>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsContent}>
-                                    <QuickAction styles={styles} label="Notas" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
-                                    <QuickAction styles={styles} label="AI" emoji="🤖" bg={theme.isDark ? '#173320' : '#f0fdf4'} onPress={() => navigation.navigate('PingAI')} />
-                                    <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
-                                    <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />
-                                </ScrollView>
-                                <View style={styles.sectionHintRow}>
-                                    <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
-                                    {filter !== 'all' ? <Text style={styles.sectionHintText}>Filtro: {filter}</Text> : null}
-                                </View>
-                                <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
+                                <View style={styles.listHeader}>
+                                    <View style={styles.sectionHintRow}>
+                                        <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
+                                        {filter !== 'all' ? <Text style={styles.sectionHintText}>Filtro: {filter}</Text> : null}
+                                    </View>
+                                    <TouchableOpacity style={styles.quickActionsToggle} onPress={() => setShowQuickActions(prev => !prev)} activeOpacity={0.7}>
+                                        <View style={styles.quickActionsToggleLeft}>
+                                            <Ionicons name="flash" size={16} color={theme.colors.secondary} />
+                                            <Text style={styles.quickActionsToggleText}>Acciones rápidas</Text>
+                                        </View>
+                                        <Ionicons name={showQuickActions ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
+                                    </TouchableOpacity>
+                                    {showQuickActions && (
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsContent}>
+                                            <QuickAction styles={styles} label="Notas" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
+                                            <QuickAction styles={styles} label="AI" emoji="🤖" bg={theme.isDark ? '#173320' : '#f0fdf4'} onPress={() => navigation.navigate('PingAI')} />
+                                            <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
+                                            <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />
+                                        </ScrollView>
+                                    )}
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
                                     style={styles.filterBarContainer}
                                     contentContainerStyle={styles.filterBar}
                                 >
@@ -375,44 +385,42 @@ const createStyles = (theme: any) => StyleSheet.create({
     skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.surfaceMuted, marginRight: 16 },
     skeletonInfo: { flex: 1 },
     skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceMuted },
-    headerSection: { paddingHorizontal: 24, justifyContent: 'flex-end', paddingBottom: 20, zIndex: 10 },
-    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    title: { fontSize: 34, fontWeight: '900', color: theme.colors.white, letterSpacing: -2 },
-    headerSubtitle: { marginTop: 4, fontSize: 13, color: 'rgba(255,255,255,0.72)', fontWeight: '600' },
-    headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
+    headerSection: { paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, zIndex: 10 },
+    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    title: { fontSize: 28, fontWeight: '800', color: theme.colors.white, letterSpacing: -1 },
+    headerSubtitle: { marginTop: 2, fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
+    headerIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
     searchContainer: { width: '100%' },
-    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 18, paddingHorizontal: 16, height: 52, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
-    searchInput: { flex: 1, marginLeft: 12, color: theme.colors.white, fontSize: 16, fontWeight: '500' },
-    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -20 },
-    quickActionsContent: { paddingHorizontal: 24, paddingVertical: 24, gap: 20 },
-    qaCard: { alignItems: 'center', width: 70 },
-    qaIconWrap: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: theme.isDark ? 0.15 : 0.05, shadowRadius: 12, elevation: 4 },
-    qaLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text.primary },
+    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 16, paddingHorizontal: 14, height: 46, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
+    searchInput: { flex: 1, marginLeft: 10, color: theme.colors.white, fontSize: 15, fontWeight: '500' },
+    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -12 },
+    quickActionsToggle: { marginHorizontal: 20, marginBottom: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    quickActionsToggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    quickActionsToggleText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
+    quickActionsContent: { paddingHorizontal: 20, paddingVertical: 12, gap: 16 },
+    qaCard: { alignItems: 'center', width: 64 },
+    qaIconWrap: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: theme.isDark ? 0.12 : 0.04, shadowRadius: 10, elevation: 3 },
+    qaLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text.primary },
     sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 14 },
     sectionHintText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '700' },
-    filterBarContainer: { marginBottom: 20 },
-    filterBar: { flexDirection: 'row', paddingHorizontal: 24, gap: 8 },
-    filterChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
+    filterBarContainer: { marginBottom: 12 },
+    filterBar: { flexDirection: 'row', paddingHorizontal: 20, gap: 6 },
+    filterChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
     filterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-    filterChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
+    filterChipText: { fontSize: 12, fontWeight: '700', color: theme.colors.text.secondary },
     filterChipActiveText: { color: theme.colors.white },
     listContent: { paddingBottom: 100 },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 18,
-        paddingVertical: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
         backgroundColor: theme.colors.surface,
         marginHorizontal: 16,
-        marginBottom: 10,
-        borderRadius: 22,
+        marginBottom: 8,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: theme.colors.separator,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: theme.isDark ? 0.12 : 0.04,
-        shadowRadius: 16,
-        elevation: 3,
     },
     rowUnread: { borderColor: theme.colors.accentSoft },
     avatarContainer: { position: 'relative' },
@@ -430,9 +438,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     previewWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 },
     preview: { fontSize: 14, color: theme.colors.text.muted },
-    previewUnread: { color: theme.colors.text.primary, fontWeight: '600' },
+    previewUnread: { color: theme.colors.text.secondary, fontWeight: '700' },
+    previewTyping: { color: theme.colors.accent, fontWeight: '700' },
     unreadBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, minWidth: 24, alignItems: 'center', justifyContent: 'center' },
-    unreadText: { color: theme.colors.white, fontSize: 11, fontWeight: '900' },
+    unreadText: { color: theme.colors.white, fontSize: 11, fontWeight: '800' },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
     emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12 },
     emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },

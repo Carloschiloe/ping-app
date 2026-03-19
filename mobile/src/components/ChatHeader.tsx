@@ -47,7 +47,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     {isSummarizing ? (
                         <ActivityIndicator size="small" color={theme.colors.secondary} />
                     ) : (
-                        <Ionicons name="sparkles" size={20} color="#fbbf24" />
+                        <Ionicons name="sparkles" size={18} color={theme.colors.text.secondary} />
                     )}
                 </TouchableOpacity>
                 <TouchableOpacity onPress={onVoiceCall} style={styles.iconBtn}>
@@ -98,10 +98,11 @@ const createStyles = (theme: any) => StyleSheet.create({
         padding: 6,
         alignItems: 'center',
         justifyContent: 'center',
+        borderRadius: 16,
     },
     summarizeIconBtn: {
-        backgroundColor: theme.isDark ? 'rgba(251, 191, 36, 0.16)' : 'rgba(251, 191, 36, 0.1)',
-        borderRadius: 20,
+        backgroundColor: theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.12)',
+        borderRadius: 16,
         marginRight: 4,
     }
 });
