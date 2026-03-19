@@ -19,17 +19,49 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 ALTER TABLE message_reactions ENABLE ROW LEVEL SECURITY;
 
 -- 4. Policies
-CREATE POLICY "Users can see all reactions"
-    ON message_reactions FOR SELECT
-    USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'message_reactions' AND policyname = 'Users can see all reactions'
+  ) THEN
+    CREATE POLICY "Users can see all reactions"
+      ON message_reactions FOR SELECT
+      USING (true);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own reactions"
-    ON message_reactions FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'message_reactions' AND policyname = 'Users can insert their own reactions'
+  ) THEN
+    CREATE POLICY "Users can insert their own reactions"
+      ON message_reactions FOR INSERT
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can delete their own reactions"
-    ON message_reactions FOR DELETE
-    USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'message_reactions' AND policyname = 'Users can delete their own reactions'
+  ) THEN
+    CREATE POLICY "Users can delete their own reactions"
+      ON message_reactions FOR DELETE
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- 5. Enable Replication for Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE message_reactions;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'message_reactions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE message_reactions;
+  END IF;
+END $$;

@@ -17,14 +17,30 @@ CREATE TABLE IF NOT EXISTS calls (
 ALTER TABLE calls ENABLE ROW LEVEL SECURITY;
 
 -- Policies
-CREATE POLICY "Users can see calls from their conversations"
-    ON calls FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM conversations 
-            WHERE conversations.id = calls.conversation_id
-        )
-    );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'calls' AND policyname = 'Users can see calls from their conversations'
+  ) THEN
+    CREATE POLICY "Users can see calls from their conversations"
+        ON calls FOR SELECT
+        USING (
+            EXISTS (
+                SELECT 1 FROM conversations 
+                WHERE conversations.id = calls.conversation_id
+            )
+        );
+  END IF;
+END $$;
 
 -- Enable replication for Realtime if needed
-ALTER PUBLICATION supabase_realtime ADD TABLE calls;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'calls'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE calls;
+  END IF;
+END $$;

@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { useAppTheme } from '../theme/ThemeContext';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -47,6 +48,8 @@ function CompletionSheet({
     onClose,
     onConfirm,
 }: any) {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const outcomes = [
         { key: 'resolved', label: 'Resuelto' },
         { key: 'pending_followup', label: 'Queda pendiente' },
@@ -156,6 +159,8 @@ function ChecklistSheet({
     onClose,
     onToggleChecklistItem,
 }: any) {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const resultOptionsByType = {
         condition: [
             { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
@@ -292,6 +297,8 @@ export function OperationPanel({
     pendingAction = null,
     feedbackMessage = null,
 }: OperationPanelProps) {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const [showChecklistModal, setShowChecklistModal] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -471,7 +478,7 @@ export function OperationPanel({
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     panel: {
         paddingHorizontal: 12,
         paddingTop: 8,
@@ -479,15 +486,15 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     heroCard: {
-        backgroundColor: '#eef6ff',
+        backgroundColor: theme.isDark ? '#10243d' : '#eef6ff',
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#bfdbfe',
+        borderColor: theme.isDark ? '#294b73' : '#bfdbfe',
         padding: 12,
         gap: 8,
-        shadowColor: '#2563eb',
+        shadowColor: theme.colors.primary,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
+        shadowOpacity: theme.isDark ? 0.18 : 0.08,
         shadowRadius: 12,
         elevation: 2,
     },
@@ -504,10 +511,10 @@ const styles = StyleSheet.create({
     eyebrow: {
         fontSize: 11,
         fontWeight: '800',
-        color: '#1d4ed8',
+        color: theme.colors.accent,
         textTransform: 'uppercase',
         letterSpacing: 0.4,
-        backgroundColor: '#dbeafe',
+        backgroundColor: theme.colors.accentSoft,
         alignSelf: 'flex-start',
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -522,7 +529,7 @@ const styles = StyleSheet.create({
     expandButtonText: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#2563eb',
+        color: theme.colors.accent,
     },
     headerAction: {
         padding: 2,
@@ -541,21 +548,21 @@ const styles = StyleSheet.create({
         fontSize: 17,
         lineHeight: 22,
         fontWeight: '700',
-        color: '#172554',
+        color: theme.colors.text.primary,
     },
     helperText: {
         fontSize: 12,
         lineHeight: 17,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     helperTextCompact: {
         fontSize: 12,
         lineHeight: 16,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     commitmentMeta: {
         fontSize: 13,
-        color: '#475569',
+        color: theme.colors.text.secondary,
         marginTop: 1,
     },
     stateRow: {
@@ -578,24 +585,24 @@ const styles = StyleSheet.create({
     },
     actionButton: {
         flex: 1,
-        backgroundColor: '#ffffff',
+        backgroundColor: theme.colors.surface,
         borderRadius: 12,
         paddingVertical: 10,
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: '#dbeafe',
+        borderColor: theme.colors.accentSoft,
     },
     actionButtonPrimary: {
-        backgroundColor: '#dbeafe',
-        borderColor: '#93c5fd',
+        backgroundColor: theme.colors.accentSoft,
+        borderColor: theme.colors.accent,
     },
     actionButtonText: {
         fontSize: 13,
         fontWeight: '700',
-        color: '#1e293b',
+        color: theme.colors.text.primary,
     },
     actionButtonTextPrimary: {
-        color: '#1d4ed8',
+        color: theme.colors.accent,
     },
     feedbackRow: {
         flexDirection: 'row',
@@ -605,7 +612,7 @@ const styles = StyleSheet.create({
     },
     feedbackText: {
         fontSize: 12,
-        color: '#166534',
+        color: theme.colors.success,
         fontWeight: '600',
     },
     pinnedRow: {
@@ -615,7 +622,7 @@ const styles = StyleSheet.create({
         gap: 10,
         paddingTop: 6,
         borderTopWidth: 1,
-        borderTopColor: '#eef2f7',
+        borderTopColor: theme.colors.separator,
     },
     pinnedPreview: {
         flex: 1,
@@ -626,13 +633,13 @@ const styles = StyleSheet.create({
     pinnedText: {
         flex: 1,
         fontSize: 13,
-        color: '#334155',
+        color: theme.colors.text.primary,
         fontWeight: '600',
     },
     pinnedAction: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#2563eb',
+        color: theme.colors.accent,
     },
     quickActionsRow: {
         flexDirection: 'row',
@@ -640,22 +647,22 @@ const styles = StyleSheet.create({
     },
     quickAction: {
         flex: 1,
-        backgroundColor: '#ffffff',
+        backgroundColor: theme.colors.surface,
         borderRadius: 14,
         paddingHorizontal: 12,
         paddingVertical: 10,
         borderWidth: 1,
-        borderColor: '#dbeafe',
+        borderColor: theme.colors.accentSoft,
     },
     quickActionTitle: {
         fontSize: 12,
         fontWeight: '800',
-        color: '#1e3a5f',
+        color: theme.colors.text.primary,
         marginBottom: 3,
     },
     quickActionSubtitle: {
         fontSize: 12,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     outcomeRow: {
         flexDirection: 'row',
@@ -710,7 +717,7 @@ const styles = StyleSheet.create({
     },
     modalRoot: {
         flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.35)',
+        backgroundColor: theme.colors.overlay,
         justifyContent: 'flex-end',
     },
     modalBackdrop: {
@@ -721,7 +728,7 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     sheet: {
-        backgroundColor: '#ffffff',
+        backgroundColor: theme.colors.surface,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         maxHeight: '82%',
@@ -735,12 +742,12 @@ const styles = StyleSheet.create({
         paddingTop: 18,
         paddingBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: '#eef2f7',
+        borderBottomColor: theme.colors.separator,
     },
     sheetTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     sheetContent: {
         padding: 20,
@@ -758,25 +765,25 @@ const styles = StyleSheet.create({
     sheetSectionTitle: {
         fontSize: 15,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     sheetHintText: {
         fontSize: 13,
         lineHeight: 19,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     sheetLink: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#2563eb',
+        color: theme.colors.accent,
     },
     sheetCheckCard: {
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.surfaceMuted,
         borderRadius: 14,
         padding: 12,
         gap: 10,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.border,
     },
     sheetCheckRow: {
         flexDirection: 'row',
@@ -786,10 +793,10 @@ const styles = StyleSheet.create({
     sheetCheckText: {
         flex: 1,
         fontSize: 15,
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     sheetCheckTextDone: {
-        color: '#0f172a',
+        color: theme.colors.text.primary,
         fontWeight: '700',
     },
     sheetResultRow: {
@@ -801,18 +808,18 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 999,
-        backgroundColor: '#ffffff',
+        backgroundColor: theme.colors.surfaceElevated,
         borderWidth: 1,
-        borderColor: '#dbeafe',
+        borderColor: theme.colors.accentSoft,
     },
     resultChipText: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#475569',
+        color: theme.colors.text.secondary,
     },
     sheetAuditText: {
         fontSize: 11,
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     latestBody: {
         fontSize: 14,
@@ -824,20 +831,20 @@ const styles = StyleSheet.create({
         color: '#64748b',
     },
     input: {
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.surfaceMuted,
         borderRadius: 14,
         paddingHorizontal: 14,
         paddingVertical: 12,
         fontSize: 15,
-        color: '#0f172a',
+        color: theme.colors.text.primary,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.border,
     },
     textArea: {
         minHeight: 140,
     },
     primaryButton: {
-        backgroundColor: '#2563eb',
+        backgroundColor: theme.colors.primary,
         borderRadius: 14,
         paddingVertical: 14,
         alignItems: 'center',

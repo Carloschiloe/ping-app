@@ -78,7 +78,7 @@ export function useChatOperation({
             setTimeout(() => setLocationFeedback(null), 1800);
             invalidateOperationState();
         } catch (err) {
-            console.error('[Location] Failed to share location');
+            console.error('[Location] Failed to share location', err);
             Alert.alert('Error', 'No se pudo compartir la ubicacion.');
         }
     };

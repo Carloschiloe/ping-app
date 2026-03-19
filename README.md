@@ -23,6 +23,8 @@ Obtén las credenciales de tu proyecto de [Supabase](https://supabase.com/):
    SUPABASE_URL=tu_supabase_project_url
    SUPABASE_ANON_KEY=tu_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=tu_supabase_service_role_key
+   ENCRYPTION_KEY=una_clave_segura_de_32_bytes
+   RUN_CRON_JOBS=true # puedes poner false si solo quieres exponer el API sin jobs de background
    ```
 2. Navega a `mobile/` y renombra `.env.example` a `.env`. Completa las variables:
    ```env
@@ -33,7 +35,9 @@ Obtén las credenciales de tu proyecto de [Supabase](https://supabase.com/):
    *(Importante: Si pruebas en dispositivo físico, cambia localhost a la IP de tu PC).*
 
 ### Paso 2: Ejecutar Esquema de Base de Datos
-En el dashboard de tu proyecto en Supabase, ve a **SQL Editor**, copia el contenido del archivo principal `supabase/schema.sql` y ejecútalo entero. Esto configura las tablas y reglas de seguridad base.
+Si nunca antes configuraste la base, ve a **SQL Editor** en Supabase, copia el contenido de `supabase/schema.full.sql` y ejecútalo entero; este archivo combina el esquema base con todas las fases de evolución (`phase*.sql`).
+
+Si modificas alguno de los archivos `backend/phase*.sql`, regenera el esquema actual con `cd backend && npm run schema:build` antes de subir nuevos cambios.
 
 ### Paso 3: Instalar Dependencias
 Abre 2 terminales, una para el backend y otra para el mobile y corre:

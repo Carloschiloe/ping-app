@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
     Animated, Easing, Vibration, Platform, Image,
@@ -23,6 +23,26 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
     const slideAnim = useRef(new Animated.Value(60)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const channelRef = useRef<any>(null); // Store channel in ref to use in methods
+
+    const handleDecline = useCallback(async () => {
+        Vibration.cancel();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+
+        // Tell the caller we declined/hung up
+        if (channelRef.current) {
+            try {
+                await channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'hangup',
+                    payload: {},
+                });
+            } catch (err) {
+                console.error('[IncomingCall] Failed to send hangup:', err);
+            }
+        }
+
+        navigation.goBack();
+    }, [navigation]);
 
     useEffect(() => {
         // Vibrate in loop
@@ -72,9 +92,9 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
                 supabase.removeChannel(channelRef.current);
             }
         };
-    }, []);
+    }, [conversationId, fadeAnim, slideAnim, pulseAnim, pulseAnim2, pulseAnim3, handleDecline]);
 
-    const handleAccept = () => {
+    const handleAccept = useCallback(() => {
         Vibration.cancel();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         navigation.replace('Call', {
@@ -84,27 +104,7 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
             isIncoming: true,
             callId, // Pass it along
         });
-    };
-
-    const handleDecline = async () => {
-        Vibration.cancel();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-
-        // Tell the caller we declined/hung up
-        if (channelRef.current) {
-            try {
-                await channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'hangup',
-                    payload: {},
-                });
-            } catch (err) {
-                console.error('[IncomingCall] Failed to send hangup:', err);
-            }
-        }
-
-        navigation.goBack();
-    };
+    }, [callId, callerName, conversationId, isVideo, navigation]);
 
     const pulseOpacity1 = pulseAnim.interpolate({ inputRange: [1, 2.5], outputRange: [0.4, 0] });
     const pulseOpacity2 = pulseAnim2.interpolate({ inputRange: [1, 2.5], outputRange: [0.3, 0] });

@@ -16,9 +16,7 @@ export const createCommitment = async (req: Request, res: Response): Promise<voi
     } catch (error: any) {
         console.error('[createCommitment Controller Error]:', error);
         res.status(500).json({
-            error: error.message || 'Internal Server Error',
-            details: error.details || error,
-            payload: req.body
+            error: error.message || 'Internal Server Error'
         });
     }
 };
@@ -44,6 +42,7 @@ export const acceptCommitment = async (req: Request, res: Response): Promise<voi
 
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[acceptCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -61,6 +60,7 @@ export const rejectCommitment = async (req: Request, res: Response): Promise<voi
         const data = await commitmentService.rejectCommitment(userId, id, reason);
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[rejectCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -78,6 +78,7 @@ export const postponeCommitment = async (req: Request, res: Response): Promise<v
         const data = await commitmentService.postponeCommitment(userId, id, newDate);
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[postponeCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -95,6 +96,7 @@ export const getCommitments = async (req: Request, res: Response): Promise<void>
         const data = await commitmentService.getCommitments(userId, status, conversationId);
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[getCommitments Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -136,6 +138,7 @@ export const updateCommitment = async (req: Request, res: Response): Promise<voi
 
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[updateCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -162,6 +165,7 @@ export const deleteCommitment = async (req: Request, res: Response): Promise<voi
 
         res.status(200).json({ success: true, deleted: data });
     } catch (error: any) {
+        console.error('[deleteCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -178,6 +182,7 @@ export const pingCommitment = async (req: Request, res: Response): Promise<void>
         const data = await commitmentService.pingCommitment(userId, id);
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[pingCommitment Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -199,6 +204,7 @@ export const checkConflict = async (req: Request, res: Response): Promise<void> 
         const data = await commitmentService.checkConflict(userId, dueAt, excludeId);
         res.status(200).json(data);
     } catch (error: any) {
+        console.error('[checkConflict Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };

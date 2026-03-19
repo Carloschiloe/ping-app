@@ -15,18 +15,36 @@ const NOTIFICATION_WINDOWS: NotificationWindow[] = [
     { label: 'exact', title: '🔔 Ahora', offsetMinutes: 0 },
 ];
 
+const fetchPushTokens = async (userIds: string[]) => {
+    if (userIds.length === 0) return new Map<string, string>();
+
+    const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .select('id, expo_push_token')
+        .in('id', userIds);
+
+    if (error) {
+        console.error('[Push] Failed to fetch push tokens:', error);
+        return new Map<string, string>();
+    }
+
+    const tokenMap = new Map<string, string>();
+    for (const profile of data || []) {
+        if (profile?.expo_push_token && Expo.isExpoPushToken(profile.expo_push_token)) {
+            tokenMap.set(profile.id, profile.expo_push_token);
+        }
+    }
+    return tokenMap;
+};
+
 const sendPushBatch = async (commitments: any[], windowTitle: string) => {
     const messages = [];
+    const uniqueUserIds = Array.from(new Set(commitments.map((c) => c.owner_user_id).filter(Boolean)));
+    const tokenMap = await fetchPushTokens(uniqueUserIds);
 
     for (const c of commitments) {
-        const { data: profile } = await supabaseAdmin
-            .from('profiles')
-            .select('expo_push_token')
-            .eq('id', c.owner_user_id)
-            .single();
-
-        const pushToken = profile?.expo_push_token;
-        if (pushToken && Expo.isExpoPushToken(pushToken)) {
+        const pushToken = tokenMap.get(c.owner_user_id);
+        if (pushToken) {
             messages.push({
                 to: pushToken,
                 sound: 'default' as const,
@@ -51,6 +69,8 @@ const sendPushBatch = async (commitments: any[], windowTitle: string) => {
 
 // Cron job — runs every minute
 export const checkDueCommitments = async () => {
+    const startedAt = Date.now();
+    let totalCommitments = 0;
     try {
         const now = new Date();
 
@@ -65,7 +85,7 @@ export const checkDueCommitments = async () => {
             // Find accepted commitments due in this window
             const { data: commitments, error } = await supabaseAdmin
                 .from('commitments')
-                .select('*')
+                .select('id, title, owner_user_id, due_at')
                 .in('status', ['accepted', 'in_progress'])
                 .gte('due_at', startOfMinute.toISOString())
                 .lte('due_at', endOfMinute.toISOString());
@@ -73,12 +93,16 @@ export const checkDueCommitments = async () => {
             if (error) throw error;
             if (!commitments || commitments.length === 0) continue;
 
-            console.log(`🔔 [${window.label}] Sending ${commitments.length} reminder(s)`);
+            totalCommitments += commitments.length;
+            console.info(`🔔 [${window.label}] Sending ${commitments.length} reminder(s)`);
             await sendPushBatch(commitments, window.title);
 
         }
     } catch (err) {
         console.error('[Push] checkDueCommitments error:', err);
+    } finally {
+        const durationMs = Date.now() - startedAt;
+        console.info(`[Push] checkDueCommitments finished in ${durationMs}ms (commitments: ${totalCommitments}).`);
     }
 };
 

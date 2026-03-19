@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Platform, Alert, Linking, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, SafeAreaView, ScrollView, Alert, Linking, Dimensions } from 'react-native';
 import { useCommitments, useMarkCommitmentDone, useDeleteCommitment } from '../api/queries';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { scheduleCommitmentReminder, cancelCommitmentReminder } from '../lib/notifications';

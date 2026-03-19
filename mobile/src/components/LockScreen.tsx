@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -11,11 +11,7 @@ interface LockScreenProps {
 export default function LockScreen({ onUnlock }: LockScreenProps) {
     const [authActive, setAuthActive] = useState(false);
 
-    useEffect(() => {
-        handleAuth();
-    }, []);
-
-    const handleAuth = async () => {
+    const handleAuth = React.useCallback(async () => {
         if (authActive) return;
         setAuthActive(true);
 
@@ -42,7 +38,11 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
         } else {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
-    };
+    }, [authActive, onUnlock]);
+
+    useEffect(() => {
+        handleAuth();
+    }, [handleAuth]);
 
     return (
         <View style={styles.container}>

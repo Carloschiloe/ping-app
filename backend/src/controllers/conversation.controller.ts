@@ -549,13 +549,6 @@ export const getConversationMedia = async (req: Request, res: Response, next: Ne
 
         if (error) throw new AppError(error.message, 500);
 
-        console.warn(`[DEBUG-BACKEND] Media found for ${conversationId}: ${(data || []).length} items`);
-        if (data && data.length > 0) {
-            data.slice(0, 5).forEach((m, i) => {
-                console.warn(`[DEBUG-BACKEND] Item ${i}: ID=${m.id.substring(0,8)} Text="${m.text?.substring(0, 100)}"`);
-            });
-        }
-
         // Filtro adicional para asegurar que tengan el formato correcto
         const mediaMessages = (data || []).filter(m => {
             const t = m.text || '';

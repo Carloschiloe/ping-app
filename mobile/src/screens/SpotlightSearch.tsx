@@ -1,12 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, TextInput, FlatList, ActivityIndicator, StyleSheet, TouchableOpacity, ScrollView, Animated, Platform, Image } from 'react-native';
+import { View, Text, TextInput, FlatList, ActivityIndicator, StyleSheet, TouchableOpacity, ScrollView, Platform, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation, useCreateConversation } from '../api/queries';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -111,6 +110,7 @@ export default function SearchScreen() {
                 const res = await getSelfConversation();
                 targetConversationId = res?.conversationId;
             } catch (e) {
+                console.warn('[SpotlightSearch] Failed to get self conversation', e);
                 return;
             }
         }
@@ -217,7 +217,7 @@ export default function SearchScreen() {
                 <View style={styles.empty}>
                     <Ionicons name="alert-circle-outline" size={60} color="#f1f5f9" />
                     <Text style={styles.emptyTitle}>Sin resultados</Text>
-                    <Text style={styles.emptyText}>No encontramos nada para "{query}"</Text>
+                    <Text style={styles.emptyText}>No encontramos nada para &quot;{query}&quot;</Text>
                 </View>
             ) : (
                 <FlatList

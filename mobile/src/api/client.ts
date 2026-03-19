@@ -28,7 +28,7 @@ export const apiClient = {
         }
         try {
             return JSON.parse(responseText);
-        } catch (e) {
+        } catch {
             throw new Error('El servidor devolvió un formato inválido (no JSON).');
         }
     },
@@ -59,7 +59,7 @@ export const apiClient = {
             try {
                 const errorJson = JSON.parse(responseText);
                 errorMsg = errorJson.error || errorMsg;
-            } catch (e) { }
+            } catch { }
             throw new Error(errorMsg);
         }
 

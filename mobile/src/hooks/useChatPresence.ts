@@ -7,14 +7,6 @@ interface ActiveTyper {
     isRecording: boolean;
 }
 
-interface PresenceData {
-    user_id: string;
-    name: string;
-    email: string;
-    typing: boolean;
-    recording: boolean;
-}
-
 export function useChatPresence(conversationId: string, user: any) {
     const [activeTypers, setActiveTypers] = useState<ActiveTyper[]>([]);
     const presenceChannel = useRef<any>(null);
@@ -65,6 +57,7 @@ export function useChatPresence(conversationId: string, user: any) {
                         await channel.track(data);
                         return true;
                     } catch (e) {
+                        console.warn('[Presence] Track failed', e);
                         return false;
                     }
                 }

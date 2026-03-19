@@ -36,15 +36,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const [showPicker, setShowPicker] = useState(false);
     const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
 
-    useEffect(() => {
-        if (visible && suggestionData?.dueAt) {
-            checkConflicts();
-        } else {
-            setConflicts([]);
-        }
-    }, [visible, suggestionData?.dueAt, suggestionData?.assignedToUserId]);
-
-    const checkConflicts = async () => {
+    const checkConflicts = React.useCallback(async () => {
         try {
             setIsCheckingConflicts(true);
             const excludeParam = suggestionData.id ? `&excludeId=${suggestionData.id}` : '';
@@ -55,7 +47,15 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         } finally {
             setIsCheckingConflicts(false);
         }
-    };
+    }, [suggestionData?.dueAt, suggestionData?.id]);
+
+    useEffect(() => {
+        if (visible && suggestionData?.dueAt) {
+            checkConflicts();
+        } else {
+            setConflicts([]);
+        }
+    }, [visible, suggestionData?.dueAt, suggestionData?.assignedToUserId, checkConflicts]);
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (event.type === 'dismissed') {
             setShowPicker(false);

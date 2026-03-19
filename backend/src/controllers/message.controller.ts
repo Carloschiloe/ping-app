@@ -17,9 +17,9 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
         }
 
         const result = await messageService.processUserMessage(userId, text, undefined, reply_to_id);
-        console.log('[DEBUG-BACKEND] processUserMessage result Meta:', JSON.stringify(result.message?.meta));
         res.status(201).json(result);
     } catch (error: any) {
+        console.error('[createMessage Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -37,6 +37,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
         const result = await messageService.getMessages(userId, limit, offset);
         res.status(200).json(result);
     } catch (error: any) {
+        console.error('[getMessages Controller Error]:', error);
         res.status(500).json({ error: error.message });
     }
 };

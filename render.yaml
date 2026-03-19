@@ -21,3 +21,5 @@ services:
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
+      - key: RUN_CRON_JOBS
+        value: "true"

@@ -25,7 +25,7 @@ const TypingIndicator = () => {
             createAnimation(dot2, 200),
             createAnimation(dot3, 400),
         ]).start();
-    }, []);
+    }, [dot1, dot2, dot3]);
 
     const getDotStyle = (anim: Animated.Value) => ({
         transform: [{

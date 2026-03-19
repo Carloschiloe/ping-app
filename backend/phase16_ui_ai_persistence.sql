@@ -16,17 +16,49 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 -- 4. Enable RLS for ai_messages
 ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can see their own AI history" 
-    ON ai_messages FOR SELECT 
-    USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'ai_messages' AND policyname = 'Users can see their own AI history'
+  ) THEN
+    CREATE POLICY "Users can see their own AI history" 
+        ON ai_messages FOR SELECT 
+        USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own AI history" 
-    ON ai_messages FOR INSERT 
-    WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'ai_messages' AND policyname = 'Users can insert their own AI history'
+  ) THEN
+    CREATE POLICY "Users can insert their own AI history" 
+        ON ai_messages FOR INSERT 
+        WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can delete their own AI history" 
-    ON ai_messages FOR DELETE 
-    USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'ai_messages' AND policyname = 'Users can delete their own AI history'
+  ) THEN
+    CREATE POLICY "Users can delete their own AI history" 
+        ON ai_messages FOR DELETE 
+        USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- 5. Enable Realtime (Optional for AI history, but good practice)
-ALTER PUBLICATION supabase_realtime ADD TABLE ai_messages;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'ai_messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE ai_messages;
+  END IF;
+END $$;

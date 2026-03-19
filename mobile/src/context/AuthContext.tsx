@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                         .eq('id', userId);
                 }
             } catch (err) {
-                console.warn('Error syncing locale/presence');
+                console.warn('Error syncing locale/presence', err);
             }
         };
 

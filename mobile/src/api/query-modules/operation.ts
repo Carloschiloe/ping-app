@@ -97,7 +97,7 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
 export const useSaveOperationChecklist = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (data: { checklistId?: string | null; title: string; items: Array<string | { label: string; responseType?: 'condition' | 'severity' | 'yes_no' | 'text' }>; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
+        mutationFn: async (data: { checklistId?: string | null; title: string; items: (string | { label: string; responseType?: 'condition' | 'severity' | 'yes_no' | 'text' })[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
         },

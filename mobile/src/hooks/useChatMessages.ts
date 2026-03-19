@@ -23,7 +23,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             });
             return true;
         } catch (e) {
-            console.warn('[ChatMessages] Sync failed');
+            console.warn('[ChatMessages] Sync failed', e);
             return false;
         }
     }, []);

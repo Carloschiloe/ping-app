@@ -25,7 +25,7 @@ export async function scheduleCommitmentReminder(commitment: { id: string, title
             trigger: { date: reminderDate } as any,
         });
     } catch (error) {
-        console.warn('[Notifications] Error scheduling');
+        console.warn('[Notifications] Error scheduling', error);
     }
 }
 
@@ -34,6 +34,6 @@ export async function cancelCommitmentReminder(id: string) {
     try {
         await Notifications.cancelScheduledNotificationAsync(id);
     } catch (error) {
-        /* ignore */
+        console.warn('[Notifications] Cancel failed', error);
     }
 }

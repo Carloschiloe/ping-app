@@ -6,9 +6,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
 import { AISuggestionModal } from './AISuggestionModal';
-import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, usePostponeCommitment, useUpdateCommitment, useSetActiveOperationCommitment } from '../api/queries';
+import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment } from '../api/queries';
 import * as Haptics from 'expo-haptics';
-import { apiClient } from '../api/client';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 interface GroupTaskCardProps {
@@ -34,9 +33,8 @@ export default function GroupTaskCard({
     const conversationId = manualConversationId || commitment.group_conversation_id;
     const { user } = useAuth();
     const { mutate: markDone, isPending: isMarkingDone } = useMarkCommitmentDone();
-    const { mutate: accept, isPending: isAccepting } = useAcceptCommitment();
-    const { mutate: reject, isPending: isRejecting } = useRejectCommitment();
-    const { mutate: postpone, isPending: isPostponing } = usePostponeCommitment();
+    const { mutate: accept } = useAcceptCommitment();
+    const { mutate: reject } = useRejectCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const [showActions, setShowActions] = useState(false);
@@ -165,27 +163,8 @@ export default function GroupTaskCard({
             setShowEditModal(false);
             setEditData(null);
         } catch (err) {
-            console.error('[GroupTaskCard] Edit confirm failed');
+            console.error('[GroupTaskCard] Edit confirm failed', err);
         }
-    };
-
-    const handlePing = () => {
-        const nameToPing = assigneeName;
-        Alert.alert(
-            'Enviar Recordatorio',
-            `¿Quieres enviar un recordatorio a ${nameToPing}?`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Enviar',
-                    onPress: () => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                        apiClient.post(`/commitments/${commitment.id}/ping`, {}).catch(() => { });
-                        Alert.alert('Ping!', `Has recordado a ${nameToPing}.`);
-                    }
-                }
-            ]
-        );
     };
 
     const handleSetActiveCommitment = (nextCommitmentId: string | null) => {

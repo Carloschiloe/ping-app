@@ -21,13 +21,29 @@ ALTER TABLE user_calendar_accounts ENABLE ROW LEVEL SECURITY;
 -- Note: In Supabase, if we want to access auth.users, we might need to handle schemas carefully.
 -- Usually we reference auth.users for foreign keys.
 
-CREATE POLICY "Users can see their own calendar accounts" 
-ON user_calendar_accounts FOR SELECT 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'user_calendar_accounts' AND policyname = 'Users can see their own calendar accounts'
+  ) THEN
+    CREATE POLICY "Users can see their own calendar accounts" 
+    ON user_calendar_accounts FOR SELECT 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can delete their own calendar accounts" 
-ON user_calendar_accounts FOR DELETE 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'user_calendar_accounts' AND policyname = 'Users can delete their own calendar accounts'
+  ) THEN
+    CREATE POLICY "Users can delete their own calendar accounts" 
+    ON user_calendar_accounts FOR DELETE 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Add updated_at trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -37,6 +53,18 @@ BEGIN
     RETURN NEW;
 END;
 $$ language 'plpgsql';
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'update_calendar_accounts_updated_at'
+      AND tgrelid = 'public.user_calendar_accounts'::regclass
+  ) THEN
+    DROP TRIGGER update_calendar_accounts_updated_at ON public.user_calendar_accounts;
+  END IF;
+END $$;
 
 CREATE TRIGGER update_calendar_accounts_updated_at
     BEFORE UPDATE ON user_calendar_accounts

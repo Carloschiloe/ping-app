@@ -8,7 +8,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
-import { theme } from '../theme/theme';
+import { useAppTheme } from '../theme/ThemeContext';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -46,6 +46,8 @@ const MessageItemComponent = ({
     onToggleSelect, onSwipeLeft, onViewReactions,
     formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat', activeCommitmentId = null
 }: MessageItemProps) => {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
 
     if (item.type === 'divider') {
         return (
@@ -449,7 +451,7 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
 
 export default MessageItem;
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
     dateDividerText: {
         backgroundColor: 'rgba(0,0,0,0.2)', color: theme.colors.white,
@@ -466,7 +468,7 @@ const styles = StyleSheet.create({
     },
     bubbleMe: { backgroundColor: theme.colors.bubbleMe, borderBottomRightRadius: 4 },
     bubbleThem: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4 },
-    bubbleHighlighted: { backgroundColor: '#bfdbfe' },
+    bubbleHighlighted: { backgroundColor: theme.isDark ? '#183b63' : '#bfdbfe' },
     senderAvatarContainer: {
         width: 32, height: 32, marginRight: 8, alignSelf: 'flex-end', marginBottom: 2,
     },
@@ -492,30 +494,30 @@ const styles = StyleSheet.create({
     locationCard: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, gap: 10 },
     locationIconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
     locationIconWrapMe: { backgroundColor: 'rgba(255,255,255,0.2)' },
-    locationIconWrapThem: { backgroundColor: '#dbeafe' },
+    locationIconWrapThem: { backgroundColor: theme.colors.accentSoft },
     docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
     systemWrap: { alignItems: 'center', marginVertical: 6 },
     systemBubble: {
-        backgroundColor: '#d1fae5', borderRadius: 12,
+        backgroundColor: theme.isDark ? '#133126' : '#d1fae5', borderRadius: 12,
         paddingHorizontal: 16, paddingVertical: 8,
-        borderWidth: 1, borderColor: '#a7f3d0', maxWidth: '90%',
+        borderWidth: 1, borderColor: theme.isDark ? '#1f6d4a' : '#a7f3d0', maxWidth: '90%',
     },
     systemBubbleSpecial: {
-        backgroundColor: '#eff6ff', borderRadius: 14,
+        backgroundColor: theme.isDark ? '#13263c' : '#eff6ff', borderRadius: 14,
         paddingHorizontal: 16, paddingVertical: 10,
-        borderWidth: 1, borderColor: '#bfdbfe', maxWidth: '92%',
+        borderWidth: 1, borderColor: theme.isDark ? '#31537c' : '#bfdbfe', maxWidth: '92%',
         alignItems: 'center',
         gap: 8,
     },
-    systemText: { fontSize: 13, color: '#065f46', textAlign: 'center', fontWeight: '500' },
+    systemText: { fontSize: 13, color: theme.isDark ? '#d7fbe9' : '#065f46', textAlign: 'center', fontWeight: '500' },
     systemActionChip: {
-        backgroundColor: '#dbeafe',
+        backgroundColor: theme.colors.accentSoft,
         borderRadius: 999,
         paddingHorizontal: 12,
         paddingVertical: 6,
     },
     systemActionChipText: {
-        color: '#1d4ed8',
+        color: theme.colors.accent,
         fontSize: 12,
         fontWeight: '700',
     },
@@ -525,7 +527,7 @@ const styles = StyleSheet.create({
         borderWidth: 2, borderColor: theme.colors.text.muted,
         alignItems: 'center', justifyContent: 'center',
     },
-    checkCircleOn: { backgroundColor: '#0a84ff', borderColor: '#0a84ff' },
+    checkCircleOn: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
     bubbleSelected: { opacity: 0.75 },
     quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
     quotedMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: theme.colors.white },
@@ -535,22 +537,22 @@ const styles = StyleSheet.create({
     reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, marginBottom: 2 },
     reactionsMe: { alignSelf: 'flex-end' },
     reactionsThem: { alignSelf: 'flex-start' },
-    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.white, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.border, gap: 2, shadowColor: theme.colors.black, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
+    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceElevated, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.border, gap: 2, shadowColor: theme.colors.black, shadowOpacity: theme.isDark ? 0.2 : 0.1, shadowRadius: 2, elevation: 1 },
     reactionCount: { fontSize: 11, fontWeight: '700', color: theme.colors.text.secondary },
     suggestionChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#e0e7ff', // Indigo 100
+        backgroundColor: theme.colors.accentSoft,
         borderRadius: 12,
         paddingHorizontal: 12,
         paddingVertical: 8,
         marginTop: 6,
         marginBottom: 4,
         borderWidth: 1.5,
-        borderColor: '#818cf8', // Indigo 400
+        borderColor: theme.colors.accent,
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        shadowColor: '#4f46e5',
+        shadowColor: theme.colors.accent,
         shadowOpacity: 0.2,
         shadowRadius: 4,
         elevation: 3,
@@ -562,6 +564,6 @@ const styles = StyleSheet.create({
     suggestionText: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#312e81', // Indigo 900 for high contrast
+        color: theme.isDark ? '#dbe7ff' : '#312e81',
     },
 });

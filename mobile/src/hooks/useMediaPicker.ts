@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Alert } from 'react-native';
@@ -44,6 +43,7 @@ export function useMediaPicker({ onMediaSent, setSendingMedia }: UseMediaPickerP
             }
         } catch (err) {
             setSendingMedia(false);
+            console.error('[MediaPicker] Document selection failed', err);
             Alert.alert('Error', 'Hubo un problema al seleccionar el documento.');
         }
     };

@@ -8,17 +8,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiClient, API_URL } from '../api/client';
+import { API_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
-
-function normalizePhone(raw: string): string {
-    let cleaned = raw.replace(/[^\d+]/g, '');
-    if (!cleaned.startsWith('+')) {
-        cleaned = '+56' + cleaned.replace(/^0/, '');
-    }
-    return cleaned;
-}
 
 export default function ProfileScreen() {
     const { user } = useAuth();
@@ -96,7 +88,7 @@ export default function ProfileScreen() {
                 }
             }
         });
-    }, [user, isFocused]);
+    }, [user, isFocused, refetchAccounts]);
 
     const handleToggleBiometric = async (value: boolean) => {
         if (value) {
@@ -238,26 +230,6 @@ export default function ProfileScreen() {
             Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
         } catch (e: any) {
             Alert.alert('Error', e.message || 'No se pudo actualizar el perfil');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleSavePhone = async () => {
-        if (!phone.trim()) return;
-        setSaving(true);
-        try {
-            const normalized = normalizePhone(phone);
-            const { error } = await supabase
-                .from('profiles')
-                .update({ phone: normalized })
-                .eq('id', user!.id);
-            if (error) throw error;
-            setPhone(normalized);
-            setIsEditing(false);
-            Alert.alert('✅ Guardado', 'Tu número fue actualizado.');
-        } catch (e: any) {
-            Alert.alert('Error', e.message);
         } finally {
             setSaving(false);
         }

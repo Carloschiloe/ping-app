@@ -59,7 +59,7 @@ export default function NewChatScreen({ navigation }: any) {
                 ...u, contactName: phoneMap[u.phone] || u.email,
             })));
         } catch (err) {
-            console.warn('Contact sync failed');
+            console.warn('Contact sync failed', err);
         } finally {
             setContactsLoading(false);
         }

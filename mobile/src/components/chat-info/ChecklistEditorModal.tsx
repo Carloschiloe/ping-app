@@ -21,7 +21,7 @@ interface ChecklistEditorModalProps {
     checklistCategory: string;
     checklistRole: string;
     checklistFrequency: 'manual' | 'daily' | 'shift';
-    checklistItems: Array<{ label: string; responseType: ChecklistItemType }>;
+    checklistItems: { label: string; responseType: ChecklistItemType }[];
     draftChecklistItem: string;
     draftChecklistItemType: ChecklistItemType;
     checklistCategorySuggestions: string[];

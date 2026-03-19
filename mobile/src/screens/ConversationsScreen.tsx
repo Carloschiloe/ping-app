@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
-    ActivityIndicator, StatusBar, Platform, Image, ScrollView, TextInput, Animated, Alert
+    ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive, useCreateConversation } from '../api/queries';
@@ -14,8 +14,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import type { ConversationsListScreenProps } from '../navigation/types';
 import { useAppTheme } from '../theme/ThemeContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+import { apiClient } from '../api/client';
+import { ConversationRow } from '../components/ConversationRow';
+import { GlobalSearchSection } from '../components/GlobalSearchSection';
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -24,37 +25,6 @@ function formatTime(iso: string) {
     if (isToday) return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
     return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
 }
-
-function avatarInitials(email?: string) {
-    if (!email) return '?';
-    return email.substring(0, 2).toUpperCase();
-}
-
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
-function avatarColor(str: string) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return COLORS[Math.abs(hash) % COLORS.length];
-}
-
-const HighlightText = ({ text, highlight, style, numberOfLines, highlightStyle }: any) => {
-    if (!highlight.trim()) {
-        return <Text style={style} numberOfLines={numberOfLines}>{text}</Text>;
-    }
-    const regex = new RegExp(`(${highlight})`, 'gi');
-    const parts = text.split(regex);
-    return (
-        <Text style={style} numberOfLines={numberOfLines}>
-            {parts.map((part: string, i: number) =>
-                regex.test(part) ? (
-                    <Text key={i} style={highlightStyle}>{part}</Text>
-                ) : (
-                    <Text key={i}>{part}</Text>
-                )
-            )}
-        </Text>
-    );
-};
 
 export default function ConversationsScreen({ navigation }: ConversationsListScreenProps) {
     const { theme } = useAppTheme();
@@ -68,7 +38,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
 
-    const rawConversations = data?.conversations || [];
+    const rawConversations = React.useMemo(() => data?.conversations || [], [data?.conversations]);
     const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
     const { mutate: markAsRead } = useMarkConversationAsRead('');
     const { mutate: toggleArchive } = useToggleArchive();
@@ -78,12 +48,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         queryKey: ['global-search', debouncedSearchQuery],
         queryFn: async () => {
             if (!debouncedSearchQuery || debouncedSearchQuery.length <= 1) return null;
-            const { data: { session } } = await supabase.auth.getSession();
-            const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(debouncedSearchQuery)}`, {
-                headers: { 'Authorization': `Bearer ${session?.access_token}` }
-            });
-            if (!res.ok) throw new Error('Global search failed');
-            return res.json();
+            return apiClient.get(`/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
         },
         enabled: debouncedSearchQuery.length > 1,
     });
@@ -119,7 +84,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         return () => {
             channels.forEach((ch: any) => supabase.removeChannel(ch));
         };
-    }, [rawConversations.length, user?.id]);
+    }, [rawConversations, user]);
 
     const filteredConversations = React.useMemo(() => {
         return rawConversations.filter((c: any) => {
@@ -158,7 +123,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         return (now - last) < 1000 * 60 * 5;
     };
 
-    const renderLeftActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
+    const renderLeftActions = React.useCallback((progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
         const isUnread = (item.unreadCount || 0) > 0;
         const trans = dragX.interpolate({
             inputRange: [0, 50, 100],
@@ -174,9 +139,9 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 </Animated.View>
             </TouchableOpacity>
         );
-    };
+    }, [markAsRead, styles]);
 
-    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
+    const renderRightActions = React.useCallback((progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
         const trans = dragX.interpolate({
             inputRange: [-100, -50, 0],
             outputRange: [0, 0, 20],
@@ -195,7 +160,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 </Animated.View>
             </TouchableOpacity>
         );
-    };
+    }, [toggleArchive, styles]);
 
     const globalSections = React.useMemo(() => {
         if (!searchData) return [];
@@ -235,141 +200,46 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     }, [createConversation, navigation, rawConversations]);
 
     const renderGlobalSection = React.useCallback(({ item: section }: { item: any }) => (
-        <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            {section.data.map((item: any) => (
-                <TouchableOpacity
-                    key={item.id}
-                    style={styles.resultCard}
-                    onPress={() => handleGlobalResultPress(item, item.type || section.type)}
-                >
-                    <View style={styles.resultIcon}>
-                        {item.avatar_url ? (
-                            <Image source={{ uri: item.avatar_url }} style={styles.resultAvatar} />
-                        ) : (
-                            <View style={[styles.resultIconInner, { backgroundColor: item.type === 'person' ? '#3b82f6' : (item.type === 'group' ? '#10b981' : '#f59e0b') }]}>
-                                <Ionicons
-                                    name={item.type === 'person' ? 'person' : (item.type === 'group' ? 'people' : (section.type === 'tasks' ? 'calendar' : 'chatbubble'))}
-                                    size={14}
-                                    color="white"
-                                />
-                            </View>
-                        )}
-                    </View>
-                    <View style={styles.resultInfo}>
-                        <HighlightText
-                            text={item.full_name || item.name || item.title || item.text}
-                            highlight={searchQuery}
-                            style={styles.resultText}
-                            highlightStyle={styles.resultTextHighlight}
-                            numberOfLines={1}
-                        />
-                        <Text style={styles.resultSubtext}>
-                            {item.type === 'person' ? item.email : (item.type === 'group' ? 'Grupo' : (section.type === 'tasks' ? 'Tarea' : `De ${item.sender?.full_name || 'Enviado'}`))}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={14} color="#cbd5e1" />
-                </TouchableOpacity>
-            ))}
-        </View>
-    ), [handleGlobalResultPress, searchQuery]);
+        <GlobalSearchSection
+            section={section}
+            searchQuery={searchQuery}
+            styles={styles}
+            onPress={handleGlobalResultPress}
+        />
+    ), [handleGlobalResultPress, searchQuery, styles]);
 
-    const renderItem = React.useCallback(({ item }: { item: any }) => {
-        const isGroup = item.isGroup;
-        const otherUser = item.otherUser;
-        const groupMeta = item.groupMetadata;
-        const lastMsg = item.lastMessage;
-        const isSystem = lastMsg?.meta?.isSystem;
-        const isByMe = lastMsg && lastMsg.sender_id === user?.id;
-        const unreadCount = item.unreadCount || 0;
-        const isUnread = unreadCount > 0;
-        const typers = typingUsers[item.id] || [];
-        const isTyping = typers.length > 0;
-
-        let displayName = 'Chat';
-        let initials = '?';
-        let colorStr = 'chat';
-        let avatarUrl: string | null = null;
-        let online = false;
-
-        if (isGroup && groupMeta) {
-            displayName = groupMeta.name;
-            colorStr = groupMeta.name;
-            avatarUrl = groupMeta.avatar_url;
-            const words = groupMeta.name.split(' ').filter((w: string) => w.length > 0);
-            if (words.length >= 2) initials = (words[0][0] + words[1][0]).toUpperCase();
-            else initials = groupMeta.name.substring(0, 2).toUpperCase();
-        } else if (otherUser) {
-            displayName = otherUser.full_name || otherUser.email?.split('@')[0] || 'Usuario';
-            colorStr = otherUser.email || 'user';
-            avatarUrl = otherUser.avatar_url;
-            online = isOnline(otherUser.last_seen);
-            if (otherUser.full_name) {
-                const parts = otherUser.full_name.trim().split(/\s+/).filter((p: string) => p.length > 0);
-                if (parts.length >= 2) initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                else if (parts.length === 1) initials = parts[0].substring(0, 2).toUpperCase();
-            } else { initials = avatarInitials(otherUser.email); }
-        }
-
-        const color = avatarColor(colorStr);
-        const preview = isTyping
-            ? (typers[0].isRecording ? '🎤 Grabando audio...' : '✍️ Escribiendo...')
-            : (lastMsg ? (isSystem ? `🤖 ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún');
-
-        return (
-            <Swipeable
-                renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
-                renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
-                friction={2}
-                leftThreshold={40}
-                rightThreshold={40}
-            >
-                <TouchableOpacity
-                    style={styles.row}
-                    activeOpacity={0.6}
-                    onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser, isGroup, groupMetadata: groupMeta, mode: item.mode || 'chat' })}
-                >
-                    <View style={styles.avatarContainer}>
-                        <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
-                            {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
-                        </View>
-                        {online && <View style={styles.onlineDot} />}
-                        {isUnread && !online && <View style={styles.unreadIndicator} />}
-                        {isUnread && online && <View style={[styles.unreadIndicator, { right: 28 }]} />}
-                    </View>
-                    <View style={styles.info}>
-                        <View style={styles.topRow}>
-                            <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
-                            {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
-                        </View>
-                        <View style={styles.bottomRow}>
-                            <View style={styles.previewWrap}>
-                                {!isTyping && isByMe && lastMsg && (
-                                    <Ionicons name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'} size={16} color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'} style={{ marginRight: 4 }} />
-                                )}
-                                <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && { color: '#6366f1', fontWeight: '700' }]} numberOfLines={1}>{preview}</Text>
-                            </View>
-                            {isUnread && (
-                                <LinearGradient colors={['#6366f1', '#8b5cf6']} style={styles.unreadBadge} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                                    <Text style={styles.unreadText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                                </LinearGradient>
-                            )}
-                        </View>
-                    </View>
-                </TouchableOpacity>
-                <View style={styles.separator} />
-            </Swipeable>
-        );
-    }, [typingUsers, user?.id, filter, navigation, markAsRead, toggleArchive, searchQuery]);
+    const renderItem = React.useCallback(({ item }: { item: any }) => (
+        <Swipeable
+            renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
+            renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
+            friction={2}
+            leftThreshold={40}
+            rightThreshold={40}
+        >
+            <ConversationRow
+                item={item}
+                userId={user?.id}
+                typingUsers={typingUsers}
+                formatTime={formatTime}
+                isOnline={isOnline}
+                styles={styles}
+                theme={theme}
+                onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
+            />
+        </Swipeable>
+    ), [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-                <Animated.View style={[styles.headerSection, { height: headerHeight }]}>
+                <Animated.View style={[styles.headerSection, { height: headerHeight }]}> 
                         <LinearGradient colors={theme.colors.headerGradient as any} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
                     <View style={styles.headerTop}>
-                        <Text style={styles.title}>Ping</Text>
+                        <View>
+                            <Text style={styles.title}>Ping</Text>
+                            <Text style={styles.headerSubtitle}>Tus conversaciones y tareas en un solo lugar</Text>
+                        </View>
                         <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('PingAI')}>
                             <Ionicons name="sparkles" size={24} color="white" />
                         </TouchableOpacity>
@@ -437,6 +307,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                     <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
                                     <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />
                                 </ScrollView>
+                                <View style={styles.sectionHintRow}>
+                                    <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
+                                    {filter !== 'all' ? <Text style={styles.sectionHintText}>Filtro: {filter}</Text> : null}
+                                </View>
                                 <ScrollView
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
@@ -504,6 +378,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     headerSection: { paddingHorizontal: 24, justifyContent: 'flex-end', paddingBottom: 20, zIndex: 10 },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
     title: { fontSize: 34, fontWeight: '900', color: theme.colors.white, letterSpacing: -2 },
+    headerSubtitle: { marginTop: 4, fontSize: 13, color: 'rgba(255,255,255,0.72)', fontWeight: '600' },
     headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
     searchContainer: { width: '100%' },
     searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 18, paddingHorizontal: 16, height: 52, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
@@ -513,6 +388,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     qaCard: { alignItems: 'center', width: 70 },
     qaIconWrap: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: theme.isDark ? 0.15 : 0.05, shadowRadius: 12, elevation: 4 },
     qaLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text.primary },
+    sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 14 },
+    sectionHintText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '700' },
     filterBarContainer: { marginBottom: 20 },
     filterBar: { flexDirection: 'row', paddingHorizontal: 24, gap: 8 },
     filterChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
@@ -520,7 +397,24 @@ const createStyles = (theme: any) => StyleSheet.create({
     filterChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
     filterChipActiveText: { color: theme.colors.white },
     listContent: { paddingBottom: 100 },
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: theme.colors.surface },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 18,
+        paddingVertical: 16,
+        backgroundColor: theme.colors.surface,
+        marginHorizontal: 16,
+        marginBottom: 10,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: theme.isDark ? 0.12 : 0.04,
+        shadowRadius: 16,
+        elevation: 3,
+    },
+    rowUnread: { borderColor: theme.colors.accentSoft },
     avatarContainer: { position: 'relative' },
     avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
     avatarImage: { width: '100%', height: '100%' },
@@ -544,7 +438,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },
     leftAction: { flex: 1, backgroundColor: theme.colors.info, justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
     rightAction: { flex: 1, backgroundColor: theme.colors.text.secondary, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
-    separator: { height: 1, backgroundColor: theme.colors.separator, marginLeft: 96, marginRight: 24 },
     // Search 2.0 Fusion Styles
     searchHeaderLabel: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: theme.colors.surfaceMuted },
     searchHeaderLabelText: { fontSize: 11, fontWeight: '900', color: theme.colors.text.muted, letterSpacing: 1 },

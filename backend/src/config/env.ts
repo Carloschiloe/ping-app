@@ -2,12 +2,15 @@ type EnvConfig = {
     nodeEnv: string;
     port: number;
     allowedOrigins: string[];
+    runCronJobs: boolean;
+    encryptionKey: string;
 };
 
 const requiredEnvVars = [
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
+    'ENCRYPTION_KEY',
 ];
 
 const recommendedProductionEnvVars = [
@@ -37,5 +40,7 @@ export function getEnvConfig(): EnvConfig {
             .split(',')
             .map((origin) => origin.trim())
             .filter(Boolean),
+        runCronJobs: process.env.RUN_CRON_JOBS !== 'false',
+        encryptionKey: process.env.ENCRYPTION_KEY!,
     };
 }

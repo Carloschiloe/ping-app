@@ -23,19 +23,7 @@ const CallScreen = ({ route, navigation }: any) => {
     const isHangingUp = useRef(false);
     const currentCallId = useRef<string | null>(route.params.callId || null);
 
-    useEffect(() => {
-        fetchToken();
-        setupCallChannel();
-
-        return () => {
-            // Cleanup Realtime channel on unmount
-            if (channelRef.current) {
-                supabase.removeChannel(channelRef.current);
-            }
-        };
-    }, []);
-
-    const setupCallChannel = () => {
+    const setupCallChannel = React.useCallback(() => {
         // Subscribe to Supabase Realtime for this call channel
         const channel = supabase.channel(`call:${conversationId}`, {
             config: { broadcast: { self: false } },
@@ -53,9 +41,9 @@ const CallScreen = ({ route, navigation }: any) => {
             .subscribe();
 
         channelRef.current = channel;
-    };
+    }, [conversationId, navigation]);
 
-    const fetchToken = async () => {
+    const fetchToken = React.useCallback(async () => {
         try {
             const { token, appId } = await apiClient.get(`/agora/token/${conversationId}`);
             const ts = Date.now();
@@ -82,7 +70,7 @@ const CallScreen = ({ route, navigation }: any) => {
                         });
                     }
                 } catch (notifyErr) {
-                    console.warn('[notifyCall] soft fail');
+                    console.warn('[notifyCall] soft fail', notifyErr);
                 }
             }
         } catch (error: any) {
@@ -91,7 +79,19 @@ const CallScreen = ({ route, navigation }: any) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [conversationId, isIncoming, isVideo, navigation]);
+
+    useEffect(() => {
+        fetchToken();
+        setupCallChannel();
+
+        return () => {
+            // Cleanup Realtime channel on unmount
+            if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+            }
+        };
+    }, [fetchToken, setupCallChannel]);
 
     const toggleMute = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

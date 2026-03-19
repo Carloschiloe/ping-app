@@ -66,7 +66,7 @@ export default function AudioPlayer({ url, isMe = false, style, transcript }: Au
             </TouchableOpacity>
             {transcript && (
                 <Text style={[styles.transcriptText, isMe ? styles.transcriptTextMe : styles.transcriptTextThem]}>
-                    "{transcript}"
+                    &quot;{transcript}&quot;
                 </Text>
             )}
         </View>

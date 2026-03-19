@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, SafeAreaView, Linking, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist, useRestoreOperationChecklist } from '../api/queries';
+import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist, useRestoreOperationChecklist, useDeleteMessage } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadToSupabase } from '../lib/upload';
@@ -11,7 +11,6 @@ import AudioPlayer from '../components/AudioPlayer';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import { useDeleteMessage } from '../api/queries';
 import type { ChatInfoScreenProps } from '../navigation/types';
 import { GroupMembersSection } from '../components/chat-info/GroupMembersSection';
 import { ChecklistEditorModal } from '../components/chat-info/ChecklistEditorModal';
@@ -77,7 +76,7 @@ export default function ChatInfoScreen() {
     const [checklistCategory, setChecklistCategory] = useState('');
     const [checklistRole, setChecklistRole] = useState('');
     const [checklistFrequency, setChecklistFrequency] = useState<'manual' | 'daily' | 'shift'>('manual');
-    const [checklistItems, setChecklistItems] = useState<Array<{ label: string; responseType: 'condition' | 'severity' | 'yes_no' | 'text' }>>([]);
+    const [checklistItems, setChecklistItems] = useState<{ label: string; responseType: 'condition' | 'severity' | 'yes_no' | 'text' }[]>([]);
     const [draftChecklistItem, setDraftChecklistItem] = useState('');
     const [draftChecklistItemType, setDraftChecklistItemType] = useState<'condition' | 'severity' | 'yes_no' | 'text'>('condition');
     const [checklistsFilter, setChecklistsFilter] = useState<'active' | 'archived'>('active');
@@ -114,7 +113,7 @@ export default function ChatInfoScreen() {
             }
         });
         return { images, docs, audios };
-    }, [mediaMessages, isGroup]);
+    }, [mediaMessages]);
 
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' | 'doc', message?: any } | null>(null);
     const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
@@ -123,8 +122,6 @@ export default function ChatInfoScreen() {
     const [isEditingName, setIsEditingName] = useState(false);
     const [tempName, setTempName] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
-    const [selectedMedia, setSelectedMedia] = useState<any>(null);
-    const [isMediaMenuVisible, setIsMediaMenuVisible] = useState(false);
 
     const { mutate: deleteMessage } = useDeleteMessage(conversationId);
 
@@ -147,6 +144,7 @@ export default function ChatInfoScreen() {
                     Alert.alert('✅ Foto actualizada', 'La imagen del grupo ha sido actualizada.');
                 }
             } catch (error) {
+                console.error('[ChatInfo] Failed to update group image', error);
                 Alert.alert('Error', 'No se pudo actualizar la imagen del grupo.');
             } finally {
                 setIsUpdating(false);
@@ -210,6 +208,7 @@ export default function ChatInfoScreen() {
             setDraftChecklistItem('');
             setDraftChecklistItemType('condition');
         } catch (error: any) {
+            console.error('[ChatInfo] Failed to save checklist', error);
             Alert.alert('Error', error?.response?.data?.error || 'No se pudo guardar el checklist');
         }
     };
@@ -302,8 +301,9 @@ export default function ChatInfoScreen() {
     };
 
     const handleShareMedia = async () => {
-        if (!selectedMedia) return;
-        const url = selectedMedia.parsedUrl || selectedMedia.text.match(/\](http.*)$/)?.[1];
+        const media = viewerMedia?.message;
+        if (!media) return;
+        const url = media.parsedUrl || media.text.match(/\](http.*)$/)?.[1];
         if (!url) return;
 
         try {
@@ -313,12 +313,13 @@ export default function ChatInfoScreen() {
                 await Sharing.shareAsync(download.uri);
             }
         } catch (error) {
+            console.error('[ChatInfo] Failed to share media', error);
             Alert.alert('Error', 'No se pudo compartir el archivo.');
         }
     };
 
     const handleDownloadMedia = async () => {
-        const media = viewerMedia?.message || selectedMedia;
+        const media = viewerMedia?.message;
         const url = media?.parsedUrl || (media?.text.startsWith('[document=') ? media.text.match(/\](.*?)$/)?.[1].trim() : null);
         if (!url) return;
 
@@ -334,12 +335,13 @@ export default function ChatInfoScreen() {
             await MediaLibrary.saveToLibraryAsync(download.uri);
             Alert.alert('✅ Guardado', 'El archivo se guardó en tu galería.');
         } catch (error) {
+            console.error('[ChatInfo] Failed to download media', error);
             Alert.alert('Error', 'No se pudo descargar el archivo.');
         }
     };
 
     const handleDeleteMedia = () => {
-        const media = viewerMedia?.message || selectedMedia;
+        const media = viewerMedia?.message;
         if (!media) return;
         
         Alert.alert(
@@ -353,9 +355,9 @@ export default function ChatInfoScreen() {
                     onPress: async () => {
                         try {
                             deleteMessage(media.id);
-                            setIsMediaMenuVisible(false); // Deprecated, but keeping for safety
                             setViewerMedia(null);
                         } catch (err) {
+                            console.error('[ChatInfo] Failed to delete media', err);
                             Alert.alert('Error', 'No se pudo eliminar el archivo.');
                         }
                     }
@@ -364,14 +366,9 @@ export default function ChatInfoScreen() {
         );
     };
 
-    const handleViewMedia = () => {
-        // Obsoleto, ya no se usa menú intermedio
-    };
-
     const handleForwardMedia = () => {
-        const media = viewerMedia?.message || selectedMedia;
+        const media = viewerMedia?.message;
         if (!media) return;
-        setIsMediaMenuVisible(false); // Deprecated, but keeping for safety
         setViewerMedia(null);
         (navigation as any).navigate('ForwardMessage', { 
             message: {
@@ -738,53 +735,6 @@ export default function ChatInfoScreen() {
                 </View>
             </Modal>
 
-            {/* Obsolete Media Options Menu (Removed from flow but keeping state to avoid refactor break) */}
-            <Modal visible={false} transparent={true} animationType="slide">
-                <TouchableOpacity 
-                    style={styles.menuOverlay} 
-                    activeOpacity={1} 
-                    onPress={() => setIsMediaMenuVisible(false)}
-                >
-                    <View style={styles.menuContent}>
-                        <View style={styles.menuHeader}>
-                            <View style={styles.menuIndicator} />
-                        </View>
-                        
-                        <TouchableOpacity style={styles.menuItem} onPress={handleViewMedia}>
-                            <Ionicons name="eye-outline" size={24} color="#1e3a5f" />
-                            <Text style={[styles.menuItemText, { fontWeight: '600', color: '#1e3a5f' }]}>
-                                {selectedMedia?.text.startsWith('[document=') ? 'Abrir archivo' : 'Ver archivo'}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={handleForwardMedia}>
-                            <Ionicons name="arrow-redo-outline" size={24} color="#374151" />
-                            <Text style={styles.menuItemText}>Reenviar</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={handleShareMedia}>
-                            <Ionicons name="share-outline" size={24} color="#374151" />
-                            <Text style={styles.menuItemText}>Compartir</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={handleDownloadMedia}>
-                            <Ionicons name="download-outline" size={24} color="#374151" />
-                            <Text style={styles.menuItemText}>Descargar</Text>
-                        </TouchableOpacity>
-
-                        {(selectedMedia?.sender_id === user?.id || isAdmin) && (
-                            <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0 }]} onPress={handleDeleteMedia}>
-                                <Ionicons name="trash-outline" size={24} color="#ef4444" />
-                                <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Eliminar</Text>
-                            </TouchableOpacity>
-                        )}
-
-                        <TouchableOpacity style={styles.menuCancel} onPress={() => setIsMediaMenuVisible(false)}>
-                            <Text style={styles.menuCancelText}>Cancelar</Text>
-                        </TouchableOpacity>
-                    </View>
-                </TouchableOpacity>
-            </Modal>
         </ScrollView>
     );
 }

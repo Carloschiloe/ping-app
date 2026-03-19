@@ -80,7 +80,7 @@ export const usePushNotifications = (navigationRef?: any) => {
             notifRef.current?.remove();
             responseRef.current?.remove();
         };
-    }, [user?.id]);
+    }, [user?.id, navigationRef, user]);
 };
 
 async function registerPushToken(): Promise<string | undefined> {

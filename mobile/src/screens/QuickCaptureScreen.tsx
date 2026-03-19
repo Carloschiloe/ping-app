@@ -5,16 +5,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
 import { useSendMessage } from '../api/queries';
-import { useAuth } from '../context/AuthContext';
 import * as Haptics from 'expo-haptics';
 
 const PRESET_LABELS = ['Llamar', 'Enviar', 'Reunión', 'Entregar', 'Ver', 'Confirmar'];
 
 export default function QuickCaptureScreen() {
     const navigation = useNavigation();
-    const { user } = useAuth();
     const [text, setText] = useState('');
     const [saving, setSaving] = useState(false);
     const { mutateAsync: sendMessage } = useSendMessage();
@@ -34,7 +31,7 @@ export default function QuickCaptureScreen() {
         } finally {
             setSaving(false);
         }
-    }, [text]);
+    }, [text, navigation, sendMessage]);
 
     return (
         <KeyboardAvoidingView

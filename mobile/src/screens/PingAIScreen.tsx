@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, SafeAreaView, Alert
+    StatusBar, SafeAreaView, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAskPing, useAIHistory, useClearAIHistory } from '../api/queries';
@@ -12,7 +12,7 @@ import AudioPlayer from '../components/AudioPlayer';
 
 export default function PingAIScreen({ navigation }: any) {
     const [text, setText] = useState('');
-    const { data: historyData, isLoading: historyLoading } = useAIHistory();
+    const { data: historyData } = useAIHistory();
     const { mutate: clearHistory } = useClearAIHistory();
     const [messages, setMessages] = useState<any[]>([]);
 
@@ -132,7 +132,7 @@ export default function PingAIScreen({ navigation }: any) {
             <View style={[styles.messageRow, item.isAi ? styles.aiRow : styles.userRow]}>
                 <View style={[styles.bubble, item.isAi ? styles.aiBubble : styles.userBubble, item.isError && styles.errorBubble]}>
                     {item.isAi && item.transcript && (
-                        <Text style={styles.transcriptText}>Transcripción: "{item.transcript}"</Text>
+                        <Text style={styles.transcriptText}>Transcripción: &quot;{item.transcript}&quot;</Text>
                     )}
                     {isAudio ? (
                         <AudioPlayer url={audioUrl} isMe={!item.isAi} />

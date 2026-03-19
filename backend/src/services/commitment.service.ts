@@ -88,7 +88,7 @@ export const extractCommitment = async (
 };
 
 export const createCommitment = async (userId: string, data: any) => {
-    console.log('[Commitment Service] Creating commitment with data:', JSON.stringify(data));
+    console.log('[Commitment Service] Creating commitment');
     
     // Standardize field names (handle both camelCase from AI/Frontend and snake_case from schema)
     const title = data.title;
@@ -114,7 +114,7 @@ export const createCommitment = async (userId: string, data: any) => {
             status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
             meta
         })
-        .select()
+        .select('id, title, due_at, owner_user_id, assigned_to_user_id, group_conversation_id, type, status')
         .single();
 
     if (error) {
@@ -345,7 +345,17 @@ export const getCommitments = async (userId: string, status?: string, conversati
     let query = supabaseAdmin
         .from('commitments')
         .select(`
-            *,
+            id,
+            title,
+            due_at,
+            status,
+            type,
+            meta,
+            owner_user_id,
+            assigned_to_user_id,
+            group_conversation_id,
+            message_id,
+            created_at,
             owner:owner_user_id(id, full_name, email, avatar_url),
             assignee:assigned_to_user_id(id, full_name, email, avatar_url)
         `);
@@ -377,14 +387,18 @@ export const getCommitments = async (userId: string, status?: string, conversati
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
     await assertCommitmentConversationParticipant(userId, id);
     // Fetch old record for message comparison
-    const { data: oldCommitment } = await supabaseAdmin.from('commitments').select('*').eq('id', id).single();
+    const { data: oldCommitment } = await supabaseAdmin
+        .from('commitments')
+        .select('id, title, due_at, assigned_to_user_id, group_conversation_id, type')
+        .eq('id', id)
+        .single();
 
     const { data, error } = await supabaseAdmin
         .from('commitments')
         .update(updates)
         .eq('id', id)
         .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
-        .select()
+        .select('id, title, due_at, assigned_to_user_id, group_conversation_id, type, owner_user_id, meta')
         .single();
 
     if (error) throw error;

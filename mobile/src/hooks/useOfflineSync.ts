@@ -30,7 +30,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
                     setQueue(JSON.parse(stored));
                 }
             } catch (e) {
-                console.error('[OfflineSync] Failed to load queue');
+                console.error('[OfflineSync] Failed to load queue', e);
             }
         };
         loadQueue();
@@ -42,7 +42,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
             try {
                 await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
             } catch (e) {
-                console.error('[OfflineSync] Failed to save queue');
+                console.error('[OfflineSync] Failed to save queue', e);
             }
         };
         saveQueue();
@@ -76,7 +76,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
                     if (idx !== -1) remaining[idx].retryCount++;
                 }
             } catch (err) {
-                console.warn(`[OfflineSync] Failed to sync message ${msg.id}`);
+                console.warn(`[OfflineSync] Failed to sync message ${msg.id}`, err);
             }
         }
 

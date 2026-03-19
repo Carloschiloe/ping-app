@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, TouchableOpacity, Share, Animated, Linking, ScrollView, Modal
+    StatusBar, Image, Alert, TouchableOpacity, Share, Animated, Linking, Modal
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import {
     useConversationGroupTasks,
     useCreateCommitment,
@@ -19,7 +19,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import MentionPopup from '../components/MentionPopup';
-import MessageItem from '../components/MessageItem';
+import MessageItemCard from '../components/MessageItem';
 import TypingIndicator from '../components/TypingIndicator';
 import { apiClient } from '../api/client';
 import { useMediaPicker } from '../hooks/useMediaPicker';
@@ -30,12 +30,14 @@ import { ChatHeader } from '../components/ChatHeader';
 import { ChatInput } from '../components/ChatInput';
 import { AISuggestionModal } from '../components/AISuggestionModal';
 import { OperationPanel } from '../components/OperationPanel';
+import { ReactionsModal } from '../components/ReactionsModal';
+import { SummaryModal } from '../components/SummaryModal';
+import { MessageActionsModal } from '../components/MessageActionsModal';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
-import { useNavigation } from '@react-navigation/native';
 import { useChatOperation } from '../hooks/useChatOperation';
 import { useAppTheme } from '../theme/ThemeContext';
 
@@ -141,6 +143,16 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         invalidateOperationState: () => queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] }),
     });
 
+    const reactionGroups = React.useMemo(() => {
+        const reactions = viewingReactionsMsg?.message_reactions;
+        if (!Array.isArray(reactions) || reactions.length === 0) return [];
+        const counts = reactions.reduce((acc: Record<string, number>, r: any) => {
+            acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        return Object.keys(counts).map((emoji) => ({ emoji, count: counts[emoji] }));
+    }, [viewingReactionsMsg]);
+
     // ─── Phase 7/26: Fetch Group Participants ──────────────────────────────
     useEffect(() => {
         if (!conversationId) return;
@@ -158,13 +170,26 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     ]);
                 }
             } catch (err) {
-                console.error('[Mention] Failed to fetch participants');
+                console.error('[Mention] Failed to fetch participants', err);
             }
         };
         fetchParticipants();
     }, [conversationId, isGroup, otherUser, user]);
 
     // ─── Header Navigation Options ──────────────────────────────────────────
+    const handleSummarize = React.useCallback(async () => {
+        setIsSummarizing(true);
+        try {
+            const res = await apiClient.post('/ai/summarize', { conversationId });
+            setSummary(res.summary || 'No se pudo generar el resumen.');
+        } catch {
+            console.error('[AI] Summarize failed');
+            Alert.alert('Error', 'No se pudo generar el resumen.');
+        } finally {
+            setIsSummarizing(false);
+        }
+    }, [conversationId]);
+
     useEffect(() => {
         navigation.setOptions({
             headerTitle: () => (
@@ -183,22 +208,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             headerTintColor: theme.colors.white,
             headerRight: () => null, // Explicitly clear any right buttons
         });
-    }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing, conversationMode]);
+    }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing, conversationMode, handleSummarize, conversationId]);
 
     // ─── Handlers ────────────────────────────────────────────────────────────
-
-    const handleSummarize = async () => {
-        setIsSummarizing(true);
-        try {
-            const res = await apiClient.post('/ai/summarize', { conversationId });
-            setSummary(res.summary || 'No se pudo generar el resumen.');
-        } catch {
-            console.error('[AI] Summarize failed');
-            Alert.alert('Error', 'No se pudo generar el resumen.');
-        } finally {
-            setIsSummarizing(false);
-        }
-    };
 
     const handleSend = () => {
         if (!text.trim()) return;
@@ -241,14 +253,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         setMentionQuery(null);
     };
 
-    const scrollToMessage = (messageId: string) => {
+    const scrollToMessage = React.useCallback((messageId: string) => {
         const index = messages.findIndex(m => m.id === messageId);
         if (index !== -1) {
             setHighlightedMsgId(messageId);
             setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 100);
             setTimeout(() => setHighlightedMsgId(null), 3000);
         }
-    };
+    }, [messages]);
 
     const { pickMediaSource } = useMediaPicker({
         onMediaSent: (t) => sendMessage({ text: t, reply_to_id: replyingToMsg?.id }),
@@ -264,16 +276,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     // ─── Scroll to Message logic ─────────────────────────────────────────────
     useEffect(() => {
         if (route.params?.scrollToMessageId && messages.length > 0) {
-            const index = messages.findIndex(m => m.id === route.params.scrollToMessageId);
-            if (index !== -1) {
-                setHighlightedMsgId(route.params.scrollToMessageId);
-                setTimeout(() => {
-                    listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-                }, 100);
-                setTimeout(() => setHighlightedMsgId(null), 3000);
-            }
+            scrollToMessage(route.params.scrollToMessageId);
         }
-    }, [route.params?.scrollToMessageId, messages]);
+    }, [route.params?.scrollToMessageId, messages.length, scrollToMessage]);
 
     // ─── Multi-select Logic ───
     const toggleSelect = (id: string) => {
@@ -308,7 +313,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         <Text style={styles.dateDividerText}>{formatDateDivider(item.created_at)}</Text>
                     </View>
                 )}
-                <MessageItem
+                <MessageItemCard
                     item={item}
                     user={user}
                     isGroup={!!isGroup}
@@ -504,92 +509,57 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     </View>
                 </Modal>
 
-                {/* AI Summary Modal */}
-                <Modal visible={!!summary} transparent animationType="slide" onRequestClose={() => setSummary(null)}>
-                    <View style={styles.summaryBackdrop}>
-                        <View style={styles.summarySheet}>
-                            <View style={styles.summaryHeader}>
-                                <Ionicons name="sparkles" size={24} color="#8b5cf6" />
-                                <Text style={styles.summaryTitle}>Resumen</Text>
-                                <TouchableOpacity onPress={() => setSummary(null)}>
-                                    <Ionicons name="close" size={24} color="#6b7280" />
-                                </TouchableOpacity>
-                            </View>
-                            <ScrollView style={styles.summaryScroll}><Text style={styles.summaryContent}>{summary}</Text></ScrollView>
-                            <TouchableOpacity style={styles.summaryDoneBtn} onPress={() => setSummary(null)}>
-                                <Text style={styles.summaryDoneText}>Entendido</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </Modal>
+                <SummaryModal
+                    visible={!!summary}
+                    summary={summary}
+                    onClose={() => setSummary(null)}
+                />
 
-                {/* Context Menu Modal */}
-                <Modal visible={!!selectedMsg} transparent animationType="none" onRequestClose={() => setSelectedMsg(null)}>
-                    <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setSelectedMsg(null)}>
-                        <Animated.View style={[styles.menuSheet, { transform: [{ translateY: menuAnim }] }]}>
-                             <View style={styles.menuEmojiRow}>
-                                {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                                    <TouchableOpacity key={emoji} style={styles.emojiBtn} onPress={() => { reactToMessage({ messageId: selectedMsg.id, emoji }); setSelectedMsg(null); }}>
-                                        <Text style={{ fontSize: 26 }}>{emoji}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                            <View style={styles.menuActionsVertical}>
-                                <TouchableOpacity style={styles.menuActionVertical} onPress={() => { setReplyingToMsg(selectedMsg); setSelectedMsg(null); }}>
-                                    <Ionicons name="arrow-undo-outline" size={22} color="#8b5cf6" />
-                                    <Text style={styles.menuActionLabel}>Responder</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={styles.menuActionVertical} 
-                                    onPress={async () => { 
-                                        if (selectedMsg?.text) {
-                                            await Clipboard.setStringAsync(selectedMsg.text);
-                                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                                        }
-                                        setSelectedMsg(null); 
-                                    }}
-                                >
-                                    <Ionicons name="copy-outline" size={22} color={theme.colors.secondary} />
-                                    <Text style={styles.menuActionLabel}>Copiar</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.menuActionVertical} onPress={() => { toggleSelect(selectedMsg.id); setSelectedMsg(null); }}>
-                                    <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" />
-                                    <Text style={styles.menuActionLabel}>Seleccionar</Text>
-                                </TouchableOpacity>
-                                {conversationMode === 'operation' && (
-                                    <TouchableOpacity
-                                        style={styles.menuActionVertical}
-                                        onPress={() => {
-                                            const nextPinnedId = pinnedMessageId === selectedMsg?.id ? null : selectedMsg?.id;
-                                            setPinnedMessage(nextPinnedId);
-                                            setSelectedMsg(null);
-                                        }}
-                                    >
-                                        <Ionicons name={pinnedMessageId === selectedMsg?.id ? 'pin-outline' : 'pin'} size={22} color="#2563eb" />
-                                        <Text style={styles.menuActionLabel}>{pinnedMessageId === selectedMsg?.id ? 'Desfijar principal' : 'Fijar principal'}</Text>
-                                    </TouchableOpacity>
-                                )}
-                                {selectedMsg?.sender_id === user?.id && (
-                                    <TouchableOpacity style={[styles.menuActionVertical, { borderBottomWidth: 0 }]} onPress={() => {
-                                        supabase.from('messages').delete().eq('id', selectedMsg.id).then(() => setSelectedMsg(null));
-                                    }}>
-                                        <Ionicons name="trash-outline" size={22} color="#ef4444" />
-                                        <Text style={[styles.menuActionLabel, { color: '#ef4444' }]}>Eliminar</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                            <TouchableOpacity style={styles.menuCancel} onPress={() => setSelectedMsg(null)}>
-                                <Text style={styles.menuCancelText}>Cancelar</Text>
-                            </TouchableOpacity>
-                        </Animated.View>
-                    </TouchableOpacity>
-                </Modal>
+                <MessageActionsModal
+                    visible={!!selectedMsg}
+                    menuAnim={menuAnim}
+                    canPin={conversationMode === 'operation'}
+                    isPinned={pinnedMessageId === selectedMsg?.id}
+                    isOwnMessage={selectedMsg?.sender_id === user?.id}
+                    onClose={() => setSelectedMsg(null)}
+                    onReact={(emoji) => {
+                        reactToMessage({ messageId: selectedMsg.id, emoji });
+                        setSelectedMsg(null);
+                    }}
+                    onReply={() => {
+                        setReplyingToMsg(selectedMsg);
+                        setSelectedMsg(null);
+                    }}
+                    onCopy={async () => {
+                        if (selectedMsg?.text) {
+                            await Clipboard.setStringAsync(selectedMsg.text);
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }
+                        setSelectedMsg(null);
+                    }}
+                    onToggleSelect={() => {
+                        toggleSelect(selectedMsg.id);
+                        setSelectedMsg(null);
+                    }}
+                    onTogglePin={() => {
+                        const nextPinnedId = pinnedMessageId === selectedMsg?.id ? null : selectedMsg?.id;
+                        setPinnedMessage(nextPinnedId);
+                        setSelectedMsg(null);
+                    }}
+                    onDelete={() => {
+                        supabase.from('messages').delete().eq('id', selectedMsg.id).then(() => setSelectedMsg(null));
+                    }}
+                />
+
+                <ReactionsModal
+                    visible={!!viewingReactionsMsg}
+                    reactions={reactionGroups}
+                    onClose={() => setViewingReactionsMsg(null)}
+                />
             </KeyboardAvoidingView>
         </GestureHandlerRootView>
     );
 }
-
-const BG_CHAT = '#ECE5DD';
 
 const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.chatBackground },
@@ -606,23 +576,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     viewerBackdrop: { flex: 1, backgroundColor: theme.colors.black, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },
     viewerClose: { position: 'absolute', top: 50, right: 20 },
-    summaryBackdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
-    summarySheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' },
-    summaryHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
-    summaryTitle: { fontSize: 18, fontWeight: '700', flex: 1 },
-    summaryScroll: { marginBottom: 20 },
-    summaryContent: { fontSize: 15, lineHeight: 22, color: theme.colors.text.primary },
-    summaryDoneBtn: { backgroundColor: theme.colors.secondary, borderRadius: 12, padding: 16, alignItems: 'center' },
-    summaryDoneText: { color: theme.colors.white, fontWeight: '700' },
-    menuBackdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
-    menuSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
-    menuEmojiRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, paddingHorizontal: 10 },
-    emojiBtn: { padding: 8 },
-    menuActionsVertical: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 16, overflow: 'hidden', marginBottom: 15 },
-    menuActionVertical: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-    menuActionLabel: { fontSize: 16, color: theme.colors.text.primary, fontWeight: '500' },
-    menuCancel: { alignItems: 'center', padding: 16 },
-    menuCancelText: { fontSize: 16, fontWeight: '600', color: theme.colors.secondary },
     selectBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: theme.colors.primary, height: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 1000 },
     selectBarBtn: { padding: 8 },
     selectBarText: { flex: 1, color: theme.colors.white, fontSize: 16, fontWeight: '700', textAlign: 'center' },
