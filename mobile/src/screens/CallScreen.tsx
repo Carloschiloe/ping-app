@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
     StyleSheet, View, Text, TouchableOpacity,
-    SafeAreaView, ActivityIndicator, Alert,
+    ActivityIndicator, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';

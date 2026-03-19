@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, SafeAreaView, Alert
+    StatusBar, Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAskPing, useAIHistory, useClearAIHistory } from '../api/queries';
 import { Audio } from 'expo-av';

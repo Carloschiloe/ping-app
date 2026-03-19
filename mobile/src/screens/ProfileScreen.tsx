@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator, Switch, Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -11,8 +11,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { useAppTheme } from '../theme/ThemeContext';
 
 export default function ProfileScreen() {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
     const [phone, setPhone] = useState('');
     const [fullName, setFullName] = useState('');
@@ -324,7 +327,7 @@ export default function ProfileScreen() {
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.label}>Calendarios Disponibles</Text>
-                    <Ionicons name="calendar-outline" size={20} color="#6b7280" />
+                    <Ionicons name="calendar-outline" size={20} color={theme.colors.text.muted} />
                 </View>
                 <Text style={styles.hint}>
                     Conecta tus cuentas directamente para que Ping guarde compromisos automáticamente sin depender de los ajustes del teléfono.
@@ -345,7 +348,7 @@ export default function ProfileScreen() {
                                         <Text style={styles.cloudAccMeta}>Sincronización Cloud</Text>
                                     </View>
                                     <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
-                                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                                        <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                                     </TouchableOpacity>
                                 </View>
 
@@ -359,8 +362,8 @@ export default function ProfileScreen() {
                                     <Switch
                                         value={!!acc.is_auto_sync_enabled}
                                         onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
-                                        trackColor={{ false: '#d1d5db', true: '#8b5cf6' }}
-                                        thumbColor="#ffffff"
+                                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                                        thumbColor={theme.colors.white}
                                     />
                                 </View>
                             </View>
@@ -395,12 +398,12 @@ export default function ProfileScreen() {
                 <View style={styles.sectionHeader}>
                     <Text style={styles.subLabel}>Calendarios del Sistema (Local)</Text>
                     <TouchableOpacity onPress={checkCalendars}>
-                        <Ionicons name="refresh" size={18} color="#3b82f6" />
+                        <Ionicons name="refresh" size={18} color={theme.colors.accent} />
                     </TouchableOpacity>
                 </View>
 
                 {loadingCals ? (
-                    <ActivityIndicator size="small" color="#3b82f6" />
+                    <ActivityIndicator size="small" color={theme.colors.accent} />
                 ) : calendars.length > 0 ? (
                     calendars.map((cal: any) => {
                         const isVisible = !hiddenCalendars.includes(cal.id);
@@ -420,7 +423,7 @@ export default function ProfileScreen() {
                                 <Ionicons
                                     name={isVisible ? "eye" : "eye-off"}
                                     size={18}
-                                    color={isVisible ? "#10b981" : "#9ca3af"}
+                                    color={isVisible ? theme.colors.success : theme.colors.text.muted}
                                 />
                             </TouchableOpacity>
                         );
@@ -436,7 +439,7 @@ export default function ProfileScreen() {
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.label}>Privacidad y Seguridad</Text>
-                    <Ionicons name="shield-checkmark-outline" size={20} color="#6b7280" />
+                    <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.text.muted} />
                 </View>
 
                 {hasBiometricHw ? (
@@ -448,8 +451,8 @@ export default function ProfileScreen() {
                         <Switch
                             value={biometricEnabled}
                             onValueChange={handleToggleBiometric}
-                            trackColor={{ false: '#d1d5db', true: '#8b5cf6' }}
-                            thumbColor="#ffffff"
+                            trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                            thumbColor={theme.colors.white}
                         />
                     </View>
                 ) : (
@@ -466,8 +469,8 @@ export default function ProfileScreen() {
                     <Switch
                         value={readReceiptsEnabled}
                         onValueChange={handleToggleReadReceipts}
-                        trackColor={{ false: '#d1d5db', true: '#34b7f1' }}
-                        thumbColor="#ffffff"
+                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                        thumbColor={theme.colors.white}
                     />
                 </View>
 
@@ -481,8 +484,8 @@ export default function ProfileScreen() {
                     <Switch
                         value={lastSeenEnabled}
                         onValueChange={handleToggleLastSeen}
-                        trackColor={{ false: '#d1d5db', true: '#10b981' }}
-                        thumbColor="#ffffff"
+                        trackColor={{ false: theme.colors.separator, true: theme.colors.success }}
+                        thumbColor={theme.colors.white}
                     />
                 </View>
             </View>
@@ -491,13 +494,13 @@ export default function ProfileScreen() {
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.label}>🎯 Modo Foco</Text>
-                    <Ionicons name="timer-outline" size={20} color="#6b7280" />
+                    <Ionicons name="timer-outline" size={20} color={theme.colors.text.muted} />
                 </View>
 
                 {focusActive ? (
                     <View>
                         <View style={styles.focusActiveBadge}>
-                            <Ionicons name="timer" size={18} color="#f59e0b" />
+                            <Ionicons name="timer" size={18} color={theme.colors.warning} />
                             <Text style={styles.focusActiveText}>Activo — {focusRemainingLabel} restante(s)</Text>
                         </View>
                         <Text style={styles.hint}>Las notificaciones no críticas están silenciadas.</Text>
@@ -533,60 +536,60 @@ export default function ProfileScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb' },
-    content: { padding: 24, paddingTop: 64 },
-    heading: { fontSize: 28, fontWeight: '700', marginBottom: 28, color: '#111' },
+const createStyles = (theme: any) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    content: { padding: 20, paddingTop: 40 },
+    heading: { fontSize: 24, fontWeight: '800', marginBottom: 20, color: theme.colors.text.primary },
     avatarWrap: { alignItems: 'center', marginBottom: 32 },
-    avatarContainer: { width: 100, height: 100, borderRadius: 50, marginBottom: 12, position: 'relative' },
-    avatarImage: { width: 100, height: 100, borderRadius: 50 },
-    avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#3b82f6', alignItems: 'center', justifyContent: 'center' },
-    avatarText: { color: 'white', fontSize: 36, fontWeight: '700' },
-    cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#1e3a5f', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#f9fafb' },
-    email: { fontSize: 16, color: '#6b7280' },
-    section: { backgroundColor: 'white', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+    avatarContainer: { width: 92, height: 92, borderRadius: 46, marginBottom: 12, position: 'relative' },
+    avatarImage: { width: 92, height: 92, borderRadius: 46 },
+    avatarPlaceholder: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' },
+    avatarText: { color: 'white', fontSize: 32, fontWeight: '700' },
+    cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: theme.colors.primary, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background },
+    email: { fontSize: 16, color: theme.colors.text.secondary },
+    section: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.separator },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    label: { fontSize: 18, fontWeight: '700', color: '#111' },
-    editLink: { color: '#3b82f6', fontWeight: '600', fontSize: 15 },
-    fieldLabel: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 4 },
-    valueText: { fontSize: 16, color: '#111', marginBottom: 4 },
-    hint: { fontSize: 13, color: '#9ca3af', marginBottom: 12 },
-    input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 14, borderRadius: 12, fontSize: 15, backgroundColor: '#fafafa', marginBottom: 4 },
-    saveBtn: { backgroundColor: '#3b82f6', padding: 14, borderRadius: 12, alignItems: 'center' },
+    label: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary },
+    editLink: { color: theme.colors.accent, fontWeight: '600', fontSize: 15 },
+    fieldLabel: { fontSize: 13, fontWeight: '600', color: theme.colors.text.muted, marginBottom: 4 },
+    valueText: { fontSize: 16, color: theme.colors.text.primary, marginBottom: 4 },
+    hint: { fontSize: 13, color: theme.colors.text.muted, marginBottom: 12 },
+    input: { borderWidth: 1.5, borderColor: theme.colors.separator, padding: 14, borderRadius: 12, fontSize: 15, backgroundColor: theme.colors.surfaceMuted, marginBottom: 4, color: theme.colors.text.primary },
+    saveBtn: { backgroundColor: theme.colors.primary, padding: 14, borderRadius: 12, alignItems: 'center' },
     saveBtnText: { color: 'white', fontWeight: '700', fontSize: 15 },
-    cancelBtn: { backgroundColor: '#f3f4f6', padding: 14, borderRadius: 12, alignItems: 'center' },
-    cancelBtnText: { color: '#4b5563', fontWeight: '700', fontSize: 15 },
+    cancelBtn: { backgroundColor: theme.colors.surfaceMuted, padding: 14, borderRadius: 12, alignItems: 'center' },
+    cancelBtnText: { color: theme.colors.text.secondary, fontWeight: '700', fontSize: 15 },
     editActions: { flexDirection: 'row', marginTop: 20 },
-    logoutBtn: { backgroundColor: 'white', borderRadius: 16, padding: 18, alignItems: 'center', borderWidth: 1.5, borderColor: '#fee2e2' },
-    logoutText: { color: '#ef4444', fontWeight: '700', fontSize: 16 },
+    logoutBtn: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#fee2e2' },
+    logoutText: { color: theme.colors.danger, fontWeight: '700', fontSize: 16 },
     calRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingVertical: 4 },
     calDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
-    calTitle: { fontSize: 15, fontWeight: '600', color: '#111' },
-    calSource: { fontSize: 12, color: '#6b7280' },
-    permissionBtn: { backgroundColor: '#f3f4f6', padding: 12, borderRadius: 12, alignItems: 'center' },
-    permissionBtnText: { color: '#3b82f6', fontWeight: '700' },
+    calTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text.primary },
+    calSource: { fontSize: 12, color: theme.colors.text.secondary },
+    permissionBtn: { backgroundColor: theme.colors.surfaceMuted, padding: 12, borderRadius: 12, alignItems: 'center' },
+    permissionBtnText: { color: theme.colors.accent, fontWeight: '700' },
     connectMainBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
     cloudAccountsList: { marginBottom: 20 },
-    cloudAccCard: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#f3f4f6' },
+    cloudAccCard: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.separator },
     cloudAccRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-    cloudAccEmail: { fontSize: 14, fontWeight: '600', color: '#111' },
-    cloudAccMeta: { fontSize: 11, color: '#6b7280' },
-    autoSyncRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
-    autoSyncTitle: { fontSize: 13, fontWeight: '600', color: '#111' },
-    autoSyncDesc: { fontSize: 11, color: '#9ca3af' },
+    cloudAccEmail: { fontSize: 14, fontWeight: '600', color: theme.colors.text.primary },
+    cloudAccMeta: { fontSize: 11, color: theme.colors.text.secondary },
+    autoSyncRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.separator },
+    autoSyncTitle: { fontSize: 13, fontWeight: '600', color: theme.colors.text.primary },
+    autoSyncDesc: { fontSize: 11, color: theme.colors.text.muted },
     cloudActions: { gap: 10 },
     connectCloudBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, gap: 10 },
     connectCloudBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
-    divider: { height: 1, backgroundColor: '#f3f4f6' },
-    subLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+    divider: { height: 1, backgroundColor: theme.colors.separator },
+    subLabel: { fontSize: 14, fontWeight: '600', color: theme.colors.text.secondary },
     settingsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
-    settingsTitle: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 2 },
-    settingsDesc: { fontSize: 12, color: '#6b7280' },
-    focusActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fef9c3', borderRadius: 10, padding: 10, marginBottom: 8 },
-    focusActiveText: { color: '#92400e', fontWeight: '600', fontSize: 14 },
+    settingsTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text.primary, marginBottom: 2 },
+    settingsDesc: { fontSize: 12, color: theme.colors.text.secondary },
+    focusActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.highlight, borderRadius: 10, padding: 10, marginBottom: 8 },
+    focusActiveText: { color: theme.colors.highlightText, fontWeight: '600', fontSize: 14 },
     cancelFocusBtn: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 8 },
-    cancelFocusBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 14 },
+    cancelFocusBtnText: { color: theme.colors.danger, fontWeight: '700', fontSize: 14 },
     focusOptions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 8 },
-    focusChip: { backgroundColor: '#f3f4f6', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: '#e5e7eb' },
-    focusChipText: { fontWeight: '700', color: '#374151', fontSize: 14 },
+    focusChip: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: theme.colors.separator },
+    focusChipText: { fontWeight: '700', color: theme.colors.text.secondary, fontSize: 14 },
 });

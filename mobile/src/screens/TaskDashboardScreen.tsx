@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, Image, Modal, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Image, Modal, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -10,11 +11,14 @@ import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 import { isRedDay } from '../utils/holidays';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { useAppTheme } from '../theme/ThemeContext';
 
 type FilterType = 'todo' | 'delegated';
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'completed';
 
 export default function TaskDashboardScreen() {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
     const [filterType, setFilterType] = useState<FilterType>('todo');
     const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
@@ -127,12 +131,12 @@ export default function TaskDashboardScreen() {
                 <Text style={[
                     styles.dateDay,
                     isSelected && styles.dateTextActive,
-                    redDay && !isSelected && { color: '#ef4444' }
+                    redDay && !isSelected && { color: theme.colors.danger }
                 ]}>{dayName}</Text>
                 <Text style={[
                     styles.dateNum,
                     isSelected && styles.dateTextActive,
-                    redDay && !isSelected && { color: '#ef4444' }
+                    redDay && !isSelected && { color: theme.colors.danger }
                 ]}>{dayNum}</Text>
                 {hasTask && <View style={[styles.dateDot, isSelected ? styles.dateDotActive : styles.dateDotInactive]} />}
             </TouchableOpacity>
@@ -144,7 +148,7 @@ export default function TaskDashboardScreen() {
             style={[styles.chip, statusFilter === value && styles.chipActive]}
             onPress={() => setStatusFilter(value)}
         >
-            <Ionicons name={icon} size={14} color={statusFilter === value ? 'white' : '#6b7280'} />
+            <Ionicons name={icon} size={14} color={statusFilter === value ? theme.colors.white : theme.colors.text.muted} />
             <Text style={[styles.chipText, statusFilter === value && styles.chipTextActive]}>{label}</Text>
         </TouchableOpacity>
     );
@@ -161,13 +165,13 @@ export default function TaskDashboardScreen() {
                     <View style={styles.calendarModal}>
                         <View style={styles.modalHeader}>
                             <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, -1))}>
-                                <Ionicons name="chevron-back" size={24} color="#6366f1" />
+                                <Ionicons name="chevron-back" size={24} color={theme.colors.accent} />
                             </TouchableOpacity>
                             <Text style={styles.modalHeaderTitle}>
                                 {format(viewDate, 'MMMM yyyy', { locale: es })}
                             </Text>
                             <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, 32))}>
-                                <Ionicons name="chevron-forward" size={24} color="#6366f1" />
+                                <Ionicons name="chevron-forward" size={24} color={theme.colors.accent} />
                             </TouchableOpacity>
                         </View>
                         <View style={styles.monthGrid}>
@@ -202,7 +206,7 @@ export default function TaskDashboardScreen() {
                                             <Text style={[
                                                 styles.gridDayText,
                                                 isSelected && styles.gridDayTextActive,
-                                                redDay && !isSelected && { color: '#ef4444', fontWeight: 'bold' }
+                                                redDay && !isSelected && { color: theme.colors.danger, fontWeight: 'bold' }
                                             ]}>
                                                 {format(date, 'd')}
                                             </Text>
@@ -226,14 +230,14 @@ export default function TaskDashboardScreen() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" />
+            <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
             <MonthPickerModal />
 
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <Text style={styles.headerTitle}>Tareas</Text>
                     <TouchableOpacity style={styles.calendarBtn} onPress={() => setIsCalendarVisible(true)}>
-                        <Ionicons name="calendar-outline" size={24} color="#6366f1" />
+                        <Ionicons name="calendar-outline" size={24} color={theme.colors.accent} />
                     </TouchableOpacity>
                 </View>
 
@@ -272,7 +276,7 @@ export default function TaskDashboardScreen() {
             {teamMembers.length > 0 && (
                 <View style={styles.teamContainer}>
                     <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.text.muted, textTransform: 'uppercase' }}>
                             {filterType === 'todo' ? 'Filtrar por quien asignó:' : 'Filtrar por responsable:'}
                         </Text>
                     </View>
@@ -282,7 +286,7 @@ export default function TaskDashboardScreen() {
                             onPress={() => setSelectedUserId(null)}
                         >
                             <View style={styles.allMembersCircle}>
-                                <Ionicons name="people" size={20} color={!selectedUserId ? 'white' : '#6366f1'} />
+                                <Ionicons name="people" size={20} color={!selectedUserId ? theme.colors.white : theme.colors.accent} />
                             </View>
                             <Text style={styles.memberName}>Todos</Text>
                         </TouchableOpacity>
@@ -317,7 +321,7 @@ export default function TaskDashboardScreen() {
                     <View style={styles.sectionContainer}>
                         <View style={styles.sectionHeader}>
                             <View style={styles.sectionTitleRow}>
-                                <Ionicons name="calendar" size={18} color="#6366f1" />
+                                <Ionicons name="calendar" size={18} color={theme.colors.accent} />
                                 <Text style={styles.sectionTitleText}>Próximas Reuniones</Text>
                             </View>
                             <View style={styles.sectionBadge}>
@@ -334,7 +338,7 @@ export default function TaskDashboardScreen() {
                     <View style={styles.sectionContainer}>
                         <View style={styles.sectionHeader}>
                             <View style={styles.sectionTitleRow}>
-                                <Ionicons name="list" size={18} color="#10b981" />
+                                <Ionicons name="list" size={18} color={theme.colors.success} />
                                 <Text style={styles.sectionTitleText}>Tareas del Día</Text>
                             </View>
                             <View style={styles.sectionBadge}>
@@ -349,7 +353,7 @@ export default function TaskDashboardScreen() {
 
                 {groupedData.meetings.length === 0 && groupedData.tasks.length === 0 && (
                     <View style={styles.emptyContainer}>
-                        <Ionicons name="folder-open-outline" size={64} color="#d1d5db" />
+                        <Ionicons name="folder-open-outline" size={64} color={theme.colors.separator} />
                         <Text style={styles.emptyText}>No hay tareas para este filtro</Text>
                         <Text style={styles.emptySubtext}>Cambia de día o filtro para ver más</Text>
                     </View>
@@ -359,39 +363,39 @@ export default function TaskDashboardScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.background,
     },
     header: {
         paddingHorizontal: 20,
-        paddingTop: 10,
-        backgroundColor: 'white',
+        paddingTop: 8,
+        backgroundColor: theme.colors.surface,
     },
     headerTop: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 15,
+        marginBottom: 12,
     },
     headerTitle: {
-        fontSize: 28,
-        fontWeight: '900',
-        color: '#0f172a',
+        fontSize: 24,
+        fontWeight: '800',
+        color: theme.colors.text.primary,
         letterSpacing: -0.5,
     },
     calendarBtn: {
         padding: 8,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: theme.colors.surfaceMuted,
         borderRadius: 12,
     },
     toggleContainer: {
         flexDirection: 'row',
-        backgroundColor: '#f1f5f9',
-        borderRadius: 14,
-        padding: 4,
-        marginBottom: 15,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderRadius: 12,
+        padding: 3,
+        marginBottom: 12,
     },
     toggleBtn: {
         flex: 1,
@@ -400,56 +404,51 @@ const styles = StyleSheet.create({
         borderRadius: 11,
     },
     toggleBtnActive: {
-        backgroundColor: 'white',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
+        backgroundColor: theme.colors.surface,
     },
     toggleText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     toggleTextActive: {
-        color: '#6366f1',
+        color: theme.colors.accent,
     },
     scrollerContainer: {
-        backgroundColor: 'white',
-        paddingVertical: 10,
+        backgroundColor: theme.colors.surface,
+        paddingVertical: 8,
         borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
+        borderBottomColor: theme.colors.separator,
     },
     dateScroller: {
         paddingHorizontal: 15,
         gap: 12,
     },
     dateItem: {
-        width: 50,
-        height: 70,
+        width: 46,
+        height: 64,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 15,
-        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        backgroundColor: theme.colors.surfaceMuted,
     },
     dateItemActive: {
-        backgroundColor: '#6366f1',
+        backgroundColor: theme.colors.accent,
     },
     dateDay: {
         fontSize: 11,
         fontWeight: '600',
-        color: '#94a3b8',
+        color: theme.colors.text.muted,
         textTransform: 'uppercase',
     },
     dateNum: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '800',
-        color: '#1e293b',
+        color: theme.colors.text.primary,
         marginTop: 2,
     },
     dateTextActive: {
-        color: 'white',
+        color: theme.colors.white,
     },
     dateDot: {
         width: 4,
@@ -458,10 +457,10 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     dateDotActive: {
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.white,
     },
     dateDotInactive: {
-        backgroundColor: '#6366f1',
+        backgroundColor: theme.colors.accent,
     },
     filtersContainer: {
         paddingVertical: 12,
@@ -475,23 +474,23 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 12,
         paddingVertical: 8,
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.surface,
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
         gap: 6,
     },
     chipActive: {
-        backgroundColor: '#6366f1',
-        borderColor: '#6366f1',
+        backgroundColor: theme.colors.accent,
+        borderColor: theme.colors.accent,
     },
     chipText: {
         fontSize: 13,
         fontWeight: '600',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     chipTextActive: {
-        color: 'white',
+        color: theme.colors.white,
     },
     teamContainer: {
         paddingBottom: 12,
@@ -511,9 +510,9 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: theme.colors.surfaceMuted,
         borderWidth: 2,
-        borderColor: '#6366f1',
+        borderColor: theme.colors.accent,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -528,19 +527,19 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: '#e2e8f0',
+        backgroundColor: theme.colors.separator,
         alignItems: 'center',
         justifyContent: 'center',
     },
     avatarLetter: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     memberName: {
         fontSize: 10,
         fontWeight: '600',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     sectionContainer: {
         marginBottom: 20,
@@ -551,7 +550,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 20,
         paddingVertical: 12,
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.surfaceMuted,
     },
     sectionTitleRow: {
         flexDirection: 'row',
@@ -559,43 +558,40 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     sectionTitleText: {
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: '700',
-        color: '#475569',
+        color: theme.colors.text.muted,
         textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        letterSpacing: 0.6,
     },
     sectionBadge: {
-        backgroundColor: '#e2e8f0',
+        backgroundColor: theme.colors.separator,
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 10,
     },
     sectionBadgeText: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '700',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     listContent: {
         paddingBottom: 40,
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: theme.colors.overlay,
         justifyContent: 'center',
         alignItems: 'center',
         padding: 20,
     },
     calendarModal: {
         width: '100%',
-        backgroundColor: 'white',
-        borderRadius: 24,
-        padding: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 20,
-        elevation: 10,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 20,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
     },
     modalHeader: {
         flexDirection: 'row',
@@ -604,9 +600,9 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     modalHeaderTitle: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '800',
-        color: '#1e293b',
+        color: theme.colors.text.primary,
         textTransform: 'capitalize',
     },
     monthGrid: {
@@ -626,30 +622,30 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#f1f5f9',
+        backgroundColor: theme.colors.surfaceMuted,
     },
     gridDayActive: {
-        backgroundColor: '#6366f1',
+        backgroundColor: theme.colors.accent,
     },
     gridDayText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#475569',
+        color: theme.colors.text.secondary,
     },
     gridDayTextActive: {
-        color: 'white',
+        color: theme.colors.white,
     },
     gridDot: {
         width: 4,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#6366f1',
+        backgroundColor: theme.colors.accent,
         position: 'absolute',
         bottom: 5,
     },
     closeModalBtn: {
         marginTop: 20,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: theme.colors.surfaceMuted,
         paddingVertical: 12,
         borderRadius: 12,
         alignItems: 'center',
@@ -657,7 +653,7 @@ const styles = StyleSheet.create({
     closeModalBtnText: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#6366f1',
+        color: theme.colors.accent,
     },
     emptyContainer: {
         alignItems: 'center',
@@ -668,13 +664,13 @@ const styles = StyleSheet.create({
     emptyText: {
         marginTop: 16,
         fontSize: 16,
-        color: '#475569',
+        color: theme.colors.text.secondary,
         fontWeight: '700',
     },
     emptySubtext: {
         marginTop: 6,
         fontSize: 13,
-        color: '#94a3b8',
+        color: theme.colors.text.muted,
         textAlign: 'center',
     },
     gridDayHeader: {
@@ -685,7 +681,7 @@ const styles = StyleSheet.create({
     gridDayHeaderText: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#64748b',
+        color: theme.colors.text.muted,
     },
     gridDayEmpty: {
         width: '14.28%',

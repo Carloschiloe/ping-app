@@ -114,11 +114,17 @@ const MainTabs = () => {
             tabBarStyle: {
                 backgroundColor: appTheme.colors.surface,
                 borderTopColor: appTheme.colors.separator,
-                height: 60,
-                paddingBottom: 8,
-                paddingTop: 4,
+                borderTopWidth: 1,
+                height: 64,
+                paddingBottom: 10,
+                paddingTop: 6,
+                shadowColor: '#000',
+                shadowOpacity: appTheme.isDark ? 0.2 : 0.08,
+                shadowRadius: 12,
+                shadowOffset: { width: 0, height: -6 },
+                elevation: 8,
             },
-            tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+            tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
             tabBarIcon: ({ focused, color, size }) => {
                 let iconName: any;
                 if (route.name === 'Chats') {

@@ -16,6 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useAcceptCommitment, useInsights, useRejectCommitment } from '../api/queries';
 import type { ChatsTabNavigationProp } from '../navigation/types';
+import { useAppTheme } from '../theme/ThemeContext';
 
 function formatWhen(iso?: string | null) {
     if (!iso) return 'Sin hora';
@@ -27,26 +28,9 @@ function formatWhen(iso?: string | null) {
     return `${format(date, 'dd/MM', { locale: es })} · ${time}`;
 }
 
-function getStateTone(state?: string) {
-    switch (state) {
-        case 'Terminado':
-            return { bg: '#dcfce7', color: '#166534' };
-        case 'En sitio':
-            return { bg: '#dbeafe', color: '#1d4ed8' };
-        case 'Iniciada':
-            return { bg: '#ede9fe', color: '#7c3aed' };
-        case 'Lista':
-            return { bg: '#ccfbf1', color: '#0f766e' };
-        case 'Entendido':
-            return { bg: '#fef3c7', color: '#92400e' };
-        case 'Aceptada':
-            return { bg: '#e0e7ff', color: '#4338ca' };
-        default:
-            return { bg: '#e2e8f0', color: '#475569' };
-    }
-}
+type InsightsStyles = ReturnType<typeof createStyles>;
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({ text, styles }: { text: string; styles: InsightsStyles }) {
     return (
         <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>{text}</Text>
@@ -54,7 +38,7 @@ function EmptyState({ text }: { text: string }) {
     );
 }
 
-function SectionBlock({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function SectionBlock({ title, subtitle, children, styles }: { title: string; subtitle: string; children: React.ReactNode; styles: InsightsStyles }) {
     return (
         <View style={styles.sectionBlock}>
             <View style={styles.sectionHeader}>
@@ -67,10 +51,32 @@ function SectionBlock({ title, subtitle, children }: { title: string; subtitle: 
 }
 
 export default function InsightsScreen() {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const { data, isLoading, isError, refetch, isRefetching } = useInsights();
     const { mutate: acceptCommitment } = useAcceptCommitment();
     const { mutate: rejectCommitment } = useRejectCommitment();
+
+    const getStateTone = (state?: string) => {
+        const isDark = theme.isDark;
+        switch (state) {
+            case 'Terminado':
+                return { bg: isDark ? '#1f3a2b' : '#dcfce7', color: isDark ? '#86efac' : '#166534' };
+            case 'En sitio':
+                return { bg: isDark ? '#1f2c45' : '#dbeafe', color: isDark ? '#93c5fd' : '#1d4ed8' };
+            case 'Iniciada':
+                return { bg: isDark ? '#2b2141' : '#ede9fe', color: isDark ? '#c4b5fd' : '#7c3aed' };
+            case 'Lista':
+                return { bg: isDark ? '#1b3a36' : '#ccfbf1', color: isDark ? '#5eead4' : '#0f766e' };
+            case 'Entendido':
+                return { bg: isDark ? '#3b2a15' : '#fef3c7', color: isDark ? '#fcd34d' : '#92400e' };
+            case 'Aceptada':
+                return { bg: isDark ? '#2a2b49' : '#e0e7ff', color: isDark ? '#a5b4fc' : '#4338ca' };
+            default:
+                return { bg: isDark ? '#233044' : '#e2e8f0', color: isDark ? '#94a3b8' : '#475569' };
+        }
+    };
 
     const goToChat = (item: any) => {
         navigation.navigate('Chats', {
@@ -114,7 +120,7 @@ export default function InsightsScreen() {
     if (isLoading) {
         return (
             <View style={styles.center}>
-                <ActivityIndicator size="large" color="#1d4ed8" />
+                <ActivityIndicator size="large" color={theme.colors.accent} />
                 <Text style={styles.loadingText}>Cargando operación...</Text>
             </View>
         );
@@ -123,7 +129,7 @@ export default function InsightsScreen() {
     if (isError) {
         return (
             <View style={styles.center}>
-                <Ionicons name="alert-circle-outline" size={56} color="#ef4444" />
+                <Ionicons name="alert-circle-outline" size={56} color={theme.colors.danger} />
                 <Text style={styles.errorTitle}>No se pudo cargar Operación</Text>
                 <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
                     <Text style={styles.retryButtonText}>Reintentar</Text>
@@ -142,7 +148,7 @@ export default function InsightsScreen() {
         <ScrollView
             style={styles.container}
             contentContainerStyle={styles.content}
-            refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor="#1d4ed8" />}
+            refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={theme.colors.accent} />}
         >
             <View style={styles.header}>
                 <View>
@@ -150,7 +156,7 @@ export default function InsightsScreen() {
                     <Text style={styles.subtitle}>Visión global de tus grupos y tareas.</Text>
                 </View>
                 <TouchableOpacity onPress={() => refetch()}>
-                    <Ionicons name="refresh-circle" size={34} color="#94a3b8" />
+                    <Ionicons name="refresh-circle" size={34} color={theme.colors.text.muted} />
                 </TouchableOpacity>
             </View>
 
@@ -160,9 +166,9 @@ export default function InsightsScreen() {
                 <View style={styles.topPill}><Text style={styles.topPillText}>{counts.upcoming} próximas</Text></View>
             </View>
 
-            <SectionBlock title="Pendiente tu respuesta" subtitle="Lo que espera tu confirmación">
+            <SectionBlock styles={styles} title="Pendiente tu respuesta" subtitle="Lo que espera tu confirmación">
                 {pendingResponse.length === 0 ? (
-                    <EmptyState text="No tienes tareas pendientes de aceptar o rechazar." />
+                    <EmptyState styles={styles} text="No tienes tareas pendientes de aceptar o rechazar." />
                 ) : (
                     pendingResponse.map((item: any) => (
                         <View key={item.id} style={styles.responseCard}>
@@ -185,10 +191,10 @@ export default function InsightsScreen() {
                 )}
             </SectionBlock>
 
-            <SectionBlock title="En curso" subtitle="Lo que ya estas ejecutando">
+            <SectionBlock styles={styles} title="En curso" subtitle="Lo que ya estas ejecutando">
                 
                 {inProgress.length === 0 ? (
-                    <EmptyState text="No hay tareas en curso ahora." />
+                    <EmptyState styles={styles} text="No hay tareas en curso ahora." />
                 ) : (
                     inProgress.map((item: any) => {
                         const tone = getStateTone(item.operational_state);
@@ -210,10 +216,10 @@ export default function InsightsScreen() {
                 )}
             </SectionBlock>
 
-            <SectionBlock title="Próximas" subtitle="Aceptadas, pero todavía no en ejecución">
+            <SectionBlock styles={styles} title="Próximas" subtitle="Aceptadas, pero todavía no en ejecución">
 
                 {upcoming.length === 0 ? (
-                    <EmptyState text="No hay tareas próximas por ahora." />
+                    <EmptyState styles={styles} text="No hay tareas próximas por ahora." />
                 ) : (
                     upcoming.slice(0, 8).map((item: any) => (
                         <TouchableOpacity key={item.id} style={styles.simpleRow} onPress={() => goToChat(item)} activeOpacity={0.85}>
@@ -221,16 +227,16 @@ export default function InsightsScreen() {
                                 <Text style={styles.simpleRowTitle}>{item.title}</Text>
                                 <Text style={styles.simpleRowMeta}>{item.conversation_name} · {formatWhen(item.due_at)}</Text>
                             </View>
-                            <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                            <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
                         </TouchableOpacity>
                     ))
                 )}
             </SectionBlock>
 
-            <SectionBlock title="Grupos" subtitle="Dónde conviene entrar ahora">
+            <SectionBlock styles={styles} title="Grupos" subtitle="Dónde conviene entrar ahora">
 
                 {groupsSummary.length === 0 ? (
-                    <EmptyState text="Todavía no hay grupos con operación activa." />
+                    <EmptyState styles={styles} text="Todavía no hay grupos con operación activa." />
                 ) : (
                     groupsSummary.map((group: any) => (
                         <TouchableOpacity
@@ -241,7 +247,7 @@ export default function InsightsScreen() {
                         >
                             <View style={styles.groupTopRow}>
                                 <Text style={styles.groupName}>{group.conversation_name}</Text>
-                                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                                <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
                             </View>
                             <Text style={styles.groupMeta}>
                                 {group.pending_for_me > 0
@@ -257,43 +263,43 @@ export default function InsightsScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.background,
     },
     content: {
         padding: 16,
         paddingBottom: 28,
-        gap: 16,
+        gap: 14,
     },
     center: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#f8fafc',
+        backgroundColor: theme.colors.background,
         padding: 24,
     },
     loadingText: {
         marginTop: 12,
-        color: '#64748b',
+        color: theme.colors.text.muted,
         fontSize: 14,
     },
     errorTitle: {
         marginTop: 12,
         fontSize: 18,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     retryButton: {
         marginTop: 16,
-        backgroundColor: '#2563eb',
+        backgroundColor: theme.colors.primary,
         borderRadius: 12,
         paddingHorizontal: 16,
         paddingVertical: 12,
     },
     retryButtonText: {
-        color: '#fff',
+        color: theme.colors.white,
         fontWeight: '700',
     },
     header: {
@@ -302,14 +308,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     title: {
-        fontSize: 28,
+        fontSize: 24,
         fontWeight: '800',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     subtitle: {
-        marginTop: 4,
-        fontSize: 14,
-        color: '#64748b',
+        marginTop: 2,
+        fontSize: 13,
+        color: theme.colors.text.secondary,
     },
     topPillsRow: {
         flexDirection: 'row',
@@ -317,14 +323,14 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     topPill: {
-        backgroundColor: '#e0e7ff',
+        backgroundColor: theme.colors.accentSoft,
         borderRadius: 999,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
     },
     topPillText: {
-        color: '#3730a3',
-        fontSize: 12,
+        color: theme.colors.accent,
+        fontSize: 11,
         fontWeight: '800',
     },
     sectionBlock: { gap: 10 },
@@ -334,29 +340,29 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: 18,
         fontWeight: '800',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     sectionCaption: {
         fontSize: 13,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     emptyCard: {
-        backgroundColor: '#fff',
+        backgroundColor: theme.colors.surface,
         borderRadius: 16,
-        padding: 16,
+        padding: 14,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
     },
     emptyText: {
-        color: '#64748b',
+        color: theme.colors.text.muted,
         fontSize: 14,
     },
     workCard: {
-        backgroundColor: '#fff',
-        borderRadius: 18,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
         padding: 14,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
         gap: 6,
     },
     workTopRow: {
@@ -368,17 +374,17 @@ const styles = StyleSheet.create({
     workGroup: {
         fontSize: 12,
         fontWeight: '800',
-        color: '#2563eb',
+        color: theme.colors.accent,
         textTransform: 'uppercase',
     },
     workTitle: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     workMeta: {
         fontSize: 13,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     stateBadge: {
         paddingHorizontal: 10,
@@ -390,11 +396,11 @@ const styles = StyleSheet.create({
         fontWeight: '800',
     },
     responseCard: {
-        backgroundColor: '#fff',
-        borderRadius: 18,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
         padding: 14,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
         gap: 12,
     },
     responseActions: {
@@ -405,32 +411,32 @@ const styles = StyleSheet.create({
         flex: 1,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#cbd5e1',
+        borderColor: theme.colors.border,
         paddingVertical: 11,
         alignItems: 'center',
-        backgroundColor: '#fff',
+        backgroundColor: theme.colors.surface,
     },
     secondaryButtonText: {
         fontWeight: '700',
-        color: '#475569',
+        color: theme.colors.text.secondary,
     },
     primaryButton: {
         flex: 1,
         borderRadius: 12,
         paddingVertical: 11,
         alignItems: 'center',
-        backgroundColor: '#2563eb',
+        backgroundColor: theme.colors.primary,
     },
     primaryButtonText: {
         fontWeight: '700',
-        color: '#fff',
+        color: theme.colors.white,
     },
     simpleRow: {
-        backgroundColor: '#fff',
+        backgroundColor: theme.colors.surface,
         borderRadius: 16,
         padding: 14,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -442,19 +448,19 @@ const styles = StyleSheet.create({
     simpleRowTitle: {
         fontSize: 15,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     simpleRowMeta: {
         marginTop: 4,
         fontSize: 13,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     groupCard: {
-        backgroundColor: '#fff',
+        backgroundColor: theme.colors.surface,
         borderRadius: 18,
         padding: 14,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: theme.colors.separator,
         gap: 6,
     },
     groupTopRow: {
@@ -467,21 +473,21 @@ const styles = StyleSheet.create({
         flex: 1,
         fontSize: 15,
         fontWeight: '700',
-        color: '#0f172a',
+        color: theme.colors.text.primary,
     },
     groupCounts: {
         fontSize: 12,
-        color: '#2563eb',
+        color: theme.colors.accent,
         fontWeight: '700',
     },
     groupMeta: {
         fontSize: 13,
-        color: '#64748b',
+        color: theme.colors.text.secondary,
     },
     groupSubmeta: {
         marginTop: 4,
         fontSize: 11,
-        color: '#94a3b8',
+        color: theme.colors.text.muted,
         fontWeight: '700',
     },
 });
