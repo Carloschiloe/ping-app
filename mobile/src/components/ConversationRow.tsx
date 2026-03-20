@@ -39,6 +39,7 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
     const typers = typingUsers[item.id] || [];
     const isTyping = typers.length > 0;
     const isOperation = item.mode === 'operation';
+    const indicatorOffset = isOperation ? 16 : 14;
 
     let displayName = 'Chat';
     let initials = '?';
@@ -96,9 +97,9 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                         {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
                     </View>
                 )}
-                {online && <View style={styles.onlineDot} />}
-                {isUnread && !online && <View style={styles.unreadIndicator} />}
-                {isUnread && online && <View style={[styles.unreadIndicator, { right: 28 }]} />}
+                {online && <View style={[styles.onlineDot, { right: indicatorOffset }]} />}
+                {isUnread && !online && <View style={[styles.unreadIndicator, { right: indicatorOffset }]} />}
+                {isUnread && online && <View style={[styles.unreadIndicator, { right: indicatorOffset + 14 }]} />}
             </View>
             <View style={styles.info}>
                 <View style={styles.topRow}>

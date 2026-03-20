@@ -604,6 +604,11 @@ export default function ChatInfoScreen() {
                 <View style={styles.emptyMedia}>
                     <Ionicons name="images-outline" size={48} color="#9ca3af" />
                     <Text style={styles.emptyMediaText}>No hay archivos compartidos aún</Text>
+                    <View style={styles.emptyMediaActions}>
+                        <TouchableOpacity style={styles.emptyMediaBtn} onPress={() => navigation.goBack()}>
+                            <Text style={styles.emptyMediaBtnText}>Ir al chat</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             )}
 
@@ -1025,8 +1030,11 @@ const styles = StyleSheet.create({
         backgroundColor: 'white', padding: 16, marginTop: 8, marginBottom: 32, gap: 8,
     },
     deleteBtnText: { color: '#ef4444', fontWeight: '600', fontSize: 16 },
-    emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, opacity: 0.6 },
+    emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
     emptyMediaText: { marginTop: 12, color: '#6b7280', fontSize: 14, fontWeight: '500' },
+    emptyMediaActions: { marginTop: 14 },
+    emptyMediaBtn: { backgroundColor: '#2563eb', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
+    emptyMediaBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.35)',
