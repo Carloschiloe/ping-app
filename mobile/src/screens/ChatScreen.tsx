@@ -460,6 +460,15 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     </View>
                 )}
 
+                {(isSending || isPendingCommitment || sendingMedia) && (
+                    <View style={styles.sendStatusBar}>
+                        <ActivityIndicator size="small" color={theme.colors.text.muted} />
+                        <Text style={styles.sendStatusText}>
+                            {sendingMedia ? 'Subiendo archivo...' : (isPendingCommitment ? 'Creando compromiso...' : 'Enviando mensaje...')}
+                        </Text>
+                    </View>
+                )}
+
                 <ChatInput
                     text={text}
                     onTextChange={handleTextChange}
@@ -594,6 +603,17 @@ const createStyles = (theme: any) => StyleSheet.create({
     replyPreviewContent: { flex: 1, borderLeftWidth: 3, borderLeftColor: theme.colors.whatsapp.teal, paddingLeft: 10 },
     replyPreviewName: { fontSize: 13, fontWeight: '700', color: theme.colors.whatsapp.teal, marginBottom: 2 },
     replyPreviewText: { fontSize: 13, color: theme.colors.text.secondary },
+    sendStatusBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 15,
+        paddingVertical: 6,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.border,
+    },
+    sendStatusText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '600' },
     listHeaderSummary: {
         width: '100%',
         alignItems: 'center',
