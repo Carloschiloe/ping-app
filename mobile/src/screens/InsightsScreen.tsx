@@ -30,10 +30,38 @@ function formatWhen(iso?: string | null) {
 
 type InsightsStyles = ReturnType<typeof createStyles>;
 
-function EmptyState({ text, styles }: { text: string; styles: InsightsStyles }) {
+function EmptyState({
+    text,
+    styles,
+    primaryLabel,
+    onPrimary,
+    secondaryLabel,
+    onSecondary,
+}: {
+    text: string;
+    styles: InsightsStyles;
+    primaryLabel?: string;
+    onPrimary?: () => void;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
+}) {
     return (
         <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>{text}</Text>
+            {(primaryLabel || secondaryLabel) && (
+                <View style={styles.emptyActions}>
+                    {primaryLabel && onPrimary && (
+                        <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={onPrimary}>
+                            <Text style={styles.emptyPrimaryText}>{primaryLabel}</Text>
+                        </TouchableOpacity>
+                    )}
+                    {secondaryLabel && onSecondary && (
+                        <TouchableOpacity style={styles.emptySecondaryBtn} onPress={onSecondary}>
+                            <Text style={styles.emptySecondaryText}>{secondaryLabel}</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
         </View>
     );
 }
@@ -160,22 +188,42 @@ export default function InsightsScreen() {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.topPillsRow}>
-                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.pendingResponse} por responder</Text></View>
-                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.inProgress} en curso</Text></View>
-                <View style={styles.topPill}><Text style={styles.topPillText}>{counts.upcoming} próximas</Text></View>
+            <View style={styles.metricsRow}>
+                {[
+                    { label: 'Pendientes', value: counts.pendingResponse, icon: 'mail-unread-outline' },
+                    { label: 'En curso', value: counts.inProgress, icon: 'flash-outline' },
+                    { label: 'Próximas', value: counts.upcoming, icon: 'calendar-outline' },
+                ].map((metric) => (
+                    <View key={metric.label} style={styles.metricCard}>
+                        <View style={styles.metricIcon}>
+                            <Ionicons name={metric.icon as any} size={14} color={theme.colors.accent} />
+                        </View>
+                        <Text style={styles.metricValue}>{metric.value}</Text>
+                        <Text style={styles.metricLabel}>{metric.label}</Text>
+                    </View>
+                ))}
             </View>
 
             <SectionBlock styles={styles} title="Pendiente tu respuesta" subtitle="Lo que espera tu confirmación">
                 {pendingResponse.length === 0 ? (
-                    <EmptyState styles={styles} text="No tienes tareas pendientes de aceptar o rechazar." />
+                    <EmptyState
+                        styles={styles}
+                        text="No tienes tareas pendientes de aceptar o rechazar."
+                        primaryLabel="Ir a chats"
+                        onPrimary={() => navigation.navigate('Chats')}
+                        secondaryLabel="Refrescar"
+                        onSecondary={() => refetch()}
+                    />
                 ) : (
                     pendingResponse.map((item: any) => (
                         <View key={item.id} style={styles.responseCard}>
                             <TouchableOpacity onPress={() => goToChat(item)} activeOpacity={0.85}>
                                 <Text style={styles.workGroup}>{item.conversation_name}</Text>
                                 <Text style={styles.workTitle}>{item.title}</Text>
-                                <Text style={styles.workMeta}>{formatWhen(item.due_at)} · Solicita: {item.owner?.full_name || 'Alguien'}</Text>
+                                <View style={styles.workMetaRow}>
+                                    <Text style={styles.workTime}>{formatWhen(item.due_at)}</Text>
+                                    <Text style={styles.workMetaTag}>Solicita: {item.owner?.full_name || 'Alguien'}</Text>
+                                </View>
                             </TouchableOpacity>
 
                             <View style={styles.responseActions}>
@@ -194,22 +242,28 @@ export default function InsightsScreen() {
             <SectionBlock styles={styles} title="En curso" subtitle="Lo que ya estas ejecutando">
                 
                 {inProgress.length === 0 ? (
-                    <EmptyState styles={styles} text="No hay tareas en curso ahora." />
+                    <EmptyState
+                        styles={styles}
+                        text="No hay tareas en curso ahora."
+                        primaryLabel="Ir a chats"
+                        onPrimary={() => navigation.navigate('Chats')}
+                        secondaryLabel="Refrescar"
+                        onSecondary={() => refetch()}
+                    />
                 ) : (
                     inProgress.map((item: any) => {
                         const tone = getStateTone(item.operational_state);
                         return (
                             <TouchableOpacity key={item.id} style={styles.workCard} onPress={() => goToChat(item)} activeOpacity={0.85}>
-                                <View style={styles.workTopRow}>
-                                    <Text style={styles.workGroup}>{item.conversation_name}</Text>
+                                <Text style={styles.workGroup}>{item.conversation_name}</Text>
+                                <Text style={styles.workTitle}>{item.title}</Text>
+                                <View style={styles.workMetaRow}>
                                     <View style={[styles.stateBadge, { backgroundColor: tone.bg }]}>
                                         <Text style={[styles.stateBadgeText, { color: tone.color }]}>{item.operational_state}</Text>
                                     </View>
+                                    <Text style={styles.workTime}>{formatWhen(item.due_at)}</Text>
                                 </View>
-                                <Text style={styles.workTitle}>{item.title}</Text>
-                                <Text style={styles.workMeta}>
-                                    {formatWhen(item.due_at)} · Responsable: {item.assignee?.full_name || 'Todos'}
-                                </Text>
+                                <Text style={styles.workMeta}>Responsable: {item.assignee?.full_name || 'Todos'}</Text>
                             </TouchableOpacity>
                         );
                     })
@@ -219,13 +273,23 @@ export default function InsightsScreen() {
             <SectionBlock styles={styles} title="Próximas" subtitle="Aceptadas, pero todavía no en ejecución">
 
                 {upcoming.length === 0 ? (
-                    <EmptyState styles={styles} text="No hay tareas próximas por ahora." />
+                    <EmptyState
+                        styles={styles}
+                        text="No hay tareas próximas por ahora."
+                        primaryLabel="Ir a chats"
+                        onPrimary={() => navigation.navigate('Chats')}
+                        secondaryLabel="Refrescar"
+                        onSecondary={() => refetch()}
+                    />
                 ) : (
                     upcoming.slice(0, 8).map((item: any) => (
                         <TouchableOpacity key={item.id} style={styles.simpleRow} onPress={() => goToChat(item)} activeOpacity={0.85}>
                             <View style={styles.simpleRowText}>
                                 <Text style={styles.simpleRowTitle}>{item.title}</Text>
-                                <Text style={styles.simpleRowMeta}>{item.conversation_name} · {formatWhen(item.due_at)}</Text>
+                                <View style={styles.simpleRowMetaRow}>
+                                    <Text style={styles.simpleRowMeta}>{formatWhen(item.due_at)}</Text>
+                                    <Text style={styles.simpleRowMetaMuted}>{item.conversation_name}</Text>
+                                </View>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
                         </TouchableOpacity>
@@ -236,7 +300,14 @@ export default function InsightsScreen() {
             <SectionBlock styles={styles} title="Grupos" subtitle="Dónde conviene entrar ahora">
 
                 {groupsSummary.length === 0 ? (
-                    <EmptyState styles={styles} text="Todavía no hay grupos con operación activa." />
+                    <EmptyState
+                        styles={styles}
+                        text="Todavía no hay grupos con operación activa."
+                        primaryLabel="Ir a chats"
+                        onPrimary={() => navigation.navigate('Chats')}
+                        secondaryLabel="Refrescar"
+                        onSecondary={() => refetch()}
+                    />
                 ) : (
                     groupsSummary.map((group: any) => (
                         <TouchableOpacity
@@ -269,7 +340,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.background,
     },
     content: {
-        padding: 16,
+        padding: 20,
         paddingBottom: 28,
         gap: 14,
     },
@@ -310,28 +381,47 @@ const createStyles = (theme: any) => StyleSheet.create({
     title: {
         fontSize: 24,
         fontWeight: '800',
+        letterSpacing: -0.3,
         color: theme.colors.text.primary,
     },
     subtitle: {
         marginTop: 2,
         fontSize: 13,
+        fontWeight: '600',
         color: theme.colors.text.secondary,
     },
-    topPillsRow: {
+    metricsRow: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
+        gap: 10,
     },
-    topPill: {
+    metricCard: {
+        flex: 1,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        alignItems: 'flex-start',
+        gap: 6,
+    },
+    metricIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
         backgroundColor: theme.colors.accentSoft,
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
     },
-    topPillText: {
-        color: theme.colors.accent,
-        fontSize: 11,
+    metricValue: {
+        fontSize: 20,
         fontWeight: '800',
+        color: theme.colors.text.primary,
+    },
+    metricLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: theme.colors.text.muted,
     },
     sectionBlock: { gap: 10 },
     sectionHeader: {
@@ -344,6 +434,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     sectionCaption: {
         fontSize: 13,
+        fontWeight: '600',
         color: theme.colors.text.secondary,
     },
     emptyCard: {
@@ -357,6 +448,35 @@ const createStyles = (theme: any) => StyleSheet.create({
         color: theme.colors.text.muted,
         fontSize: 14,
     },
+    emptyActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 12,
+    },
+    emptyPrimaryBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.primary,
+    },
+    emptyPrimaryText: {
+        color: theme.colors.white,
+        fontWeight: '700',
+        fontSize: 13,
+    },
+    emptySecondaryBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    emptySecondaryText: {
+        color: theme.colors.text.secondary,
+        fontWeight: '700',
+        fontSize: 13,
+    },
     workCard: {
         backgroundColor: theme.colors.surface,
         borderRadius: 16,
@@ -365,16 +485,10 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderColor: theme.colors.separator,
         gap: 6,
     },
-    workTopRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 12,
-    },
     workGroup: {
         fontSize: 12,
-        fontWeight: '800',
-        color: theme.colors.accent,
+        fontWeight: '700',
+        color: theme.colors.text.muted,
         textTransform: 'uppercase',
     },
     workTitle: {
@@ -382,9 +496,25 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontWeight: '700',
         color: theme.colors.text.primary,
     },
+    workMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+    },
     workMeta: {
         fontSize: 13,
         color: theme.colors.text.secondary,
+    },
+    workTime: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: theme.colors.text.muted,
+    },
+    workMetaTag: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: theme.colors.text.muted,
     },
     stateBadge: {
         paddingHorizontal: 10,
@@ -450,14 +580,26 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontWeight: '700',
         color: theme.colors.text.primary,
     },
+    simpleRowMetaRow: {
+        marginTop: 6,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+    },
     simpleRowMeta: {
-        marginTop: 4,
-        fontSize: 13,
+        fontSize: 12,
+        fontWeight: '600',
+        color: theme.colors.text.muted,
+    },
+    simpleRowMetaMuted: {
+        fontSize: 12,
         color: theme.colors.text.secondary,
+        fontWeight: '600',
     },
     groupCard: {
         backgroundColor: theme.colors.surface,
-        borderRadius: 18,
+        borderRadius: 16,
         padding: 14,
         borderWidth: 1,
         borderColor: theme.colors.separator,
@@ -481,13 +623,13 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontWeight: '700',
     },
     groupMeta: {
-        fontSize: 13,
-        color: theme.colors.text.secondary,
+        fontSize: 12,
+        color: theme.colors.text.muted,
     },
     groupSubmeta: {
         marginTop: 4,
         fontSize: 11,
         color: theme.colors.text.muted,
-        fontWeight: '700',
+        fontWeight: '600',
     },
 });

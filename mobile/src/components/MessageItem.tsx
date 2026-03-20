@@ -59,6 +59,7 @@ const MessageItemComponent = ({
 
     const isSystem = item.meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
+    const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
     const msgText: string = item.text || '';
 
@@ -74,6 +75,9 @@ const MessageItemComponent = ({
             return (
                 <View style={styles.systemWrap}>
                     <View style={styles.systemBubbleSpecial}>
+                        <View style={styles.systemBadge}>
+                            <Text style={styles.systemBadgeText}>Sistema</Text>
+                        </View>
                         <Text style={styles.systemText}>{msgText}</Text>
                         <TouchableOpacity
                             style={styles.systemActionChip}
@@ -99,6 +103,9 @@ const MessageItemComponent = ({
         return (
             <View style={styles.systemWrap}>
                 <View style={styles.systemBubble}>
+                    <View style={styles.systemBadge}>
+                        <Text style={styles.systemBadgeText}>Sistema</Text>
+                    </View>
                     <Text style={styles.systemText}>{msgText}</Text>
                 </View>
             </View>
@@ -241,6 +248,7 @@ const MessageItemComponent = ({
                         style={[
                             styles.bubble,
                             isMe ? styles.bubbleMe : styles.bubbleThem,
+                            isOperationMode && (isMe ? styles.bubbleOperationMe : styles.bubbleOperationThem),
                             (isImage || isVideo || isAudio) && styles.bubbleMedia,
                             isSelected && styles.bubbleSelected,
                             item.id === highlightedMsgId && styles.bubbleHighlighted,
@@ -339,7 +347,7 @@ const MessageItemComponent = ({
                                 </View>
                             </TouchableOpacity>
                         ) : (
-                            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem]}>
+                            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, isOperationMode && styles.msgTextOperation]}>
                                 {msgText}
                             </Text>
                         )}
@@ -348,19 +356,19 @@ const MessageItemComponent = ({
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                             {isMe && (
                                 <View style={{ marginLeft: 4 }}>
-                                    {item.status === 'pending_offline' ? (
-                                        <Ionicons
-                                            name="time-outline"
-                                            size={14}
-                                            color="rgba(255,255,255,0.6)"
-                                        />
-                                    ) : (
-                                        <Ionicons
-                                            name={item.status === 'sent' || !item.status ? 'checkmark' : 'checkmark-done'}
-                                            size={14}
-                                            color={item.status === 'read' ? '#34b7f1' : (item.status === 'delivered' ? theme.colors.text.muted : 'rgba(0,0,0,0.4)')}
-                                        />
-                                    )}
+                            {item.status === 'pending_offline' ? (
+                                <Ionicons
+                                    name="time-outline"
+                                    size={14}
+                                    color="rgba(255,255,255,0.6)"
+                                />
+                            ) : (
+                                <Ionicons
+                                    name={(item.status === 'sent' || item.status === 'pending' || !item.status) ? 'checkmark' : 'checkmark-done'}
+                                    size={14}
+                                    color={item.status === 'read' ? '#34b7f1' : ((item.status === 'delivered' || item.status === 'received') ? theme.colors.text.muted : 'rgba(0,0,0,0.4)')}
+                                />
+                            )}
                                 </View>
                             )}
                         </View>
@@ -469,11 +477,13 @@ const createStyles = (theme: any) => StyleSheet.create({
     bubble: {
         borderRadius: 16,
         paddingHorizontal: 12,
-        paddingTop: 8,
-        paddingBottom: 7,
+        paddingTop: 9,
+        paddingBottom: 8,
     },
     bubbleMe: { backgroundColor: theme.colors.bubbleMe, borderBottomRightRadius: 4, borderWidth: theme.isDark ? 0 : 1, borderColor: theme.colors.separator },
     bubbleThem: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: theme.colors.separator },
+    bubbleOperationMe: { backgroundColor: theme.isDark ? '#123b2b' : '#eef6ff', borderColor: theme.isDark ? '#1f3f35' : '#dbeafe' },
+    bubbleOperationThem: { backgroundColor: theme.isDark ? '#121c2a' : '#f8fafc', borderColor: theme.isDark ? '#1e2a3a' : '#e2e8f0' },
     bubbleHighlighted: { backgroundColor: theme.isDark ? '#183b63' : '#bfdbfe' },
     senderAvatarContainer: {
         width: 32, height: 32, marginRight: 8, alignSelf: 'flex-end', marginBottom: 2,
@@ -482,9 +492,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
     senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.success, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
-    msgText: { fontSize: 15, lineHeight: 22 },
+    msgText: { fontSize: 15, lineHeight: 24 },
     msgTextMe: { color: theme.colors.bubbleTextMe },
     msgTextThem: { color: theme.colors.bubbleTextThem },
+    msgTextOperation: { letterSpacing: 0.1 },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
     timeText: { fontSize: 11 },
     timeMe: { color: 'rgba(0,0,0,0.5)' },
@@ -507,6 +518,23 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.surfaceMuted, borderRadius: 12,
         paddingHorizontal: 14, paddingVertical: 6,
         borderWidth: 1, borderColor: theme.colors.separator, maxWidth: '90%',
+    },
+    systemBadge: {
+        alignSelf: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceElevated,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        marginBottom: 6,
+    },
+    systemBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
     systemBubbleSpecial: {
         backgroundColor: theme.colors.surfaceElevated, borderRadius: 14,

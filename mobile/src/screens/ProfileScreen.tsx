@@ -39,6 +39,13 @@ export default function ProfileScreen() {
     const [focusActive, setFocusActive] = useState(false);
     const [focusRemainingLabel, setFocusRemainingLabel] = useState('');
 
+    const [openSections, setOpenSections] = useState({
+        account: true,
+        privacy: true,
+        calendars: false,
+        focus: false,
+    });
+
     // Cloud Accounts Queries
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
     const { mutate: updateAccount } = useUpdateCalendarAccount();
@@ -245,322 +252,379 @@ export default function ProfileScreen() {
         ]);
     };
 
+    const toggleSection = (key: keyof typeof openSections) => {
+        setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const biometricStatus = hasBiometricHw
+        ? (biometricEnabled ? 'Biometría activa' : 'Biometría desactivada')
+        : 'Sin biometría';
+
+    const cloudStatus = cloudAccounts.length > 0
+        ? `${cloudAccounts.length} cuenta${cloudAccounts.length > 1 ? 's' : ''} conectada${cloudAccounts.length > 1 ? 's' : ''}`
+        : 'Sin cuentas conectadas';
+
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <Text style={styles.heading}>Perfil</Text>
 
-            {/* Avatar Section */}
-            <View style={styles.avatarWrap}>
-                <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
-                    {avatarUrl ? (
-                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                    ) : (
-                        <View style={styles.avatarPlaceholder}>
-                            <Text style={styles.avatarText}>
-                                {fullName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?'}
-                            </Text>
-                        </View>
-                    )}
-                    <View style={styles.cameraBadge}>
-                        <Ionicons name="camera" size={16} color="white" />
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('account')} activeOpacity={0.7}>
+                    <View style={styles.sectionHeaderLeft}>
+                        <Ionicons name="person-outline" size={18} color={theme.colors.text.muted} />
+                        <Text style={styles.label}>Cuenta</Text>
+                    </View>
+                    <View style={styles.sectionHeaderRight}>
+                        <Ionicons name={openSections.account ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
                     </View>
                 </TouchableOpacity>
-                <Text style={styles.email}>{user?.email}</Text>
-            </View>
 
-            {/* Profile Info */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.label}>Información Personal</Text>
-                    {!isEditing && (
-                        <TouchableOpacity onPress={() => setIsEditing(true)}>
-                            <Text style={styles.editLink}>Editar</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-
-                <Text style={styles.fieldLabel}>Nombre completo</Text>
-                {isEditing ? (
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Tu nombre real"
-                        value={fullName}
-                        onChangeText={setFullName}
-                    />
-                ) : (
-                    <Text style={styles.valueText}>{fullName || 'No establecido'}</Text>
-                )}
-
-                <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Número de teléfono</Text>
-                {isEditing ? (
-                    <TextInput
-                        style={styles.input}
-                        placeholder="+56912345678"
-                        value={phone}
-                        onChangeText={setPhone}
-                        keyboardType="phone-pad"
-                    />
-                ) : (
-                    <Text style={styles.valueText}>{phone || 'No establecido'}</Text>
-                )}
-
-                {isEditing && (
-                    <View style={styles.editActions}>
-                        <TouchableOpacity
-                            style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
-                            onPress={handleSaveProfile}
-                            disabled={saving}
-                        >
-                            <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.cancelBtn, { flex: 1 }]}
-                            onPress={() => setIsEditing(false)}
-                        >
-                            <Text style={styles.cancelBtnText}>Cancelar</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-            </View>
-
-            {/* Calendars Section */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.label}>Calendarios Disponibles</Text>
-                    <Ionicons name="calendar-outline" size={20} color={theme.colors.text.muted} />
-                </View>
-                <Text style={styles.hint}>
-                    Conecta tus cuentas directamente para que Ping guarde compromisos automáticamente sin depender de los ajustes del teléfono.
-                </Text>
-
-                {cloudAccounts.length > 0 && (
-                    <View style={styles.cloudAccountsList}>
-                        {cloudAccounts.map((acc: any) => (
-                            <View key={acc.id} style={styles.cloudAccCard}>
-                                <View style={styles.cloudAccRow}>
-                                    <Ionicons
-                                        name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
-                                        size={20}
-                                        color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
-                                    />
-                                    <View style={{ flex: 1, marginLeft: 10 }}>
-                                        <Text style={styles.cloudAccEmail}>{acc.email}</Text>
-                                        <Text style={styles.cloudAccMeta}>Sincronización Cloud</Text>
-                                    </View>
-                                    <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
-                                        <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View style={styles.autoSyncRow}>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.autoSyncTitle}>Sincronización Automática</Text>
-                                        <Text style={styles.autoSyncDesc}>
-                                            Agenda, completa o elimina eventos en tu nube automáticamente.
+                {openSections.account && (
+                    <View>
+                        {!isEditing && (
+                            <View style={styles.sectionInlineAction}>
+                                <Text style={styles.editLink} onPress={() => setIsEditing(true)}>Editar</Text>
+                            </View>
+                        )}
+                        <View style={styles.avatarWrap}>
+                            <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
+                                {avatarUrl ? (
+                                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                                ) : (
+                                    <View style={styles.avatarPlaceholder}>
+                                        <Text style={styles.avatarText}>
+                                            {fullName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?'}
                                         </Text>
                                     </View>
-                                    <Switch
-                                        value={!!acc.is_auto_sync_enabled}
-                                        onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
-                                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                                        thumbColor={theme.colors.white}
-                                    />
+                                )}
+                                <View style={styles.cameraBadge}>
+                                    <Ionicons name="camera" size={16} color="white" />
+                                </View>
+                            </TouchableOpacity>
+                            <Text style={styles.email}>{user?.email}</Text>
+                        </View>
+
+                        <Text style={styles.fieldLabel}>Nombre completo</Text>
+                        {isEditing ? (
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Tu nombre real"
+                                value={fullName}
+                                onChangeText={setFullName}
+                            />
+                        ) : (
+                            <Text style={styles.valueText}>{fullName || 'No establecido'}</Text>
+                        )}
+
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Número de teléfono</Text>
+                        {isEditing ? (
+                            <TextInput
+                                style={styles.input}
+                                placeholder="+56912345678"
+                                value={phone}
+                                onChangeText={setPhone}
+                                keyboardType="phone-pad"
+                            />
+                        ) : (
+                            <Text style={styles.valueText}>{phone || 'No establecido'}</Text>
+                        )}
+
+                        {isEditing && (
+                            <View style={styles.editActions}>
+                                <TouchableOpacity
+                                    style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
+                                    onPress={handleSaveProfile}
+                                    disabled={saving}
+                                >
+                                    <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar'}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.cancelBtn, { flex: 1 }]}
+                                    onPress={() => setIsEditing(false)}
+                                >
+                                    <Text style={styles.cancelBtnText}>Cancelar</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                            <Text style={styles.logoutText}>Cerrar sesión</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('calendars')} activeOpacity={0.7}>
+                    <View style={styles.sectionHeaderLeft}>
+                        <Ionicons name="calendar-outline" size={18} color={theme.colors.text.muted} />
+                        <Text style={styles.label}>Calendarios</Text>
+                    </View>
+                    <View style={styles.sectionHeaderRight}>
+                        <View style={styles.statusPill}>
+                            <Text style={styles.statusPillText}>{cloudStatus}</Text>
+                        </View>
+                        <Ionicons name={openSections.calendars ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
+                    </View>
+                </TouchableOpacity>
+
+                {openSections.calendars && (
+                    <View>
+                        <Text style={styles.hint}>
+                            Conecta tus cuentas para que Ping sincronice compromisos automáticamente.
+                        </Text>
+
+                        {cloudAccounts.length > 0 && (
+                            <View style={styles.cloudAccountsList}>
+                                {cloudAccounts.map((acc: any) => (
+                                    <View key={acc.id} style={styles.cloudAccCard}>
+                                        <View style={styles.cloudAccRow}>
+                                            <Ionicons
+                                                name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
+                                                size={20}
+                                                color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
+                                            />
+                                            <View style={{ flex: 1, marginLeft: 10 }}>
+                                                <Text style={styles.cloudAccEmail}>{acc.email}</Text>
+                                                <Text style={styles.cloudAccMeta}>Sincronización Cloud</Text>
+                                            </View>
+                                            <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
+                                                <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                                            </TouchableOpacity>
+                                        </View>
+
+                                        <View style={styles.autoSyncRow}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.autoSyncTitle}>Sincronización Automática</Text>
+                                                <Text style={styles.autoSyncDesc}>
+                                                    Agenda, completa o elimina eventos en tu nube automáticamente.
+                                                </Text>
+                                            </View>
+                                            <Switch
+                                                value={!!acc.is_auto_sync_enabled}
+                                                onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
+                                                trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                                                thumbColor={theme.colors.white}
+                                            />
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        <View style={styles.cloudActions}>
+                            {!cloudAccounts.find((a: any) => a.provider === 'google') && (
+                                <TouchableOpacity
+                                    style={[styles.connectCloudBtn, { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' }]}
+                                    onPress={() => handleConnectCloud('google')}
+                                >
+                                    <Ionicons name="logo-google" size={20} color="#4285F4" />
+                                    <Text style={[styles.connectCloudBtnText, { color: '#444' }]}>Conectar Google Calendar</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {!cloudAccounts.find((a: any) => a.provider === 'outlook') && (
+                                <TouchableOpacity
+                                    style={[styles.connectCloudBtn, { backgroundColor: '#0078d4' }]}
+                                    onPress={() => handleConnectCloud('outlook')}
+                                >
+                                    <Ionicons name="logo-microsoft" size={20} color="white" />
+                                    <Text style={styles.connectCloudBtnText}>Conectar Outlook (365)</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        <View style={[styles.divider, { marginVertical: 16 }]} />
+
+                        <View style={styles.sectionSubheader}>
+                            <Text style={styles.subLabel}>Calendarios del sistema</Text>
+                            <TouchableOpacity onPress={checkCalendars}>
+                                <Ionicons name="refresh" size={18} color={theme.colors.accent} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {loadingCals ? (
+                            <ActivityIndicator size="small" color={theme.colors.accent} />
+                        ) : calendars.length > 0 ? (
+                            calendars.map((cal: any) => {
+                                const isVisible = !hiddenCalendars.includes(cal.id);
+                                return (
+                                    <TouchableOpacity
+                                        key={cal.id}
+                                        style={[styles.calRow, !isVisible && { opacity: 0.5 }]}
+                                        onPress={() => toggleCalendarVisibility(cal.id)}
+                                    >
+                                        <View style={[styles.calDot, { backgroundColor: cal.color }]} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.calTitle, !isVisible && { textDecorationLine: 'line-through' }]}>
+                                                {cal.title}
+                                            </Text>
+                                            <Text style={styles.calSource}>{cal.source.name}</Text>
+                                        </View>
+                                        <Ionicons
+                                            name={isVisible ? "eye" : "eye-off"}
+                                            size={18}
+                                            color={isVisible ? theme.colors.success : theme.colors.text.muted}
+                                        />
+                                    </TouchableOpacity>
+                                );
+                            })
+                        ) : (
+                            <TouchableOpacity style={styles.permissionBtn} onPress={checkCalendars}>
+                                <Text style={styles.permissionBtnText}>Habilitar Calendarios</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+            </View>
+
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('privacy')} activeOpacity={0.7}>
+                    <View style={styles.sectionHeaderLeft}>
+                        <Ionicons name="shield-checkmark-outline" size={18} color={theme.colors.text.muted} />
+                        <Text style={styles.label}>Privacidad</Text>
+                    </View>
+                    <View style={styles.sectionHeaderRight}>
+                        <View style={styles.statusPill}>
+                            <Text style={styles.statusPillText}>{biometricStatus}</Text>
+                        </View>
+                        <Ionicons name={openSections.privacy ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
+                    </View>
+                </TouchableOpacity>
+
+                {openSections.privacy && (
+                    <View>
+                        {hasBiometricHw ? (
+                            <View style={styles.settingsRow}>
+                                <View style={{ flex: 1, paddingRight: 12 }}>
+                                    <Text style={styles.settingsTitle}>Bloqueo de Aplicación</Text>
+                                    <Text style={styles.settingsDesc}>Requerir FaceID / Huella Dactilar para abrir Ping o retornar desde el fondo.</Text>
+                                </View>
+                                <Switch
+                                    value={biometricEnabled}
+                                    onValueChange={handleToggleBiometric}
+                                    trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                                    thumbColor={theme.colors.white}
+                                />
+                            </View>
+                        ) : (
+                            <Text style={styles.hint}>Tu dispositivo no soporta autenticación biométrica.</Text>
+                        )}
+
+                        <View style={[styles.divider, { marginVertical: 16 }]} />
+
+                        <View style={styles.settingsRow}>
+                            <View style={{ flex: 1, paddingRight: 12 }}>
+                                <Text style={styles.settingsTitle}>Confirmaciones de Lectura</Text>
+                                <Text style={styles.settingsDesc}>Cuando está activo, los demás verán palomitas azules al leer tus mensajes.</Text>
+                            </View>
+                            <Switch
+                                value={readReceiptsEnabled}
+                                onValueChange={handleToggleReadReceipts}
+                                trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                                thumbColor={theme.colors.white}
+                            />
+                        </View>
+
+                        <View style={[styles.divider, { marginVertical: 16 }]} />
+
+                        <View style={styles.settingsRow}>
+                            <View style={{ flex: 1, paddingRight: 12 }}>
+                                <Text style={styles.settingsTitle}>Última Vez en Línea</Text>
+                                <Text style={styles.settingsDesc}>Cuando está activo, los demás pueden ver cuándo fue tu última conexión.</Text>
+                            </View>
+                            <Switch
+                                value={lastSeenEnabled}
+                                onValueChange={handleToggleLastSeen}
+                                trackColor={{ false: theme.colors.separator, true: theme.colors.success }}
+                                thumbColor={theme.colors.white}
+                            />
+                        </View>
+                    </View>
+                )}
+            </View>
+
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('focus')} activeOpacity={0.7}>
+                    <View style={styles.sectionHeaderLeft}>
+                        <Ionicons name="timer-outline" size={18} color={theme.colors.text.muted} />
+                        <Text style={styles.label}>Modo Foco</Text>
+                    </View>
+                    <View style={styles.sectionHeaderRight}>
+                        <View style={styles.statusPill}>
+                            <Text style={styles.statusPillText}>{focusActive ? 'Activo' : 'Inactivo'}</Text>
+                        </View>
+                        <Ionicons name={openSections.focus ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
+                    </View>
+                </TouchableOpacity>
+
+                {openSections.focus && (
+                    <View>
+                        {focusActive ? (
+                            <View>
+                                <View style={styles.focusActiveBadge}>
+                                    <Ionicons name="timer" size={18} color={theme.colors.warning} />
+                                    <Text style={styles.focusActiveText}>Activo — {focusRemainingLabel} restante(s)</Text>
+                                </View>
+                                <Text style={styles.hint}>Las notificaciones no críticas están silenciadas.</Text>
+                                <TouchableOpacity style={styles.cancelFocusBtn} onPress={handleCancelFocus}>
+                                    <Text style={styles.cancelFocusBtnText}>Cancelar Modo Foco</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View>
+                                <Text style={styles.hint}>Silencia notificaciones no críticas durante un tiempo determinado.</Text>
+                                <View style={styles.focusOptions}>
+                                    {[15, 30, 60, 120].map(mins => (
+                                        <TouchableOpacity
+                                            key={mins}
+                                            style={styles.focusChip}
+                                            onPress={() => handleActivateFocus(mins)}
+                                        >
+                                            <Text style={styles.focusChipText}>
+                                                {mins < 60 ? `${mins}min` : `${mins / 60}h`}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
                                 </View>
                             </View>
-                        ))}
-                    </View>
-                )}
-
-                <View style={styles.cloudActions}>
-                    {!cloudAccounts.find((a: any) => a.provider === 'google') && (
-                        <TouchableOpacity
-                            style={[styles.connectCloudBtn, { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' }]}
-                            onPress={() => handleConnectCloud('google')}
-                        >
-                            <Ionicons name="logo-google" size={20} color="#4285F4" />
-                            <Text style={[styles.connectCloudBtnText, { color: '#444' }]}>Conectar Google Calendar</Text>
-                        </TouchableOpacity>
-                    )}
-
-                    {!cloudAccounts.find((a: any) => a.provider === 'outlook') && (
-                        <TouchableOpacity
-                            style={[styles.connectCloudBtn, { backgroundColor: '#0078d4' }]}
-                            onPress={() => handleConnectCloud('outlook')}
-                        >
-                            <Ionicons name="logo-microsoft" size={20} color="white" />
-                            <Text style={styles.connectCloudBtnText}>Conectar Outlook (365)</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-
-                <View style={[styles.divider, { marginVertical: 20 }]} />
-
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.subLabel}>Calendarios del Sistema (Local)</Text>
-                    <TouchableOpacity onPress={checkCalendars}>
-                        <Ionicons name="refresh" size={18} color={theme.colors.accent} />
-                    </TouchableOpacity>
-                </View>
-
-                {loadingCals ? (
-                    <ActivityIndicator size="small" color={theme.colors.accent} />
-                ) : calendars.length > 0 ? (
-                    calendars.map((cal: any) => {
-                        const isVisible = !hiddenCalendars.includes(cal.id);
-                        return (
-                            <TouchableOpacity
-                                key={cal.id}
-                                style={[styles.calRow, !isVisible && { opacity: 0.5 }]}
-                                onPress={() => toggleCalendarVisibility(cal.id)}
-                            >
-                                <View style={[styles.calDot, { backgroundColor: cal.color }]} />
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[styles.calTitle, !isVisible && { textDecorationLine: 'line-through' }]}>
-                                        {cal.title}
-                                    </Text>
-                                    <Text style={styles.calSource}>{cal.source.name}</Text>
-                                </View>
-                                <Ionicons
-                                    name={isVisible ? "eye" : "eye-off"}
-                                    size={18}
-                                    color={isVisible ? theme.colors.success : theme.colors.text.muted}
-                                />
-                            </TouchableOpacity>
-                        );
-                    })
-                ) : (
-                    <TouchableOpacity style={styles.permissionBtn} onPress={checkCalendars}>
-                        <Text style={styles.permissionBtnText}>Habilitar Calendarios</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
-
-            {/* Privacy Section */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.label}>Privacidad y Seguridad</Text>
-                    <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.text.muted} />
-                </View>
-
-                {hasBiometricHw ? (
-                    <View style={styles.settingsRow}>
-                        <View style={{ flex: 1, paddingRight: 12 }}>
-                            <Text style={styles.settingsTitle}>Bloqueo de Aplicación</Text>
-                            <Text style={styles.settingsDesc}>Requerir FaceID / Huella Dactilar para abrir Ping o retornar desde el fondo.</Text>
-                        </View>
-                        <Switch
-                            value={biometricEnabled}
-                            onValueChange={handleToggleBiometric}
-                            trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                            thumbColor={theme.colors.white}
-                        />
-                    </View>
-                ) : (
-                    <Text style={styles.hint}>Tu dispositivo no soporta autenticación biométrica.</Text>
-                )}
-
-                <View style={[styles.divider, { marginVertical: 16 }]} />
-
-                <View style={styles.settingsRow}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                        <Text style={styles.settingsTitle}>Confirmaciones de Lectura</Text>
-                        <Text style={styles.settingsDesc}>Cuando está activo, los demás verán palomitas azules al leer tus mensajes.</Text>
-                    </View>
-                    <Switch
-                        value={readReceiptsEnabled}
-                        onValueChange={handleToggleReadReceipts}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-
-                <View style={[styles.divider, { marginVertical: 16 }]} />
-
-                <View style={styles.settingsRow}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                        <Text style={styles.settingsTitle}>Última Vez en Línea</Text>
-                        <Text style={styles.settingsDesc}>Cuando está activo, los demás pueden ver cuándo fue tu última conexión.</Text>
-                    </View>
-                    <Switch
-                        value={lastSeenEnabled}
-                        onValueChange={handleToggleLastSeen}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.success }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-            </View>
-
-            {/* Phase 28: Focus Mode Section */}
-            <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.label}>🎯 Modo Foco</Text>
-                    <Ionicons name="timer-outline" size={20} color={theme.colors.text.muted} />
-                </View>
-
-                {focusActive ? (
-                    <View>
-                        <View style={styles.focusActiveBadge}>
-                            <Ionicons name="timer" size={18} color={theme.colors.warning} />
-                            <Text style={styles.focusActiveText}>Activo — {focusRemainingLabel} restante(s)</Text>
-                        </View>
-                        <Text style={styles.hint}>Las notificaciones no críticas están silenciadas.</Text>
-                        <TouchableOpacity style={styles.cancelFocusBtn} onPress={handleCancelFocus}>
-                            <Text style={styles.cancelFocusBtnText}>Cancelar Modo Foco</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : (
-                    <View>
-                        <Text style={styles.hint}>Silencia notificaciones no críticas durante un tiempo determinado.</Text>
-                        <View style={styles.focusOptions}>
-                            {[15, 30, 60, 120].map(mins => (
-                                <TouchableOpacity
-                                    key={mins}
-                                    style={styles.focusChip}
-                                    onPress={() => handleActivateFocus(mins)}
-                                >
-                                    <Text style={styles.focusChipText}>
-                                        {mins < 60 ? `${mins}min` : `${mins / 60}h`}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                        )}
                     </View>
                 )}
             </View>
-
-            {/* Logout */}
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-                <Text style={styles.logoutText}>Cerrar sesión</Text>
-            </TouchableOpacity>
         </ScrollView>
     );
 }
 
 const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
-    content: { padding: 20, paddingTop: 40 },
-    heading: { fontSize: 24, fontWeight: '800', marginBottom: 20, color: theme.colors.text.primary },
-    avatarWrap: { alignItems: 'center', marginBottom: 32 },
+    content: { padding: 20, paddingTop: 24, paddingBottom: 32 },
+    heading: { fontSize: 24, fontWeight: '800', marginBottom: 16, letterSpacing: -0.3, color: theme.colors.text.primary },
+    avatarWrap: { alignItems: 'center', marginBottom: 20 },
     avatarContainer: { width: 92, height: 92, borderRadius: 46, marginBottom: 12, position: 'relative' },
     avatarImage: { width: 92, height: 92, borderRadius: 46 },
     avatarPlaceholder: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' },
     avatarText: { color: 'white', fontSize: 32, fontWeight: '700' },
     cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: theme.colors.primary, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background },
     email: { fontSize: 16, color: theme.colors.text.secondary },
-    section: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.separator },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    label: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary },
+    section: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.separator },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    sectionSubheader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    sectionInlineAction: { alignItems: 'flex-end', marginBottom: 8 },
+    label: { fontSize: 16, fontWeight: '700', color: theme.colors.text.primary },
     editLink: { color: theme.colors.accent, fontWeight: '600', fontSize: 15 },
-    fieldLabel: { fontSize: 13, fontWeight: '600', color: theme.colors.text.muted, marginBottom: 4 },
-    valueText: { fontSize: 16, color: theme.colors.text.primary, marginBottom: 4 },
-    hint: { fontSize: 13, color: theme.colors.text.muted, marginBottom: 12 },
-    input: { borderWidth: 1.5, borderColor: theme.colors.separator, padding: 14, borderRadius: 12, fontSize: 15, backgroundColor: theme.colors.surfaceMuted, marginBottom: 4, color: theme.colors.text.primary },
+    fieldLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 },
+    valueText: { fontSize: 15, color: theme.colors.text.primary, marginBottom: 4 },
+    hint: { fontSize: 12, color: theme.colors.text.muted, marginBottom: 10 },
+    input: { borderWidth: 1.5, borderColor: theme.colors.separator, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, fontSize: 15, backgroundColor: theme.colors.surfaceMuted, marginBottom: 4, color: theme.colors.text.primary },
     saveBtn: { backgroundColor: theme.colors.primary, padding: 14, borderRadius: 12, alignItems: 'center' },
     saveBtnText: { color: 'white', fontWeight: '700', fontSize: 15 },
     cancelBtn: { backgroundColor: theme.colors.surfaceMuted, padding: 14, borderRadius: 12, alignItems: 'center' },
     cancelBtnText: { color: theme.colors.text.secondary, fontWeight: '700', fontSize: 15 },
-    editActions: { flexDirection: 'row', marginTop: 20 },
-    logoutBtn: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#fee2e2' },
+    editActions: { flexDirection: 'row', marginTop: 16 },
+    logoutBtn: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#fee2e2', marginTop: 16 },
     logoutText: { color: theme.colors.danger, fontWeight: '700', fontSize: 16 },
     calRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingVertical: 4 },
     calDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
@@ -581,8 +645,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     connectCloudBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, gap: 10 },
     connectCloudBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
     divider: { height: 1, backgroundColor: theme.colors.separator },
-    subLabel: { fontSize: 14, fontWeight: '600', color: theme.colors.text.secondary },
-    settingsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+    subLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
+    settingsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
     settingsTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text.primary, marginBottom: 2 },
     settingsDesc: { fontSize: 12, color: theme.colors.text.secondary },
     focusActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.highlight, borderRadius: 10, padding: 10, marginBottom: 8 },
@@ -592,4 +656,17 @@ const createStyles = (theme: any) => StyleSheet.create({
     focusOptions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 8 },
     focusChip: { backgroundColor: theme.colors.surfaceMuted, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: theme.colors.separator },
     focusChipText: { fontWeight: '700', color: theme.colors.text.secondary, fontSize: 14 },
+    statusPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    statusPillText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.colors.text.secondary,
+    },
 });

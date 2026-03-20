@@ -38,6 +38,7 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
     const isUnread = unreadCount > 0;
     const typers = typingUsers[item.id] || [];
     const isTyping = typers.length > 0;
+    const isOperation = item.mode === 'operation';
 
     let displayName = 'Chat';
     let initials = '?';
@@ -78,9 +79,23 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
             onPress={onPress}
         >
             <View style={styles.avatarContainer}>
-                <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}> 
-                    {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
-                </View>
+                {isOperation ? (
+                    <View style={styles.avatarOperationWrap}>
+                        <View style={styles.avatarOperationInner}>
+                            <View style={[styles.avatarSm, !avatarUrl && { backgroundColor: color }]}>
+                                {avatarUrl ? (
+                                    <Image source={{ uri: avatarUrl }} style={styles.avatarImageSm} />
+                                ) : (
+                                    <Text style={styles.avatarTextSm}>{initials}</Text>
+                                )}
+                            </View>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
+                        {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
+                    </View>
+                )}
                 {online && <View style={styles.onlineDot} />}
                 {isUnread && !online && <View style={styles.unreadIndicator} />}
                 {isUnread && online && <View style={[styles.unreadIndicator, { right: 28 }]} />}
@@ -92,9 +107,22 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                 </View>
                 <View style={styles.bottomRow}>
                     <View style={styles.previewWrap}>
-                        {!isTyping && isByMe && lastMsg && (
-                            <Ionicons name={lastMsg.status === 'read' ? 'checkmark-done' : 'checkmark'} size={18} color={lastMsg.status === 'read' ? '#3b82f6' : '#94a3b8'} style={{ marginRight: 6 }} />
-                        )}
+                        {!isTyping && isByMe && lastMsg && (() => {
+                            const status = lastMsg.status;
+                            if (status === 'pending_offline') {
+                                return <Ionicons name="time-outline" size={18} color="#94a3b8" style={{ marginRight: 6 }} />;
+                            }
+                            const isRead = status === 'read';
+                            const isDelivered = status === 'delivered' || status === 'received' || status === 'read';
+                            return (
+                                <Ionicons
+                                    name={isDelivered ? 'checkmark-done' : 'checkmark'}
+                                    size={18}
+                                    color={isRead ? '#3b82f6' : '#94a3b8'}
+                                    style={{ marginRight: 6 }}
+                                />
+                            );
+                        })()}
                         <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
                     </View>
                     {isUnread && (

@@ -235,7 +235,13 @@ export default function TaskDashboardScreen() {
 
             <View style={styles.header}>
                 <View style={styles.headerTop}>
-                    <Text style={styles.headerTitle}>Tareas</Text>
+                    <View style={styles.headerTitleRow}>
+                        <Text style={styles.headerTitle}>Tablero</Text>
+                        <View style={styles.headerDatePill}>
+                            <Ionicons name="calendar" size={14} color={theme.colors.accent} />
+                            <Text style={styles.headerDateText}>{format(selectedDate, 'EEE d MMM', { locale: es })}</Text>
+                        </View>
+                    </View>
                     <TouchableOpacity style={styles.calendarBtn} onPress={() => setIsCalendarVisible(true)}>
                         <Ionicons name="calendar-outline" size={24} color={theme.colors.accent} />
                     </TouchableOpacity>
@@ -263,6 +269,9 @@ export default function TaskDashboardScreen() {
                 </ScrollView>
             </View>
 
+            <View style={styles.sectionLabelRow}>
+                <Text style={styles.sectionLabel}>Estado</Text>
+            </View>
             <View style={styles.filtersContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
                     <StatusChip label="Todas" value="all" icon="layers-outline" />
@@ -275,10 +284,8 @@ export default function TaskDashboardScreen() {
 
             {teamMembers.length > 0 && (
                 <View style={styles.teamContainer}>
-                    <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.text.muted, textTransform: 'uppercase' }}>
-                            {filterType === 'todo' ? 'Filtrar por quien asignó:' : 'Filtrar por responsable:'}
-                        </Text>
+                    <View style={styles.sectionLabelRow}>
+                        <Text style={styles.sectionLabel}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamRow}>
                         <TouchableOpacity
@@ -356,6 +363,27 @@ export default function TaskDashboardScreen() {
                         <Ionicons name="folder-open-outline" size={64} color={theme.colors.separator} />
                         <Text style={styles.emptyText}>No hay tareas para este filtro</Text>
                         <Text style={styles.emptySubtext}>Cambia de día o filtro para ver más</Text>
+                        <View style={styles.emptyActions}>
+                            <TouchableOpacity
+                                style={styles.emptyPrimaryBtn}
+                                onPress={() => {
+                                    setSelectedDate(startOfDay(new Date()));
+                                    setStatusFilter('all');
+                                    setSelectedUserId(null);
+                                }}
+                            >
+                                <Text style={styles.emptyPrimaryText}>Ver hoy</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.emptySecondaryBtn}
+                                onPress={() => {
+                                    setStatusFilter('all');
+                                    setSelectedUserId(null);
+                                }}
+                            >
+                                <Text style={styles.emptySecondaryText}>Limpiar filtros</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 )}
             </ScrollView>
@@ -377,13 +405,36 @@ const createStyles = (theme: any) => StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 8,
+    },
+    headerTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 10,
     },
     headerTitle: {
         fontSize: 24,
         fontWeight: '800',
         color: theme.colors.text.primary,
-        letterSpacing: -0.5,
+        letterSpacing: -0.3,
+    },
+    headerDatePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    headerDateText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: theme.colors.text.secondary,
+        textTransform: 'capitalize',
     },
     calendarBtn: {
         padding: 8,
@@ -416,39 +467,43 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     scrollerContainer: {
         backgroundColor: theme.colors.surface,
-        paddingVertical: 8,
+        paddingVertical: 6,
         borderBottomWidth: 1,
         borderBottomColor: theme.colors.separator,
     },
     dateScroller: {
         paddingHorizontal: 15,
-        gap: 12,
+        gap: 10,
     },
     dateItem: {
-        width: 46,
-        height: 64,
+        width: 42,
+        height: 56,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 14,
+        borderRadius: 16,
         backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
     },
     dateItemActive: {
         backgroundColor: theme.colors.accent,
+        borderColor: theme.colors.accent,
     },
     dateDay: {
-        fontSize: 11,
-        fontWeight: '600',
+        fontSize: 10,
+        fontWeight: '700',
         color: theme.colors.text.muted,
         textTransform: 'uppercase',
     },
     dateNum: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '800',
         color: theme.colors.text.primary,
         marginTop: 2,
     },
     dateTextActive: {
         color: theme.colors.white,
+        fontWeight: '800',
     },
     dateDot: {
         width: 4,
@@ -463,7 +518,20 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.accent,
     },
     filtersContainer: {
-        paddingVertical: 12,
+        paddingTop: 12,
+        paddingBottom: 4,
+    },
+    sectionLabelRow: {
+        paddingHorizontal: 20,
+        marginTop: 8,
+        marginBottom: 6,
+    },
+    sectionLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
     chipsRow: {
         paddingHorizontal: 20,
@@ -575,6 +643,12 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontWeight: '700',
         color: theme.colors.text.muted,
     },
+    sectionHint: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: theme.colors.text.muted,
+        textTransform: 'uppercase',
+    },
     listContent: {
         paddingBottom: 40,
     },
@@ -672,6 +746,35 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontSize: 13,
         color: theme.colors.text.muted,
         textAlign: 'center',
+    },
+    emptyActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 14,
+    },
+    emptyPrimaryBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.primary,
+    },
+    emptyPrimaryText: {
+        color: theme.colors.white,
+        fontWeight: '700',
+        fontSize: 13,
+    },
+    emptySecondaryBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    emptySecondaryText: {
+        color: theme.colors.text.secondary,
+        fontWeight: '700',
+        fontSize: 13,
     },
     gridDayHeader: {
         width: '14.28%',

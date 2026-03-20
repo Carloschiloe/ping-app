@@ -1,11 +1,12 @@
-import { useMemo, useEffect, useCallback } from 'react';
+import { useMemo, useEffect, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { 
-    useConversationMessages, 
-    useSendConversationMessage, 
-    useReactToMessage, 
-    useMarkConversationAsRead 
+import {
+    useConversationMessages,
+    useSendConversationMessage,
+    useReactToMessage,
+    useMarkConversationAsRead,
+    useUpdateMessageStatus
 } from '../api/queries';
 import { useOfflineSync, PendingMessage } from './useOfflineSync';
 import { apiClient } from '../api/client';
@@ -41,6 +42,8 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     const { mutate: mutateSend, isPending: isSendingMutation } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
     const { mutate: markAsRead } = useMarkConversationAsRead(conversationId);
+    const { mutate: updateMessageStatus } = useUpdateMessageStatus();
+    const deliveredTracker = useRef<Set<string>>(new Set());
 
     const messages = useMemo(() => {
         const serverMessages = infiniteData?.pages.flatMap(page => page.messages) || [];
@@ -238,6 +241,22 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             markAsRead(undefined);
         }
     }, [messages, user, isFocused, markAsRead]);
+
+    // Mark as delivered when received by recipient
+    useEffect(() => {
+        if (!messages || messages.length === 0 || !user) return;
+
+        messages.forEach((msg: any) => {
+            const isSystem = msg.meta?.isSystem;
+            const isMe = msg.sender_id === user.id;
+            if (isMe || isSystem) return;
+            if (msg.status !== 'sent') return;
+            if (deliveredTracker.current.has(msg.id)) return;
+
+            deliveredTracker.current.add(msg.id);
+            updateMessageStatus({ messageId: msg.id, status: 'delivered' });
+        });
+    }, [messages, user, updateMessageStatus]);
 
     return {
         messages,

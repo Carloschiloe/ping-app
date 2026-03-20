@@ -340,6 +340,14 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 <Ionicons name="chatbubbles-outline" size={80} color={theme.colors.separator} />
                                 <Text style={styles.emptyTitle}>Nada por aquí</Text>
                                 <Text style={styles.emptyText}>Inicia un hilo o cambia el filtro</Text>
+                                <View style={styles.emptyActions}>
+                                    <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => navigation.navigate('NewChat')}>
+                                        <Text style={styles.emptyPrimaryText}>Nuevo chat</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.emptySecondaryBtn} onPress={() => navigation.navigate('NewGroup')}>
+                                        <Text style={styles.emptySecondaryText}>Nuevo grupo</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         )}
                     />
@@ -387,22 +395,22 @@ const createStyles = (theme: any) => StyleSheet.create({
     skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceMuted },
     headerSection: { paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, zIndex: 10 },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    title: { fontSize: 28, fontWeight: '800', color: theme.colors.white, letterSpacing: -1 },
-    headerSubtitle: { marginTop: 2, fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
+    title: { fontSize: 24, fontWeight: '800', color: theme.colors.white, letterSpacing: -0.3 },
+    headerSubtitle: { marginTop: 2, fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: '600' },
     headerIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
     searchContainer: { width: '100%' },
     searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 16, paddingHorizontal: 14, height: 46, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
     searchInput: { flex: 1, marginLeft: 10, color: theme.colors.white, fontSize: 15, fontWeight: '500' },
-    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -12 },
-    quickActionsToggle: { marginHorizontal: 20, marginBottom: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 16, borderTopRightRadius: 16, marginTop: -12 },
+    quickActionsToggle: { marginHorizontal: 20, marginBottom: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     quickActionsToggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     quickActionsToggleText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
     quickActionsContent: { paddingHorizontal: 20, paddingVertical: 12, gap: 16 },
     qaCard: { alignItems: 'center', width: 64 },
-    qaIconWrap: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: theme.isDark ? 0.12 : 0.04, shadowRadius: 10, elevation: 3 },
+    qaIconWrap: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: theme.isDark ? 0.12 : 0.04, shadowRadius: 10, elevation: 3 },
     qaLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text.primary },
     sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 14 },
-    sectionHintText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '700' },
+    sectionHintText: { fontSize: 11, color: theme.colors.text.muted, fontWeight: '700', letterSpacing: 0.3 },
     filterBarContainer: { marginBottom: 12 },
     filterBar: { flexDirection: 'row', paddingHorizontal: 20, gap: 6 },
     filterChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
@@ -418,13 +426,38 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.surface,
         marginHorizontal: 16,
         marginBottom: 8,
-        borderRadius: 18,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: theme.colors.separator,
     },
     rowUnread: { borderColor: theme.colors.accentSoft },
     avatarContainer: { position: 'relative' },
     avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
+    avatarOperationWrap: {
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        marginRight: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.isDark ? '#22d3ee' : theme.colors.info,
+        shadowColor: theme.isDark ? '#22d3ee' : theme.colors.info,
+        shadowOpacity: 0.45,
+        shadowRadius: 9,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 3,
+    },
+    avatarOperationInner: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.screen,
+    },
+    avatarSm: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    avatarImageSm: { width: '100%', height: '100%' },
+    avatarTextSm: { color: theme.colors.white, fontWeight: '900', fontSize: 20 },
     avatarImage: { width: '100%', height: '100%' },
     avatarText: { color: theme.colors.white, fontWeight: '900', fontSize: 24 },
     unreadIndicator: { position: 'absolute', top: -1, right: 14, width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.unread, borderWidth: 2, borderColor: theme.colors.surface },
@@ -445,6 +478,11 @@ const createStyles = (theme: any) => StyleSheet.create({
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
     emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12 },
     emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },
+    emptyActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+    emptyPrimaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
+    emptyPrimaryText: { color: theme.colors.white, fontWeight: '700', fontSize: 13 },
+    emptySecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
+    emptySecondaryText: { color: theme.colors.text.secondary, fontWeight: '700', fontSize: 13 },
     leftAction: { flex: 1, backgroundColor: theme.colors.info, justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
     rightAction: { flex: 1, backgroundColor: theme.colors.text.secondary, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
     // Search 2.0 Fusion Styles
