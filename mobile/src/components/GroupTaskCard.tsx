@@ -40,6 +40,7 @@ export default function GroupTaskCard({
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const [showActions, setShowActions] = useState(false);
+    const [showDetails, setShowDetails] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
 
@@ -68,6 +69,9 @@ export default function GroupTaskCard({
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "dd MMM · HH:mm", { locale: es }).replace('.', '')
         : null;
+    const dueDateFull = commitment.due_at
+        ? format(new Date(commitment.due_at), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '')
+        : null;
 
     const isMeetingRaw = commitment.type === 'meeting';
     const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(commitment.title || '');
@@ -76,6 +80,17 @@ export default function GroupTaskCard({
     const isActiveOperation = !!activeCommitmentId && activeCommitmentId === commitment.id;
     const isCompactOperationCard = isOperationMode && isActiveOperation && !isProposed;
     const canSetOperationFocus = !commitment.assigned_to_user_id || currentUserId === assignedId;
+
+    const completionMeta = commitment?.meta?.operational || {};
+    const completedAt = completionMeta.completed_at || commitment?.updated_at || commitment?.created_at;
+    const completedBy = completionMeta.completed_by_name || assigneeName;
+    const completionOutcome = completionMeta.completion_outcome || null;
+    const completionNote = completionMeta.completion_note || null;
+
+    const formatDetailDate = (iso?: string | null) => {
+        if (!iso) return 'Sin fecha';
+        return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
+    };
 
     const handleMarkDone = () => {
         Alert.alert(
@@ -198,7 +213,10 @@ export default function GroupTaskCard({
         : null;
 
     return (
-        <View style={[
+        <TouchableOpacity
+            activeOpacity={0.92}
+            onPress={() => setShowDetails(true)}
+            style={[
             styles.cardContainer,
             theme.isDark && {
                 backgroundColor: theme.colors.surface,
@@ -209,7 +227,8 @@ export default function GroupTaskCard({
             meetingStyle,
             isPast && (theme.isDark ? { opacity: 0.6, backgroundColor: theme.colors.surfaceMuted } : styles.cardPast),
             isRejected && (theme.isDark ? { backgroundColor: '#3b1d1d', borderColor: '#7f1d1d' } : styles.cardRejected),
-        ]}>
+        ]}
+        >
             {/* Left side: Time or Timeline Circle */}
             <View style={styles.leftTimeline}>
                 <View style={[
@@ -270,15 +289,6 @@ export default function GroupTaskCard({
 
             {/* Right: Quick Actions */}
             <View style={styles.rightActions}>
-                {isAssignee && isAccepted && !isDone && !isOperationMode && (
-                    <TouchableOpacity
-                        style={styles.actionBtnPrimary}
-                        onPress={handleMarkDone}
-                        disabled={isMarkingDone}
-                    >
-                        <Ionicons name="checkmark" size={18} color="white" />
-                    </TouchableOpacity>
-                )}
                 {!isDone && !isRejected && !isCompactOperationCard && (
                     <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
                         <Ionicons name="ellipsis-vertical" size={20} color={theme.isDark ? theme.colors.text.muted : '#94a3b8'} />
@@ -309,6 +319,17 @@ export default function GroupTaskCard({
                             >
                                 <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
                                 <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Aceptar {typeLabel}</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {isAssignee && isAccepted && !isDone && !isOperationMode && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
+                                onPress={() => { setShowActions(false); handleMarkDone(); }}
+                                disabled={isMarkingDone}
+                            >
+                                <Ionicons name="checkmark" size={24} color="#10b981" />
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Marcar completada</Text>
                             </TouchableOpacity>
                         )}
 
@@ -393,7 +414,71 @@ export default function GroupTaskCard({
                     />
                 </View>
             )}
-        </View>
+            <Modal visible={showDetails} transparent animationType="slide" onRequestClose={() => setShowDetails(false)}>
+                <Pressable style={styles.detailOverlay} onPress={() => setShowDetails(false)} />
+                <View style={[styles.detailSheet, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}> 
+                    <View style={styles.detailHeader}>
+                        <Text style={[styles.detailTitle, theme.isDark && { color: theme.colors.text.primary }]} numberOfLines={2}>{commitment.title}</Text>
+                        <TouchableOpacity onPress={() => setShowDetails(false)}>
+                            <Ionicons name="close" size={22} color={theme.colors.text.muted} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                        <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Estado</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                            <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
+                                {statusInfo.label.split(' ')[1] || statusInfo.label}
+                            </Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                        <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Responsable</Text>
+                        <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{assigneeName}</Text>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                        <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Fecha</Text>
+                        <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{dueDateFull || 'Sin fecha'}</Text>
+                    </View>
+
+                    {isDone && (
+                        <>
+                            <View style={styles.detailRow}>
+                                <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Completado por</Text>
+                                <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{completedBy}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
+                                <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Completado</Text>
+                                <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{formatDetailDate(completedAt)}</Text>
+                            </View>
+                        </>
+                    )}
+
+                    {isRejected && commitment.rejection_reason && (
+                        <View style={styles.detailRowBlock}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Motivo</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.rejection_reason}</Text>
+                        </View>
+                    )}
+
+                    {completionOutcome && (
+                        <View style={styles.detailRowBlock}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Resultado</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{completionOutcome.replace('_', ' ')}</Text>
+                        </View>
+                    )}
+
+                    {completionNote && (
+                        <View style={styles.detailRowBlock}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Observación</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{completionNote}</Text>
+                        </View>
+                    )}
+                </View>
+            </Modal>
+        </TouchableOpacity>
     );
 }
 
@@ -599,5 +684,52 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '700',
         color: '#64748b',
+    },
+    detailOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+    },
+    detailSheet: {
+        padding: 16,
+        borderTopLeftRadius: 18,
+        borderTopRightRadius: 18,
+        backgroundColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: '#e2e8f0',
+    },
+    detailHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 12,
+    },
+    detailTitle: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    detailRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        marginBottom: 10,
+    },
+    detailRowBlock: {
+        marginBottom: 10,
+    },
+    detailLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.3,
+    },
+    detailValue: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#0f172a',
     },
 });

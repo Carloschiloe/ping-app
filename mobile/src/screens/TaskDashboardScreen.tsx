@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Image, Modal, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,9 +25,8 @@ export default function TaskDashboardScreen() {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [isCalendarVisible, setIsCalendarVisible] = useState(false);
-    const [meetingsCollapsed, setMeetingsCollapsed] = useState(false);
-    const [viewMode, setViewMode] = useState<'timeline' | 'sections'>('timeline');
     const [timelineFilter, setTimelineFilter] = useState<'all' | 'tasks' | 'meetings'>('all');
+    const [assigneePickerVisible, setAssigneePickerVisible] = useState(false);
 
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
@@ -150,7 +149,7 @@ export default function TaskDashboardScreen() {
             }
         });
 
-        let insight = 'Dia despejado. Puedes planificar sin urgencias.';
+        let insight = 'Día despejado. Puedes planificar sin urgencias.';
         let cta = { label: 'Ver hoy', action: () => setSelectedDate(startOfDay(new Date())) };
 
         if (overdue > 0) {
@@ -164,13 +163,13 @@ export default function TaskDashboardScreen() {
         return { pending, inProgress, overdue, insight, cta };
     }, [groupedData.tasks]);
 
-    React.useEffect(() => {
-        if (groupedData.meetings.length === 0) {
-            setMeetingsCollapsed(false);
-            return;
-        }
-        setMeetingsCollapsed(groupedData.tasks.length > 0);
-    }, [groupedData.meetings.length, groupedData.tasks.length]);
+    const hasUrgency = kpiSummary.overdue > 0 || kpiSummary.pending > 0;
+    const selectedAssigneeName = useMemo(() => {
+        if (!selectedUserId) return 'Todos';
+        const match = teamMembers.find((member: any) => member.id === selectedUserId);
+        return match?.full_name?.split(' ')[0] || 'Usuario';
+    }, [selectedUserId, teamMembers]);
+
 
     const renderDateItem = (date: Date) => {
         const isSelected = isSameDay(date, selectedDate);
@@ -308,30 +307,39 @@ export default function TaskDashboardScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.kpiCard}>
-                    <View style={styles.kpiRow}>
-                        <View style={styles.kpiItem}>
-                            <Text style={styles.kpiValue}>{kpiSummary.pending}</Text>
-                            <Text style={styles.kpiLabel}>Pendientes</Text>
+                {hasUrgency ? (
+                    <View style={styles.kpiCard}>
+                        <View style={styles.kpiRow}>
+                            <View style={styles.kpiItem}>
+                                <Text style={styles.kpiValue}>{kpiSummary.pending}</Text>
+                                <Text style={styles.kpiLabel}>Pendientes</Text>
+                            </View>
+                            <View style={styles.kpiDivider} />
+                            <View style={styles.kpiItem}>
+                                <Text style={styles.kpiValue}>{kpiSummary.inProgress}</Text>
+                                <Text style={styles.kpiLabel}>En curso</Text>
+                            </View>
+                            <View style={styles.kpiDivider} />
+                            <View style={styles.kpiItem}>
+                                <Text style={styles.kpiValue}>{kpiSummary.overdue}</Text>
+                                <Text style={styles.kpiLabel}>Vencidas</Text>
+                            </View>
                         </View>
-                        <View style={styles.kpiDivider} />
-                        <View style={styles.kpiItem}>
-                            <Text style={styles.kpiValue}>{kpiSummary.inProgress}</Text>
-                            <Text style={styles.kpiLabel}>En curso</Text>
-                        </View>
-                        <View style={styles.kpiDivider} />
-                        <View style={styles.kpiItem}>
-                            <Text style={styles.kpiValue}>{kpiSummary.overdue}</Text>
-                            <Text style={styles.kpiLabel}>Vencidas</Text>
+                        <View style={styles.kpiInsightRow}>
+                            <Text style={styles.kpiInsightText}>{kpiSummary.insight}</Text>
+                            <TouchableOpacity style={styles.kpiCta} onPress={kpiSummary.cta.action}>
+                                <Text style={styles.kpiCtaText}>{kpiSummary.cta.label}</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
-                    <View style={styles.kpiInsightRow}>
-                        <Text style={styles.kpiInsightText}>{kpiSummary.insight}</Text>
+                ) : (
+                    <View style={styles.kpiHintRow}>
+                        <Text style={styles.kpiHintText}>{kpiSummary.insight}</Text>
                         <TouchableOpacity style={styles.kpiCta} onPress={kpiSummary.cta.action}>
-                            <Text style={styles.kpiCtaText}>{kpiSummary.cta.label}</Text>
+                            <Text style={styles.kpiCtaText}>Ver hoy</Text>
                         </TouchableOpacity>
                     </View>
-                </View>
+                )}
 
                 <View style={styles.toggleContainer}>
                     <TouchableOpacity
@@ -369,57 +377,15 @@ export default function TaskDashboardScreen() {
             </View>
 
             {teamMembers.length > 0 && (
-                <View style={styles.teamContainer}>
-                    <View style={styles.sectionLabelRow}>
-                        <Text style={styles.sectionLabel}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
-                    </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamRow}>
-                        <TouchableOpacity
-                            style={[styles.memberAvatar, !selectedUserId && styles.memberAvatarActive]}
-                            onPress={() => setSelectedUserId(null)}
-                        >
-                            <View style={styles.allMembersCircle}>
-                                <Ionicons name="people" size={20} color={!selectedUserId ? theme.colors.white : theme.colors.accent} />
-                            </View>
-                            <Text style={styles.memberName}>Todos</Text>
-                        </TouchableOpacity>
-                        {teamMembers.map((member: any) => (
-                            <TouchableOpacity
-                                key={member.id}
-                                style={[styles.memberAvatar, selectedUserId === member.id && styles.memberAvatarActive]}
-                                onPress={() => setSelectedUserId(member.id)}
-                            >
-                                {member.avatar_url ? (
-                                    <Image source={{ uri: member.avatar_url }} style={styles.avatarImg} />
-                                ) : (
-                                    <View style={styles.avatarFallback}>
-                                        <Text style={styles.avatarLetter}>{member.full_name?.[0] || '?'}</Text>
-                                    </View>
-                                )}
-                                <Text style={styles.memberName} numberOfLines={1}>{member.full_name?.split(' ')[0]}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
+                <View style={styles.assigneeRowCompact}>
+                    <Text style={styles.sectionLabel}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
+                    <TouchableOpacity style={styles.assigneeSelector} onPress={() => setAssigneePickerVisible(true)}>
+                        <Ionicons name="person" size={14} color={theme.colors.text.secondary} />
+                        <Text style={styles.assigneeSelectorText}>{selectedAssigneeName}</Text>
+                        <Ionicons name="chevron-down" size={14} color={theme.colors.text.muted} />
+                    </TouchableOpacity>
                 </View>
             )}
-
-            <View style={styles.viewModeRow}>
-                <Text style={styles.viewModeLabel}>Vista</Text>
-                <View style={styles.viewModeToggle}>
-                    <TouchableOpacity
-                        style={[styles.viewModeBtn, viewMode === 'timeline' && styles.viewModeBtnActive]}
-                        onPress={() => setViewMode('timeline')}
-                    >
-                        <Text style={[styles.viewModeText, viewMode === 'timeline' && styles.viewModeTextActive]}>Agenda</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.viewModeBtn, viewMode === 'sections' && styles.viewModeBtnActive]}
-                        onPress={() => setViewMode('sections')}
-                    >
-                        <Text style={[styles.viewModeText, viewMode === 'sections' && styles.viewModeTextActive]}>Secciones</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
 
             <ScrollView 
                 style={{ flex: 1 }}
@@ -428,89 +394,50 @@ export default function TaskDashboardScreen() {
                     <RefreshControl refreshing={isLoading} onRefresh={refetch} />
                 }
             >
-                {viewMode === 'timeline' && (
-                    <View style={styles.sectionContainer}>
-                        <View style={styles.sectionHeader}>
-                            <View style={styles.sectionTitleRow}>
-                                <Ionicons name="time" size={18} color={theme.colors.accent} />
-                                <Text style={styles.sectionTitleText}>Agenda del Día</Text>
-                            </View>
-                            <View style={styles.sectionHeaderRight}>
-                                <View style={styles.sectionBadge}>
-                                    <Text style={styles.sectionBadgeText}>{timelineItems.length}</Text>
-                                </View>
-                            </View>
+                <View style={styles.sectionContainer}>
+                    <View style={styles.sectionHeader}>
+                        <View style={styles.sectionTitleRow}>
+                            <Ionicons name="time" size={18} color={theme.colors.accent} />
+                            <Text style={styles.sectionTitleText}>Agenda del Día</Text>
                         </View>
-                        <View style={styles.timelineFilterRow}>
-                            <TouchableOpacity
-                                style={[styles.timelineChip, timelineFilter === 'all' && styles.timelineChipActive]}
-                                onPress={() => setTimelineFilter('all')}
-                            >
-                                <Text style={[styles.timelineChipText, timelineFilter === 'all' && styles.timelineChipTextActive]}>Todo</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.timelineChip, timelineFilter === 'tasks' && styles.timelineChipActive]}
-                                onPress={() => setTimelineFilter('tasks')}
-                            >
-                                <Text style={[styles.timelineChipText, timelineFilter === 'tasks' && styles.timelineChipTextActive]}>Tareas</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.timelineChip, timelineFilter === 'meetings' && styles.timelineChipActive]}
-                                onPress={() => setTimelineFilter('meetings')}
-                            >
-                                <Text style={[styles.timelineChipText, timelineFilter === 'meetings' && styles.timelineChipTextActive]}>Reuniones</Text>
-                            </TouchableOpacity>
-                        </View>
-                        {timelineItems.length === 0 ? (
-                            <View style={styles.emptyContainer}>
-                                <Ionicons name="calendar-clear-outline" size={56} color={theme.colors.separator} />
-                                <Text style={styles.emptyText}>No hay items para este filtro</Text>
-                                <Text style={styles.emptySubtext}>Prueba cambiando el filtro o el día</Text>
-                            </View>
-                        ) : (
-                            timelineItems.map(item => (
-                                <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
-                            ))
-                        )}
-                    </View>
-                )}
-
-                {viewMode === 'sections' && groupedData.meetings.length > 0 && (
-                    <View style={styles.sectionContainer}>
-                        <TouchableOpacity style={styles.sectionHeader} onPress={() => setMeetingsCollapsed(prev => !prev)} activeOpacity={0.8}>
-                            <View style={styles.sectionTitleRow}>
-                                <Ionicons name="calendar" size={18} color={theme.colors.accent} />
-                                <Text style={styles.sectionTitleText}>Próximas Reuniones</Text>
-                            </View>
-                            <View style={styles.sectionHeaderRight}>
-                                <View style={styles.sectionBadge}>
-                                    <Text style={styles.sectionBadgeText}>{groupedData.meetings.length}</Text>
-                                </View>
-                                <Ionicons name={meetingsCollapsed ? 'chevron-down' : 'chevron-up'} size={18} color={theme.colors.text.muted} />
-                            </View>
-                        </TouchableOpacity>
-                        {!meetingsCollapsed && groupedData.meetings.map(item => (
-                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
-                        ))}
-                    </View>
-                )}
-
-                {viewMode === 'sections' && groupedData.tasks.length > 0 && (
-                    <View style={styles.sectionContainer}>
-                        <View style={styles.sectionHeader}>
-                            <View style={styles.sectionTitleRow}>
-                                <Ionicons name="list" size={18} color={theme.colors.success} />
-                                <Text style={styles.sectionTitleText}>Tareas del Día</Text>
-                            </View>
+                        <View style={styles.sectionHeaderRight}>
                             <View style={styles.sectionBadge}>
-                                <Text style={styles.sectionBadgeText}>{groupedData.tasks.length}</Text>
+                                <Text style={styles.sectionBadgeText}>{timelineItems.length}</Text>
                             </View>
                         </View>
-                        {groupedData.tasks.map(item => (
-                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
-                        ))}
                     </View>
-                )}
+                    <View style={styles.timelineFilterRow}>
+                        <TouchableOpacity
+                            style={[styles.timelineChip, timelineFilter === 'all' && styles.timelineChipActive]}
+                            onPress={() => setTimelineFilter('all')}
+                        >
+                            <Text style={[styles.timelineChipText, timelineFilter === 'all' && styles.timelineChipTextActive]}>Todo</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.timelineChip, timelineFilter === 'tasks' && styles.timelineChipActive]}
+                            onPress={() => setTimelineFilter('tasks')}
+                        >
+                            <Text style={[styles.timelineChipText, timelineFilter === 'tasks' && styles.timelineChipTextActive]}>Tareas</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.timelineChip, timelineFilter === 'meetings' && styles.timelineChipActive]}
+                            onPress={() => setTimelineFilter('meetings')}
+                        >
+                            <Text style={[styles.timelineChipText, timelineFilter === 'meetings' && styles.timelineChipTextActive]}>Reuniones</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {timelineItems.length === 0 ? (
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="calendar-clear-outline" size={56} color={theme.colors.separator} />
+                            <Text style={styles.emptyText}>No hay items para este filtro</Text>
+                            <Text style={styles.emptySubtext}>Prueba cambiando el filtro o el día</Text>
+                        </View>
+                    ) : (
+                        timelineItems.map(item => (
+                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
+                        ))
+                    )}
+                </View>
 
                 {groupedData.meetings.length === 0 && groupedData.tasks.length === 0 && (
                     <View style={styles.emptyContainer}>
@@ -541,6 +468,39 @@ export default function TaskDashboardScreen() {
                     </View>
                 )}
             </ScrollView>
+
+            <Modal visible={assigneePickerVisible} transparent animationType="fade" onRequestClose={() => setAssigneePickerVisible(false)}>
+                <TouchableOpacity style={styles.assigneeModalOverlay} activeOpacity={1} onPress={() => setAssigneePickerVisible(false)}>
+                    <View style={styles.assigneeModalCard}>
+                        <Text style={styles.assigneeModalTitle}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
+                        <ScrollView contentContainerStyle={styles.assigneeList}>
+                            <TouchableOpacity
+                                style={[styles.assigneeListItem, !selectedUserId && styles.assigneeListItemActive]}
+                                onPress={() => {
+                                    setSelectedUserId(null);
+                                    setAssigneePickerVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.assigneeListText, !selectedUserId && styles.assigneeListTextActive]}>Todos</Text>
+                            </TouchableOpacity>
+                            {teamMembers.map((member: any) => (
+                                <TouchableOpacity
+                                    key={member.id}
+                                    style={[styles.assigneeListItem, selectedUserId === member.id && styles.assigneeListItemActive]}
+                                    onPress={() => {
+                                        setSelectedUserId(member.id);
+                                        setAssigneePickerVisible(false);
+                                    }}
+                                >
+                                    <Text style={[styles.assigneeListText, selectedUserId === member.id && styles.assigneeListTextActive]}>
+                                        {member.full_name || 'Usuario'}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -603,6 +563,24 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderWidth: 1,
         borderColor: theme.colors.separator,
         gap: 10,
+    },
+    kpiHintRow: {
+        marginTop: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+    },
+    kpiHintText: {
+        flex: 1,
+        fontSize: 12,
+        color: theme.colors.text.secondary,
     },
     kpiRow: {
         flexDirection: 'row',
@@ -778,44 +756,71 @@ const createStyles = (theme: any) => StyleSheet.create({
     teamContainer: {
         paddingBottom: 12,
     },
-    viewModeRow: {
+    assigneeRowCompact: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 20,
-        marginTop: 6,
-        marginBottom: 4,
+        marginTop: 4,
+        marginBottom: 6,
     },
-    viewModeLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.6,
-    },
-    viewModeToggle: {
+    assigneeSelector: {
         flexDirection: 'row',
-        backgroundColor: theme.colors.surfaceMuted,
-        borderRadius: 12,
-        padding: 3,
-        gap: 4,
-    },
-    viewModeBtn: {
+        alignItems: 'center',
+        gap: 6,
         paddingHorizontal: 10,
         paddingVertical: 6,
-        borderRadius: 10,
-    },
-    viewModeBtnActive: {
-        backgroundColor: theme.isDark ? theme.colors.surfaceElevated : theme.colors.surface,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
         borderWidth: 1,
         borderColor: theme.colors.separator,
     },
-    viewModeText: {
+    assigneeSelectorText: {
         fontSize: 12,
         fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+        color: theme.colors.text.secondary,
     },
-    viewModeTextActive: {
+    assigneeModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.25)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    assigneeModalCard: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        padding: 16,
+        maxHeight: '70%'
+    },
+    assigneeModalTitle: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: theme.colors.text.primary,
+        marginBottom: 10,
+    },
+    assigneeList: {
+        gap: 8,
+    },
+    assigneeListItem: {
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    assigneeListItemActive: {
+        backgroundColor: theme.colors.accentSoft,
+        borderColor: theme.colors.accent,
+    },
+    assigneeListText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: theme.colors.text.secondary,
+    },
+    assigneeListTextActive: {
         color: theme.colors.accent,
     },
     teamRow: {
