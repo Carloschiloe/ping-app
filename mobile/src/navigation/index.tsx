@@ -109,11 +109,11 @@ const MainTabs = () => {
     <Tab.Navigator
         screenOptions={({ route }) => ({
             headerShown: false,
-            tabBarActiveTintColor: appTheme.colors.primary,
-            tabBarInactiveTintColor: appTheme.colors.text.muted,
+            tabBarActiveTintColor: appTheme.isDark ? appTheme.colors.accent : appTheme.colors.primary,
+            tabBarInactiveTintColor: appTheme.isDark ? appTheme.colors.text.secondary : appTheme.colors.text.muted,
             tabBarStyle: {
-                backgroundColor: appTheme.colors.surface,
-                borderTopColor: appTheme.colors.separator,
+                backgroundColor: appTheme.isDark ? appTheme.colors.surfaceElevated : appTheme.colors.surface,
+                borderTopColor: appTheme.isDark ? appTheme.colors.border : appTheme.colors.separator,
                 borderTopWidth: 1,
                 height: 64,
                 paddingBottom: 10,

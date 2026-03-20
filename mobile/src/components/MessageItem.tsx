@@ -471,7 +471,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         overflow: 'hidden',
         fontWeight: '600',
     },
-    msgRow: { marginVertical: 2, flexDirection: 'row' },
+    msgRow: { marginVertical: 4, flexDirection: 'row' },
     msgRowMe: { justifyContent: 'flex-end' },
     msgRowThem: { justifyContent: 'flex-start' },
     bubble: {
