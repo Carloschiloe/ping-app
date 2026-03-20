@@ -26,6 +26,8 @@ export default function TaskDashboardScreen() {
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [isCalendarVisible, setIsCalendarVisible] = useState(false);
     const [meetingsCollapsed, setMeetingsCollapsed] = useState(false);
+    const [viewMode, setViewMode] = useState<'timeline' | 'sections'>('timeline');
+    const [timelineFilter, setTimelineFilter] = useState<'all' | 'tasks' | 'meetings'>('all');
 
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
@@ -116,6 +118,52 @@ export default function TaskDashboardScreen() {
         return { meetings, tasks };
     }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
 
+    const timelineItems = useMemo(() => {
+        const items = [
+            ...groupedData.meetings.map(item => ({ ...item, _kind: 'meeting' })),
+            ...groupedData.tasks.map(item => ({ ...item, _kind: 'task' })),
+        ];
+        const filtered = items.filter(item => {
+            if (timelineFilter === 'all') return true;
+            if (timelineFilter === 'meetings') return item._kind === 'meeting';
+            return item._kind === 'task';
+        });
+        return filtered.sort((a: any, b: any) => {
+            const dateA = a.due_at ? new Date(a.due_at).getTime() : 0;
+            const dateB = b.due_at ? new Date(b.due_at).getTime() : 0;
+            return dateA - dateB;
+        });
+    }, [groupedData.meetings, groupedData.tasks, timelineFilter]);
+
+    const kpiSummary = useMemo(() => {
+        const now = new Date();
+        let pending = 0;
+        let inProgress = 0;
+        let overdue = 0;
+
+        groupedData.tasks.forEach((item: any) => {
+            const normalizedStatus = normalizeCommitmentStatus(item.status);
+            if (normalizedStatus === 'proposed') pending += 1;
+            if (normalizedStatus === 'accepted') inProgress += 1;
+            if (item.due_at && new Date(item.due_at) < now && !['completed', 'rejected'].includes(normalizedStatus)) {
+                overdue += 1;
+            }
+        });
+
+        let insight = 'Dia despejado. Puedes planificar sin urgencias.';
+        let cta = { label: 'Ver hoy', action: () => setSelectedDate(startOfDay(new Date())) };
+
+        if (overdue > 0) {
+            insight = `Tienes ${overdue} vencida${overdue > 1 ? 's' : ''}. Prioriza estas tareas.`;
+            cta = { label: 'Ver en curso', action: () => { setStatusFilter('accepted'); setSelectedDate(startOfDay(new Date())); } };
+        } else if (pending > 0) {
+            insight = `Hay ${pending} propuesta${pending > 1 ? 's' : ''} pendiente${pending > 1 ? 's' : ''} de confirmar.`;
+            cta = { label: 'Ir a pendientes', action: () => { setStatusFilter('proposed'); setSelectedDate(startOfDay(new Date())); } };
+        }
+
+        return { pending, inProgress, overdue, insight, cta };
+    }, [groupedData.tasks]);
+
     React.useEffect(() => {
         if (groupedData.meetings.length === 0) {
             setMeetingsCollapsed(false);
@@ -157,7 +205,11 @@ export default function TaskDashboardScreen() {
             style={[styles.chip, statusFilter === value && styles.chipActive]}
             onPress={() => setStatusFilter(value)}
         >
-            <Ionicons name={icon} size={14} color={statusFilter === value ? theme.colors.white : theme.colors.text.muted} />
+            <Ionicons
+                name={icon}
+                size={14}
+                color={statusFilter === value ? theme.colors.white : (theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted)}
+            />
             <Text style={[styles.chipText, statusFilter === value && styles.chipTextActive]}>{label}</Text>
         </TouchableOpacity>
     );
@@ -256,6 +308,31 @@ export default function TaskDashboardScreen() {
                     </TouchableOpacity>
                 </View>
 
+                <View style={styles.kpiCard}>
+                    <View style={styles.kpiRow}>
+                        <View style={styles.kpiItem}>
+                            <Text style={styles.kpiValue}>{kpiSummary.pending}</Text>
+                            <Text style={styles.kpiLabel}>Pendientes</Text>
+                        </View>
+                        <View style={styles.kpiDivider} />
+                        <View style={styles.kpiItem}>
+                            <Text style={styles.kpiValue}>{kpiSummary.inProgress}</Text>
+                            <Text style={styles.kpiLabel}>En curso</Text>
+                        </View>
+                        <View style={styles.kpiDivider} />
+                        <View style={styles.kpiItem}>
+                            <Text style={styles.kpiValue}>{kpiSummary.overdue}</Text>
+                            <Text style={styles.kpiLabel}>Vencidas</Text>
+                        </View>
+                    </View>
+                    <View style={styles.kpiInsightRow}>
+                        <Text style={styles.kpiInsightText}>{kpiSummary.insight}</Text>
+                        <TouchableOpacity style={styles.kpiCta} onPress={kpiSummary.cta.action}>
+                            <Text style={styles.kpiCtaText}>{kpiSummary.cta.label}</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
                 <View style={styles.toggleContainer}>
                     <TouchableOpacity
                         style={[styles.toggleBtn, filterType === 'todo' && styles.toggleBtnActive]}
@@ -326,6 +403,24 @@ export default function TaskDashboardScreen() {
                 </View>
             )}
 
+            <View style={styles.viewModeRow}>
+                <Text style={styles.viewModeLabel}>Vista</Text>
+                <View style={styles.viewModeToggle}>
+                    <TouchableOpacity
+                        style={[styles.viewModeBtn, viewMode === 'timeline' && styles.viewModeBtnActive]}
+                        onPress={() => setViewMode('timeline')}
+                    >
+                        <Text style={[styles.viewModeText, viewMode === 'timeline' && styles.viewModeTextActive]}>Agenda</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.viewModeBtn, viewMode === 'sections' && styles.viewModeBtnActive]}
+                        onPress={() => setViewMode('sections')}
+                    >
+                        <Text style={[styles.viewModeText, viewMode === 'sections' && styles.viewModeTextActive]}>Secciones</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
             <ScrollView 
                 style={{ flex: 1 }}
                 contentContainerStyle={styles.listContent}
@@ -333,7 +428,54 @@ export default function TaskDashboardScreen() {
                     <RefreshControl refreshing={isLoading} onRefresh={refetch} />
                 }
             >
-                {groupedData.meetings.length > 0 && (
+                {viewMode === 'timeline' && (
+                    <View style={styles.sectionContainer}>
+                        <View style={styles.sectionHeader}>
+                            <View style={styles.sectionTitleRow}>
+                                <Ionicons name="time" size={18} color={theme.colors.accent} />
+                                <Text style={styles.sectionTitleText}>Agenda del Día</Text>
+                            </View>
+                            <View style={styles.sectionHeaderRight}>
+                                <View style={styles.sectionBadge}>
+                                    <Text style={styles.sectionBadgeText}>{timelineItems.length}</Text>
+                                </View>
+                            </View>
+                        </View>
+                        <View style={styles.timelineFilterRow}>
+                            <TouchableOpacity
+                                style={[styles.timelineChip, timelineFilter === 'all' && styles.timelineChipActive]}
+                                onPress={() => setTimelineFilter('all')}
+                            >
+                                <Text style={[styles.timelineChipText, timelineFilter === 'all' && styles.timelineChipTextActive]}>Todo</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.timelineChip, timelineFilter === 'tasks' && styles.timelineChipActive]}
+                                onPress={() => setTimelineFilter('tasks')}
+                            >
+                                <Text style={[styles.timelineChipText, timelineFilter === 'tasks' && styles.timelineChipTextActive]}>Tareas</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.timelineChip, timelineFilter === 'meetings' && styles.timelineChipActive]}
+                                onPress={() => setTimelineFilter('meetings')}
+                            >
+                                <Text style={[styles.timelineChipText, timelineFilter === 'meetings' && styles.timelineChipTextActive]}>Reuniones</Text>
+                            </TouchableOpacity>
+                        </View>
+                        {timelineItems.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="calendar-clear-outline" size={56} color={theme.colors.separator} />
+                                <Text style={styles.emptyText}>No hay items para este filtro</Text>
+                                <Text style={styles.emptySubtext}>Prueba cambiando el filtro o el día</Text>
+                            </View>
+                        ) : (
+                            timelineItems.map(item => (
+                                <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
+                            ))
+                        )}
+                    </View>
+                )}
+
+                {viewMode === 'sections' && groupedData.meetings.length > 0 && (
                     <View style={styles.sectionContainer}>
                         <TouchableOpacity style={styles.sectionHeader} onPress={() => setMeetingsCollapsed(prev => !prev)} activeOpacity={0.8}>
                             <View style={styles.sectionTitleRow}>
@@ -353,7 +495,7 @@ export default function TaskDashboardScreen() {
                     </View>
                 )}
 
-                {groupedData.tasks.length > 0 && (
+                {viewMode === 'sections' && groupedData.tasks.length > 0 && (
                     <View style={styles.sectionContainer}>
                         <View style={styles.sectionHeader}>
                             <View style={styles.sectionTitleRow}>
@@ -453,6 +595,67 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.surfaceMuted,
         borderRadius: 12,
     },
+    kpiCard: {
+        marginTop: 12,
+        padding: 14,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        gap: 10,
+    },
+    kpiRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    kpiItem: {
+        flex: 1,
+        alignItems: 'center',
+        gap: 2,
+    },
+    kpiDivider: {
+        width: 1,
+        height: 26,
+        backgroundColor: theme.colors.separator,
+    },
+    kpiValue: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: theme.colors.text.primary,
+    },
+    kpiLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    kpiInsightRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    kpiInsightText: {
+        flex: 1,
+        fontSize: 12,
+        color: theme.colors.text.secondary,
+        lineHeight: 16,
+    },
+    kpiCta: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    kpiCtaText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.colors.accent,
+    },
     toggleContainer: {
         flexDirection: 'row',
         backgroundColor: theme.colors.surfaceMuted,
@@ -467,12 +670,12 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderRadius: 11,
     },
     toggleBtnActive: {
-        backgroundColor: theme.colors.surface,
+        backgroundColor: theme.isDark ? theme.colors.surfaceElevated : theme.colors.surface,
     },
     toggleText: {
         fontSize: 14,
         fontWeight: '600',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
     },
     toggleTextActive: {
         color: theme.colors.accent,
@@ -504,7 +707,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     dateDay: {
         fontSize: 10,
         fontWeight: '700',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
         textTransform: 'uppercase',
     },
     dateNum: {
@@ -541,7 +744,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     sectionLabel: {
         fontSize: 11,
         fontWeight: '700',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
         textTransform: 'uppercase',
         letterSpacing: 0.6,
     },
@@ -574,6 +777,46 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     teamContainer: {
         paddingBottom: 12,
+    },
+    viewModeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        marginTop: 6,
+        marginBottom: 4,
+    },
+    viewModeLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+    },
+    viewModeToggle: {
+        flexDirection: 'row',
+        backgroundColor: theme.colors.surfaceMuted,
+        borderRadius: 12,
+        padding: 3,
+        gap: 4,
+    },
+    viewModeBtn: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 10,
+    },
+    viewModeBtnActive: {
+        backgroundColor: theme.isDark ? theme.colors.surfaceElevated : theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    viewModeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+    },
+    viewModeTextActive: {
+        color: theme.colors.accent,
     },
     teamRow: {
         paddingHorizontal: 20,
@@ -614,12 +857,12 @@ const createStyles = (theme: any) => StyleSheet.create({
     avatarLetter: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
     },
     memberName: {
         fontSize: 10,
         fontWeight: '600',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
     },
     sectionContainer: {
         marginBottom: 20,
@@ -640,6 +883,33 @@ const createStyles = (theme: any) => StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+    },
+    timelineFilterRow: {
+        flexDirection: 'row',
+        gap: 8,
+        paddingHorizontal: 16,
+        marginTop: 8,
+        marginBottom: 6,
+    },
+    timelineChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        backgroundColor: theme.isDark ? theme.colors.surfaceMuted : theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    timelineChipActive: {
+        backgroundColor: theme.colors.accent,
+        borderColor: theme.colors.accent,
+    },
+    timelineChipText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+    },
+    timelineChipTextActive: {
+        color: theme.colors.white,
     },
     sectionTitleRow: {
         flexDirection: 'row',
