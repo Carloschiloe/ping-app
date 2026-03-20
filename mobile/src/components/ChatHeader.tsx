@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
 
@@ -7,22 +7,20 @@ interface ChatHeaderProps {
     chatTitle: string;
     avatarUrl?: string;
     isGroup: boolean;
-    isSummarizing: boolean;
-    onSummarize: () => void;
     onVoiceCall: () => void;
     onVideoCall: () => void;
     onInfo: () => void;
+    onMenu: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     chatTitle,
     avatarUrl,
     isGroup,
-    isSummarizing,
-    onSummarize,
     onVoiceCall,
     onVideoCall,
-    onInfo
+    onInfo,
+    onMenu
 }) => {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
@@ -43,12 +41,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </TouchableOpacity>
 
             <View style={styles.actionsSection}>
-                <TouchableOpacity onPress={onSummarize} style={[styles.iconBtn, styles.summarizeIconBtn]} disabled={isSummarizing}>
-                    {isSummarizing ? (
-                        <ActivityIndicator size="small" color={theme.colors.secondary} />
-                    ) : (
-                        <Ionicons name="sparkles" size={18} color={theme.colors.text.secondary} />
-                    )}
+                <TouchableOpacity onPress={onMenu} style={[styles.iconBtn, styles.menuBtn]}>
+                    <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.white} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={onVoiceCall} style={styles.iconBtn}>
                     <Ionicons name="call" size={20} color={theme.colors.white} />
@@ -100,9 +94,9 @@ const createStyles = (theme: any) => StyleSheet.create({
         justifyContent: 'center',
         borderRadius: 16,
     },
-    summarizeIconBtn: {
-        backgroundColor: theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.12)',
-        borderRadius: 16,
-        marginRight: 4,
+    menuBtn: {
+        backgroundColor: theme.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.18)',
+        borderWidth: 1,
+        borderColor: theme.isDark ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.25)',
     }
 });

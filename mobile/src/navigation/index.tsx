@@ -11,6 +11,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import AuthScreen from '../screens/AuthScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import TaskHistoryScreen from '../screens/TaskHistoryScreen';
 import NewChatScreen from '../screens/NewChatScreen';
 import NewGroupScreen from '../screens/NewGroupScreen';
 import ChatInfoScreen from '../screens/ChatInfoScreen';
@@ -49,6 +50,17 @@ const ConversationsStack = () => {
                 headerTintColor: stackTintColor,
                 headerTitleStyle: { fontWeight: '700', color: stackTintColor },
             })}
+        />
+        <ConversationsStackNav.Screen
+            name="TaskHistory"
+            component={TaskHistoryScreen}
+            options={{
+                headerShown: true,
+                title: 'Historial de tareas',
+                headerBackTitle: 'Atrás',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
+            }}
         />
         <ConversationsStackNav.Screen
             name="NewChat"

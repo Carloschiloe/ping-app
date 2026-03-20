@@ -17,6 +17,10 @@ export type ConversationsStackParamList = {
     Chat: ChatRouteParams;
     NewChat: undefined;
     NewGroup: undefined;
+    TaskHistory: {
+        conversationId: string;
+        isGroup?: boolean;
+    };
     ChatInfo: {
         conversationId: string;
         otherUser?: any | null;
@@ -55,6 +59,7 @@ export type ChatsTabNavigationProp = BottomTabNavigationProp<MainTabParamList, '
 export type ConversationsStackNavigationProp = NativeStackNavigationProp<ConversationsStackParamList>;
 export type ChatScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'Chat'>;
 export type ChatInfoScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ChatInfo'>;
+export type TaskHistoryScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'TaskHistory'>;
 export type AddParticipantsScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AddParticipants'>;
 export type ConversationsListScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ConversationsList'>;
 export type ChatCompositeNavigationProp = CompositeNavigationProp<

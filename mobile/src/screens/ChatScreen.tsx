@@ -83,6 +83,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
     const [summary, setSummary] = useState<string | null>(null);
     const [isSummarizing, setIsSummarizing] = useState(false);
+    const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
     const [multiSelect, setMultiSelect] = useState<string[]>([]);
     const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
     const [suggestionData, setSuggestionData] = useState<any>(null);
@@ -197,11 +198,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     chatTitle={isSelf ? 'Mi Espacio' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
                     avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
                     isGroup={!!isGroup}
-                    isSummarizing={isSummarizing}
-                    onSummarize={handleSummarize}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
                     onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
+                    onMenu={() => setHeaderMenuVisible(true)}
                 />
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
@@ -486,6 +486,48 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onUploadAudio={uploadAudio}
                 />
 
+                <Modal visible={headerMenuVisible} transparent animationType="fade" onRequestClose={() => setHeaderMenuVisible(false)}>
+                    <TouchableOpacity style={styles.headerMenuOverlay} activeOpacity={1} onPress={() => setHeaderMenuVisible(false)}>
+                        <View style={styles.headerMenuCard}>
+                            <TouchableOpacity
+                                style={styles.headerMenuItem}
+                                onPress={() => {
+                                    setHeaderMenuVisible(false);
+                                    navigation.navigate('TaskHistory', { conversationId, isGroup: !!isGroup });
+                                }}
+                            >
+                                <Ionicons name="time-outline" size={18} color={appTheme.colors.text.primary} />
+                                <Text style={styles.headerMenuText}>Historial de tareas</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.headerMenuItem}
+                                onPress={() => {
+                                    setHeaderMenuVisible(false);
+                                    handleSummarize();
+                                }}
+                                disabled={isSummarizing}
+                            >
+                                {isSummarizing ? (
+                                    <ActivityIndicator size="small" color={appTheme.colors.accent} />
+                                ) : (
+                                    <Ionicons name="sparkles" size={18} color={appTheme.colors.text.primary} />
+                                )}
+                                <Text style={styles.headerMenuText}>Resumen</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.headerMenuItem}
+                                onPress={() => {
+                                    setHeaderMenuVisible(false);
+                                    navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode });
+                                }}
+                            >
+                                <Ionicons name="information-circle-outline" size={18} color={appTheme.colors.text.primary} />
+                                <Text style={styles.headerMenuText}>Info del chat</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </TouchableOpacity>
+                </Modal>
+
                 {isMultiSelecting && (
                     <View style={styles.selectBar}>
                         <TouchableOpacity onPress={cancelMultiSelect} style={styles.selectBarBtn}>
@@ -614,6 +656,39 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderTopColor: theme.colors.border,
     },
     sendStatusText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '600' },
+    headerMenuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.25)',
+        justifyContent: 'flex-start',
+        alignItems: 'flex-end',
+        paddingTop: 86,
+        paddingRight: 12,
+    },
+    headerMenuCard: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+        paddingVertical: 6,
+        minWidth: 210,
+        shadowColor: '#000',
+        shadowOpacity: theme.isDark ? 0.3 : 0.12,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
+    },
+    headerMenuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+    },
+    headerMenuText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: theme.colors.text.primary,
+    },
     listHeaderSummary: {
         width: '100%',
         alignItems: 'center',

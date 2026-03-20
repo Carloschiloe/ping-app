@@ -66,7 +66,7 @@ export default function GroupTaskCard({
     const requesterLabel = isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`;
 
     const dueDateStr = commitment.due_at
-        ? format(new Date(commitment.due_at), "HH:mm", { locale: es })
+        ? format(new Date(commitment.due_at), "dd MMM · HH:mm", { locale: es }).replace('.', '')
         : null;
 
     const isMeetingRaw = commitment.type === 'meeting';
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
         borderColor: '#fee2e2',
     },
     leftTimeline: {
-        width: 40,
+        width: 72,
         alignItems: 'center',
         paddingTop: 4,
         marginRight: 8,
@@ -456,10 +456,12 @@ const styles = StyleSheet.create({
         backgroundColor: '#94a3b8',
     },
     nodeTime: {
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: '800',
         color: '#64748b',
         marginTop: 6,
+        textAlign: 'center',
+        lineHeight: 12,
     },
     mainContent: {
         flex: 1,
