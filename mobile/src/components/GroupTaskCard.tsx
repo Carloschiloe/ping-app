@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
+import { useAppTheme } from '../theme/ThemeContext';
 import { AISuggestionModal } from './AISuggestionModal';
 import { useMarkCommitmentDone, useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment } from '../api/queries';
 import * as Haptics from 'expo-haptics';
@@ -32,6 +33,7 @@ export default function GroupTaskCard({
     const queryClient = useQueryClient();
     const conversationId = manualConversationId || commitment.group_conversation_id;
     const { user } = useAuth();
+    const { theme } = useAppTheme();
     const { mutate: markDone, isPending: isMarkingDone } = useMarkCommitmentDone();
     const { mutate: accept } = useAcceptCommitment();
     const { mutate: reject } = useRejectCommitment();
@@ -174,22 +176,39 @@ export default function GroupTaskCard({
     };
 
     const getStatusInfo = () => {
-        if (isDone) return { label: '✅ Completada', color: '#166534', bg: '#dcfce7' };
-        if (isRejected) return { label: '❌ Rechazada', color: '#991b1b', bg: '#fee2e2' };
-        if (isProposed) return { label: '⏳ Propuesta', color: '#92400e', bg: '#fef3c7' };
-        if (isCounter) return { label: '🔄 Contrapropuesta', color: '#3730a3', bg: '#e0e7ff' };
-        return { label: '🚀 Activa', color: '#1e40af', bg: '#dbeafe' };
+        const isDark = theme.isDark;
+        if (isDone) return { label: '✅ Completada', color: isDark ? '#86efac' : '#166534', bg: isDark ? '#1f3a2b' : '#dcfce7' };
+        if (isRejected) return { label: '❌ Rechazada', color: isDark ? '#fca5a5' : '#991b1b', bg: isDark ? '#3b1d1d' : '#fee2e2' };
+        if (isProposed) return { label: '⏳ Propuesta', color: isDark ? '#fcd34d' : '#92400e', bg: isDark ? '#3b2a15' : '#fef3c7' };
+        if (isCounter) return { label: '🔄 Contrapropuesta', color: isDark ? '#c4b5fd' : '#3730a3', bg: isDark ? '#2b2141' : '#e0e7ff' };
+        return { label: '🚀 Activa', color: isDark ? '#93c5fd' : '#1e40af', bg: isDark ? '#1f2c45' : '#dbeafe' };
     };
 
     const statusInfo = getStatusInfo();
 
+    const meetingStyle = isMeeting
+        ? (theme.isDark
+            ? {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.separator,
+                borderLeftWidth: 4,
+                borderLeftColor: theme.colors.accent,
+            }
+            : styles.cardMeeting)
+        : null;
+
     return (
         <View style={[
             styles.cardContainer,
+            theme.isDark && {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.separator,
+                shadowOpacity: 0,
+            },
             isTimelineNode && styles.timelineCard,
-            isMeeting && styles.cardMeeting,
-            isPast && styles.cardPast,
-            isRejected && styles.cardRejected
+            meetingStyle,
+            isPast && (theme.isDark ? { opacity: 0.6, backgroundColor: theme.colors.surfaceMuted } : styles.cardPast),
+            isRejected && (theme.isDark ? { backgroundColor: '#3b1d1d', borderColor: '#7f1d1d' } : styles.cardRejected),
         ]}>
             {/* Left side: Time or Timeline Circle */}
             <View style={styles.leftTimeline}>
@@ -205,25 +224,25 @@ export default function GroupTaskCard({
                         color="white" 
                     />
                 </View>
-                <Text style={styles.nodeTime}>{dueDateStr || '--:--'}</Text>
+                <Text style={[styles.nodeTime, theme.isDark && { color: theme.colors.text.muted }]}>{dueDateStr || '--:--'}</Text>
             </View>
 
             {/* Center: Main Info */}
             <View style={styles.mainContent}>
-                <Text style={[styles.taskTitle, isDone && styles.textDone]} numberOfLines={2}>
+                <Text style={[styles.taskTitle, theme.isDark && { color: theme.colors.text.primary }, isDone && styles.textDone]} numberOfLines={2}>
                     {commitment.title}
                 </Text>
                 
                 <View style={styles.footerRow}>
                     <View style={styles.assigneeInfo}>
-                        <Text style={styles.assigneeText} numberOfLines={1}>{responsibilityLabel}</Text>
-                        <Text style={styles.requesterText} numberOfLines={1}>{requesterLabel}</Text>
+                        <Text style={[styles.assigneeText, theme.isDark && { color: theme.colors.text.secondary }]} numberOfLines={1}>{responsibilityLabel}</Text>
+                        <Text style={[styles.requesterText, theme.isDark && { color: theme.colors.text.muted }]} numberOfLines={1}>{requesterLabel}</Text>
                     </View>
 
                     <View style={styles.badgesRow}>
                         {isActiveOperation && (
-                            <View style={styles.activeOperationBadge}>
-                                <Text style={styles.activeOperationBadgeText}>EN OPERACION</Text>
+                            <View style={[styles.activeOperationBadge, theme.isDark && { backgroundColor: theme.colors.accentSoft }]}>
+                                <Text style={[styles.activeOperationBadgeText, theme.isDark && { color: theme.colors.accent }]}>EN OPERACION</Text>
                             </View>
                         )}
                         {!isCompactOperationCard && (
@@ -237,11 +256,11 @@ export default function GroupTaskCard({
                 </View>
 
                 {isRejected && commitment.rejection_reason && (
-                    <Text style={styles.rejectionText}>Motivo: {commitment.rejection_reason}</Text>
+                    <Text style={[styles.rejectionText, theme.isDark && { color: theme.colors.danger }]}>Motivo: {commitment.rejection_reason}</Text>
                 )}
 
                 {isOperationMode && isActiveOperation && (
-                    <Text style={styles.operationHint}>
+                    <Text style={[styles.operationHint, theme.isDark && { color: theme.colors.text.secondary }]}>
                         {isProposed
                             ? 'Acepta o ajusta esta tarea aqui. Luego sigue la ejecucion desde la franja superior.'
                             : 'La planificacion queda aqui. La ejecucion se marca desde la franja superior.'}
@@ -262,7 +281,7 @@ export default function GroupTaskCard({
                 )}
                 {!isDone && !isRejected && !isCompactOperationCard && (
                     <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
-                        <Ionicons name="ellipsis-vertical" size={20} color="#94a3b8" />
+                        <Ionicons name="ellipsis-vertical" size={20} color={theme.isDark ? theme.colors.text.muted : '#94a3b8'} />
                     </TouchableOpacity>
                 )}
                 {isDone && (
@@ -280,36 +299,36 @@ export default function GroupTaskCard({
                 onRequestClose={() => setShowActions(false)}
             >
                 <Pressable style={styles.modalOverlay} onPress={() => setShowActions(false)}>
-                    <View style={styles.actionMenu}>
-                        <Text style={styles.actionMenuTitle}>{commitment.title}</Text>
+                    <View style={[styles.actionMenu, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}> 
+                        <Text style={[styles.actionMenuTitle, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.title}</Text>
 
                         {isAssignee && isProposed && (
                             <TouchableOpacity
-                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleAccept(); }}
                             >
                                 <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
-                                <Text style={styles.menuItemText}>Aceptar {typeLabel}</Text>
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Aceptar {typeLabel}</Text>
                             </TouchableOpacity>
                         )}
 
                         {isOwner && !isDone && (
                             <TouchableOpacity
-                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleEdit(); }}
                             >
                                 <Ionicons name="create" size={24} color="#8b5cf6" />
-                                <Text style={styles.menuItemText}>Editar {typeLabel}</Text>
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Editar {typeLabel}</Text>
                             </TouchableOpacity>
                         )}
 
                         {isAssignee && !isMeeting && isProposed && (
                             <TouchableOpacity
-                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}
+                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handlePostpone(); }}
                             >
                                 <Ionicons name="time" size={24} color="#6366f1" />
-                                <Text style={styles.menuItemText}>Posponer</Text>
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Posponer</Text>
                             </TouchableOpacity>
                         )}
 
@@ -325,7 +344,7 @@ export default function GroupTaskCard({
 
                         {isOperationMode && !isRejected && !isDone && canSetOperationFocus && isAccepted && (
                             <TouchableOpacity
-                                style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f5f9' }]}
+                                style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: theme.colors.separator }]}
                                 onPress={() => {
                                     setShowActions(false);
                                     handleSetActiveCommitment(isActiveOperation ? null : commitment.id);
@@ -340,7 +359,7 @@ export default function GroupTaskCard({
                         )}
 
                         <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowActions(false)}>
-                            <Text style={styles.cancelBtnText}>Cancelar</Text>
+                            <Text style={[styles.cancelBtnText, theme.isDark && { color: theme.colors.text.secondary }]}>Cancelar</Text>
                         </TouchableOpacity>
                     </View>
                 </Pressable>
@@ -382,8 +401,8 @@ const styles = StyleSheet.create({
     cardContainer: {
         flexDirection: 'row',
         backgroundColor: 'white',
-        borderRadius: 20,
-        padding: 12,
+        borderRadius: 16,
+        padding: 10,
         marginVertical: 4,
         shadowColor: '#6366f1',
         shadowOffset: { width: 0, height: 4 },

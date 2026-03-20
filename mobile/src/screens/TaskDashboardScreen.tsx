@@ -25,6 +25,7 @@ export default function TaskDashboardScreen() {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [isCalendarVisible, setIsCalendarVisible] = useState(false);
+    const [meetingsCollapsed, setMeetingsCollapsed] = useState(false);
 
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
@@ -114,6 +115,14 @@ export default function TaskDashboardScreen() {
 
         return { meetings, tasks };
     }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
+
+    React.useEffect(() => {
+        if (groupedData.meetings.length === 0) {
+            setMeetingsCollapsed(false);
+            return;
+        }
+        setMeetingsCollapsed(groupedData.tasks.length > 0);
+    }, [groupedData.meetings.length, groupedData.tasks.length]);
 
     const renderDateItem = (date: Date) => {
         const isSelected = isSameDay(date, selectedDate);
@@ -326,16 +335,19 @@ export default function TaskDashboardScreen() {
             >
                 {groupedData.meetings.length > 0 && (
                     <View style={styles.sectionContainer}>
-                        <View style={styles.sectionHeader}>
+                        <TouchableOpacity style={styles.sectionHeader} onPress={() => setMeetingsCollapsed(prev => !prev)} activeOpacity={0.8}>
                             <View style={styles.sectionTitleRow}>
                                 <Ionicons name="calendar" size={18} color={theme.colors.accent} />
                                 <Text style={styles.sectionTitleText}>Próximas Reuniones</Text>
                             </View>
-                            <View style={styles.sectionBadge}>
-                                <Text style={styles.sectionBadgeText}>{groupedData.meetings.length}</Text>
+                            <View style={styles.sectionHeaderRight}>
+                                <View style={styles.sectionBadge}>
+                                    <Text style={styles.sectionBadgeText}>{groupedData.meetings.length}</Text>
+                                </View>
+                                <Ionicons name={meetingsCollapsed ? 'chevron-down' : 'chevron-up'} size={18} color={theme.colors.text.muted} />
                             </View>
-                        </View>
-                        {groupedData.meetings.map(item => (
+                        </TouchableOpacity>
+                        {!meetingsCollapsed && groupedData.meetings.map(item => (
                             <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
                         ))}
                     </View>
@@ -518,7 +530,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.accent,
     },
     filtersContainer: {
-        paddingTop: 12,
+        paddingTop: 10,
         paddingBottom: 4,
     },
     sectionLabelRow: {
@@ -535,15 +547,15 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     chipsRow: {
         paddingHorizontal: 20,
-        gap: 8,
+        gap: 6,
     },
     chip: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 20,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: theme.isDark ? theme.colors.surfaceMuted : theme.colors.surface,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: theme.colors.separator,
         gap: 6,
@@ -553,9 +565,9 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderColor: theme.colors.accent,
     },
     chipText: {
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: '600',
-        color: theme.colors.text.muted,
+        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
     },
     chipTextActive: {
         color: theme.colors.white,
@@ -618,11 +630,16 @@ const createStyles = (theme: any) => StyleSheet.create({
         alignItems: 'center',
         marginHorizontal: 16,
         paddingHorizontal: 14,
-        paddingVertical: 12,
+        paddingVertical: 10,
         backgroundColor: theme.colors.surface,
         borderRadius: 16,
         borderWidth: 1,
         borderColor: theme.colors.separator,
+    },
+    sectionHeaderRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     sectionTitleRow: {
         flexDirection: 'row',
@@ -630,20 +647,22 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 8,
     },
     sectionTitleText: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '700',
         color: theme.colors.text.muted,
         textTransform: 'uppercase',
-        letterSpacing: 0.6,
+        letterSpacing: 0.5,
     },
     sectionBadge: {
-        backgroundColor: theme.colors.separator,
+        backgroundColor: theme.colors.surfaceMuted,
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 10,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
     },
     sectionBadgeText: {
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: '700',
         color: theme.colors.text.muted,
     },

@@ -239,7 +239,7 @@ const MessageItemComponent = ({
                     </View>
                 )}
 
-                <View style={{ maxWidth: '75%', position: 'relative' }}>
+                <View style={{ maxWidth: '68%', position: 'relative' }}>
                     <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={() => onPress(item)}
