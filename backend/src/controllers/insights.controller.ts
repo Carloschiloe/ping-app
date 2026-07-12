@@ -72,7 +72,26 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         if (progressResult.error) throw progressResult.error;
 
         const conversations = conversationsResult.data || [];
-        const commitments = commitmentsResult.data || [];
+        const commitmentsRaw = commitmentsResult.data || [];
+        const commitments = await Promise.all(
+            commitmentsRaw.map(async (commitment: any) => {
+                if (commitment.message_id || !commitment.group_conversation_id || !commitment.title) return commitment;
+
+                const { data: messages } = await supabaseAdmin
+                    .from('messages')
+                    .select('id, text, created_at')
+                    .eq('conversation_id', commitment.group_conversation_id)
+                    .ilike('text', `%${commitment.title}%`)
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+
+                if (messages?.[0]?.id) {
+                    return { ...commitment, message_id: messages[0].id };
+                }
+
+                return commitment;
+            })
+        );
         const focuses = focusesResult.data || [];
         const progresses = progressResult.data || [];
 

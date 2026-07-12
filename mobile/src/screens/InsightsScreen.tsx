@@ -1,22 +1,24 @@
 import React from 'react';
 import {
     ActivityIndicator,
-    Alert,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
+    Modal,
+    Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
-import * as Haptics from 'expo-haptics';
-import { useAcceptCommitment, useInsights, useRejectCommitment } from '../api/queries';
+import { useInsights } from '../api/queries';
 import type { ChatsTabNavigationProp } from '../navigation/types';
 import { useAppTheme } from '../theme/ThemeContext';
+import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { useAuth } from '../context/AuthContext';
 
 function formatWhen(iso?: string | null) {
     if (!iso) return 'Sin hora';
@@ -66,12 +68,12 @@ function EmptyState({
     );
 }
 
-function SectionBlock({ title, subtitle, children, styles }: { title: string; subtitle: string; children: React.ReactNode; styles: InsightsStyles }) {
+function SectionBlock({ title, subtitle, children, styles }: { title: string; subtitle?: string; children: React.ReactNode; styles: InsightsStyles }) {
     return (
         <View style={styles.sectionBlock}>
             <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>{title}</Text>
-                <Text style={styles.sectionCaption}>{subtitle}</Text>
+                {!!subtitle && <Text style={styles.sectionCaption}>{subtitle}</Text>}
             </View>
             {children}
         </View>
@@ -82,9 +84,10 @@ export default function InsightsScreen() {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const navigation = useNavigation<ChatsTabNavigationProp>();
+    const { user } = useAuth();
     const { data, isLoading, isError, refetch, isRefetching } = useInsights();
-    const { mutate: acceptCommitment } = useAcceptCommitment();
-    const { mutate: rejectCommitment } = useRejectCommitment();
+    const [typeFilter, setTypeFilter] = React.useState<'all' | 'tasks' | 'meetings'>('all');
+    const [detailItem, setDetailItem] = React.useState<any | null>(null);
 
     const getStateTone = (state?: string) => {
         const isDark = theme.isDark;
@@ -107,6 +110,7 @@ export default function InsightsScreen() {
     };
 
     const goToChat = (item: any) => {
+        const scrollToMessageId = item.message_id || item?.meta?.source_message_id || item?.meta?.origin_message_id;
         navigation.navigate('Chats', {
             screen: 'Chat',
             params: {
@@ -119,30 +123,11 @@ export default function InsightsScreen() {
                     avatar_url: item.conversation_avatar_url,
                 },
                 mode: item.conversation_mode || item.mode || 'chat',
+                scrollToMessageId,
+                commitmentId: item.id,
+                commitmentTitle: item.title,
             },
         });
-    };
-
-    const confirmReject = (item: any) => {
-        Alert.alert(
-            'Rechazar tarea',
-            'Se marcara como rechazada y lo veran en el chat del grupo.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Rechazar',
-                    style: 'destructive',
-                    onPress: () => {
-                        rejectCommitment({ id: item.id, reason: 'Rechazada desde Operación' });
-                    },
-                },
-            ]
-        );
-    };
-
-    const handleAccept = async (id: string) => {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        acceptCommitment(id);
     };
 
     if (isLoading) {
@@ -166,59 +151,148 @@ export default function InsightsScreen() {
         );
     }
 
-    const inProgress = data?.inProgress || [];
+    const inProgressRaw = data?.inProgress || [];
     const pendingResponse = data?.pendingResponse || [];
-    const upcoming = data?.upcoming || [];
-    const groupsSummary = data?.groupsSummary || [];
-    const counts = data?.counts || { inProgress: 0, pendingResponse: 0, upcoming: 0, groups: 0 };
+    const upcomingRaw = data?.upcoming || [];
+    const now = new Date();
+
+    const isOverdue = (item: any) => {
+        if (!item?.due_at) return false;
+        const normalized = normalizeCommitmentStatus(item.status);
+        if (normalized === 'completed' || normalized === 'rejected') return false;
+        return new Date(item.due_at) < now;
+    };
+
+    const isMeeting = (item: any) => {
+        if (item?.type === 'meeting') return true;
+        return /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(item?.title || '');
+    };
+
+    const overdueFromFlow = [...inProgressRaw, ...upcomingRaw].filter((item: any) => isOverdue(item));
+    const upcoming = upcomingRaw.filter((item: any) => !isOverdue(item));
+    const inProgress = inProgressRaw.filter((item: any) => !isOverdue(item));
+    const pending = pendingResponse.filter((item: any) => !isOverdue(item));
+    const overdueFromPending = pendingResponse.filter((item: any) => isOverdue(item));
+
+    const overdueMap = new Map<string, any>();
+    [...overdueFromFlow, ...overdueFromPending].forEach((item: any) => overdueMap.set(item.id, item));
+    const overdue = Array.from(overdueMap.values());
+
+    const metricCounts = {
+        pending: pending.length,
+        inProgress: inProgress.length,
+        upcoming: upcoming.length,
+        overdue: overdue.length,
+    };
+
+    const priorityItems = [
+        ...pending.map((item: any) => ({ ...item, _priorityType: 'pending' })),
+        ...overdue.map((item: any) => ({ ...item, _priorityType: 'overdue' })),
+    ].sort((a: any, b: any) => {
+        const dateA = a.due_at ? new Date(a.due_at).getTime() : 0;
+        const dateB = b.due_at ? new Date(b.due_at).getTime() : 0;
+        return dateA - dateB;
+    });
+
+    const filterByType = (items: any[]) => items.filter((item: any) => {
+        if (typeFilter === 'all') return true;
+        return typeFilter === 'meetings' ? isMeeting(item) : !isMeeting(item);
+    });
+
+    const filteredPriority = filterByType(priorityItems);
+    const filteredInProgress = filterByType(inProgress);
+    const filteredUpcoming = filterByType(upcoming);
+
+    const formatDetailDate = (iso?: string | null) => {
+        if (!iso) return 'Sin fecha';
+        return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
+    };
+
+    const getStatusLabel = (item: any) => {
+        if (isOverdue(item)) return 'Vencida';
+        const normalized = normalizeCommitmentStatus(item.status);
+        if (normalized === 'completed') return 'Completada';
+        if (normalized === 'rejected') return 'Rechazada';
+        if (normalized === 'accepted') return 'En curso';
+        return 'Pendiente';
+    };
+
+    const getOperationLabel = (item: any) => {
+        const operational = item?.meta?.operational || {};
+        const normalized = normalizeCommitmentStatus(item.status);
+        if (operational.completed_at || normalized === 'completed') return 'Terminado';
+        if (operational.arrived_at) return 'En sitio';
+        if (operational.acknowledged_at) return 'Iniciada';
+        if (normalized === 'accepted') return 'Lista';
+        return 'Pendiente';
+    };
 
     return (
-        <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.content}
-            refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={theme.colors.accent} />}
-        >
+        <>
+            <ScrollView
+                style={styles.container}
+                contentContainerStyle={styles.content}
+                refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={theme.colors.accent} />}
+            >
             <View style={styles.header}>
-                <View>
-                    <Text style={styles.title}>Operación</Text>
-                    <Text style={styles.subtitle}>Visión global de tus grupos y tareas.</Text>
-                </View>
-                <TouchableOpacity onPress={() => refetch()}>
-                    <Ionicons name="refresh-circle" size={34} color={theme.colors.text.muted} />
+                <Text style={styles.title}>Operación</Text>
+                <TouchableOpacity onPress={() => refetch()} style={styles.refreshBtn}>
+                    <Ionicons name="refresh" size={18} color={theme.colors.text.secondary} />
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.metricsRow}>
-                {[
-                    { label: 'Pendientes', value: counts.pendingResponse, icon: 'mail-unread-outline' },
-                    { label: 'En curso', value: counts.inProgress, icon: 'flash-outline' },
-                    { label: 'Próximas', value: counts.upcoming, icon: 'calendar-outline' },
-                ].map((metric) => (
-                    <View key={metric.label} style={styles.metricCard}>
-                        <View style={styles.metricIcon}>
-                            <Ionicons name={metric.icon as any} size={14} color={theme.colors.accent} />
-                        </View>
-                        <Text style={styles.metricValue}>{metric.value}</Text>
-                        <Text style={styles.metricLabel}>{metric.label}</Text>
-                    </View>
-                ))}
+            <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Hoy</Text>
+                <Text style={styles.summaryValue}>{metricCounts.pending} pendientes · {metricCounts.overdue} vencidas · {metricCounts.inProgress} en curso</Text>
             </View>
 
-            <SectionBlock styles={styles} title="Pendiente tu respuesta" subtitle="Lo que espera tu confirmación">
-                {pendingResponse.length === 0 ? (
+            <View style={styles.typeFilterRow}>
+                <TouchableOpacity
+                    style={[styles.typeChip, typeFilter === 'all' && styles.typeChipActive]}
+                    onPress={() => setTypeFilter('all')}
+                >
+                    <Text style={[styles.typeChipText, typeFilter === 'all' && styles.typeChipTextActive]}>Todo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.typeChip, typeFilter === 'tasks' && styles.typeChipActive]}
+                    onPress={() => setTypeFilter('tasks')}
+                >
+                    <Text style={[styles.typeChipText, typeFilter === 'tasks' && styles.typeChipTextActive]}>Tareas</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.typeChip, typeFilter === 'meetings' && styles.typeChipActive]}
+                    onPress={() => setTypeFilter('meetings')}
+                >
+                    <Text style={[styles.typeChipText, typeFilter === 'meetings' && styles.typeChipTextActive]}>Reuniones</Text>
+                </TouchableOpacity>
+            </View>
+
+            <SectionBlock styles={styles} title="Prioridad">
+                {filteredPriority.length === 0 ? (
                     <EmptyState
                         styles={styles}
-                        text="No tienes tareas pendientes de aceptar o rechazar."
+                        text="Nada urgente por ahora."
                         primaryLabel="Ir a chats"
                         onPrimary={() => navigation.navigate('Chats')}
                         secondaryLabel="Refrescar"
                         onSecondary={() => refetch()}
                     />
                 ) : (
-                    pendingResponse.map((item: any) => (
+                    filteredPriority.map((item: any) => (
                         <View key={item.id} style={styles.responseCard}>
-                            <TouchableOpacity onPress={() => goToChat(item)} activeOpacity={0.85}>
-                                <Text style={styles.workGroup}>{item.conversation_name}</Text>
+                            <TouchableOpacity
+                                onPress={() => setDetailItem(item)}
+                                onLongPress={() => goToChat(item)}
+                                activeOpacity={0.85}
+                            >
+                                <View style={styles.priorityHeaderRow}>
+                                    <Text style={styles.workGroup}>{item.conversation_name}</Text>
+                                    <View style={[styles.stateBadge, { backgroundColor: item._priorityType === 'overdue' ? (theme.isDark ? '#3b1d1d' : '#fee2e2') : (theme.isDark ? '#3b2a15' : '#fef3c7') }]}>
+                                        <Text style={[styles.stateBadgeText, { color: item._priorityType === 'overdue' ? theme.colors.danger : '#92400e' }]}>
+                                            {item._priorityType === 'overdue' ? 'Vencida' : 'Pendiente'}
+                                        </Text>
+                                    </View>
+                                </View>
                                 <Text style={styles.workTitle}>{item.title}</Text>
                                 <View style={styles.workMetaRow}>
                                     <Text style={styles.workTime}>{formatWhen(item.due_at)}</Text>
@@ -226,35 +300,23 @@ export default function InsightsScreen() {
                                 </View>
                             </TouchableOpacity>
 
-                            <View style={styles.responseActions}>
-                                <TouchableOpacity style={styles.secondaryButton} onPress={() => confirmReject(item)}>
-                                    <Text style={styles.secondaryButtonText}>Rechazar</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.primaryButton} onPress={() => handleAccept(item.id)}>
-                                    <Text style={styles.primaryButtonText}>Aceptar</Text>
-                                </TouchableOpacity>
-                            </View>
                         </View>
                     ))
                 )}
             </SectionBlock>
 
-            <SectionBlock styles={styles} title="En curso" subtitle="Lo que ya estas ejecutando">
-                
-                {inProgress.length === 0 ? (
-                    <EmptyState
-                        styles={styles}
-                        text="No hay tareas en curso ahora."
-                        primaryLabel="Ir a chats"
-                        onPrimary={() => navigation.navigate('Chats')}
-                        secondaryLabel="Refrescar"
-                        onSecondary={() => refetch()}
-                    />
-                ) : (
-                    inProgress.map((item: any) => {
+            {filteredInProgress.length > 0 && (
+                <SectionBlock styles={styles} title="En curso">
+                    {filteredInProgress.map((item: any) => {
                         const tone = getStateTone(item.operational_state);
                         return (
-                            <TouchableOpacity key={item.id} style={styles.workCard} onPress={() => goToChat(item)} activeOpacity={0.85}>
+                            <TouchableOpacity
+                                key={item.id}
+                                style={styles.workCard}
+                                onPress={() => setDetailItem(item)}
+                                onLongPress={() => goToChat(item)}
+                                activeOpacity={0.85}
+                            >
                                 <Text style={styles.workGroup}>{item.conversation_name}</Text>
                                 <Text style={styles.workTitle}>{item.title}</Text>
                                 <View style={styles.workMetaRow}>
@@ -266,24 +328,20 @@ export default function InsightsScreen() {
                                 <Text style={styles.workMeta}>Responsable: {item.assignee?.full_name || 'Todos'}</Text>
                             </TouchableOpacity>
                         );
-                    })
-                )}
-            </SectionBlock>
+                    })}
+                </SectionBlock>
+            )}
 
-            <SectionBlock styles={styles} title="Próximas" subtitle="Aceptadas, pero todavía no en ejecución">
-
-                {upcoming.length === 0 ? (
-                    <EmptyState
-                        styles={styles}
-                        text="No hay tareas próximas por ahora."
-                        primaryLabel="Ir a chats"
-                        onPrimary={() => navigation.navigate('Chats')}
-                        secondaryLabel="Refrescar"
-                        onSecondary={() => refetch()}
-                    />
-                ) : (
-                    upcoming.slice(0, 8).map((item: any) => (
-                        <TouchableOpacity key={item.id} style={styles.simpleRow} onPress={() => goToChat(item)} activeOpacity={0.85}>
+            {filteredUpcoming.length > 0 && (
+                <SectionBlock styles={styles} title="Próximas">
+                    {filteredUpcoming.slice(0, 8).map((item: any) => (
+                        <TouchableOpacity
+                            key={item.id}
+                            style={styles.simpleRow}
+                            onPress={() => setDetailItem(item)}
+                            onLongPress={() => goToChat(item)}
+                            activeOpacity={0.85}
+                        >
                             <View style={styles.simpleRowText}>
                                 <Text style={styles.simpleRowTitle}>{item.title}</Text>
                                 <View style={styles.simpleRowMetaRow}>
@@ -293,44 +351,98 @@ export default function InsightsScreen() {
                             </View>
                             <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
                         </TouchableOpacity>
-                    ))
-                )}
-            </SectionBlock>
+                    ))}
+                </SectionBlock>
+            )}
 
-            <SectionBlock styles={styles} title="Grupos" subtitle="Dónde conviene entrar ahora">
+            </ScrollView>
 
-                {groupsSummary.length === 0 ? (
-                    <EmptyState
-                        styles={styles}
-                        text="Todavía no hay grupos con operación activa."
-                        primaryLabel="Ir a chats"
-                        onPrimary={() => navigation.navigate('Chats')}
-                        secondaryLabel="Refrescar"
-                        onSecondary={() => refetch()}
-                    />
-                ) : (
-                    groupsSummary.map((group: any) => (
-                        <TouchableOpacity
-                            key={group.conversation_id}
-                            style={styles.groupCard}
-                            activeOpacity={0.85}
-                            onPress={() => goToChat(group)}
-                        >
-                            <View style={styles.groupTopRow}>
-                                <Text style={styles.groupName}>{group.conversation_name}</Text>
-                                <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
-                            </View>
-                            <Text style={styles.groupMeta}>
-                                {group.pending_for_me > 0
-                                    ? `${group.pending_for_me} pendiente(s) tuyas`
-                                    : `${group.active_count} en curso · ${group.open_count} abiertas`}
+            <Modal
+                visible={!!detailItem}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setDetailItem(null)}
+            >
+                <Pressable style={styles.detailOverlay} onPress={() => setDetailItem(null)} />
+                <View style={[styles.detailSheet, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}>
+                <View style={styles.detailHeader}>
+                    <Text style={[styles.detailTitle, theme.isDark && { color: theme.colors.text.primary }]} numberOfLines={2}>
+                        {detailItem?.title || 'Detalle'}
+                    </Text>
+                    <TouchableOpacity onPress={() => setDetailItem(null)}>
+                        <Ionicons name="close" size={22} color={theme.colors.text.muted} />
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Estado</Text>
+                    <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                        {detailItem ? getStatusLabel(detailItem) : ''}
+                    </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Operación</Text>
+                    <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                        {detailItem ? getOperationLabel(detailItem) : ''}
+                    </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Responsable</Text>
+                    <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                        {detailItem?.assignee?.full_name || 'Todos'}
+                    </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Fecha</Text>
+                    <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                        {detailItem ? formatDetailDate(detailItem.due_at) : ''}
+                    </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Solicita</Text>
+                    <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                        {detailItem?.owner_user_id && user?.id && detailItem.owner_user_id.toLowerCase() === user.id.toLowerCase()
+                            ? 'Tú'
+                            : (detailItem?.owner?.full_name || 'Alguien')}
+                    </Text>
+                </View>
+
+                {detailItem?.meta?.operational?.completed_at && (
+                    <>
+                        <View style={styles.detailRow}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Completado por</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                                {detailItem?.meta?.operational?.completed_by_name || detailItem?.assignee?.full_name || 'Alguien'}
                             </Text>
-                            {group.team_preview?.[0] ? <Text style={styles.groupSubmeta}>{group.team_preview[0].user_name} · {group.team_preview[0].state}</Text> : null}
-                        </TouchableOpacity>
-                    ))
+                        </View>
+                        <View style={styles.detailRow}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Completado</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                                {formatDetailDate(detailItem?.meta?.operational?.completed_at)}
+                            </Text>
+                        </View>
+                    </>
                 )}
-            </SectionBlock>
-        </ScrollView>
+
+                {detailItem?.meta?.operational?.completion_note && (
+                    <View style={styles.detailRowBlock}>
+                        <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Observación</Text>
+                        <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>
+                            {detailItem.meta.operational.completion_note}
+                        </Text>
+                    </View>
+                )}
+
+                <TouchableOpacity style={styles.detailPrimaryBtn} onPress={() => { if (detailItem) goToChat(detailItem); }}>
+                    <Text style={styles.detailPrimaryText}>Ir al chat</Text>
+                </TouchableOpacity>
+            </View>
+            </Modal>
+        </>
     );
 }
 
@@ -341,6 +453,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     content: {
         padding: 20,
+        paddingTop: 28,
         paddingBottom: 28,
         gap: 14,
     },
@@ -377,6 +490,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: 4,
     },
     title: {
         fontSize: 24,
@@ -384,58 +498,74 @@ const createStyles = (theme: any) => StyleSheet.create({
         letterSpacing: -0.3,
         color: theme.colors.text.primary,
     },
-    subtitle: {
-        marginTop: 2,
-        fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.text.secondary,
-    },
-    metricsRow: {
-        flexDirection: 'row',
-        gap: 10,
-    },
-    metricCard: {
-        flex: 1,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 16,
-        paddingVertical: 12,
-        paddingHorizontal: 12,
+    refreshBtn: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
         borderWidth: 1,
         borderColor: theme.colors.separator,
-        alignItems: 'flex-start',
-        gap: 6,
     },
-    metricIcon: {
-        width: 24,
-        height: 24,
-        borderRadius: 8,
+    summaryRow: {
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.accentSoft,
+        gap: 10,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
     },
-    metricValue: {
-        fontSize: 20,
+    summaryLabel: {
+        fontSize: 11,
         fontWeight: '800',
-        color: theme.colors.text.primary,
-    },
-    metricLabel: {
-        fontSize: 12,
-        fontWeight: '600',
         color: theme.colors.text.muted,
+        textTransform: 'uppercase',
+    },
+    summaryValue: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: theme.colors.text.secondary,
+    },
+    typeFilterRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 6,
+    },
+    typeChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    typeChipActive: {
+        backgroundColor: theme.colors.accent,
+        borderColor: theme.colors.accent,
+    },
+    typeChipText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: theme.colors.text.secondary,
+    },
+    typeChipTextActive: {
+        color: theme.colors.white,
     },
     sectionBlock: { gap: 10 },
     sectionHeader: {
         gap: 2,
     },
     sectionTitle: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '800',
         color: theme.colors.text.primary,
     },
     sectionCaption: {
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: '600',
-        color: theme.colors.text.secondary,
+        color: theme.colors.text.muted,
     },
     emptyCard: {
         backgroundColor: theme.colors.surface,
@@ -491,6 +621,12 @@ const createStyles = (theme: any) => StyleSheet.create({
         color: theme.colors.text.muted,
         textTransform: 'uppercase',
     },
+    priorityHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+    },
     workTitle: {
         fontSize: 16,
         fontWeight: '700',
@@ -533,34 +669,6 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderColor: theme.colors.separator,
         gap: 12,
     },
-    responseActions: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    secondaryButton: {
-        flex: 1,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        paddingVertical: 11,
-        alignItems: 'center',
-        backgroundColor: theme.colors.surface,
-    },
-    secondaryButtonText: {
-        fontWeight: '700',
-        color: theme.colors.text.secondary,
-    },
-    primaryButton: {
-        flex: 1,
-        borderRadius: 12,
-        paddingVertical: 11,
-        alignItems: 'center',
-        backgroundColor: theme.colors.primary,
-    },
-    primaryButtonText: {
-        fontWeight: '700',
-        color: theme.colors.white,
-    },
     simpleRow: {
         backgroundColor: theme.colors.surface,
         borderRadius: 16,
@@ -596,6 +704,65 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontSize: 12,
         color: theme.colors.text.secondary,
         fontWeight: '600',
+    },
+    detailOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+    },
+    detailSheet: {
+        padding: 16,
+        borderTopLeftRadius: 18,
+        borderTopRightRadius: 18,
+        backgroundColor: theme.colors.surface,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.separator,
+    },
+    detailHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 12,
+    },
+    detailTitle: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: '800',
+        color: theme.colors.text.primary,
+    },
+    detailRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        marginBottom: 10,
+    },
+    detailRowBlock: {
+        marginBottom: 10,
+    },
+    detailLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.3,
+    },
+    detailValue: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: theme.colors.text.primary,
+    },
+    detailPrimaryBtn: {
+        marginTop: 6,
+        paddingVertical: 12,
+        borderRadius: 12,
+        backgroundColor: theme.colors.primary,
+        alignItems: 'center',
+    },
+    detailPrimaryText: {
+        color: theme.colors.white,
+        fontWeight: '700',
+        fontSize: 14,
     },
     groupCard: {
         backgroundColor: theme.colors.surface,

@@ -434,7 +434,7 @@ export default function TaskDashboardScreen() {
                         </View>
                     ) : (
                         timelineItems.map(item => (
-                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} />
+                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} hideActions />
                         ))
                     )}
                 </View>

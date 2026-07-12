@@ -152,19 +152,29 @@ export const createCommitment = async (userId: string, data: any) => {
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
-            const { error: msgError } = await supabaseAdmin.from('messages').insert({
-                conversation_id: group_conversation_id,
-                sender_id: userId,
-                user_id: userId,
-                text: sysText,
-                meta: { isSystem: true },
-                status: 'sent'
-            });
+            const { data: systemMessage, error: msgError } = await supabaseAdmin
+                .from('messages')
+                .insert({
+                    conversation_id: group_conversation_id,
+                    sender_id: userId,
+                    user_id: userId,
+                    text: sysText,
+                    meta: { isSystem: true },
+                    status: 'sent'
+                })
+                .select('id')
+                .single();
 
             if (msgError) {
                 console.error('[Commitment Service] System message insert FAILED:', msgError);
             } else {
                 console.log('[Commitment Service] System message inserted successfully');
+                if (!message_id && systemMessage?.id) {
+                    await supabaseAdmin
+                        .from('commitments')
+                        .update({ message_id: systemMessage.id })
+                        .eq('id', commitment.id);
+                }
             }
         } catch (innerErr) {
             console.error('[Commitment Service] Error in notification logic:', innerErr);

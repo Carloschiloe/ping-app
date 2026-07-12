@@ -19,6 +19,7 @@ interface GroupTaskCardProps {
     isPast?: boolean;
     conversationMode?: 'chat' | 'operation';
     activeCommitmentId?: string | null;
+    hideActions?: boolean;
 }
 
 export default function GroupTaskCard({ 
@@ -29,6 +30,7 @@ export default function GroupTaskCard({
     isPast = false,
     conversationMode = 'chat',
     activeCommitmentId = null,
+    hideActions = false,
 }: GroupTaskCardProps) {
     const queryClient = useQueryClient();
     const conversationId = manualConversationId || commitment.group_conversation_id;
@@ -289,7 +291,7 @@ export default function GroupTaskCard({
 
             {/* Right: Quick Actions */}
             <View style={styles.rightActions}>
-                {!isDone && !isRejected && !isCompactOperationCard && (
+                {!hideActions && !isDone && !isRejected && !isCompactOperationCard && (
                     <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
                         <Ionicons name="ellipsis-vertical" size={20} color={theme.isDark ? theme.colors.text.muted : '#94a3b8'} />
                     </TouchableOpacity>
@@ -302,15 +304,16 @@ export default function GroupTaskCard({
             </View>
 
             {/* Actions Modal */}
-            <Modal
-                visible={showActions}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowActions(false)}
-            >
-                <Pressable style={styles.modalOverlay} onPress={() => setShowActions(false)}>
-                    <View style={[styles.actionMenu, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}> 
-                        <Text style={[styles.actionMenuTitle, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.title}</Text>
+            {!hideActions && (
+                <Modal
+                    visible={showActions}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setShowActions(false)}
+                >
+                    <Pressable style={styles.modalOverlay} onPress={() => setShowActions(false)}>
+                        <View style={[styles.actionMenu, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}>
+                            <Text style={[styles.actionMenuTitle, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.title}</Text>
 
                         {isAssignee && isProposed && (
                             <TouchableOpacity
@@ -379,12 +382,13 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowActions(false)}>
-                            <Text style={[styles.cancelBtnText, theme.isDark && { color: theme.colors.text.secondary }]}>Cancelar</Text>
-                        </TouchableOpacity>
-                    </View>
-                </Pressable>
-            </Modal>
+                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowActions(false)}>
+                                <Text style={[styles.cancelBtnText, theme.isDark && { color: theme.colors.text.secondary }]}>Cancelar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </Modal>
+            )}
 
             {/* Edit/Postpone Modal Wrapper */}
             {editData && (

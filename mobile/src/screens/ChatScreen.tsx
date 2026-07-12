@@ -275,10 +275,23 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     // ─── Scroll to Message logic ─────────────────────────────────────────────
     useEffect(() => {
-        if (route.params?.scrollToMessageId && messages.length > 0) {
+        if (messages.length === 0) return;
+
+        if (route.params?.scrollToMessageId) {
             scrollToMessage(route.params.scrollToMessageId);
+            return;
         }
-    }, [route.params?.scrollToMessageId, messages.length, scrollToMessage]);
+
+        if (route.params?.commitmentTitle) {
+            const title = route.params.commitmentTitle.toLowerCase();
+            const systemMatch = messages.find(m => m?.meta?.isSystem && m.text?.toLowerCase().includes(title));
+            const anyMatch = messages.find(m => m.text?.toLowerCase().includes(title));
+            const target = systemMatch || anyMatch;
+            if (target?.id) {
+                scrollToMessage(target.id);
+            }
+        }
+    }, [route.params?.scrollToMessageId, route.params?.commitmentTitle, messages, scrollToMessage]);
 
     // ─── Multi-select Logic ───
     const toggleSelect = (id: string) => {

@@ -10,6 +10,8 @@ export type ChatRouteParams = {
     groupMetadata?: any | null;
     mode?: 'chat' | 'operation';
     scrollToMessageId?: string;
+    commitmentId?: string;
+    commitmentTitle?: string;
 };
 
 export type ConversationsStackParamList = {
