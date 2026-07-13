@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { assertCommitmentConversationParticipant, assertConversationParticipant } from '../utils/authz';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { isTitleMeeting } from '../utils/commitmentType';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -132,9 +133,7 @@ export const createCommitment = async (userId: string, data: any) => {
                 .single();
             
             const senderName = profile?.full_name || 'Alguien';
-            // Robust check: include common meeting synonyms and handle accents/casing
-            const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(title || '');
-            const finalType = (type === 'meeting' || isTitleMeeting) ? 'reunión' : 'tarea';
+            const finalType = (type === 'meeting' || isTitleMeeting(title)) ? 'reunión' : 'tarea';
             
             const dateObj = new Date(due_at);
             const timeStr = dateObj.toLocaleString('es-CL', {
@@ -416,8 +415,7 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
     if (data && (updates.title || updates.due_at || updates.assigned_to_user_id)) {
         const userName = await getUserName(userId);
         let detail = '';
-        const isTitleMeeting = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(updates.title || data.title || '');
-        const finalType = (data.type === 'meeting' || isTitleMeeting) ? 'la reunión' : 'la tarea';
+        const finalType = (data.type === 'meeting' || isTitleMeeting(updates.title || data.title)) ? 'la reunión' : 'la tarea';
         
         let actionText = `editó ${finalType}`;
         if (updates.due_at) {
