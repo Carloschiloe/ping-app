@@ -31,6 +31,57 @@ lo reconstruye desde cero con un diseño simplificado. Aplicarlo sobre el
 proyecto antiguo generaría conflictos de nombres y, en el peor caso, podría
 chocar contra objetos ya existentes con una forma distinta.
 
+## Compatibilidad con el backend y mobile actuales
+
+**El baseline V2 NO es compatible directamente con el backend ni el mobile
+actuales.** Aplicarlo y luego simplemente apuntar las variables de entorno
+existentes (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, etc.) al proyecto
+nuevo **romperá la aplicación**, porque V2 renombra y reestructura columnas
+que el código de hoy usa tal cual (entre otros: `messages.user_id` ya no
+existe, `commitments.group_conversation_id` pasa a llamarse
+`conversation_id`, `commitments.is_group_task` se elimina,
+`conversations.admin_id` se elimina en favor de
+`conversation_participants.role`, los estados de `commitments.status` pasan
+de `completed` a `resolved`/`cancelled`). El detalle campo por campo está en
+la matriz de compatibilidad de la auditoría de baseline.
+
+**No cambiar ninguna variable de entorno de producción ni de desarrollo
+inmediatamente después de aplicar este baseline.** El baseline se aplica
+primero en un proyecto de staging aislado, sin que ninguna app apunte todavía
+ahí; solo después de adaptar el código se conecta algo a él.
+
+## Secuencia de migración V2
+
+Este orden es obligatorio y no debe alterarse ni saltarse pasos:
+
+1. **Crear proyecto staging** — "Ping Staging V2", vacío, sin ninguna app
+   apuntando todavía a él.
+2. **Aplicar baseline** — `20260712000000_baseline_v2.sql` sobre ese proyecto
+   vacío, y solo ese proyecto.
+3. **Verificar tablas, constraints y RLS** — confirmar que el esquema
+   resultante coincide con lo documentado (ver "Cómo verificar que el
+   baseline reconstruye correctamente" más abajo) antes de tocar una sola
+   línea de código de aplicación.
+4. **Adaptar backend** — actualizar `backend/src` para usar los nombres y
+   columnas de V2 (ver matriz de compatibilidad backend de la auditoría),
+   apuntando `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` de un entorno de
+   desarrollo del backend al proyecto de staging, nunca a producción.
+5. **Adaptar mobile** — actualizar `mobile/src` para los mismos cambios de
+   nombres/columnas (ver matriz de compatibilidad mobile de la auditoría).
+6. **Ejecutar pruebas** — la suite de tests del backend, typecheck y lint de
+   ambos proyectos, y pruebas manuales del flujo completo de compromisos y
+   chat contra el proyecto de staging ya adaptado.
+7. **Probar Auth, Realtime y Storage** — específicamente en el proyecto
+   nuevo: registro/login reales, suscripciones Realtime a `messages`/
+   `commitments`, y subida/lectura de adjuntos en Storage — estos tres
+   subsistemas de Supabase no quedan cubiertos por la sola aplicación del
+   SQL y deben verificarse de forma independiente.
+8. **Decidir migración a producción** — solo después de que los 7 pasos
+   anteriores estén completos y aprobados explícitamente, se evalúa
+   reemplazar la base productiva actual. Este paso requiere autorización
+   explícita separada; no es automático ni implícito en haber completado los
+   pasos anteriores.
+
 ## Cómo crear "Ping Staging V2"
 
 1. En el dashboard de Supabase, crear un proyecto nuevo (nombre sugerido:
