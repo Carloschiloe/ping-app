@@ -88,6 +88,7 @@ export default function GroupTaskCard({
     const completedBy = completionMeta.completed_by_name || assigneeName;
     const completionOutcome = completionMeta.completion_outcome || null;
     const completionNote = completionMeta.completion_note || null;
+    const rejectionReason = commitment.rejection_reason ?? commitment.meta?.rejection_reason ?? null;
 
     const formatDetailDate = (iso?: string | null) => {
         if (!iso) return 'Sin fecha';
@@ -276,8 +277,8 @@ export default function GroupTaskCard({
                     </View>
                 </View>
 
-                {isRejected && commitment.rejection_reason && (
-                    <Text style={[styles.rejectionText, theme.isDark && { color: theme.colors.danger }]}>Motivo: {commitment.rejection_reason}</Text>
+                {isRejected && rejectionReason && (
+                    <Text style={[styles.rejectionText, theme.isDark && { color: theme.colors.danger }]}>Motivo: {rejectionReason}</Text>
                 )}
 
                 {isOperationMode && isActiveOperation && (
@@ -460,10 +461,10 @@ export default function GroupTaskCard({
                         </>
                     )}
 
-                    {isRejected && commitment.rejection_reason && (
+                    {isRejected && rejectionReason && (
                         <View style={styles.detailRowBlock}>
                             <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Motivo</Text>
-                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.rejection_reason}</Text>
+                            <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{rejectionReason}</Text>
                         </View>
                     )}
 
