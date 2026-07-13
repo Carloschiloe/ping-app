@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { toLegacyMessageListShape } from '../utils/messageCompat';
+import { toLegacyIsGroup } from '../utils/conversationCompat';
 
 export const search = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -25,6 +27,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         const convIds = (participations || []).map(p => p.conversation_id);
 
         // 2. Search messages in those conversations
+        // V2: content reemplaza text.
         const { data: messages, error: msgError } = await supabaseAdmin
             .from('messages')
             .select(`
@@ -32,7 +35,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
                 sender:profiles!messages_sender_id_fkey(full_name, avatar_url, email)
             `)
             .in('conversation_id', convIds)
-            .ilike('text', `%${q}%`)
+            .ilike('content', `%${q}%`)
             .order('created_at', { ascending: false })
             .limit(30);
 
@@ -59,21 +62,27 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         if (profError) throw profError;
 
         // 5. Search Conversations (Group Names)
+        // V2: conversation_type reemplaza is_group.
         const { data: conversations, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('id, name, avatar_url, is_group')
+            .select('id, name, avatar_url, conversation_type')
             .in('id', convIds)
-            .eq('is_group', true)
+            .eq('conversation_type', 'group')
             .ilike('name', `%${q}%`)
             .limit(20);
 
         if (convError) throw convError;
 
+        const conversationsCompat = (conversations || []).map(c => ({
+            ...c,
+            is_group: toLegacyIsGroup(c.conversation_type),
+        }));
+
         res.status(200).json({
-            messages: messages || [],
+            messages: toLegacyMessageListShape(messages),
             commitments: commitments || [],
             profiles: profiles || [],
-            conversations: conversations || []
+            conversations: conversationsCompat
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });

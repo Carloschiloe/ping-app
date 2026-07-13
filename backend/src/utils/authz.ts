@@ -15,6 +15,36 @@ export async function assertConversationParticipant(userId: string, conversation
     return data;
 }
 
+// V2: la autoridad de "administrador de conversacion" vive exclusivamente en
+// conversation_participants.role (nunca en conversations.admin_id, que ya no
+// existe, ni en un campo group_metadata inexistente que un bug historico
+// intentaba leer en message.controller.ts). Centralizado aqui para que
+// group.controller.ts y message.controller.ts no dupliquen esta consulta.
+export async function isConversationAdmin(userId: string, conversationId: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('role')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error || !data) return false;
+    return data.role === 'admin';
+}
+
+export async function assertConversationAdmin(userId: string, conversationId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('role')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    if (!data) throw new AppError('Participant not found', 404);
+    if (data.role !== 'admin') throw new AppError('Only conversation admins can perform this action', 403);
+}
+
 export async function assertCommitmentConversationParticipant(userId: string, commitmentId: string) {
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')

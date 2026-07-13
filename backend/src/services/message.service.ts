@@ -7,6 +7,7 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { toLegacyMessageShape, toLegacyMessageListShape } from '../utils/messageCompat';
 
 async function downloadFile(url: string, targetPath: string) {
     const writer = fs.createWriteStream(targetPath);
@@ -70,15 +71,16 @@ export const processUserMessage = async (
     }
 
     // 2. Insert message immediately
+    // V2: messages usa content/metadata (no text/meta) y sender_id unicamente
+    // (no user_id, columna eliminada en el esquema V2).
     const { data: message, error: messageError } = await supabaseAdmin
         .from('messages')
         .insert({
             sender_id: userId,
             ...(conversationId ? { conversation_id: conversationId } : {}),
             ...(replyToId ? { reply_to_id: replyToId } : {}),
-            text,
-            meta,
-            user_id: userId, // Keep user_id for now to avoid breaking DB constraints until dropped
+            content: text,
+            metadata: meta,
         })
         .select()
         .single();
@@ -92,11 +94,11 @@ export const processUserMessage = async (
     // Fetch message with joins for response
     const { data: fullMessage } = await supabaseAdmin
         .from('messages')
-        .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, text, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
+        .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
         .eq('id', message.id)
         .single();
 
-    return { message: fullMessage || message };
+    return { message: toLegacyMessageShape(fullMessage) || toLegacyMessageShape(message) };
 };
 
 export const analyzeAndSuggestTask = async (
@@ -161,21 +163,21 @@ export const analyzeAndSuggestTask = async (
 
             console.log(`[AI] Saving suggestion to message ${messageId}: ${ai.title}`);
 
-            // Fetch current meta to avoid overwriting (e.g. transcript or image info)
+            // Fetch current metadata to avoid overwriting (e.g. transcript or image info)
             const { data: currentMsg } = await supabaseAdmin
                 .from('messages')
-                .select('meta')
+                .select('metadata')
                 .eq('id', messageId)
                 .single();
 
-            const updatedMeta = {
-                ...(currentMsg?.meta || {}),
+            const updatedMetadata = {
+                ...(currentMsg?.metadata || {}),
                 suggestedTask
             };
 
             const { data: updated } = await supabaseAdmin
                 .from('messages')
-                .update({ meta: updatedMeta })
+                .update({ metadata: updatedMetadata })
                 .eq('id', messageId)
                 .select()
                 .single();
@@ -197,18 +199,28 @@ export const getMessages = async (userId: string, limit = 50, offset = 0) => {
         .range(offset, offset + limit - 1);
 
     if (error) throw error;
-    return { messages: data, count };
+    return { messages: toLegacyMessageListShape(data), count };
 };
 
-export const insertSystemMessage = async (conversationId: string, text: string, userId?: string, extraMeta: any = {}) => {
+// V2: mensajes sin remitente humano deben etiquetarse con system_event_type
+// (constraint messages_origin_check). systemEventType tiene un default para
+// no romper llamadas existentes (ej. operation.service.ts, fuera de alcance
+// de esta fase) que todavia invocan esta funcion con la firma anterior.
+export const insertSystemMessage = async (
+    conversationId: string,
+    text: string,
+    userId?: string,
+    extraMeta: any = {},
+    systemEventType: string = 'system_notice'
+) => {
     const { data, error } = await supabaseAdmin
         .from('messages')
         .insert({
             conversation_id: conversationId,
             sender_id: userId || null,
-            user_id: userId || null, // Keep for now
-            text,
-            meta: { isSystem: true, ...extraMeta },
+            content: text,
+            metadata: { isSystem: true, ...extraMeta },
+            system_event_type: systemEventType,
             status: 'sent'
         })
         .select()
@@ -218,5 +230,5 @@ export const insertSystemMessage = async (conversationId: string, text: string, 
         console.error('[System Message] Error inserting:', error);
         return null;
     }
-    return data;
+    return toLegacyMessageShape(data);
 };

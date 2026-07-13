@@ -4,6 +4,9 @@ import { processUserMessage } from '../services/message.service';
 import { NotificationService } from '../services/notification.service';
 import { AppError } from '../utils/AppError';
 import { assertConversationParticipant } from '../utils/authz';
+import { getOrCreateSelfConversationId } from '../services/conversation.service';
+import { toLegacyMessageListShape } from '../utils/messageCompat';
+import { toLegacyIsGroup, toLegacyArchived } from '../utils/conversationCompat';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -66,45 +69,8 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
 export const createSelf = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
-
-        // Find a self-conversation (only this user as participant, no one else)
-        const { data: myConvs } = await supabaseAdmin
-            .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', userId);
-
-        const myConvIds = (myConvs || []).map(p => p.conversation_id);
-
-        if (myConvIds.length > 0) {
-            // A self-conversation has exactly 1 participant
-            for (const convId of myConvIds) {
-                const { count } = await supabaseAdmin
-                    .from('conversation_participants')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('conversation_id', convId);
-                if (count === 1) {
-                    res.json({ conversationId: convId });
-                    return;
-                }
-            }
-        }
-
-        // Create new self conversation
-        const { data: conv, error: convError } = await supabaseAdmin
-            .from('conversations')
-            .insert({})
-            .select()
-            .single();
-
-        if (convError) throw convError;
-
-        const { error: partError } = await supabaseAdmin
-            .from('conversation_participants')
-            .insert([{ conversation_id: conv.id, user_id: userId }]);
-
-        if (partError) throw partError;
-
-        res.status(201).json({ conversationId: conv.id });
+        const conversationId = await getOrCreateSelfConversationId(userId);
+        res.json({ conversationId });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -116,10 +82,12 @@ export const list = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
 
-        // Get all conversation IDs and archived status for this user
+        // Get all conversation IDs and archived status for this user.
+        // V2: archived_at (timestamptz) reemplaza archived (boolean); se
+        // deriva el alias booleano "archived" para el mobile actual.
         const { data: participations, error: pErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id, archived')
+            .select('conversation_id, archived_at')
             .eq('user_id', userId);
 
         if (pErr) throw pErr;
@@ -127,7 +95,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         const conversationIds = participations?.map(p => p.conversation_id) || [];
         const archivedMap: Record<string, boolean> = {};
         participations?.forEach(p => {
-            archivedMap[p.conversation_id] = p.archived;
+            archivedMap[p.conversation_id] = toLegacyArchived(p.archived_at);
         });
 
         if (conversationIds.length === 0) {
@@ -135,27 +103,33 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // Fetch conversation metadata (is_group, name, avatar)
+        // Fetch conversation metadata.
+        // V2: conversation_type reemplaza is_group; admin_id ya no existe
+        // (se deriva de conversation_participants.role mas abajo); mode,
+        // pinned_message_id y active_commitment_id pertenecen al modulo
+        // Operacion (postergado) y todavia no existen en el esquema V2 —
+        // se devuelven con defaults seguros de compatibilidad.
         const { data: conversationsData, error: cErr } = await supabaseAdmin
             .from('conversations')
-            .select('id, is_group, name, avatar_url, admin_id, mode, pinned_message_id, active_commitment_id')
+            .select('id, conversation_type, name, avatar_url')
             .in('id', conversationIds);
 
         if (cErr) throw cErr;
 
-        // Get all participants in these conversations (to find "the other person" or all members)
+        // Get all participants in these conversations (incluye al propio
+        // usuario para poder derivar quien es admin del grupo).
         const { data: allParticipants, error: apErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id, user_id, profiles(id, email, full_name, avatar_url, last_seen)')
-            .in('conversation_id', conversationIds)
-            .neq('user_id', userId);
+            .select('conversation_id, user_id, role, profiles(id, email, full_name, avatar_url, last_seen)')
+            .in('conversation_id', conversationIds);
 
         if (apErr) throw apErr;
 
-        // Get last message for each conversation
+        // Get last message for each conversation.
+        // V2: content/metadata reemplazan text/meta; sender_id unico (sin user_id).
         const { data: lastMessages, error: lmErr } = await supabaseAdmin
             .from('messages')
-            .select('conversation_id, text, created_at, meta, status, sender_id, user_id')
+            .select('conversation_id, content, created_at, metadata, status, sender_id')
             .in('conversation_id', conversationIds)
             .order('created_at', { ascending: false });
 
@@ -164,7 +138,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // NEW: Get unread count for each conversation
         const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin
             .from('messages')
-            .select('conversation_id, sender_id, user_id, meta')
+            .select('conversation_id, sender_id, metadata')
             .in('conversation_id', conversationIds)
             .neq('status', 'read');
 
@@ -172,7 +146,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 
         const unreadCounts = unreadCountsData.reduce((acc: Record<string, number>, msg) => {
             const isMe = msg.sender_id === userId;
-            const isSystem = msg.meta && msg.meta.isSystem;
+            const isSystem = msg.metadata && msg.metadata.isSystem;
             if (!isMe && !isSystem) {
                 acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
             }
@@ -183,14 +157,25 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         const lastMsgMap: Record<string, any> = {};
         lastMessages?.forEach(m => {
             if (!lastMsgMap[m.conversation_id]) {
-                lastMsgMap[m.conversation_id] = m;
+                lastMsgMap[m.conversation_id] = toLegacyMessageListShape([m])[0];
             }
         });
 
         const participantMap: Record<string, any[]> = {};
+        const otherParticipantMap: Record<string, any[]> = {};
+        const adminIdMap: Record<string, string | null> = {};
         allParticipants?.forEach(p => {
             if (!participantMap[p.conversation_id]) participantMap[p.conversation_id] = [];
             participantMap[p.conversation_id].push(p.profiles);
+
+            if (p.user_id !== userId) {
+                if (!otherParticipantMap[p.conversation_id]) otherParticipantMap[p.conversation_id] = [];
+                otherParticipantMap[p.conversation_id].push(p.profiles);
+            }
+
+            if (p.role === 'admin' && !adminIdMap[p.conversation_id]) {
+                adminIdMap[p.conversation_id] = p.user_id;
+            }
         });
 
         const convMap: Record<string, any> = {};
@@ -200,7 +185,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 
         const conversations = conversationIds.map(id => {
             const conv = convMap[id];
-            const isGroup = conv?.is_group || false;
+            const isGroup = toLegacyIsGroup(conv?.conversation_type);
             let otherUser = null;
             let groupMetadata = null;
 
@@ -208,20 +193,22 @@ export const list = async (req: Request, res: Response): Promise<void> => {
                 groupMetadata = {
                     name: conv.name,
                     avatar_url: conv.avatar_url,
-                    admin_id: conv.admin_id,
-                    participants: participantMap[id] || []
+                    admin_id: adminIdMap[id] || null,
+                    participants: otherParticipantMap[id] || []
                 };
             } else {
                 // For 1-on-1 chats, just grab the first other participant
-                otherUser = participantMap[id]?.[0] || null;
+                otherUser = otherParticipantMap[id]?.[0] || null;
             }
 
             return {
                 id,
                 isGroup,
-                mode: conv?.mode || 'chat',
-                pinnedMessageId: conv?.pinned_message_id || null,
-                activeCommitmentId: conv?.active_commitment_id || null,
+                // mode/pinnedMessageId/activeCommitmentId: modulo Operacion,
+                // postergado — defaults seguros hasta esa fase de adaptacion.
+                mode: 'chat',
+                pinnedMessageId: null,
+                activeCommitmentId: null,
                 otherUser,
                 groupMetadata,
                 lastMessage: lastMsgMap[id] || null,
@@ -246,10 +233,11 @@ export const toggleArchive = async (req: Request, res: Response): Promise<void> 
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
 
-        // Get current status
+        // Get current status.
+        // V2: archived_at (timestamptz) reemplaza archived (boolean).
         const { data: part, error: getErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('archived')
+            .select('archived_at')
             .eq('conversation_id', conversationId)
             .eq('user_id', userId)
             .single();
@@ -259,11 +247,11 @@ export const toggleArchive = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
-        const newStatus = !part.archived;
+        const newStatus = !toLegacyArchived(part.archived_at);
 
         const { error: updateErr } = await supabaseAdmin
             .from('conversation_participants')
-            .update({ archived: newStatus })
+            .update({ archived_at: newStatus ? new Date().toISOString() : null })
             .eq('conversation_id', conversationId)
             .eq('user_id', userId);
 
@@ -297,7 +285,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, text, profiles!sender_id(email, full_name, avatar_url))';
+        const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, content, profiles!sender_id(email, full_name, avatar_url))';
         let finalMessages: any[] = [];
         let hasMore = false;
 
@@ -369,7 +357,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             }
         }
 
-        res.json({ messages: finalMessages, hasMore });
+        res.json({ messages: toLegacyMessageListShape(finalMessages), hasMore });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -542,20 +530,20 @@ export const getConversationMedia = async (req: Request, res: Response, next: Ne
         // Buscamos mensajes que empiecen con los prefijos de media conocidos
         const { data, error } = await supabaseAdmin
             .from('messages')
-            .select('id, text, created_at, sender_id, meta')
+            .select('id, content, created_at, sender_id, metadata')
             .eq('conversation_id', conversationId)
-            .ilike('text', '%[%')
+            .ilike('content', '%[%')
             .order('created_at', { ascending: false });
 
         if (error) throw new AppError(error.message, 500);
 
         // Filtro adicional para asegurar que tengan el formato correcto
         const mediaMessages = (data || []).filter(m => {
-            const t = m.text || '';
+            const t = m.content || '';
             return t.startsWith('[imagen]') || t.startsWith('[audio]') || t.startsWith('[video]') || t.startsWith('[document=');
         });
 
-        res.status(200).json({ messages: mediaMessages });
+        res.status(200).json({ messages: toLegacyMessageListShape(mediaMessages) });
     } catch (error) {
         next(error);
     }

@@ -5,6 +5,7 @@ import { sendPushNotification } from './push.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { isOpenCommitmentStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { getOrCreateSelfConversationId } from './conversation.service';
 
 let isMorningRoutineRunning = false;
 let isWeeklyReviewRunning = false;
@@ -18,7 +19,7 @@ let isWeeklyReviewRunning = false;
  *  3. Sends a push notification.
  */
 
-async function runMorningRoutine() {
+export async function runMorningRoutine() {
     if (isMorningRoutineRunning) {
         console.warn('[MorningRoutine] Skipped (previous run still in progress).');
         return;
@@ -99,16 +100,21 @@ async function runMorningRoutine() {
                         userData.commitments
                     );
 
+                    // V2: todo mensaje requiere conversation_id valido (NOT NULL).
+                    // El resumen matutino ahora se inserta en el self-chat real del
+                    // usuario en vez de un mensaje "huerfano" con conversation_id null.
+                    const selfConversationId = await getOrCreateSelfConversationId(userId);
+
                     // Batch database operations for this user
                     const [msgResult] = await Promise.all([
                         // Inject into personal self-messages
                         supabaseAdmin.from('messages').insert({
                             sender_id: null,
-                            user_id: userId,
-                            text: aiMessage,
-                            conversation_id: null,
+                            content: aiMessage,
+                            conversation_id: selfConversationId,
                             status: 'sent',
-                            meta: { is_morning_summary: true }
+                            system_event_type: 'morning_summary',
+                            metadata: { is_morning_summary: true }
                         }),
                         // Send Push Notification if token exists
                         userData.pushToken ? sendPushNotification(
@@ -138,7 +144,7 @@ async function runMorningRoutine() {
 /**
  * Phase 27: Weekly Review — every Friday at 6:00 PM
  */
-async function runWeeklyReview() {
+export async function runWeeklyReview() {
     if (isWeeklyReviewRunning) {
         console.warn('[WeeklyReview] Skipped (previous run still in progress).');
         return;
@@ -210,15 +216,19 @@ async function runWeeklyReview() {
                 const data = userMap[userId];
                 try {
                     const aiMessage = await generateWeeklyReview(data.name, data.completed, data.pending.length, data.pending);
-                    
+
+                    // V2: mismo criterio que la rutina matutina — se usa el self-chat
+                    // real del usuario en vez de conversation_id null.
+                    const selfConversationId = await getOrCreateSelfConversationId(userId);
+
                     const [msgResult] = await Promise.all([
                         supabaseAdmin.from('messages').insert({
-                            sender_id: null, 
-                            user_id: userId, 
-                            text: aiMessage, 
-                            conversation_id: null, 
+                            sender_id: null,
+                            content: aiMessage,
+                            conversation_id: selfConversationId,
                             status: 'sent',
-                            meta: { is_weekly_review: true }
+                            system_event_type: 'weekly_review',
+                            metadata: { is_weekly_review: true }
                         }),
                         data.pushToken ? sendPushNotification(
                             data.pushToken, 

@@ -151,14 +151,15 @@ export const createCommitment = async (userId: string, data: any) => {
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
+            // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
             const { data: systemMessage, error: msgError } = await supabaseAdmin
                 .from('messages')
                 .insert({
                     conversation_id: group_conversation_id,
                     sender_id: userId,
-                    user_id: userId,
-                    text: sysText,
-                    meta: { isSystem: true },
+                    content: sysText,
+                    metadata: { isSystem: true },
+                    system_event_type: 'commitment_created',
                     status: 'sent'
                 })
                 .select('id')
@@ -209,12 +210,13 @@ async function insertSystemMessage(userId: string, conversationId: string, text:
     }
     try {
         console.log(`[Commitment Service] Inserting system message: "${text}" into conversation ${conversationId}`);
+        // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
         const { error } = await supabaseAdmin.from('messages').insert({
             conversation_id: conversationId,
             sender_id: userId,
-            user_id: userId,
-            text,
-            meta: { isSystem: true },
+            content: text,
+            metadata: { isSystem: true },
+            system_event_type: 'commitment_notice',
             status: 'sent'
         });
         if (error) {

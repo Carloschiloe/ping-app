@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as messageService from '../services/message.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { isConversationAdmin } from '../utils/authz';
 
 export const createMessage = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -137,19 +138,14 @@ export const deleteMessage = async (req: Request, res: Response): Promise<void> 
             return;
         }
 
-        // Check if user is sender OR admin of the conversation
+        // Check if user is sender OR admin of the conversation.
+        // V2 fix: la autoridad de admin se lee de conversation_participants.role
+        // (antes intentaba leer conversations.group_metadata.admin_id, una
+        // columna que nunca existio realmente — ese chequeo nunca funcionaba).
         let isAuthorized = message.sender_id === userId;
 
         if (!isAuthorized) {
-            const { data: conv } = await supabaseAdmin
-                .from('conversations')
-                .select('group_metadata')
-                .eq('id', message.conversation_id)
-                .single();
-            
-            if (conv?.group_metadata?.admin_id === userId) {
-                isAuthorized = true;
-            }
+            isAuthorized = await isConversationAdmin(userId, message.conversation_id);
         }
 
         if (!isAuthorized) {

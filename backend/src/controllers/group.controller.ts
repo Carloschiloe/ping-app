@@ -1,23 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
-
-async function assertGroupAdmin(conversationId: string, userId: string) {
-    const { data: participant, error } = await supabaseAdmin
-        .from('conversation_participants')
-        .select('role, conversation_id')
-        .eq('conversation_id', conversationId)
-        .eq('user_id', userId)
-        .single();
-
-    if (error || !participant) {
-        throw new AppError(error?.message || 'Participant not found', 404);
-    }
-
-    if (participant.role !== 'admin') {
-        throw new AppError('Only group admins can perform this action', 403);
-    }
-}
+import { assertConversationAdmin } from '../utils/authz';
 
 // POST /groups
 export const createGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -29,14 +13,17 @@ export const createGroup = async (req: Request, res: Response, next: NextFunctio
         // Include the creator in the participants
         const allParticipantIds = Array.from(new Set([...participantIds, userId]));
 
-        // Create the group conversation
+        // Create the group conversation.
+        // V2: conversation_type reemplaza is_group; admin_id ya no existe en
+        // conversations — la autoridad de admin vive solo en
+        // conversation_participants.role (asignado abajo).
         const { data: conv, error: convError } = await supabaseAdmin
             .from('conversations')
             .insert({
-                is_group: true,
+                conversation_type: 'group',
                 name: name,
                 avatar_url: avatarUrl || null,
-                admin_id: userId
+                created_by: userId
             })
             .select()
             .single();
@@ -73,17 +60,17 @@ export const addParticipants = async (req: Request, res: Response, next: NextFun
         // Verify if user is admin
         const { data: conv, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('admin_id, is_group')
+            .select('conversation_type')
             .eq('id', conversationId)
             .single();
 
         if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
-        if (!conv.is_group) {
+        if (conv.conversation_type !== 'group') {
             throw new AppError('This conversation is not a group', 400);
         }
 
-        await assertGroupAdmin(conversationId, userId);
+        await assertConversationAdmin(userId, conversationId);
 
         const participantsData = newParticipantIds.map((id: string) => ({
             conversation_id: conversationId,
@@ -112,17 +99,17 @@ export const deleteGroup = async (req: Request, res: Response, next: NextFunctio
         // Verify if user is admin
         const { data: conv, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('admin_id, is_group')
+            .select('conversation_type')
             .eq('id', conversationId)
             .single();
 
         if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
-        if (!conv.is_group) {
+        if (conv.conversation_type !== 'group') {
             throw new AppError('This conversation is not a group', 400);
         }
 
-        await assertGroupAdmin(conversationId, userId);
+        await assertConversationAdmin(userId, conversationId);
 
         // Delete the group (cascade will handle participants and messages)
         const { error: delError } = await supabaseAdmin
@@ -148,17 +135,17 @@ export const updateGroup = async (req: Request, res: Response, next: NextFunctio
         // Verify if user is admin
         const { data: conv, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('admin_id, is_group')
+            .select('conversation_type')
             .eq('id', conversationId)
             .single();
 
         if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
 
-        if (!conv.is_group) {
+        if (conv.conversation_type !== 'group') {
             throw new AppError('This conversation is not a group', 400);
         }
 
-        await assertGroupAdmin(conversationId, userId);
+        await assertConversationAdmin(userId, conversationId);
 
         const { data: updated, error: updateErr } = await supabaseAdmin
             .from('conversations')
@@ -212,14 +199,14 @@ export const updateParticipantRole = async (req: Request, res: Response, next: N
 
         const { data: conv, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('id, is_group')
+            .select('id, conversation_type')
             .eq('id', conversationId)
             .single();
 
         if (convError || !conv) throw new AppError(convError?.message || 'Conversation not found', 404);
-        if (!conv.is_group) throw new AppError('This conversation is not a group', 400);
+        if (conv.conversation_type !== 'group') throw new AppError('This conversation is not a group', 400);
 
-        await assertGroupAdmin(conversationId, requesterId);
+        await assertConversationAdmin(requesterId, conversationId);
 
         if (requesterId === userId && role !== 'admin') {
             const { count } = await supabaseAdmin
@@ -243,12 +230,9 @@ export const updateParticipantRole = async (req: Request, res: Response, next: N
 
         if (error) throw new AppError(error.message, 500);
 
-        if (role === 'admin') {
-            await supabaseAdmin
-                .from('conversations')
-                .update({ admin_id: userId })
-                .eq('id', conversationId);
-        }
+        // V2: no existe conversations.admin_id — la promocion a admin ya
+        // quedo reflejada arriba en conversation_participants.role, que es
+        // la unica fuente de verdad.
 
         res.status(200).json({ success: true, participant: data });
     } catch (error) {
