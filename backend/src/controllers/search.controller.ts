@@ -2,6 +2,119 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup } from '../utils/conversationCompat';
+import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
+import { isCanonicalCommitmentStatus, normalizeCommitmentStatus, tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
+
+const COMMITMENT_SELECT = `
+    id, title, description, due_at, proposed_due_at, status, type, priority,
+    expected_result, next_action, follow_up_at, rejection_reason,
+    owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, created_at,
+    owner:owner_user_id(id, full_name, email, avatar_url),
+    assignee:assigned_to_user_id(id, full_name, email, avatar_url),
+    counterparty:counterparty_contact_id(id, display_name, phone, email),
+    message:message_id(id, conversation_id)
+`;
+
+// V2: busca en title/description/expected_result/next_action directamente
+// (nunca en `meta`, que ya no es fuente primaria de datos criticos), mas
+// contraparte (usuario asignado o contacto externo) y status V2. `meta` no
+// se usa como fuente de busqueda.
+async function searchCommitmentsV2(userId: string, q: string) {
+    const ownershipFilter = `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`;
+    const resultsById = new Map<string, any>();
+
+    const addAll = (rows: any[] | null | undefined) => {
+        for (const row of rows || []) resultsById.set(row.id, row);
+    };
+
+    // 1. Texto libre: title/description/expected_result/next_action.
+    const { data: byText } = await supabaseAdmin
+        .from('commitments')
+        .select(COMMITMENT_SELECT)
+        .or(ownershipFilter)
+        .or(`title.ilike.%${q}%,description.ilike.%${q}%,expected_result.ilike.%${q}%,next_action.ilike.%${q}%`)
+        .limit(20);
+    addAll(byText);
+
+    // 2. Contraparte externa (contacto sin cuenta Ping): nombre/telefono/email.
+    const { data: matchingContacts } = await supabaseAdmin
+        .from('contacts')
+        .select('id')
+        .eq('owner_user_id', userId)
+        .or(`display_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`)
+        .limit(20);
+    const contactIds = (matchingContacts || []).map((c) => c.id);
+    if (contactIds.length > 0) {
+        const { data: byContact } = await supabaseAdmin
+            .from('commitments')
+            .select(COMMITMENT_SELECT)
+            .or(ownershipFilter)
+            .in('counterparty_contact_id', contactIds)
+            .limit(20);
+        addAll(byContact);
+    }
+
+    // 3. Contraparte usuario de Ping (nombre/email del asignado) y mensaje de
+    // origen: no son filtrables via ilike sobre una relacion embebida en
+    // supabase-js, se filtran en memoria sobre el scope ya autorizado.
+    const ownScopeResult = await supabaseAdmin
+        .from('commitments')
+        .select(COMMITMENT_SELECT)
+        .or(ownershipFilter)
+        .limit(200);
+    const ownScope: any[] = ownScopeResult.data || [];
+    const qLower = q.toLowerCase();
+    for (const row of ownScope) {
+        const assignee = row.assignee as { full_name?: string; email?: string } | null;
+        const assigneeMatch = assignee && (
+            (assignee.full_name || '').toLowerCase().includes(qLower)
+            || (assignee.email || '').toLowerCase().includes(qLower)
+        );
+        if (assigneeMatch) resultsById.set(row.id, row);
+    }
+
+    // 4. Mensaje de origen: contenido del mensaje que genero el compromiso.
+    const messageIds = (ownScope || []).map((row: any) => row.message_id).filter(Boolean);
+    if (messageIds.length > 0) {
+        const { data: matchingMessages } = await supabaseAdmin
+            .from('messages')
+            .select('id')
+            .in('id', messageIds)
+            .ilike('content', `%${q}%`);
+        const matchingMessageIds = new Set((matchingMessages || []).map((m) => m.id));
+        for (const row of ownScope || []) {
+            if (row.message_id && matchingMessageIds.has(row.message_id)) resultsById.set(row.id, row);
+        }
+    }
+
+    // 5. Status V2 (o alias legacy de lectura): "resuelto"/"resolved" no se
+    // interpreta como texto libre en Spanish aqui (evita falsos positivos),
+    // solo coincidencia exacta con un valor canonico o alias reconocido.
+    const normalizedQueryStatus = tryNormalizeCommitmentStatus(q) ?? (isCanonicalCommitmentStatus(qLower) ? normalizeCommitmentStatus(qLower) : null);
+    if (normalizedQueryStatus) {
+        for (const row of ownScope || []) {
+            if (row.status === normalizedQueryStatus) resultsById.set(row.id, row);
+        }
+    }
+
+    // 6. Fecha (YYYY-MM-DD): coincidencia por dia calendario sobre due_at.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.trim())) {
+        const dayStart = new Date(`${q.trim()}T00:00:00.000Z`);
+        const dayEnd = new Date(`${q.trim()}T23:59:59.999Z`);
+        if (!isNaN(dayStart.getTime())) {
+            const { data: byDate } = await supabaseAdmin
+                .from('commitments')
+                .select(COMMITMENT_SELECT)
+                .or(ownershipFilter)
+                .gte('due_at', dayStart.toISOString())
+                .lte('due_at', dayEnd.toISOString())
+                .limit(20);
+            addAll(byDate);
+        }
+    }
+
+    return Array.from(resultsById.values()).slice(0, 30);
+}
 
 export const search = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -41,15 +154,10 @@ export const search = async (req: Request, res: Response): Promise<void> => {
 
         if (msgError) throw msgError;
 
-        // 3. Search commitments
-        const { data: commitments, error: commError } = await supabaseAdmin
-            .from('commitments')
-            .select('*, message:message_id(id, conversation_id)')
-            .eq('owner_user_id', userId)
-            .ilike('title', `%${q}%`)
-            .limit(20);
-
-        if (commError) throw commError;
+        // 3. Search commitments: title/description/expected_result/next_action,
+        // contraparte (usuario o contacto externo), status V2, fecha, y
+        // mensaje de origen. Nunca busca dentro de `meta`.
+        const commitmentsById = new Map<string, any>((await searchCommitmentsV2(userId, q)).map((c: any) => [c.id, c]));
 
         // 4. Search Profiles (Contacts)
         const { data: profiles, error: profError } = await supabaseAdmin
@@ -78,9 +186,22 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             is_group: toLegacyIsGroup(c.conversation_type),
         }));
 
+        // 6. Compromisos cuya conversacion coincide por nombre (busqueda por
+        // "conversation" pedida explicitamente): se agregan al mismo set.
+        const matchingConversationIds = (conversations || []).map((c) => c.id);
+        if (matchingConversationIds.length > 0) {
+            const { data: byConversation } = await supabaseAdmin
+                .from('commitments')
+                .select('id, title, description, due_at, proposed_due_at, status, type, priority, expected_result, next_action, follow_up_at, rejection_reason, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, created_at, owner:owner_user_id(id, full_name, email, avatar_url), assignee:assigned_to_user_id(id, full_name, email, avatar_url)')
+                .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
+                .in('conversation_id', matchingConversationIds)
+                .limit(20);
+            for (const row of byConversation || []) commitmentsById.set(row.id, row);
+        }
+
         res.status(200).json({
             messages: toLegacyMessageListShape(messages),
-            commitments: commitments || [],
+            commitments: toLegacyCommitmentListShape(Array.from(commitmentsById.values())),
             profiles: profiles || [],
             conversations: conversationsCompat
         });

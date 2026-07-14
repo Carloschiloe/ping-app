@@ -48,20 +48,41 @@ export async function assertConversationAdmin(userId: string, conversationId: st
 export async function assertCommitmentConversationParticipant(userId: string, commitmentId: string) {
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')
-        .select('id, group_conversation_id, owner_user_id, assigned_to_user_id')
+        .select('id, conversation_id, owner_user_id, assigned_to_user_id, counterparty_contact_id')
         .eq('id', commitmentId)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
     if (!commitment) throw new AppError('Commitment not found', 404);
 
-    if (commitment.group_conversation_id) {
-        await assertConversationParticipant(userId, commitment.group_conversation_id);
-    } else if (commitment.owner_user_id !== userId && commitment.assigned_to_user_id !== userId) {
-        throw new AppError('You do not have access to this commitment', 403);
+    if (commitment.owner_user_id === userId || commitment.assigned_to_user_id === userId) {
+        return commitment;
     }
 
-    return commitment;
+    if (commitment.conversation_id) {
+        await assertConversationParticipant(userId, commitment.conversation_id);
+        return commitment;
+    }
+
+    throw new AppError('You do not have access to this commitment', 403);
+}
+
+// V2: un contacto externo (tabla `contacts`) nunca tiene sesion ni RLS propia
+// — solo su owner_user_id puede leerlo/usarlo. Esta funcion es la unica
+// autoridad para decidir si `userId` puede referenciar `contactId` como
+// counterparty_contact_id/waiting_on_contact_id de un commitment.
+export async function assertOwnContact(userId: string, contactId: string) {
+    const { data: contact, error } = await supabaseAdmin
+        .from('contacts')
+        .select('id, owner_user_id, display_name, phone, email, linked_user_id, created_at')
+        .eq('id', contactId)
+        .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    if (!contact) throw new AppError('Contact not found', 404);
+    if (contact.owner_user_id !== userId) throw new AppError('You do not have access to this contact', 403);
+
+    return contact;
 }
 
 export async function assertCallConversationParticipant(userId: string, callId: string) {

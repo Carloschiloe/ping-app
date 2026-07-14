@@ -43,7 +43,9 @@ export async function runMorningRoutine() {
                 owner_user_id, 
                 profiles!inner(full_name, expo_push_token)
             `)
-            .in('status', ['proposed', 'pending', 'accepted', 'in_progress', 'counter_proposal'])
+            // V2: los unicos estados abiertos son proposed/accepted/counter_proposal
+            // (pending/in_progress eran legacy, V2 nunca los persiste).
+            .in('status', ['proposed', 'accepted', 'counter_proposal'])
             .gte('due_at', startOfDay.toISOString())
             .lte('due_at', endOfDay.toISOString());
 
@@ -196,7 +198,7 @@ export async function runWeeklyReview() {
                 };
             }
             const normalizedStatus = normalizeCommitmentStatus(c.status);
-            if (normalizedStatus === 'completed') {
+            if (normalizedStatus === 'resolved') {
                 userMap[userId].completed++;
             } else if (isOpenCommitmentStatus(normalizedStatus)) {
                 if (userMap[userId].pending.length < 10) {

@@ -57,3 +57,70 @@ describe('isConversationAdmin / assertConversationAdmin', () => {
         expect(mock.getCalledTables()).not.toContain('conversations');
     });
 });
+
+describe('assertCommitmentConversationParticipant', () => {
+    it('el owner del compromiso tiene acceso sin necesidad de consultar participantes', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            commitments: [{ data: { id: 'c1', conversation_id: null, owner_user_id: 'u1', assigned_to_user_id: null, counterparty_contact_id: null }, error: null }],
+        }));
+        const { assertCommitmentConversationParticipant } = await import('../src/utils/authz');
+        await expect(assertCommitmentConversationParticipant('u1', 'c1')).resolves.toMatchObject({ owner_user_id: 'u1' });
+    });
+
+    it('el asignado tiene acceso aunque no comparta conversacion', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            commitments: [{ data: { id: 'c1', conversation_id: null, owner_user_id: 'owner', assigned_to_user_id: 'u2', counterparty_contact_id: null }, error: null }],
+        }));
+        const { assertCommitmentConversationParticipant } = await import('../src/utils/authz');
+        await expect(assertCommitmentConversationParticipant('u2', 'c1')).resolves.toMatchObject({ assigned_to_user_id: 'u2' });
+    });
+
+    it('un compromiso de grupo (sin owner/assignee match) usa conversation_id (columna real V2, no group_conversation_id) para verificar participacion', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{ data: { id: 'c1', conversation_id: 'conv-1', owner_user_id: 'owner', assigned_to_user_id: null, counterparty_contact_id: null }, error: null }],
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { assertCommitmentConversationParticipant } = await import('../src/utils/authz');
+        await expect(assertCommitmentConversationParticipant('u3', 'c1')).resolves.toBeTruthy();
+    });
+
+    it('un tercero sin relacion ni participacion en la conversacion es rechazado', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            commitments: [{ data: { id: 'c1', conversation_id: 'conv-1', owner_user_id: 'owner', assigned_to_user_id: null, counterparty_contact_id: null }, error: null }],
+            conversation_participants: [{ data: null, error: null }],
+        }));
+        const { assertCommitmentConversationParticipant } = await import('../src/utils/authz');
+        await expect(assertCommitmentConversationParticipant('u_ajeno', 'c1')).rejects.toThrow('You do not have access to this conversation');
+    });
+
+    it('un compromiso inexistente lanza 404', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({ commitments: [{ data: null, error: null }] }));
+        const { assertCommitmentConversationParticipant } = await import('../src/utils/authz');
+        await expect(assertCommitmentConversationParticipant('u1', 'c-inexistente')).rejects.toThrow('Commitment not found');
+    });
+});
+
+describe('assertOwnContact', () => {
+    it('el owner del contacto puede usarlo', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            contacts: [{ data: { id: 'ct1', owner_user_id: 'u1', display_name: 'Proveedor X' }, error: null }],
+        }));
+        const { assertOwnContact } = await import('../src/utils/authz');
+        await expect(assertOwnContact('u1', 'ct1')).resolves.toMatchObject({ id: 'ct1' });
+    });
+
+    it('un contacto ajeno (owner_user_id distinto) es rechazado con 403, nunca expuesto', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            contacts: [{ data: { id: 'ct1', owner_user_id: 'otro_usuario', display_name: 'Proveedor X' }, error: null }],
+        }));
+        const { assertOwnContact } = await import('../src/utils/authz');
+        await expect(assertOwnContact('u1', 'ct1')).rejects.toThrow('You do not have access to this contact');
+    });
+
+    it('un contacto inexistente lanza 404', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({ contacts: [{ data: null, error: null }] }));
+        const { assertOwnContact } = await import('../src/utils/authz');
+        await expect(assertOwnContact('u1', 'ct-inexistente')).rejects.toThrow('Contact not found');
+    });
+});

@@ -1,17 +1,52 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { isOpenCommitmentStatus, isPendingResponseStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
 
-function mapProgressState(item: any) {
-    if (item?.completed_at || normalizeCommitmentStatus(item?.status) === 'completed') return 'Terminado';
-    if (item?.arrived_at || item?.status === 'arrived') return 'En sitio';
-    if (item?.acknowledged_at || item?.status === 'started') return 'Iniciada';
-    if (item?.status === 'ready') return 'Lista';
-    return 'Pendiente';
-}
+// V2: Insights ya NO usa group_conversation_id, is_group, el `mode` de
+// Operación, active_commitment_id ni completion_outcome (mandato explicito
+// de esta fase: Operación queda fuera de alcance y sus conceptos
+// operacionales no deben filtrar hacia Insights). La clasificacion se basa
+// exclusivamente en columnas propias de `commitments`: status, due_at,
+// waiting_on_user_id/contact_id, action_completed_at, resolved_at.
+//
+// Cascada de prioridad DETERMINISTA (cada commitment abierto cae en
+// exactamente UN bloque, nunca aparece duplicado):
+//   1. actionDonePendingResolution: la accion ya se hizo, falta confirmar resuelto.
+//   2. needsAttention: el usuario actual es quien debe actuar ahora (waiting_on_user_id === userId).
+//   3. overdue: tiene fecha y ya paso, y nadie especifico esta bloqueando al usuario.
+//   4. awaitingResponse: se esta esperando respuesta de OTRA persona (usuario o contacto externo).
+//   5. upcoming: tiene fecha futura, sin nada bloqueante.
+//   6. noDate: sin fecha, sin nada bloqueante.
+// Los compromisos resueltos recientemente se listan aparte (recentlyResolved);
+// rechazados/cancelados no se listan en Insights (no requieren accion).
+const RECENTLY_RESOLVED_WINDOW_DAYS = 7;
 
-function conversationLabel(conversation: any) {
-    return conversation?.name || (conversation?.is_group ? 'Grupo' : 'Chat');
+type InsightsBucket =
+    | 'actionDonePendingResolution'
+    | 'needsAttention'
+    | 'overdue'
+    | 'awaitingResponse'
+    | 'upcoming'
+    | 'noDate';
+
+export function classifyOpenCommitment(commitment: any, userId: string, nowMs: number): InsightsBucket {
+    if (commitment.action_completed_at && !commitment.resolved_at) {
+        return 'actionDonePendingResolution';
+    }
+    if (commitment.waiting_on_user_id === userId) {
+        return 'needsAttention';
+    }
+    if (commitment.due_at && new Date(commitment.due_at).getTime() < nowMs) {
+        return 'overdue';
+    }
+    if (commitment.waiting_on_user_id || commitment.waiting_on_contact_id) {
+        return 'awaitingResponse';
+    }
+    if (commitment.due_at) {
+        return 'upcoming';
+    }
+    return 'noDate';
 }
 
 export const getInsights = async (req: Request, res: Response): Promise<void> => {
@@ -30,166 +65,99 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         if (participationsError) throw participationsError;
 
         const conversationIds = (participations || []).map((item) => item.conversation_id);
-        if (conversationIds.length === 0) {
-            res.status(200).json({
-                myFocuses: [],
-                inProgress: [],
-                pendingResponse: [],
-                upcoming: [],
-                groupsSummary: [],
-                teamStatusByGroup: [],
-                counts: { inProgress: 0, pendingResponse: 0, upcoming: 0, groups: 0 },
-            });
-            return;
+
+        const orFilter = conversationIds.length > 0
+            ? `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId},and(assigned_to_user_id.is.null,conversation_id.in.(${conversationIds.join(',')}))`
+            : `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`;
+
+        const { data: commitmentsRaw, error: commitmentsError } = await supabaseAdmin
+            .from('commitments')
+            .select(`
+                id, title, description, due_at, proposed_due_at, status, type, priority,
+                expected_result, next_action, follow_up_at,
+                waiting_on_user_id, waiting_on_contact_id,
+                action_completed_at, resolved_at, rejection_reason,
+                owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, created_at,
+                owner:owner_user_id(id, full_name, email, avatar_url),
+                assignee:assigned_to_user_id(id, full_name, email, avatar_url),
+                counterparty:counterparty_contact_id(id, display_name, phone, email)
+            `)
+            .or(orFilter);
+
+        if (commitmentsError) throw commitmentsError;
+
+        const commitments = commitmentsRaw || [];
+        const now = Date.now();
+        const resolvedWindowStart = now - RECENTLY_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+        const buckets: Record<InsightsBucket, any[]> = {
+            actionDonePendingResolution: [],
+            needsAttention: [],
+            overdue: [],
+            awaitingResponse: [],
+            upcoming: [],
+            noDate: [],
+        };
+        const recentlyResolved: any[] = [];
+
+        for (const commitment of commitments) {
+            const normalizedStatus = tryNormalizeCommitmentStatus(commitment.status);
+
+            if (normalizedStatus === 'resolved') {
+                if (commitment.resolved_at && new Date(commitment.resolved_at).getTime() >= resolvedWindowStart) {
+                    recentlyResolved.push(commitment);
+                }
+                continue;
+            }
+
+            if (normalizedStatus === 'rejected' || normalizedStatus === 'cancelled') {
+                continue;
+            }
+
+            // proposed | accepted | counter_proposal | status desconocido
+            // (se trata como abierto de forma conservadora: mejor mostrarlo
+            // que ocultarlo silenciosamente).
+            const bucket = classifyOpenCommitment(commitment, userId, now);
+            buckets[bucket].push(commitment);
         }
 
-        const [conversationsResult, commitmentsResult, focusesResult, progressResult] = await Promise.all([
-            supabaseAdmin
-                .from('conversations')
-                .select('id, name, is_group, avatar_url, mode')
-                .in('id', conversationIds),
-            supabaseAdmin
-                .from('commitments')
-                .select(`
-                    *,
-                    owner:owner_user_id(id, full_name, email, avatar_url),
-                    assignee:assigned_to_user_id(id, full_name, email, avatar_url)
-                `)
-                .in('group_conversation_id', conversationIds)
-                .in('status', ['pending', 'proposed', 'accepted', 'counter_proposal', 'in_progress', 'completed', 'done']),
-            supabaseAdmin
-                .from('conversation_operation_focuses')
-                .select('conversation_id, user_id, commitment_id, updated_at')
-                .in('conversation_id', conversationIds),
-            supabaseAdmin
-                .from('commitment_operation_progress')
-                .select('commitment_id, user_id, status, acknowledged_at, arrived_at, completed_at, updated_at')
-        ]);
+        const sortByDueAtAsc = (a: any, b: any) => new Date(a.due_at || 0).getTime() - new Date(b.due_at || 0).getTime();
+        buckets.overdue.sort(sortByDueAtAsc);
+        buckets.upcoming.sort(sortByDueAtAsc);
+        recentlyResolved.sort((a, b) => new Date(b.resolved_at || 0).getTime() - new Date(a.resolved_at || 0).getTime());
 
-        if (conversationsResult.error) throw conversationsResult.error;
-        if (commitmentsResult.error) throw commitmentsResult.error;
-        if (focusesResult.error) throw focusesResult.error;
-        if (progressResult.error) throw progressResult.error;
-
-        const conversations = conversationsResult.data || [];
-        const commitmentsRaw = commitmentsResult.data || [];
-        const commitments = await Promise.all(
-            commitmentsRaw.map(async (commitment: any) => {
-                if (commitment.message_id || !commitment.group_conversation_id || !commitment.title) return commitment;
-
-                const { data: messages } = await supabaseAdmin
-                    .from('messages')
-                    .select('id, text, created_at')
-                    .eq('conversation_id', commitment.group_conversation_id)
-                    .ilike('text', `%${commitment.title}%`)
-                    .order('created_at', { ascending: false })
-                    .limit(1);
-
-                if (messages?.[0]?.id) {
-                    return { ...commitment, message_id: messages[0].id };
-                }
-
-                return commitment;
-            })
-        );
-        const focuses = focusesResult.data || [];
-        const progresses = progressResult.data || [];
-
-        const conversationMap = new Map(conversations.map((item) => [item.id, item]));
-        const progressByCommitmentUser = new Map(
-            progresses.map((item: any) => [`${item.commitment_id}:${item.user_id}`, item])
-        );
-
-        const enrichCommitment = (commitment: any) => {
-            const conversation = conversationMap.get(commitment.group_conversation_id);
-            const progress = progressByCommitmentUser.get(`${commitment.id}:${commitment.assigned_to_user_id || userId}`) || null;
-            const normalizedStatus = normalizeCommitmentStatus(commitment.status);
-            return {
-                ...commitment,
-                status: normalizedStatus,
-                conversation_id: commitment.group_conversation_id,
-                conversation_name: conversationLabel(conversation),
-                conversation_mode: conversation?.mode || 'chat',
-                conversation_avatar_url: conversation?.avatar_url || null,
-                operational_state: mapProgressState(progress),
-            };
-        };
-
-        const myFocuses = focuses
-            .filter((focus: any) => focus.user_id === userId)
-            .map((focus: any) => {
-                const commitment = commitments.find((item: any) => item.id === focus.commitment_id);
-                return commitment ? enrichCommitment(commitment) : null;
-            })
-            .filter(Boolean);
-
-        const inProgress = myFocuses;
-
-        const pendingResponse = commitments
-            .filter((commitment: any) => commitment.assigned_to_user_id === userId && isPendingResponseStatus(commitment.status))
-            .map(enrichCommitment)
-            .sort((a: any, b: any) => new Date(a.due_at || 0).getTime() - new Date(b.due_at || 0).getTime());
-
-        const focusedIds = new Set(focuses.map((focus: any) => focus.commitment_id));
-        const upcoming = commitments
-            .filter((commitment: any) => {
-                if (focusedIds.has(commitment.id)) return false;
-                if (normalizeCommitmentStatus(commitment.status) !== 'accepted') return false;
-                return commitment.assigned_to_user_id === userId || !commitment.assigned_to_user_id;
-            })
-            .map(enrichCommitment)
-            .sort((a: any, b: any) => new Date(a.due_at || 0).getTime() - new Date(b.due_at || 0).getTime());
-
-        const teamStatusByGroup = conversations
-            .filter((conversation: any) => conversation.is_group)
-            .map((conversation: any) => {
-                const groupFocuses = focuses.filter((focus: any) => focus.conversation_id === conversation.id);
-                const preview = groupFocuses.map((focus: any) => {
-                    const commitment = commitments.find((item: any) => item.id === focus.commitment_id);
-                    const progress = progressByCommitmentUser.get(`${focus.commitment_id}:${focus.user_id}`) || null;
-                    const profile = commitment?.assigned_to_user_id === focus.user_id
-                        ? commitment?.assignee
-                        : commitment?.owner;
-
-                    return {
-                        user_id: focus.user_id,
-                        user_name: profile?.full_name || profile?.email?.split('@')[0] || 'Alguien',
-                        commitment_id: focus.commitment_id,
-                        commitment_title: commitment?.title || 'Tarea',
-                        state: mapProgressState(progress),
-                    };
-                });
-
-                const openCount = commitments.filter((item: any) => item.group_conversation_id === conversation.id && isOpenCommitmentStatus(item.status)).length;
-                const pendingForMe = commitments.filter((item: any) => item.group_conversation_id === conversation.id && item.assigned_to_user_id === userId && isPendingResponseStatus(item.status)).length;
-
-                return {
-                    conversation_id: conversation.id,
-                    conversation_name: conversationLabel(conversation),
-                    conversation_avatar_url: conversation.avatar_url || null,
-                    mode: conversation.mode || 'chat',
-                    active_count: preview.length,
-                    open_count: openCount,
-                    pending_for_me: pendingForMe,
-                    team_preview: preview,
-                };
-            })
-            .filter((group: any) => group.mode === 'operation' || group.open_count > 0)
-            .sort((a: any, b: any) => b.active_count - a.active_count || b.pending_for_me - a.pending_for_me || b.open_count - a.open_count);
+        const withCompat = (rows: any[]) => toLegacyCommitmentListShape(rows);
 
         res.status(200).json({
-            myFocuses,
-            inProgress,
-            pendingResponse,
-            upcoming,
-            groupsSummary: teamStatusByGroup,
-            teamStatusByGroup,
+            needsAttention: withCompat(buckets.needsAttention),
+            awaitingResponse: withCompat(buckets.awaitingResponse),
+            overdue: withCompat(buckets.overdue),
+            upcoming: withCompat(buckets.upcoming),
+            noDate: withCompat(buckets.noDate),
+            actionDonePendingResolution: withCompat(buckets.actionDonePendingResolution),
+            recentlyResolved: withCompat(recentlyResolved),
             counts: {
-                inProgress: inProgress.length,
-                pendingResponse: pendingResponse.length,
-                upcoming: upcoming.length,
-                groups: teamStatusByGroup.length,
+                needsAttention: buckets.needsAttention.length,
+                awaitingResponse: buckets.awaitingResponse.length,
+                overdue: buckets.overdue.length,
+                upcoming: buckets.upcoming.length,
+                noDate: buckets.noDate.length,
+                actionDonePendingResolution: buckets.actionDonePendingResolution.length,
+                recentlyResolved: recentlyResolved.length,
             },
+            // --- Alias temporales de compatibilidad (documentados, ver informe de fase) ---
+            // El mobile actual (InsightsScreen.tsx) puede leer estas claves del
+            // shape anterior. pendingResponse se mapea al bloque mas cercano en
+            // significado (needsAttention). Los conceptos de Operación
+            // (myFocuses/inProgress/teamStatusByGroup/groupsSummary) quedan
+            // deliberadamente vacios: Operación esta fuera de alcance de esta
+            // fase y esos campos ya no se calculan (no se ocultan con datos
+            // inconsistentes, simplemente no aplican).
+            pendingResponse: withCompat(buckets.needsAttention),
+            myFocuses: [],
+            inProgress: [],
+            groupsSummary: [],
+            teamStatusByGroup: [],
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });

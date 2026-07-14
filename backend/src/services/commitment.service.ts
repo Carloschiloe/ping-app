@@ -3,11 +3,28 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { assertCommitmentConversationParticipant, assertConversationParticipant } from '../utils/authz';
+import { assertCommitmentConversationParticipant, assertConversationParticipant, assertOwnContact } from '../utils/authz';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { isTitleMeeting } from '../utils/commitmentType';
+import { AppError } from '../utils/AppError';
+import {
+    computeCommitmentTransition,
+    CommitmentStateSnapshot,
+    CommitmentTransitionAction,
+} from '../utils/commitmentTransitions';
+import { recordCommitmentEvent } from '../utils/commitmentEvents';
+import { readLegacyConversationId, readLegacyAssignedToUserId, readLegacyDueAt } from '../utils/commitmentCompat';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
+// entornos donde este modulo se importa solo por sus funciones de
+// commitments (tests, scripts), sin necesidad real de llamar a OpenAI.
+let openai: OpenAI | null = null;
+function getOpenAiClient(): OpenAI {
+    if (!openai) {
+        openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+    return openai;
+}
 
 export interface CommitmentExtraction {
     hasCommitment: boolean;
@@ -33,7 +50,7 @@ Reglas:
 - REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral. Si el mensaje dice "reunión" explícitamente, usa "meeting".
 - TAREA (task): Se refiere a ejecutar una acción técnica, enviar un documento, comprar algo, etc.
 - Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
-- Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos  
+- Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos
 - "mañana" = día siguiente al enviado.
 - Si no hay hora, usa 09:00:00-03:00.
 - El replyText debe ser SOLO el texto para el botón UI, sin "Entendido" ni saludos.
@@ -61,7 +78,7 @@ export const extractCommitment = async (
             });
         }
 
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
@@ -88,34 +105,61 @@ export const extractCommitment = async (
     }
 };
 
+// V2: createCommitment acepta la entrada minima necesaria para IA-confirmada
+// y para el mobile actual (ver commitmentCompat.ts para los alias de
+// entrada). Escribe unicamente columnas reales V2: conversation_id (nunca
+// group_conversation_id), sin is_group_task (derivado en la respuesta, no
+// persistido), status siempre uno de los 6 valores canonicos.
 export const createCommitment = async (userId: string, data: any) => {
     console.log('[Commitment Service] Creating commitment');
-    
-    // Standardize field names (handle both camelCase from AI/Frontend and snake_case from schema)
+
     const title = data.title;
-    const due_at = data.due_at || data.dueAt;
-    const message_id = data.message_id || data.messageId;
-    const assigned_to_user_id = data.assigned_to_user_id || data.assignedToUserId;
-    const group_conversation_id = data.group_conversation_id || data.groupConversationId;
-    const is_group_task = data.is_group_task || data.isGroupTask || false;
+    const due_at = readLegacyDueAt(data);
+    const message_id = data.message_id || data.messageId || null;
+    const assigned_to_user_id = readLegacyAssignedToUserId(data);
+    const counterparty_contact_id = data.counterparty_contact_id || data.counterpartyContactId || null;
+    const conversation_id = readLegacyConversationId(data);
     const type = data.type || 'task';
+    const priority = data.priority || null;
+    const description = data.description || null;
+    const expected_result = data.expected_result || data.expectedResult || null;
+    const next_action = data.next_action || data.nextAction || null;
     const meta = data.meta || {};
+
+    if (assigned_to_user_id && counterparty_contact_id) {
+        throw new AppError('assigned_to_user_id and counterparty_contact_id are mutually exclusive', 400);
+    }
+
+    if (counterparty_contact_id) {
+        await assertOwnContact(userId, counterparty_contact_id);
+    }
+
+    const isSelfAssigned = assigned_to_user_id === userId;
+    const initialStatus = (!assigned_to_user_id || !isSelfAssigned) ? 'proposed' : 'accepted';
+    const waitingOnUserId = initialStatus === 'proposed' ? assigned_to_user_id : null;
+    const waitingOnContactId = initialStatus === 'proposed' ? counterparty_contact_id : null;
 
     const { data: commitment, error } = await supabaseAdmin
         .from('commitments')
         .insert({
             title,
+            description,
             due_at,
             message_id,
             owner_user_id: userId,
-            assigned_to_user_id: assigned_to_user_id,
-            group_conversation_id,
-            is_group_task,
+            assigned_to_user_id,
+            counterparty_contact_id,
+            conversation_id,
             type,
-            status: (assigned_to_user_id && assigned_to_user_id !== userId) || !assigned_to_user_id ? 'proposed' : 'accepted',
-            meta
+            priority,
+            expected_result,
+            next_action,
+            status: initialStatus,
+            waiting_on_user_id: waitingOnUserId,
+            waiting_on_contact_id: waitingOnContactId,
+            meta,
         })
-        .select('id, title, due_at, owner_user_id, assigned_to_user_id, group_conversation_id, type, status')
+        .select('id, title, due_at, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, type, status')
         .single();
 
     if (error) {
@@ -123,31 +167,42 @@ export const createCommitment = async (userId: string, data: any) => {
         throw error;
     }
 
+    await recordCommitmentEvent({
+        commitmentId: commitment.id,
+        actorUserId: userId,
+        eventType: 'created',
+        previousStatus: null,
+        newStatus: initialStatus,
+        payload: { conversationId: conversation_id, hasMessage: !!message_id, hasDueDate: !!due_at, assignedToUserId: assigned_to_user_id, counterpartyContactId: counterparty_contact_id },
+    });
+
     // Notify to Chat if conversationId is present
-    if (group_conversation_id) {
+    if (conversation_id) {
         try {
             const { data: profile } = await supabaseAdmin
                 .from('profiles')
                 .select('full_name')
                 .eq('id', userId)
                 .single();
-            
+
             const senderName = profile?.full_name || 'Alguien';
             const finalType = (type === 'meeting' || isTitleMeeting(title)) ? 'reunión' : 'tarea';
-            
-            const dateObj = new Date(due_at);
-            const timeStr = dateObj.toLocaleString('es-CL', {
-                timeZone: 'America/Santiago',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
 
-            let sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
-            
-            // If it's a proposal for someone else, use "propuso"
-            if (assigned_to_user_id && assigned_to_user_id !== userId) {
-                 sysText = `✨ ${senderName} propuso una nueva ${finalType} para las ${timeStr}: ${title}`;
+            let sysText: string;
+            if (due_at) {
+                const dateObj = new Date(due_at);
+                const timeStr = dateObj.toLocaleString('es-CL', {
+                    timeZone: 'America/Santiago',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
+                if (assigned_to_user_id && assigned_to_user_id !== userId) {
+                    sysText = `✨ ${senderName} propuso una nueva ${finalType} para las ${timeStr}: ${title}`;
+                }
+            } else {
+                sysText = `✨ ${senderName} agregó una ${finalType} sin fecha: ${title}`;
             }
 
             console.log('[Commitment Service] Inserting system message:', sysText);
@@ -155,7 +210,7 @@ export const createCommitment = async (userId: string, data: any) => {
             const { data: systemMessage, error: msgError } = await supabaseAdmin
                 .from('messages')
                 .insert({
-                    conversation_id: group_conversation_id,
+                    conversation_id,
                     sender_id: userId,
                     content: sysText,
                     metadata: { isSystem: true },
@@ -183,27 +238,28 @@ export const createCommitment = async (userId: string, data: any) => {
 
     if (assigned_to_user_id && assigned_to_user_id !== userId) {
         const senderName = await getUserName(userId);
-        const dateObj = new Date(due_at);
-        const when = dateObj.toLocaleString('es-CL', {
-            timeZone: 'America/Santiago',
-            day: '2-digit',
-            month: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        const when = due_at
+            ? new Date(due_at).toLocaleString('es-CL', {
+                timeZone: 'America/Santiago',
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            })
+            : 'sin fecha';
 
         await notifyUser(
             assigned_to_user_id,
             'Nueva tarea para ti',
             `${senderName} te asigno "${title}" para ${when}`,
-            { type: 'commitment_assigned', commitmentId: commitment.id, conversationId: group_conversation_id }
+            { type: 'commitment_assigned', commitmentId: commitment.id, conversationId: conversation_id }
         );
     }
 
     return commitment;
 };
 
-async function insertSystemMessage(userId: string, conversationId: string, text: string) {
+async function insertSystemMessage(userId: string, conversationId: string | null, text: string) {
     if (!conversationId) {
         console.warn(`[Commitment Service] insertSystemMessage: No conversationId provided for user ${userId}`);
         return;
@@ -257,173 +313,290 @@ async function notifyUser(userId: string | null | undefined, title: string, body
     });
 }
 
-export const acceptCommitment = async (userId: string, id: string) => {
-    console.log(`[Commitment Service] acceptCommitment: userId=${userId}, commitmentId=${id}`);
-    await assertCommitmentConversationParticipant(userId, id);
+// ---------------------------------------------------------------------------
+// Ciclo de vida: todas las transiciones de status pasan por
+// commitmentTransitions.ts (computeCommitmentTransition). Este bloque solo
+// hace I/O: trae el snapshot actual, delega la decision pura, aplica el
+// patch, y registra el evento SOLO despues de que el update se confirmo.
+// ---------------------------------------------------------------------------
+
+async function fetchCommitmentSnapshot(id: string): Promise<CommitmentStateSnapshot> {
     const { data, error } = await supabaseAdmin
         .from('commitments')
-        .update({ 
-            status: 'accepted',
-            assigned_to_user_id: userId
-        })
+        .select('id, status, owner_user_id, assigned_to_user_id, counterparty_contact_id, due_at, proposed_due_at')
         .eq('id', id)
-        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
-        .select()
+        .single();
+
+    if (error) throw error;
+
+    return {
+        id: data.id,
+        status: normalizeCommitmentStatus(data.status),
+        ownerUserId: data.owner_user_id,
+        assignedToUserId: data.assigned_to_user_id,
+        counterpartyContactId: data.counterparty_contact_id,
+        dueAt: data.due_at,
+        proposedDueAt: data.proposed_due_at,
+    };
+}
+
+const SELECT_AFTER_TRANSITION = 'id, title, due_at, proposed_due_at, status, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, meta, rejection_reason, resolved_at, action_completed_at, next_action, follow_up_at, waiting_on_user_id, waiting_on_contact_id';
+
+async function applyCommitmentTransition(
+    userId: string,
+    id: string,
+    action: CommitmentTransitionAction,
+    extra: Partial<{ reason: string | null; newProposedDueAt: string | null; newAssignedToUserId: string | null; newCounterpartyContactId: string | null; followUpAt: string | null; nextAction: string | null; waitingOnUserId: string | null; waitingOnContactId: string | null }> = {}
+) {
+    await assertCommitmentConversationParticipant(userId, id);
+    const snapshot = await fetchCommitmentSnapshot(id);
+
+    if (extra.newCounterpartyContactId) {
+        await assertOwnContact(userId, extra.newCounterpartyContactId);
+    }
+
+    const { patch, event } = computeCommitmentTransition({
+        action,
+        actorUserId: userId,
+        commitment: snapshot,
+        ...extra,
+    });
+
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .update(patch)
+        .eq('id', id)
+        .select(SELECT_AFTER_TRANSITION)
         .single();
 
     if (error) {
-        console.error('[Commitment Service] acceptCommitment update error:', error);
+        console.error(`[Commitment Service] ${action} update error:`, error);
         throw error;
     }
 
+    await recordCommitmentEvent({
+        commitmentId: id,
+        actorUserId: userId,
+        eventType: event.event_type,
+        previousStatus: event.previous_status,
+        newStatus: event.new_status,
+        payload: event.payload,
+    });
+
+    return data;
+}
+
+export const acceptCommitment = async (userId: string, id: string) => {
+    console.log(`[Commitment Service] acceptCommitment: userId=${userId}, commitmentId=${id}`);
+    const data = await applyCommitmentTransition(userId, id, 'accept');
+
     console.log(`[Commitment Service] Commitment updated to accepted: ${data.id}`);
     const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.group_conversation_id, `✅ ${userName} aceptó la propuesta: "${data.title}"`);
+    await insertSystemMessage(userId, data.conversation_id, `✅ ${userName} aceptó la propuesta: "${data.title}"`);
     if (data.owner_user_id && data.owner_user_id !== userId) {
         await notifyUser(
             data.owner_user_id,
             'Tarea aceptada',
             `${userName} acepto "${data.title}"`,
-            { type: 'commitment_accepted', commitmentId: data.id, conversationId: data.group_conversation_id }
+            { type: 'commitment_accepted', commitmentId: data.id, conversationId: data.conversation_id }
         );
     }
 
     return data;
 };
 
-export const rejectCommitment = async (userId: string, id: string, reason?: string) => {
-    await assertCommitmentConversationParticipant(userId, id);
-    const { data: currentTask } = await supabaseAdmin.from('commitments').select('meta').eq('id', id).single();
-
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update({ 
-            status: 'rejected',
-            meta: { ...(currentTask?.meta || {}), rejection_reason: reason } 
-        })
-        .eq('id', id)
-        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
-        .select()
-        .single();
-
-    if (error) throw error;
+export const rejectCommitment = async (userId: string, id: string, reason?: string | null) => {
+    const data = await applyCommitmentTransition(userId, id, 'reject', { reason: reason ?? null });
 
     const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.group_conversation_id, `❌ ${userName} rechazó la propuesta: "${data.title}"${reason ? ` (Motivo: ${reason})` : ''}`);
+    await insertSystemMessage(userId, data.conversation_id, `❌ ${userName} rechazó la propuesta: "${data.title}"${reason ? ` (Motivo: ${reason})` : ''}`);
     if (data.owner_user_id && data.owner_user_id !== userId) {
         await notifyUser(
             data.owner_user_id,
             'Tarea rechazada',
             `${userName} rechazo "${data.title}"`,
-            { type: 'commitment_rejected', commitmentId: data.id, conversationId: data.group_conversation_id }
+            { type: 'commitment_rejected', commitmentId: data.id, conversationId: data.conversation_id }
         );
     }
 
     return data;
 };
 
-export const postponeCommitment = async (userId: string, id: string, newDate: string) => {
-    await assertCommitmentConversationParticipant(userId, id);
-    // Fetch current state to merge meta
-    const { data: currentTask } = await supabaseAdmin.from('commitments').select('due_at, meta').eq('id', id).single();
-
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update({ 
-            due_at: newDate,
-            status: 'counter_proposal',
-            meta: { ...(currentTask?.meta || {}), original_due_at: currentTask?.due_at } 
-        })
-        .eq('id', id)
-        .or(`assigned_to_user_id.eq.${userId},assigned_to_user_id.is.null`)
-        .select()
-        .single();
-
-    if (error) throw error;
+// V2: escribe proposed_due_at (columna real), nunca due_at directamente.
+// due_at solo se actualiza cuando la contrapropuesta es aceptada (ver
+// commitmentTransitions.ts:computeAccept).
+export const counterProposeCommitment = async (userId: string, id: string, proposedDueAt: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'counter_propose', { newProposedDueAt: proposedDueAt });
 
     const userName = await getUserName(userId);
-    const newDateStr = format(new Date(newDate), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
-    await insertSystemMessage(userId, data.group_conversation_id, `🕒 ${userName} pospuso la propuesta "${data.title}" para el ${newDateStr}`);
+    const newDateStr = format(new Date(proposedDueAt), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
+    await insertSystemMessage(userId, data.conversation_id, `🕒 ${userName} propuso una nueva fecha para "${data.title}": ${newDateStr}`);
 
     return data;
 };
 
-export const getCommitments = async (userId: string, status?: string, conversationId?: string) => {
-    if (conversationId) {
-        await assertConversationParticipant(userId, conversationId);
-    }
-
-    let query = supabaseAdmin
-        .from('commitments')
-        .select(`
-            id,
-            title,
-            due_at,
-            status,
-            type,
-            meta,
-            owner_user_id,
-            assigned_to_user_id,
-            group_conversation_id,
-            message_id,
-            created_at,
-            owner:owner_user_id(id, full_name, email, avatar_url),
-            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
-        `);
-
-    if (conversationId) {
-        query = query.eq('group_conversation_id', conversationId);
-    } else {
-        query = query.or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`);
-    }
-
-    if (status) {
-        query = query.in('status', status === 'proposed'
-            ? ['proposed', 'pending']
-            : status === 'accepted'
-                ? ['accepted', 'in_progress']
-                : status === 'completed'
-                    ? ['completed', 'done']
-                    : [status]);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).map((item: any) => ({
-        ...item,
-        status: normalizeCommitmentStatus(item.status),
-    }));
+// Alias de compatibilidad temporal: mobile (usePostponeCommitment) sigue
+// llamando POST /commitments/:id/postpone con { newDate }. Misma logica que
+// counterProposeCommitment.
+export const postponeCommitment = async (userId: string, id: string, newDate: string) => {
+    return counterProposeCommitment(userId, id, newDate);
 };
 
+export const markActionCompleted = async (userId: string, id: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'action_complete');
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.conversation_id, `☑️ ${userName} marcó la acción como realizada: "${data.title}"`);
+    return data;
+};
+
+export const resolveCommitment = async (userId: string, id: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'resolve');
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.conversation_id, `✅ ${userName} marcó como resuelto: "${data.title}"`);
+    return data;
+};
+
+export const cancelCommitment = async (userId: string, id: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'cancel');
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.conversation_id, `🚫 ${userName} canceló: "${data.title}"`);
+    return data;
+};
+
+export const reopenCommitment = async (userId: string, id: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'reopen');
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.conversation_id, `🔄 ${userName} reabrió: "${data.title}"`);
+    return data;
+};
+
+export const reassignCommitment = async (userId: string, id: string, newAssignedToUserId?: string | null, newCounterpartyContactId?: string | null) => {
+    const data = await applyCommitmentTransition(userId, id, 'reassign', {
+        newAssignedToUserId: newAssignedToUserId ?? null,
+        newCounterpartyContactId: newCounterpartyContactId ?? null,
+    });
+    const userName = await getUserName(userId);
+    await insertSystemMessage(userId, data.conversation_id, `👤 ${userName} reasignó: "${data.title}"`);
+    return data;
+};
+
+export const scheduleFollowUp = async (
+    userId: string,
+    id: string,
+    followUpAt: string,
+    nextAction?: string | null,
+    waitingOnUserId?: string | null,
+    waitingOnContactId?: string | null
+) => {
+    return applyCommitmentTransition(userId, id, 'schedule_follow_up', {
+        followUpAt,
+        nextAction,
+        waitingOnUserId,
+        waitingOnContactId,
+    });
+};
+
+// Traduce un status legacy/V2 recibido por el PATCH generico a una accion de
+// la maquina de estados. Devuelve null si el status pedido ya es el actual
+// (no-op, no dispara transicion). Nunca escribe un valor legacy a la
+// columna: siempre pasa por normalizeCommitmentStatus primero.
+function mapRequestedStatusToAction(requestedStatus: string, currentStatus: string): CommitmentTransitionAction | null {
+    const normalized = normalizeCommitmentStatus(requestedStatus);
+    if (normalized === currentStatus) return null;
+
+    switch (normalized) {
+        case 'accepted': return 'accept';
+        case 'rejected': return 'reject';
+        case 'resolved': return 'resolve';
+        case 'cancelled': return 'cancel';
+        default:
+            throw new AppError(
+                `Cannot set status to "${normalized}" via PATCH /commitments/:id. Use a dedicated endpoint (/counter-propose, /reopen).`,
+                400
+            );
+    }
+}
+
+// V2: PATCH generico. Compatibilidad temporal con mobile: mobile todavia
+// envia `status: 'completed'` (useMarkCommitmentDone, operation.ts) en vez
+// de llamar a un endpoint dedicado — se traduce aqui a la transicion real
+// `resolve`, nunca se escribe 'completed' a la base.
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
     await assertCommitmentConversationParticipant(userId, id);
-    // Fetch old record for message comparison
+
+    const safeFieldUpdates: Record<string, any> = {};
+    if (updates.title !== undefined) safeFieldUpdates.title = updates.title;
+    if (updates.description !== undefined) safeFieldUpdates.description = updates.description;
+    if (updates.due_at !== undefined) safeFieldUpdates.due_at = updates.due_at;
+    if (updates.type !== undefined) safeFieldUpdates.type = updates.type;
+    if (updates.priority !== undefined) safeFieldUpdates.priority = updates.priority;
+    if (updates.expected_result !== undefined) safeFieldUpdates.expected_result = updates.expected_result;
+
+    let statusAction: CommitmentTransitionAction | null = null;
+    let snapshot: CommitmentStateSnapshot | null = null;
+
+    if (updates.status !== undefined && updates.status !== null) {
+        snapshot = await fetchCommitmentSnapshot(id);
+        statusAction = mapRequestedStatusToAction(updates.status, snapshot.status);
+    }
+
+    let data: any;
+    let transitionEvent: ReturnType<typeof computeCommitmentTransition>['event'] | null = null;
+
+    if (statusAction) {
+        if (!snapshot) snapshot = await fetchCommitmentSnapshot(id);
+        const { patch, event } = computeCommitmentTransition({ action: statusAction, actorUserId: userId, commitment: snapshot });
+        transitionEvent = event;
+        Object.assign(safeFieldUpdates, patch);
+    }
+
     const { data: oldCommitment } = await supabaseAdmin
         .from('commitments')
-        .select('id, title, due_at, assigned_to_user_id, group_conversation_id, type')
+        .select('id, title, due_at, assigned_to_user_id, conversation_id, type')
         .eq('id', id)
         .single();
 
-    const { data, error } = await supabaseAdmin
+    const result = await supabaseAdmin
         .from('commitments')
-        .update(updates)
+        .update(safeFieldUpdates)
         .eq('id', id)
-        .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
-        .select('id, title, due_at, assigned_to_user_id, group_conversation_id, type, owner_user_id, meta')
+        .select(SELECT_AFTER_TRANSITION)
         .single();
 
-    if (error) throw error;
+    if (result.error) throw result.error;
+    data = result.data;
+
+    if (transitionEvent) {
+        await recordCommitmentEvent({
+            commitmentId: id,
+            actorUserId: userId,
+            eventType: transitionEvent.event_type,
+            previousStatus: transitionEvent.previous_status,
+            newStatus: transitionEvent.new_status,
+            payload: transitionEvent.payload,
+        });
+    } else if (updates.due_at !== undefined && updates.due_at !== oldCommitment?.due_at) {
+        // Reprogramacion directa (no negociada) de un compromiso ya
+        // aceptado: distinto de counter_propose, se registra como
+        // 'rescheduled'.
+        await recordCommitmentEvent({
+            commitmentId: id,
+            actorUserId: userId,
+            eventType: 'rescheduled',
+            previousStatus: snapshot?.status ?? null,
+            newStatus: snapshot?.status ?? null,
+            payload: { previousDueAt: oldCommitment?.due_at ?? null, newDueAt: updates.due_at },
+        });
+    }
 
     if (data && (updates.title || updates.due_at || updates.assigned_to_user_id)) {
         const userName = await getUserName(userId);
         let detail = '';
         const finalType = (data.type === 'meeting' || isTitleMeeting(updates.title || data.title)) ? 'la reunión' : 'la tarea';
-        
+
         let actionText = `editó ${finalType}`;
         if (updates.due_at) {
             actionText = `propuso un cambio de fecha/hora para ${finalType}`;
-        }
-        if (updates.due_at) {
             const dateObj = new Date(updates.due_at);
             const dateStr = dateObj.toLocaleString('es-CL', {
                 timeZone: 'America/Santiago',
@@ -436,10 +609,74 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
             });
             detail = `: ${dateStr}`;
         }
-        await insertSystemMessage(userId, data.group_conversation_id, `✏️ ${userName} ${actionText}${detail}`);
+        await insertSystemMessage(userId, data.conversation_id, `✏️ ${userName} ${actionText}${detail}`);
     }
 
     return data;
+};
+
+// ---------------------------------------------------------------------------
+// Lectura
+// ---------------------------------------------------------------------------
+
+export const getCommitments = async (userId: string, status?: string, conversationId?: string, isGroupTask?: boolean) => {
+    if (conversationId) {
+        await assertConversationParticipant(userId, conversationId);
+    }
+
+    let query = supabaseAdmin
+        .from('commitments')
+        .select(`
+            id,
+            title,
+            description,
+            due_at,
+            proposed_due_at,
+            status,
+            type,
+            priority,
+            expected_result,
+            next_action,
+            follow_up_at,
+            waiting_on_user_id,
+            waiting_on_contact_id,
+            rejection_reason,
+            action_completed_at,
+            resolved_at,
+            meta,
+            owner_user_id,
+            assigned_to_user_id,
+            counterparty_contact_id,
+            conversation_id,
+            message_id,
+            created_at,
+            owner:owner_user_id(id, full_name, email, avatar_url),
+            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
+        `);
+
+    if (conversationId) {
+        query = query.eq('conversation_id', conversationId);
+    } else {
+        query = query.or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`);
+    }
+
+    if (status) {
+        // Interpreta el filtro solicitado (puede venir en formato legacy de
+        // un cliente no adaptado) y filtra por el UNICO valor canonico
+        // resultante — nunca por una lista de valores legacy, porque V2
+        // nunca persiste valores legacy.
+        query = query.eq('status', normalizeCommitmentStatus(status));
+    }
+
+    if (isGroupTask === true) {
+        query = query.is('assigned_to_user_id', null).not('conversation_id', 'is', null);
+    } else if (isGroupTask === false) {
+        query = query.not('assigned_to_user_id', 'is', null);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
 };
 
 export const deleteCommitment = async (userId: string, id: string) => {
@@ -484,7 +721,7 @@ export const checkConflict = async (userId: string, dueAt: string, excludeId?: s
     let query = supabaseAdmin
         .from('commitments')
         .select('id, title, due_at, type')
-        .eq('status', 'accepted')
+        .in('status', ['proposed', 'accepted', 'counter_proposal'])
         .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
         .gte('due_at', startRange)
         .lte('due_at', endRange);

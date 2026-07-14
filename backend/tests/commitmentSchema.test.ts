@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createCommitmentSchema, updateCommitmentSchema } from '../src/schemas/commitment.schema';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
+const VALID_UUID_2 = '22222222-2222-4222-8222-222222222222';
 
 describe('createCommitmentSchema', () => {
     it('acepta un compromiso válido con solo título', async () => {
@@ -52,6 +53,41 @@ describe('createCommitmentSchema', () => {
         });
         expect(result.success).toBe(false);
     });
+
+    it('acepta conversation_id (campo canonico V2)', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: { title: 'Comprar pan', conversation_id: VALID_UUID },
+        });
+        expect(result.success).toBe(true);
+    });
+
+    it('sigue aceptando group_conversation_id como alias de entrada legacy (mobile actual)', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: { title: 'Comprar pan', group_conversation_id: VALID_UUID },
+        });
+        expect(result.success).toBe(true);
+    });
+
+    it('rechaza assigned_to_user_id y counterparty_contact_id simultaneos (mutuamente excluyentes)', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: { title: 'Comprar pan', assigned_to_user_id: VALID_UUID, counterparty_contact_id: VALID_UUID_2 },
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it('acepta counterparty_contact_id solo (sin assigned_to_user_id)', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: { title: 'Comprar pan', counterparty_contact_id: VALID_UUID_2 },
+        });
+        expect(result.success).toBe(true);
+    });
+
+    it('rechaza un type distinto de task/meeting', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: { title: 'Comprar pan', type: 'reminder' },
+        });
+        expect(result.success).toBe(false);
+    });
 });
 
 describe('updateCommitmentSchema', () => {
@@ -88,5 +124,21 @@ describe('updateCommitmentSchema', () => {
             body: { rejection_reason: 'No pude asistir' },
         });
         expect(result.success).toBe(true);
+    });
+
+    it('acepta proposed_due_at como fecha ISO valida', async () => {
+        const result = await updateCommitmentSchema.safeParseAsync({
+            params: { id: VALID_UUID },
+            body: { proposed_due_at: '2026-08-01T10:00:00-03:00' },
+        });
+        expect(result.success).toBe(true);
+    });
+
+    it('rechaza proposed_due_at con formato invalido', async () => {
+        const result = await updateCommitmentSchema.safeParseAsync({
+            params: { id: VALID_UUID },
+            body: { proposed_due_at: 'no-es-una-fecha' },
+        });
+        expect(result.success).toBe(false);
     });
 });

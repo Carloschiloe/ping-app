@@ -12,12 +12,14 @@ import * as insightsController from '../controllers/insights.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import * as agoraController from '../controllers/agora.controller';
 import * as operationController from '../controllers/operation.controller';
+import * as contactController from '../controllers/contact.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
+import * as contactSchema from '../schemas/contact.schema';
 
 export const router = Router();
 
@@ -81,14 +83,26 @@ router.get('/commitments/check-conflict', requireAuth, commitmentController.chec
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
 router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);
-router.post('/commitments/:id/reject', requireAuth, commitmentController.rejectCommitment);
-router.post('/commitments/:id/postpone', requireAuth, commitmentController.postponeCommitment);
+router.post('/commitments/:id/reject', requireAuth, validateRequest(commitmentSchema.rejectCommitmentSchema), commitmentController.rejectCommitment);
+router.post('/commitments/:id/postpone', requireAuth, validateRequest(commitmentSchema.postponeCommitmentSchema), commitmentController.postponeCommitment);
+router.post('/commitments/:id/counter-propose', requireAuth, validateRequest(commitmentSchema.counterProposeCommitmentSchema), commitmentController.counterProposeCommitment);
+router.post('/commitments/:id/action-completed', requireAuth, commitmentController.markActionCompleted);
+router.post('/commitments/:id/resolve', requireAuth, commitmentController.resolveCommitment);
+router.post('/commitments/:id/cancel', requireAuth, commitmentController.cancelCommitment);
+router.post('/commitments/:id/reopen', requireAuth, commitmentController.reopenCommitment);
+router.post('/commitments/:id/reassign', requireAuth, validateRequest(commitmentSchema.reassignCommitmentSchema), commitmentController.reassignCommitment);
+router.post('/commitments/:id/follow-up', requireAuth, validateRequest(commitmentSchema.scheduleFollowUpSchema), commitmentController.scheduleFollowUp);
 router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
 router.post('/commitments/:id/operation-action', requireAuth, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
-router.patch('/commitments/:id', requireAuth, commitmentController.updateCommitment);
+router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 
 router.patch('/operation-checklist-run-items/:id/toggle', requireAuth, validateRequest(operationSchema.toggleChecklistItemSchema), operationController.toggleChecklistItem);
+
+// Contactos externos (contraparte de un commitment sin cuenta en Ping)
+router.post('/contacts', requireAuth, validateRequest(contactSchema.createContactSchema), contactController.createContact);
+router.get('/contacts', requireAuth, contactController.getContacts);
+router.get('/contacts/:id', requireAuth, validateRequest(contactSchema.getContactSchema), contactController.getContact);
 
 // Search
 router.get('/search', requireAuth, searchController.search);
