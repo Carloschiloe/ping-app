@@ -4,10 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import { useConversationGroupTasks } from '../api/queries';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { getStatusLabel } from '../utils/commitmentDisplay';
 import { useAppTheme } from '../theme/ThemeContext';
 import type { TaskHistoryScreenProps } from '../navigation/types';
 
-type StatusFilter = 'all' | 'completed' | 'pending' | 'rejected';
+type StatusFilter = 'all' | 'resolved' | 'pending' | 'rejected';
 
 function formatShortDate(iso?: string | null) {
     if (!iso) return '';
@@ -45,11 +46,11 @@ export default function TaskHistoryScreen() {
         const q = query.trim().toLowerCase();
         return tasks.filter((t: any) => {
             const normalized = normalizeCommitmentStatus(t.status);
-            const isCompleted = normalized === 'completed';
+            const isCompleted = normalized === 'resolved';
             const isRejected = normalized === 'rejected';
-            const isPending = normalized === 'proposed' || normalized === 'accepted';
+            const isPending = normalized === 'proposed' || normalized === 'accepted' || normalized === 'counter_proposal';
 
-            if (statusFilter === 'completed' && !isCompleted) return false;
+            if (statusFilter === 'resolved' && !isCompleted) return false;
             if (statusFilter === 'rejected' && !isRejected) return false;
             if (statusFilter === 'pending' && !isPending) return false;
 
@@ -66,7 +67,7 @@ export default function TaskHistoryScreen() {
 
     const renderItem = ({ item }: { item: any }) => {
         const normalized = normalizeCommitmentStatus(item.status);
-        const isCompleted = normalized === 'completed';
+        const isCompleted = normalized === 'resolved';
         const isRejected = normalized === 'rejected';
         const assigneeName = item.assignee?.full_name || 'Sin responsable';
         const completedAt = item.meta?.operational?.completed_at || item.updated_at || item.created_at;
@@ -79,7 +80,7 @@ export default function TaskHistoryScreen() {
                     <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
                     <View style={[styles.statusPill, isCompleted && styles.statusPillDone, isRejected && styles.statusPillRejected]}>
                         <Text style={[styles.statusPillText, isCompleted && styles.statusPillTextDone, isRejected && styles.statusPillTextRejected]}>
-                            {normalized === 'accepted' ? 'En curso' : normalized === 'proposed' ? 'Pendiente' : normalized === 'completed' ? 'Completada' : 'Rechazada'}
+                            {getStatusLabel(normalized)}
                         </Text>
                     </View>
                 </View>
@@ -107,7 +108,7 @@ export default function TaskHistoryScreen() {
                 {([
                     { key: 'all', label: 'Todas' },
                     { key: 'pending', label: 'Pendientes' },
-                    { key: 'completed', label: 'Completadas' },
+                    { key: 'resolved', label: 'Resueltas' },
                     { key: 'rejected', label: 'Rechazadas' },
                 ] as const).map((f) => (
                     <TouchableOpacity

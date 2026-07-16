@@ -383,9 +383,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onClose={() => setSuggestionModalVisible(false)}
                     onUpdateData={setSuggestionData}
                     onConfirm={async () => {
-                        await createCommitment({ 
-                            ...suggestionData, 
-                            group_conversation_id: conversationId 
+                        await createCommitment({
+                            ...suggestionData,
+                            conversation_id: conversationId
                         });
                         // Force refresh of messages to show system message
                         queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });

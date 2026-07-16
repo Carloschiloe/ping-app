@@ -473,17 +473,22 @@ export default function ChatInfoScreen() {
                         <Text style={[styles.modeBtnText, conversationMode === 'chat' && styles.modeBtnTextActive]}>Chat</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[styles.modeBtn, conversationMode === 'operation' && styles.modeBtnActive]}
-                        disabled={isUpdatingMode}
-                        onPress={() => updateConversationMode('operation')}
+                        style={[styles.modeBtn, conversationMode === 'operation' && styles.modeBtnActive, { opacity: 0.5 }]}
+                        disabled
+                        onPress={() => { }}
                     >
-                        <Text style={[styles.modeBtnText, conversationMode === 'operation' && styles.modeBtnTextActive]}>Operación</Text>
+                        <Text style={[styles.modeBtnText, conversationMode === 'operation' && styles.modeBtnTextActive]}>Operación (Próximamente)</Text>
                     </TouchableOpacity>
                 </View>
                 <Text style={styles.modeHelpText}>
+                    {/* V2: el modulo Operacion todavia no fue adaptado al esquema V2
+                        (operation.service.ts referencia una columna que ya no existe).
+                        Se oculta la posibilidad de activarlo desde esta fase para
+                        evitar que la prueba en Expo Go entre a pantallas rotas —
+                        ver informe de esta fase, Parte 17. */}
                     {conversationMode === 'operation'
-                        ? 'Activa fijado, checklist, ubicación y resumen de turno sobre el chat.'
-                        : 'Mantiene el chat limpio, sin capa operativa extra.'}
+                        ? 'Este chat ya estaba en modo Operación. Esa capa todavía no está adaptada al nuevo esquema — evita usar checklist/ubicación/resumen de turno por ahora.'
+                        : 'Mantiene el chat limpio, sin capa operativa extra. El modo Operación está temporalmente deshabilitado mientras se adapta al nuevo esquema.'}
                 </Text>
             </View>
 

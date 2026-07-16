@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { deriveIsGroup } from '../utils/conversationCompat';
+import { resolveMessageMetadata } from '../utils/messageCompat';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
 
@@ -28,11 +30,11 @@ type ConversationRowProps = {
 };
 
 export function ConversationRow({ item, userId, typingUsers, onPress, formatTime, isOnline, styles, theme }: ConversationRowProps) {
-    const isGroup = item.isGroup;
+    const isGroup = deriveIsGroup(item);
     const otherUser = item.otherUser;
     const groupMeta = item.groupMetadata;
     const lastMsg = item.lastMessage;
-    const isSystem = lastMsg?.meta?.isSystem;
+    const isSystem = resolveMessageMetadata(lastMsg)?.isSystem;
     const isByMe = lastMsg && lastMsg.sender_id === userId;
     const unreadCount = item.unreadCount || 0;
     const isUnread = unreadCount > 0;

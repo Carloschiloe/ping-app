@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
+import { useContacts, useCreateContact } from '../api/queries';
 
 interface AISuggestionModalProps {
     visible: boolean;
@@ -35,6 +36,27 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
     const [showPicker, setShowPicker] = useState(false);
     const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+    const { data: myContacts } = useContacts();
+    const { mutateAsync: createContact, isPending: isCreatingContact } = useCreateContact();
+
+    const handleCreateContact = () => {
+        Alert.prompt(
+            'Nuevo contacto',
+            'Nombre del contacto (sin cuenta en Ping):',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Crear',
+                    onPress: async (name?: string) => {
+                        if (!name?.trim()) return;
+                        const contact = await createContact({ display_name: name.trim() });
+                        onUpdateData({ ...suggestionData, counterpartyContactId: contact.id, assignedToUserId: null });
+                    },
+                },
+            ],
+            'plain-text'
+        );
+    };
 
     const checkConflicts = React.useCallback(async () => {
         try {
@@ -95,11 +117,14 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const typeLabel = isMeeting ? 'REUNIÓN' : 'TAREA';
 
     const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
-    const assigneeName = suggestionData.assignedToUserId === null
-        ? 'Todos'
-        : suggestionData.assignedToUserId === user?.id
-            ? 'Para ti'
-            : (currentAssignee?.full_name || 'Sin asignar');
+    const currentContact = (myContacts || []).find((c: any) => c.id === suggestionData.counterpartyContactId);
+    const assigneeName = suggestionData.counterpartyContactId
+        ? (currentContact?.display_name || 'Contacto externo')
+        : suggestionData.assignedToUserId === null
+            ? 'Todos'
+            : suggestionData.assignedToUserId === user?.id
+                ? 'Para ti'
+                : (currentAssignee?.full_name || 'Sin asignar');
 
     // Safe date parsing
     const dateObj = new Date(suggestionData.dueAt);
@@ -194,19 +219,19 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
                                     {isGroup && (
                                         <TouchableOpacity
-                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === null && styles.assigneeOptionActive]}
-                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: null })}
+                                            style={[styles.assigneeOption, suggestionData.assignedToUserId === null && !suggestionData.counterpartyContactId && styles.assigneeOptionActive]}
+                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: null, counterpartyContactId: null })}
                                         >
                                             <View style={[styles.assigneeAvatar, { backgroundColor: '#10b981' }]}>
                                                 <Ionicons name="people" size={24} color="white" />
                                             </View>
-                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && styles.assigneeTextActive]}>Todos</Text>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && !suggestionData.counterpartyContactId && styles.assigneeTextActive]}>Todos</Text>
                                         </TouchableOpacity>
                                     )}
 
                                     <TouchableOpacity
                                         style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
-                                        onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id })}
+                                        onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id, counterpartyContactId: null })}
                                     >
                                         <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? '#8b5cf6' : '#6366f1' }]}>
                                             <Text style={styles.assigneeAvatarText}>Yo</Text>
@@ -218,7 +243,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         <TouchableOpacity
                                             key={p.id}
                                             style={[styles.assigneeOption, suggestionData.assignedToUserId === p.id && styles.assigneeOptionActive]}
-                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: p.id })}
+                                            onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: p.id, counterpartyContactId: null })}
                                         >
                                             <View style={[styles.assigneeAvatar, { backgroundColor: avatarColor(p.email) }]}>
                                                 <Text style={styles.assigneeAvatarText}>{p.full_name?.substring(0, 1).toUpperCase() || p.email[0].toUpperCase()}</Text>
@@ -230,6 +255,33 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     )) : (
                                         <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
                                     )}
+
+                                    {/* Parte 12: contraparte externa sin cuenta en Ping (tabla contacts). */}
+                                    {(myContacts || []).map((c: any) => (
+                                        <TouchableOpacity
+                                            key={c.id}
+                                            style={[styles.assigneeOption, suggestionData.counterpartyContactId === c.id && styles.assigneeOptionActive]}
+                                            onPress={() => onUpdateData({ ...suggestionData, counterpartyContactId: c.id, assignedToUserId: null })}
+                                        >
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: '#f59e0b' }]}>
+                                                <Text style={styles.assigneeAvatarText}>{c.display_name?.substring(0, 1).toUpperCase() || '?'}</Text>
+                                            </View>
+                                            <Text style={[styles.assigneeOptionText, suggestionData.counterpartyContactId === c.id && styles.assigneeTextActive]} numberOfLines={1}>
+                                                {c.display_name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+
+                                    <TouchableOpacity
+                                        style={styles.assigneeOption}
+                                        onPress={handleCreateContact}
+                                        disabled={isCreatingContact}
+                                    >
+                                        <View style={[styles.assigneeAvatar, { backgroundColor: '#e2e8f0' }]}>
+                                            <Ionicons name="person-add" size={20} color="#64748b" />
+                                        </View>
+                                        <Text style={styles.assigneeOptionText}>Contacto{'\n'}nuevo</Text>
+                                    </TouchableOpacity>
                                 </ScrollView>
                             </View>
 
@@ -240,9 +292,13 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup ? (suggestionData.assignedToUserId === undefined && { opacity: 0.5 }) : (!suggestionData.assignedToUserId && { opacity: 0.5 }))]}
+                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup
+                                ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId && { opacity: 0.5 })
+                                : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
                             onPress={onConfirm}
-                            disabled={isGroup ? (suggestionData.assignedToUserId === undefined) : !suggestionData.assignedToUserId}
+                            disabled={isGroup
+                                ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId)
+                                : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId)}
                         >
                             <Text style={styles.acceptBtnText}>
                                 {isEditing ? `Guardar Cambios` : `¡Agendar ${isMeeting ? 'Reunión' : 'Tarea'}!`}

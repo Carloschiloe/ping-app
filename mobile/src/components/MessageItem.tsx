@@ -57,15 +57,20 @@ const MessageItemComponent = ({
         );
     }
 
-    const isSystem = item.meta?.isSystem;
+    // V2: preferir content/metadata (columnas reales); text/meta se
+    // conservan como fallback del alias temporal del backend (ver
+    // backend/src/utils/messageCompat.ts). Retirar el fallback cuando el
+    // backend deje de exponer text/meta.
+    const meta = item.metadata ?? item.meta ?? {};
+    const isSystem = meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
     const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
-    const msgText: string = item.text || '';
+    const msgText: string = item.content ?? item.text ?? '';
 
     if (isSystem) {
-        const completion = item.meta?.operationCompletion;
-        if (item.meta?.messageType === 'operation_completion' && completion) {
+        const completion = meta?.operationCompletion;
+        if (meta?.messageType === 'operation_completion' && completion) {
             const outcomeMap: Record<string, string> = {
                 resolved: 'Resuelto',
                 pending_followup: 'Queda pendiente',
@@ -117,7 +122,7 @@ const MessageItemComponent = ({
     const isAudio = trimmedText.startsWith('[audio]');
     let isVideo = trimmedText.startsWith('[video]');
     const isDocument = trimmedText.startsWith('[document=');
-    const isLocationShare = item.meta?.messageType === 'location_share';
+    const isLocationShare = meta?.messageType === 'location_share';
 
     let mediaUrl = null;
     let documentName = '';
@@ -265,7 +270,7 @@ const MessageItemComponent = ({
                                     })()}
                                 </Text>
                                 <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: theme.colors.text.secondary }]} numberOfLines={1}>
-                                    {item.reply_to.text || 'Sin texto'}
+                                    {item.reply_to.content ?? item.reply_to.text ?? 'Sin texto'}
                                 </Text>
                             </View>
                         )}
@@ -327,7 +332,7 @@ const MessageItemComponent = ({
                             <TouchableOpacity
                                 style={styles.locationCard}
                                 onPress={async () => {
-                                    const location = item.meta?.location;
+                                    const location = meta?.location;
                                     if (!location?.latitude || !location?.longitude) return;
                                     const nativeUrl = buildMapUrl(location.latitude, location.longitude);
                                     const googleUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
@@ -341,7 +346,7 @@ const MessageItemComponent = ({
                                 </View>
                                 <View style={{ flex: 1 }}>
                                     <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '700' }]} numberOfLines={1}>
-                                        {item.meta?.location?.label || 'Ubicacion compartida'}
+                                        {meta?.location?.label || 'Ubicacion compartida'}
                                     </Text>
                                     <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2 }]}>Abrir en mapa</Text>
                                 </View>
@@ -396,7 +401,7 @@ const MessageItemComponent = ({
                         </View>
                     )}
                     {/* ─── AI Suggestion Chip ─── */}
-                    {item.meta?.suggestedTask && (
+                    {meta?.suggestedTask && (
                         <TouchableOpacity
                             style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
                             onPress={() => {
@@ -406,7 +411,7 @@ const MessageItemComponent = ({
                         >
                             <Text style={styles.suggestionIcon}>✨</Text>
                             <Text style={styles.suggestionText} numberOfLines={1}>
-                                ¿Agendar: {item.meta.suggestedTask.title}?
+                                ¿Agendar: {meta.suggestedTask.title}?
                             </Text>
                         </TouchableOpacity>
                     )}

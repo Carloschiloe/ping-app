@@ -14,7 +14,7 @@ import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { useAppTheme } from '../theme/ThemeContext';
 
 type FilterType = 'todo' | 'delegated';
-type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'completed';
+type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'resolved';
 
 export default function TaskDashboardScreen() {
     const { theme } = useAppTheme();
@@ -90,7 +90,7 @@ export default function TaskDashboardScreen() {
                 if (statusFilter === 'proposed' && normalizedStatus !== 'proposed') return false;
                 if (statusFilter === 'accepted' && normalizedStatus !== 'accepted') return false;
                 if (statusFilter === 'rejected' && normalizedStatus !== 'rejected') return false;
-                if (statusFilter === 'completed' && normalizedStatus !== 'completed') return false;
+                if (statusFilter === 'resolved' && normalizedStatus !== 'resolved') return false;
             }
             return true;
         });
@@ -144,7 +144,7 @@ export default function TaskDashboardScreen() {
             const normalizedStatus = normalizeCommitmentStatus(item.status);
             if (normalizedStatus === 'proposed') pending += 1;
             if (normalizedStatus === 'accepted') inProgress += 1;
-            if (item.due_at && new Date(item.due_at) < now && !['completed', 'rejected'].includes(normalizedStatus)) {
+            if (item.due_at && new Date(item.due_at) < now && !['resolved', 'rejected', 'cancelled'].includes(normalizedStatus)) {
                 overdue += 1;
             }
         });
@@ -371,7 +371,7 @@ export default function TaskDashboardScreen() {
                     <StatusChip label="Todas" value="all" icon="layers-outline" />
                     <StatusChip label="Nuevas" value="proposed" icon="mail-unread-outline" />
                     <StatusChip label="Activas" value="accepted" icon="flash-outline" />
-                    <StatusChip label="Completas" value="completed" icon="checkmark-circle-outline" />
+                    <StatusChip label="Resueltas" value="resolved" icon="checkmark-circle-outline" />
                     <StatusChip label="Rechazadas" value="rejected" icon="close-circle-outline" />
                 </ScrollView>
             </View>

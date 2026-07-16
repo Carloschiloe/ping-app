@@ -187,7 +187,10 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 table: 'commitments'
             }, (payload: any) => {
                 const currentPayload = payload.new || payload.old;
-                if (currentPayload?.group_conversation_id === conversationId) {
+                // V2: la columna real es conversation_id (group_conversation_id
+                // nunca existio en el esquema V2 — este check en memoria nunca
+                // coincidia y las tarjetas de commitment no se actualizaban en vivo).
+                if (currentPayload?.conversation_id === conversationId) {
                     queryClient.setQueriesData({ queryKey: ['group-tasks-conv', conversationId] }, (old: any) => {
                         if (!Array.isArray(old)) return old;
                         const exists = old.some((task: any) => task.id === currentPayload.id);
@@ -232,7 +235,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         if (!messages || messages.length === 0 || !user || !isFocused) return;
 
         const hasUnread = messages.some((msg: any) => {
-            const isSystem = msg.meta?.isSystem;
+            const isSystem = (msg.metadata ?? msg.meta)?.isSystem;
             const isMe = msg.sender_id === user.id;
             return !isMe && !isSystem && msg.status !== 'read';
         });
@@ -247,7 +250,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         if (!messages || messages.length === 0 || !user) return;
 
         messages.forEach((msg: any) => {
-            const isSystem = msg.meta?.isSystem;
+            const isSystem = (msg.metadata ?? msg.meta)?.isSystem;
             const isMe = msg.sender_id === user.id;
             if (isMe || isSystem) return;
             if (msg.status !== 'sent') return;

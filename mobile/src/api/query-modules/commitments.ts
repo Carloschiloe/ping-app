@@ -9,6 +9,9 @@ export const useReactToMessage = (conversationId: string) => {
     const { user } = useAuth();
 
     return useMutation({
+        // V2: la columna real de message_reactions es `reaction` (antes
+        // `emoji`). El parametro del hook se mantiene como `emoji` para no
+        // tocar los componentes que lo llaman (ReactionsModal, MessageItem).
         mutationFn: async ({ messageId, emoji }: { messageId: string, emoji: string }) => {
             if (!user) return;
             const { data: existing } = await supabase
@@ -16,7 +19,7 @@ export const useReactToMessage = (conversationId: string) => {
                 .select('*')
                 .eq('message_id', messageId)
                 .eq('user_id', user.id)
-                .eq('emoji', emoji)
+                .eq('reaction', emoji)
                 .single();
 
             if (existing) {
@@ -25,7 +28,7 @@ export const useReactToMessage = (conversationId: string) => {
                 await supabase.from('message_reactions').insert({
                     message_id: messageId,
                     user_id: user.id,
-                    emoji,
+                    reaction: emoji,
                 });
             }
         },
@@ -137,12 +140,108 @@ export const useUpdateCommitment = () => {
     });
 };
 
+// Alias de compatibilidad: el backend traduce status:'completed' a la
+// transicion real 'resolve' (ver backend/src/services/commitment.service.ts
+// mapRequestedStatusToAction). Preferir useResolveCommitment en UI nueva.
 export const useMarkCommitmentDone = () => {
     const { mutate, isPending } = useUpdateCommitmentStatus();
     return {
         mutate: (id: string) => mutate({ id, status: 'completed' }),
         isPending
     };
+};
+
+function useCommitmentLifecycleInvalidation() {
+    const queryClient = useQueryClient();
+    return () => {
+        queryClient.invalidateQueries({ queryKey: ['insights'] });
+        queryClient.invalidateQueries({ queryKey: ['commitments'] });
+        queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+        queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+    };
+}
+
+// Ciclo de vida V2 (ver backend/src/routes/index.ts): estas llamadas usan
+// los endpoints dedicados directamente en vez de pasar por el alias de
+// compatibilidad de PATCH /commitments/:id.
+export const useResolveCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/resolve`, {}),
+        onSuccess: invalidate,
+    });
+};
+
+export const useCancelCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/cancel`, {}),
+        onSuccess: invalidate,
+    });
+};
+
+export const useReopenCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/reopen`, {}),
+        onSuccess: invalidate,
+    });
+};
+
+export const useMarkActionCompleted = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/action-completed`, {}),
+        onSuccess: invalidate,
+    });
+};
+
+export const useCounterProposeCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async ({ id, proposedDueAt }: { id: string, proposedDueAt: string }) =>
+            apiClient.post(`/commitments/${id}/counter-propose`, { proposedDueAt }),
+        onSuccess: invalidate,
+    });
+};
+
+export const useReassignCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async ({ id, assigned_to_user_id, counterparty_contact_id }: { id: string, assigned_to_user_id?: string | null, counterparty_contact_id?: string | null }) =>
+            apiClient.post(`/commitments/${id}/reassign`, { assigned_to_user_id, counterparty_contact_id }),
+        onSuccess: invalidate,
+    });
+};
+
+export const useScheduleFollowUp = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async ({ id, followUpAt, nextAction, waitingOnUserId, waitingOnContactId }: { id: string, followUpAt: string, nextAction?: string | null, waitingOnUserId?: string | null, waitingOnContactId?: string | null }) =>
+            apiClient.post(`/commitments/${id}/follow-up`, { followUpAt, nextAction, waitingOnUserId, waitingOnContactId }),
+        onSuccess: invalidate,
+    });
+};
+
+// Contactos externos (contraparte de un commitment sin cuenta en Ping).
+export const useContacts = () => {
+    return useQuery({
+        queryKey: ['contacts'],
+        queryFn: async () => apiClient.get('/contacts'),
+    });
+};
+
+export const useCreateContact = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { display_name: string; phone?: string | null; email?: string | null }) =>
+            apiClient.post('/contacts', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['contacts'] });
+        },
+    });
 };
 
 export const useDeleteCommitment = () => {
@@ -170,9 +269,13 @@ export const useConversationGroupTasks = (conversationId: string | null) => {
 
     useEffect(() => {
         if (!conversationId) return;
+        // V2: la columna real de commitments es conversation_id
+        // (group_conversation_id nunca existio en el esquema V2 — un filtro
+        // de Realtime de Supabase se evalua contra la columna de Postgres,
+        // asi que con el nombre viejo este canal nunca disparaba).
         const channel = supabase
             .channel(`group-tasks-${conversationId}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'commitments', filter: `group_conversation_id=eq.${conversationId}` }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'commitments', filter: `conversation_id=eq.${conversationId}` }, () => {
                 queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
             })
