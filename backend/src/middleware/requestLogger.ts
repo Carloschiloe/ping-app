@@ -6,7 +6,9 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     res.on('finish', () => {
         const durationMs = Date.now() - start;
         const requestId = (req as any).requestId || '-';
-        const path = req.originalUrl || req.url;
+        // Never log query strings: searches, OAuth callbacks and other URLs
+        // may contain personal data, authorization codes or signed state.
+        const path = req.path;
 
         console.info(`[request] ${requestId} ${req.method} ${path} ${res.statusCode} ${durationMs}ms`);
     });

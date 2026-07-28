@@ -31,7 +31,7 @@ async function findMedia() {
         if (messages && messages.length > 0) {
             messages.forEach(m => {
                  if (m.text.includes('imagen') || m.text.includes('audio') || m.text.includes('video') || m.text.includes('document')) {
-                     console.log(`  Found media: ${m.text.substring(0, 100)} (ID: ${m.id})`);
+                     console.log(`  Found media: [content redacted] (ID: ${m.id})`);
                  }
             });
         } else {

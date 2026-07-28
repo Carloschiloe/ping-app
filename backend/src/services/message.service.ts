@@ -3,25 +3,10 @@ import { extractCommitment, transcribeAudio } from './ai.service';
 import { parseDateFromText } from './date-parser.service';
 import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
-import axios from 'axios';
-import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { toLegacyMessageShape, toLegacyMessageListShape } from '../utils/messageCompat';
-
-async function downloadFile(url: string, targetPath: string) {
-    const writer = fs.createWriteStream(targetPath);
-    const response = await axios({
-        url,
-        method: 'GET',
-        responseType: 'stream'
-    });
-    response.data.pipe(writer);
-    return new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-    });
-}
+import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
 
 export const processUserMessage = async (
     userId: string,
@@ -38,17 +23,19 @@ export const processUserMessage = async (
     // 1. Handle Multimedia (Audio/Image/Video/Document)
     if (text.startsWith('[audio]')) {
         const audioUrl = text.slice(7);
+        let tempFile: string | undefined;
         try {
-            const tempFile = path.join(os.tmpdir(), `ping_audio_${Date.now()}.m4a`);
-            await downloadFile(audioUrl, tempFile);
+            tempFile = path.join(os.tmpdir(), `ping_audio_${Date.now()}_${userId}.m4a`);
+            await downloadTrustedStorageFile(audioUrl, tempFile);
             const transcript = await transcribeAudio(tempFile);
             if (transcript) {
                 processingText = transcript;
                 meta.transcript = transcript;
             }
-            fs.unlinkSync(tempFile);
         } catch (err) {
-            console.error('[Audio Processing] Failed:', err);
+            console.warn('[Audio Processing] Rejected or failed');
+        } finally {
+            await removeTemporaryFile(tempFile);
         }
     } else if (text.startsWith('[imagen]')) {
         const parts = text.split(' ');
@@ -161,7 +148,7 @@ export const analyzeAndSuggestTask = async (
                 replyText: ai.replyText
             };
 
-            console.log(`[AI] Saving suggestion to message ${messageId}: ${ai.title}`);
+            console.info(`[AI] Saving a suggestion for message ${messageId}`);
 
             // Fetch current metadata to avoid overwriting (e.g. transcript or image info)
             const { data: currentMsg } = await supabaseAdmin

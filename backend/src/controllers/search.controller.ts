@@ -4,6 +4,7 @@ import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup } from '../utils/conversationCompat';
 import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
 import { isCanonicalCommitmentStatus, normalizeCommitmentStatus, tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { getSharedProfileIds } from '../utils/authz';
 
 const COMMITMENT_SELECT = `
     id, title, description, due_at, proposed_due_at, status, type, priority,
@@ -131,6 +132,16 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
+        const searchTerm = q.trim();
+        if (
+            searchTerm.length < 2
+            || searchTerm.length > 100
+            || !/^[\p{L}\p{N}\s@._+\-]+$/u.test(searchTerm)
+        ) {
+            res.status(400).json({ error: 'Search query contains unsupported characters' });
+            return;
+        }
+
         // 1. Get user's conversation IDs
         const { data: participations } = await supabaseAdmin
             .from('conversation_participants')
@@ -148,7 +159,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
                 sender:profiles!messages_sender_id_fkey(full_name, avatar_url, email)
             `)
             .in('conversation_id', convIds)
-            .ilike('content', `%${q}%`)
+            .ilike('content', `%${searchTerm}%`)
             .order('created_at', { ascending: false })
             .limit(30);
 
@@ -157,17 +168,22 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         // 3. Search commitments: title/description/expected_result/next_action,
         // contraparte (usuario o contacto externo), status V2, fecha, y
         // mensaje de origen. Nunca busca dentro de `meta`.
-        const commitmentsById = new Map<string, any>((await searchCommitmentsV2(userId, q)).map((c: any) => [c.id, c]));
+        const commitmentsById = new Map<string, any>((await searchCommitmentsV2(userId, searchTerm)).map((c: any) => [c.id, c]));
 
-        // 4. Search Profiles (Contacts)
-        const { data: profiles, error: profError } = await supabaseAdmin
-            .from('profiles')
-            .select('id, full_name, email, avatar_url')
-            .neq('id', userId)
-            .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
-            .limit(20);
-
-        if (profError) throw profError;
+        // 4. Search Profiles only inside the user's already-authorized
+        // conversation scope. Service role must not expose a global directory.
+        const sharedProfileIds = await getSharedProfileIds(userId);
+        let profiles: any[] = [];
+        if (sharedProfileIds.length > 0) {
+            const { data, error: profError } = await supabaseAdmin
+                .from('profiles')
+                .select('id, full_name, email, avatar_url')
+                .in('id', sharedProfileIds)
+                .or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
+                .limit(20);
+            if (profError) throw profError;
+            profiles = data || [];
+        }
 
         // 5. Search Conversations (Group Names)
         // V2: conversation_type reemplaza is_group.
@@ -176,7 +192,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             .select('id, name, avatar_url, conversation_type')
             .in('id', convIds)
             .eq('conversation_type', 'group')
-            .ilike('name', `%${q}%`)
+            .ilike('name', `%${searchTerm}%`)
             .limit(20);
 
         if (convError) throw convError;
@@ -202,7 +218,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         res.status(200).json({
             messages: toLegacyMessageListShape(messages),
             commitments: toLegacyCommitmentListShape(Array.from(commitmentsById.values())),
-            profiles: profiles || [],
+            profiles,
             conversations: conversationsCompat
         });
     } catch (error: any) {

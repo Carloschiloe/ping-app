@@ -1,10 +1,14 @@
 import { NotificationService } from '../services/notification.service';
 
 async function testPush() {
-    const tokens = [
-        "ExponentPushToken[p9DJ_nLt2tNIoL7JTM30VW]",
-        "ExponentPushToken[onZkIsH3tHTHdiS7wIz_JU]"
-    ];
+    const tokens = (process.env.EXPO_TEST_PUSH_TOKENS || '')
+        .split(',')
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+    if (tokens.length === 0) {
+        throw new Error('EXPO_TEST_PUSH_TOKENS must contain at least one test token');
+    }
 
     console.log("Sending test push to both accounts...");
 

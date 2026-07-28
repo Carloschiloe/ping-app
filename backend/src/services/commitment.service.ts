@@ -265,7 +265,7 @@ async function insertSystemMessage(userId: string, conversationId: string | null
         return;
     }
     try {
-        console.log(`[Commitment Service] Inserting system message: "${text}" into conversation ${conversationId}`);
+        console.info(`[Commitment Service] Inserting a system message into conversation ${conversationId}`);
         // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
         const { error } = await supabaseAdmin.from('messages').insert({
             conversation_id: conversationId,

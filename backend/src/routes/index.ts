@@ -20,8 +20,12 @@ import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
+import { requireFeature } from '../middleware/featureGate';
 
 export const router = Router();
+const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
+const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
+const callsEnabled = requireFeature('ENABLE_CALLS');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -30,7 +34,7 @@ router.get('/health', async (req, res) => {
         if (error) throw error;
         res.json({ ok: true, db_status: 'connected', timestamp: new Date().toISOString() });
     } catch (error: any) {
-        res.status(500).json({ ok: false, error: 'Database connection failed', details: error.message });
+        res.status(500).json({ ok: false, error: 'Database connection failed' });
     }
 });
 
@@ -52,15 +56,15 @@ router.get('/conversations/:id/messages', requireAuth, conversationController.ge
 router.get('/conversations/:id/media', requireAuth, conversationController.getConversationMedia);
 router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
-router.get('/conversations/:id/operation-state', requireAuth, operationController.getConversationOperationState);
-router.patch('/conversations/:id/mode', requireAuth, validateRequest(operationSchema.updateConversationModeSchema), operationController.updateConversationMode);
-router.patch('/conversations/:id/pin', requireAuth, validateRequest(operationSchema.setPinnedMessageSchema), operationController.setPinnedMessage);
-router.patch('/conversations/:id/active-commitment', requireAuth, validateRequest(operationSchema.setActiveCommitmentSchema), operationController.setActiveCommitment);
-router.post('/conversations/:id/checklists', requireAuth, validateRequest(operationSchema.saveChecklistSchema), operationController.saveChecklistTemplate);
-router.post('/conversations/:id/checklists/:checklistId/duplicate', requireAuth, validateRequest(operationSchema.checklistActionSchema), operationController.duplicateChecklistTemplate);
-router.patch('/conversations/:id/checklists/:checklistId/archive', requireAuth, validateRequest(operationSchema.checklistActionSchema), operationController.archiveChecklistTemplate);
-router.patch('/conversations/:id/checklists/:checklistId/restore', requireAuth, validateRequest(operationSchema.checklistActionSchema), operationController.restoreChecklistTemplate);
-router.post('/conversations/:id/shift-reports', requireAuth, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
+router.get('/conversations/:id/operation-state', requireAuth, operationEnabled, operationController.getConversationOperationState);
+router.patch('/conversations/:id/mode', requireAuth, operationEnabled, validateRequest(operationSchema.updateConversationModeSchema), operationController.updateConversationMode);
+router.patch('/conversations/:id/pin', requireAuth, operationEnabled, validateRequest(operationSchema.setPinnedMessageSchema), operationController.setPinnedMessage);
+router.patch('/conversations/:id/active-commitment', requireAuth, operationEnabled, validateRequest(operationSchema.setActiveCommitmentSchema), operationController.setActiveCommitment);
+router.post('/conversations/:id/checklists', requireAuth, operationEnabled, validateRequest(operationSchema.saveChecklistSchema), operationController.saveChecklistTemplate);
+router.post('/conversations/:id/checklists/:checklistId/duplicate', requireAuth, operationEnabled, validateRequest(operationSchema.checklistActionSchema), operationController.duplicateChecklistTemplate);
+router.patch('/conversations/:id/checklists/:checklistId/archive', requireAuth, operationEnabled, validateRequest(operationSchema.checklistActionSchema), operationController.archiveChecklistTemplate);
+router.patch('/conversations/:id/checklists/:checklistId/restore', requireAuth, operationEnabled, validateRequest(operationSchema.checklistActionSchema), operationController.restoreChecklistTemplate);
+router.post('/conversations/:id/shift-reports', requireAuth, operationEnabled, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
 router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);
 router.post('/conversations/:id/ping', requireAuth, conversationController.pingConversation);
@@ -93,11 +97,11 @@ router.post('/commitments/:id/reopen', requireAuth, commitmentController.reopenC
 router.post('/commitments/:id/reassign', requireAuth, validateRequest(commitmentSchema.reassignCommitmentSchema), commitmentController.reassignCommitment);
 router.post('/commitments/:id/follow-up', requireAuth, validateRequest(commitmentSchema.scheduleFollowUpSchema), commitmentController.scheduleFollowUp);
 router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
-router.post('/commitments/:id/operation-action', requireAuth, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
+router.post('/commitments/:id/operation-action', requireAuth, operationEnabled, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
 router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
 
-router.patch('/operation-checklist-run-items/:id/toggle', requireAuth, validateRequest(operationSchema.toggleChecklistItemSchema), operationController.toggleChecklistItem);
+router.patch('/operation-checklist-run-items/:id/toggle', requireAuth, operationEnabled, validateRequest(operationSchema.toggleChecklistItemSchema), operationController.toggleChecklistItem);
 
 // Contactos externos (contraparte de un commitment sin cuenta en Ping)
 router.post('/contacts', requireAuth, validateRequest(contactSchema.createContactSchema), contactController.createContact);
@@ -119,18 +123,18 @@ router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage)
 router.get('/insights', requireAuth, insightsController.getInsights);
 
 // Cloud Calendar OAuth & Sync
-router.get('/calendar/auth/google', requireAuth, calendarController.getGoogleAuth);
-router.get('/calendar/auth/google/callback', calendarController.googleCallback);
-router.get('/calendar/auth/outlook', requireAuth, calendarController.getMsAuth);
-router.get('/calendar/auth/outlook/callback', calendarController.msCallback);
-router.get('/calendar/accounts', requireAuth, calendarController.listAccounts);
-router.patch('/calendar/accounts/:id', requireAuth, calendarController.updateAccount);
-router.delete('/calendar/accounts/:id', requireAuth, calendarController.disconnectAccount);
-router.post('/calendar/sync', requireAuth, calendarController.syncCommitment);
+router.get('/calendar/auth/google', requireAuth, calendarEnabled, calendarController.getGoogleAuth);
+router.get('/calendar/auth/google/callback', calendarEnabled, calendarController.googleCallback);
+router.get('/calendar/auth/outlook', requireAuth, calendarEnabled, calendarController.getMsAuth);
+router.get('/calendar/auth/outlook/callback', calendarEnabled, calendarController.msCallback);
+router.get('/calendar/accounts', requireAuth, calendarEnabled, calendarController.listAccounts);
+router.patch('/calendar/accounts/:id', requireAuth, calendarEnabled, calendarController.updateAccount);
+router.delete('/calendar/accounts/:id', requireAuth, calendarEnabled, calendarController.disconnectAccount);
+router.post('/calendar/sync', requireAuth, calendarEnabled, calendarController.syncCommitment);
 
 // Agora
-router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);
-router.post('/agora/call/notify', requireAuth, agoraController.notifyCall);
-router.post('/agora/recording/start', requireAuth, agoraController.startRecording);
-router.post('/agora/recording/:callId/stop', requireAuth, agoraController.stopRecording);
-router.get('/call', agoraController.renderCallPage);
+router.get('/agora/token/:channelName', requireAuth, callsEnabled, agoraController.getToken);
+router.post('/agora/call/notify', requireAuth, callsEnabled, agoraController.notifyCall);
+router.post('/agora/recording/start', requireAuth, callsEnabled, agoraController.startRecording);
+router.post('/agora/recording/:callId/stop', requireAuth, callsEnabled, agoraController.stopRecording);
+router.get('/call', callsEnabled, agoraController.renderCallPage);

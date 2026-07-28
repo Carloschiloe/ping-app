@@ -40,7 +40,10 @@ export function getEnvConfig(): EnvConfig {
             .split(',')
             .map((origin) => origin.trim())
             .filter(Boolean),
-        runCronJobs: process.env.RUN_CRON_JOBS !== 'false',
+        // Background automations require a separate explicit containment gate.
+        // A legacy RUN_CRON_JOBS=true value alone can no longer reactivate them.
+        runCronJobs: process.env.ENABLE_AUTOMATIONS === 'true'
+            && process.env.RUN_CRON_JOBS === 'true',
         encryptionKey: process.env.ENCRYPTION_KEY!,
     };
 }

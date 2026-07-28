@@ -111,7 +111,7 @@ export const checkDueCommitments = async () => {
  */
 export const sendPushNotification = async (pushToken: string, title: string, body: string) => {
     if (!Expo.isExpoPushToken(pushToken)) {
-        console.warn('[Push] Invalid push token:', pushToken);
+        console.warn('[Push] Invalid push token rejected');
         return;
     }
     try {

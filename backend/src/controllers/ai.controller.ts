@@ -1,26 +1,12 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from '../services/transcription.service';
 import { askPing as askPingService, summarizeConversation } from '../services/synthesis.service';
 import { analyzeAndSuggestTask } from '../services/message.service';
-import axios from 'axios';
-import fs from 'fs';
 import path from 'path';
 import os from 'os';
-
-async function downloadFile(url: string, targetPath: string) {
-    const writer = fs.createWriteStream(targetPath);
-    const response = await axios({
-        url,
-        method: 'GET',
-        responseType: 'stream'
-    });
-    response.data.pipe(writer);
-    return new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-    });
-}
+import { assertConversationParticipant } from '../utils/authz';
+import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
 
 export const askPing = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -37,18 +23,19 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
         // Detection of audio query
         if (query.startsWith('[audio]')) {
             const audioUrl = query.slice(7);
+            let tempFile: string | undefined;
             try {
-                const tempFile = path.join(os.tmpdir(), `ping_ask_audio_${Date.now()}.m4a`);
-                await downloadFile(audioUrl, tempFile);
+                tempFile = path.join(os.tmpdir(), `ping_ask_audio_${Date.now()}_${userId}.m4a`);
+                await downloadTrustedStorageFile(audioUrl, tempFile);
                 const transcript = await transcribeAudio(tempFile);
                 if (transcript) {
                     processingText = transcript;
                 }
-                fs.unlinkSync(tempFile);
             } catch (err) {
-                console.error('[AI Ask Audio] Transcription failed:', err);
-                // Fallback to error message or try to proceed with empty text
+                console.warn('[AI Ask Audio] Rejected or failed');
                 processingText = '(Audio no procesado)';
+            } finally {
+                await removeTemporaryFile(tempFile);
             }
         }
 
@@ -122,14 +109,17 @@ export const clearHistory = async (req: Request, res: Response): Promise<void> =
     }
 };
 
-export const summarize = async (req: Request, res: Response): Promise<void> => {
+export const summarize = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+        const userId = req.user!.id;
         const { conversationId, limit = 50 } = req.body;
 
         if (!conversationId) {
             res.status(400).json({ error: 'Conversation ID is required' });
             return;
         }
+
+        await assertConversationParticipant(userId, conversationId);
 
         // 1. Fetch last N messages with sender info
         const { data: messages, error: msgError } = await supabaseAdmin
@@ -151,13 +141,13 @@ export const summarize = async (req: Request, res: Response): Promise<void> => {
 
         res.status(200).json({ summary });
     } catch (error: any) {
-        console.error('[AI Summarize] Error:', error);
-        res.status(500).json({ error: error.message });
+        next(error);
     }
 };
 
-export const analyzeMessage = async (req: Request, res: Response): Promise<void> => {
+export const analyzeMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+        const userId = req.user!.id;
         const { id } = req.params;
 
         const { data: message, error: msgError } = await supabaseAdmin
@@ -171,7 +161,9 @@ export const analyzeMessage = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        let processingText = message.text || '';
+        await assertConversationParticipant(userId, message.conversation_id);
+
+        let processingText = message.content || '';
         let imageUrl: string | undefined;
 
         if (processingText.startsWith('[imagen]')) {
@@ -179,7 +171,7 @@ export const analyzeMessage = async (req: Request, res: Response): Promise<void>
             imageUrl = parts[0].slice(8);
             processingText = parts.slice(1).join(' ');
         } else if (processingText.startsWith('[audio]')) {
-            processingText = message.meta?.transcript || '';
+            processingText = message.metadata?.transcript || '';
         }
 
         const suggestedTask = await analyzeAndSuggestTask(
@@ -192,7 +184,6 @@ export const analyzeMessage = async (req: Request, res: Response): Promise<void>
 
         res.status(200).json({ suggestedTask });
     } catch (error: any) {
-        console.error('[AI Analyze Message] Error:', error);
-        res.status(500).json({ error: error.message });
+        next(error);
     }
 };

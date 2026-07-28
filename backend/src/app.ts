@@ -31,7 +31,12 @@ app.use(helmet({
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || env.allowedOrigins.length === 0 || env.allowedOrigins.includes(origin)) {
+    if (!origin || env.allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    if (env.nodeEnv !== 'production' && env.allowedOrigins.length === 0) {
       callback(null, true);
       return;
     }

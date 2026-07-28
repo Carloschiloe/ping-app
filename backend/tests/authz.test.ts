@@ -21,6 +21,29 @@ describe('assertConversationParticipant', () => {
     });
 });
 
+describe('getSharedProfileIds', () => {
+    it('devuelve solo otros participantes de conversaciones compartidas y elimina duplicados', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: 'c1' }, { conversation_id: 'c2' }], error: null },
+                { data: [{ user_id: 'u1' }, { user_id: 'u2' }, { user_id: 'u2' }, { user_id: 'u3' }], error: null },
+            ],
+        }));
+        const { getSharedProfileIds } = await import('../src/utils/authz');
+        await expect(getSharedProfileIds('u1')).resolves.toEqual(['u2', 'u3']);
+    });
+
+    it('no intenta una consulta global cuando el usuario no comparte conversaciones', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { getSharedProfileIds } = await import('../src/utils/authz');
+        await expect(getSharedProfileIds('u1')).resolves.toEqual([]);
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
+    });
+});
+
 describe('isConversationAdmin / assertConversationAdmin', () => {
     it('admin se determina mediante role = "admin"', async () => {
         setSupabaseAdminMock(createSupabaseAdminMock({

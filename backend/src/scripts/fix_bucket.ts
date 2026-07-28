@@ -14,18 +14,18 @@ async function fixBucket() {
     if (!exists) {
         console.log('Creating "chat-media" bucket...');
         const { error: createErr } = await supabaseAdmin.storage.createBucket('chat-media', {
-            public: true,
+            public: false,
             allowedMimeTypes: ['image/*', 'video/*', 'audio/*', 'application/pdf'],
         });
         if (createErr) console.error('Error creating bucket:', createErr);
         else console.log('Bucket created successfully!');
     } else {
-        console.log('Updating "chat-media" bucket to public...');
+        console.log('Updating "chat-media" bucket to private...');
         const { error: updateErr } = await supabaseAdmin.storage.updateBucket('chat-media', {
-            public: true
+            public: false
         });
         if (updateErr) console.error('Error updating bucket:', updateErr);
-        else console.log('Bucket updated to public successfully!');
+        else console.log('Bucket updated to private successfully!');
     }
 }
 

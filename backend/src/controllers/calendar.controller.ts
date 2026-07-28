@@ -1,21 +1,22 @@
 import { Request, Response } from 'express';
 import * as calendarService from '../services/calendar_sync.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { createOAuthState, verifyOAuthState } from '../utils/oauthState';
 
 export const getGoogleAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
-    // We pass userId in state to verify it in callback
-    const url = calendarService.getGoogleAuthUrl(userId);
+    const url = calendarService.getGoogleAuthUrl(createOAuthState(userId));
     res.redirect(url);
 };
 
 export const googleCallback = async (req: Request, res: Response) => {
-    const { code, state: userId } = req.query;
-    if (!code || !userId) {
+    const { code, state } = req.query;
+    if (!code || typeof state !== 'string') {
         return res.status(400).send('Missing code or state');
     }
 
     try {
+        const { userId } = verifyOAuthState(state);
         const tokens = await calendarService.getGoogleTokens(code as string);
         const { access_token, refresh_token, expires_in } = tokens;
 
@@ -28,7 +29,7 @@ export const googleCallback = async (req: Request, res: Response) => {
         const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
         await calendarService.saveCalendarAccount(
-            userId as string,
+            userId,
             'google',
             userInfo.email,
             access_token,
@@ -46,17 +47,18 @@ export const googleCallback = async (req: Request, res: Response) => {
 
 export const getMsAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
-    const url = calendarService.getMsAuthUrl(userId);
+    const url = calendarService.getMsAuthUrl(createOAuthState(userId));
     res.redirect(url);
 };
 
 export const msCallback = async (req: Request, res: Response) => {
-    const { code, state: userId } = req.query;
-    if (!code || !userId) {
+    const { code, state } = req.query;
+    if (!code || typeof state !== 'string') {
         return res.status(400).send('Missing code or state');
     }
 
     try {
+        const { userId } = verifyOAuthState(state);
         const tokens = await calendarService.getMsTokens(code as string);
         const { access_token, refresh_token, expires_in } = tokens;
 
@@ -69,7 +71,7 @@ export const msCallback = async (req: Request, res: Response) => {
         const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
         await calendarService.saveCalendarAccount(
-            userId as string,
+            userId,
             'outlook',
             userInfo.mail || userInfo.userPrincipalName,
             access_token,

@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import * as messageService from '../services/message.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { isConversationAdmin } from '../utils/authz';
+import { assertConversationParticipant, isConversationAdmin } from '../utils/authz';
+import { AppError } from '../utils/AppError';
 
 export const createMessage = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -80,13 +81,19 @@ export const updateMessageStatus = async (req: Request, res: Response): Promise<
 
         const { data: message, error: fetchErr } = await supabaseAdmin
             .from('messages')
-            .select('status')
+            .select('status, sender_id, conversation_id')
             .eq('id', id)
             .single();
 
         if (fetchErr || !message) {
             console.log(`[updateMessageStatus] fetchErr or not found:`, fetchErr);
             res.status(404).json({ error: 'Message not found' });
+            return;
+        }
+
+        await assertConversationParticipant(req.user.id, message.conversation_id);
+        if (message.sender_id === req.user.id) {
+            res.status(403).json({ error: 'A message sender cannot confirm delivery or reading on behalf of a recipient' });
             return;
         }
 
@@ -113,8 +120,9 @@ export const updateMessageStatus = async (req: Request, res: Response): Promise<
 
         res.json({ success: true, status });
     } catch (error: any) {
-        console.error('[updateMessageStatus] FATAL ERROR:', error);
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        console.error('[updateMessageStatus] Failed');
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to update message status' : error.message });
     }
 };
 export const deleteMessage = async (req: Request, res: Response): Promise<void> => {

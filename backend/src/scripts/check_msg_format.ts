@@ -22,7 +22,7 @@ async function checkSampleMessages() {
     }
 
     messages.forEach(m => {
-        console.log(`Msg ${m.id.substring(0,8)} | Conv ${m.conversation_id.substring(0,8)} | Text: "${m.text?.substring(0, 100)}"`);
+        console.log(`Msg ${m.id.substring(0,8)} | Conv ${m.conversation_id.substring(0,8)} | Text: [redacted]`);
     });
 }
 

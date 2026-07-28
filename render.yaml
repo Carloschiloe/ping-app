@@ -22,4 +22,14 @@ services:
       - key: ENCRYPTION_KEY
         sync: false
       - key: RUN_CRON_JOBS
-        value: "true"
+        value: "false"
+      - key: ENABLE_AUTOMATIONS
+        value: "false"
+      - key: ENABLE_NON_MVP_CAPABILITIES
+        value: "false"
+      - key: ENABLE_OPERATION_MODULE
+        value: "false"
+      - key: ENABLE_CALENDAR_INTEGRATION
+        value: "false"
+      - key: ENABLE_CALLS
+        value: "false"

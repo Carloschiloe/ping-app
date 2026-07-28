@@ -33,7 +33,7 @@ async function check() {
 
     console.log(`Found ${messages?.length || 0} messages matching media prefix.`);
     messages?.slice(0, 5).forEach((m, i) => {
-        console.log(`${i}: [${m.created_at}] ${m.text.substring(0, 100)}`);
+        console.log(`${i}: [${m.created_at}] [content redacted]`);
     });
 }
 

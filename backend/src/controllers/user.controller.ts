@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { getSharedProfileIds } from '../utils/authz';
 
 // GET /users?q=email — search users by email (excludes self)
 export const search = async (req: Request, res: Response): Promise<void> => {
@@ -7,16 +8,27 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         const userId = req.user!.id;
         const query = (req.query.q as string) || '';
 
-        if (query.length < 2) {
+        const searchTerm = query.trim();
+        if (searchTerm.length < 2) {
+            res.json({ users: [] });
+            return;
+        }
+        if (searchTerm.length > 100 || !/^[\p{L}\p{N}\s@._+\-]+$/u.test(searchTerm)) {
+            res.status(400).json({ error: 'Search query contains unsupported characters' });
+            return;
+        }
+
+        const sharedProfileIds = await getSharedProfileIds(userId);
+        if (sharedProfileIds.length === 0) {
             res.json({ users: [] });
             return;
         }
 
         const { data, error } = await supabaseAdmin
             .from('profiles')
-            .select('id, email, phone')
-            .ilike('email', `%${query}%`)
-            .neq('id', userId)
+            .select('id, email, full_name, avatar_url')
+            .in('id', sharedProfileIds)
+            .ilike('email', `%${searchTerm}%`)
             .limit(20);
 
         if (error) throw error;
@@ -28,29 +40,9 @@ export const search = async (req: Request, res: Response): Promise<void> => {
 
 // POST /users/sync-contacts — find which phone numbers from device are registered in Ping
 export const syncContacts = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const userId = req.user!.id;
-        const { phones } = req.body as { phones: string[] };
-
-        if (!phones || !Array.isArray(phones) || phones.length === 0) {
-            res.json({ users: [] });
-            return;
-        }
-
-        // Limit to 500 contacts max per request
-        const limited = phones.slice(0, 500);
-
-        const { data, error } = await supabaseAdmin
-            .from('profiles')
-            .select('id, email, phone')
-            .in('phone', limited)
-            .neq('id', userId);
-
-        if (error) throw error;
-        res.json({ users: data || [] });
-    } catch (error: any) {
-        res.status(500).json({ error: error.message });
-    }
+    res.status(503).json({
+        error: 'Contact discovery is temporarily disabled pending the People and Privacy architecture decisions',
+    });
 };
 
 // PATCH /api/user/profile — update full_name or avatar_url

@@ -15,6 +15,29 @@ export async function assertConversationParticipant(userId: string, conversation
     return data;
 }
 
+export async function getSharedProfileIds(userId: string): Promise<string[]> {
+    const { data: ownParticipations, error: ownError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+    if (ownError) throw new AppError(ownError.message, 500);
+    const conversationIds = (ownParticipations || []).map((row) => row.conversation_id);
+    if (conversationIds.length === 0) return [];
+
+    const { data: participants, error: participantError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('user_id')
+        .in('conversation_id', conversationIds);
+
+    if (participantError) throw new AppError(participantError.message, 500);
+    return Array.from(new Set(
+        (participants || [])
+            .map((row) => row.user_id)
+            .filter((participantId) => participantId && participantId !== userId)
+    ));
+}
+
 // V2: la autoridad de "administrador de conversacion" vive exclusivamente en
 // conversation_participants.role (nunca en conversations.admin_id, que ya no
 // existe, ni en un campo group_metadata inexistente que un bug historico

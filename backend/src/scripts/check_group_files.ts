@@ -46,7 +46,7 @@ async function checkGroups() {
 
         messages.forEach(m => {
             const hasMedia = m.text.startsWith('[') && (m.text.includes('imagen') || m.text.includes('audio') || m.text.includes('video') || m.text.includes('document'));
-            console.log(`  [${m.created_at}] ${m.sender_id.substring(0,8)}: ${m.text.substring(0, 50)}${m.text.length > 50 ? '...' : ''} ${hasMedia ? '📎 MEDIA' : ''}`);
+            console.log(`  [${m.created_at}] ${m.sender_id.substring(0,8)}: [content redacted] ${hasMedia ? '📎 MEDIA' : ''}`);
         });
     }
 }

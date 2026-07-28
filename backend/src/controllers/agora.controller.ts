@@ -6,6 +6,7 @@ import { NotificationService } from '../services/notification.service';
 import { processCallRecording } from '../services/ai.service';
 import { AppError } from '../utils/AppError';
 import { assertCallConversationParticipant, assertConversationParticipant } from '../utils/authz';
+import { serializeForInlineScript } from '../utils/inlineScript';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -261,6 +262,9 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
 export const renderCallPage = (req: Request, res: Response): void => {
     const { token, appId, channel, video } = req.query as Record<string, string>;
     const withVideo = video === 'true';
+    const serializedAppId = serializeForInlineScript(appId || '');
+    const serializedToken = serializeForInlineScript(token || '');
+    const serializedChannel = serializeForInlineScript(channel || '');
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -283,9 +287,9 @@ export const renderCallPage = (req: Request, res: Response): void => {
 <div id="local-video"></div>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 <script>
-const APP_ID  = "${appId || ''}";
-const TOKEN   = "${token || ''}";
-const CHANNEL = "${channel || ''}";
+const APP_ID  = ${serializedAppId};
+const TOKEN   = ${serializedToken};
+const CHANNEL = ${serializedChannel};
 const WITH_VIDEO = ${withVideo};
 
 const client = AgoraRTC.createClient({ mode:"rtc", codec:"vp8" });

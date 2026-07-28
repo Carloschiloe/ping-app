@@ -9,7 +9,7 @@ export const schedulePushNotification = async (
     data: any = {}
 ) => {
     if (!Expo.isExpoPushToken(pushToken)) {
-        console.error(`Push token ${pushToken} is not a valid Expo push token`);
+        console.error('Push token is not a valid Expo push token');
         return;
     }
 
