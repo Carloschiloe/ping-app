@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "staging-apk": {
+      "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "staging-aab": {
+      "distribution": "store",
+      "environment": "preview",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "environment": "production",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "production"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}
