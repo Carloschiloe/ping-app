@@ -7,6 +7,11 @@ import path from 'path';
 import os from 'os';
 import { toLegacyMessageShape, toLegacyMessageListShape } from '../utils/messageCompat';
 import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
+import {
+    assertConversationParticipant,
+    assertConversationParticipantReference,
+    assertMessageInConversation,
+} from '../utils/authz';
 
 export const processUserMessage = async (
     userId: string,
@@ -16,6 +21,18 @@ export const processUserMessage = async (
     mentionedUserId?: string,
     incomingMeta?: any
 ) => {
+    if (conversationId) {
+        await assertConversationParticipant(userId, conversationId);
+        if (replyToId) {
+            await assertMessageInConversation(replyToId, conversationId);
+        }
+        if (mentionedUserId) {
+            await assertConversationParticipantReference(mentionedUserId, conversationId);
+        }
+    } else if (replyToId || mentionedUserId) {
+        throw new Error('Replies and mentions require a conversation');
+    }
+
     let processingText = text;
     let meta: any = incomingMeta ? { ...incomingMeta } : {};
     let imageUrl: string | undefined;

@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { processUserMessage } from '../services/message.service';
 import { NotificationService } from '../services/notification.service';
 import { AppError } from '../utils/AppError';
-import { assertConversationParticipant } from '../utils/authz';
+import { assertCanReferenceProfiles, assertConversationParticipant } from '../utils/authz';
 import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyArchived } from '../utils/conversationCompat';
@@ -18,6 +18,13 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
             res.status(400).json({ error: 'otherUserId is required' });
             return;
         }
+        if (otherUserId === userId) {
+            const conversationId = await getOrCreateSelfConversationId(userId);
+            res.json({ conversationId });
+            return;
+        }
+
+        await assertCanReferenceProfiles(userId, [otherUserId]);
 
         // Find conversations where BOTH users are participants (no RPC needed)
         const { data: myConvs } = await supabaseAdmin
@@ -35,9 +42,20 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
                 .in('conversation_id', myConvIds)
                 .limit(1);
 
-            if (shared && shared.length > 0) {
-                res.json({ conversationId: shared[0].conversation_id });
-                return;
+            const sharedIds = (shared || []).map((row) => row.conversation_id);
+            if (sharedIds.length > 0) {
+                const { data: directConversation } = await supabaseAdmin
+                    .from('conversations')
+                    .select('id')
+                    .in('id', sharedIds)
+                    .eq('conversation_type', 'direct')
+                    .limit(1)
+                    .maybeSingle();
+
+                if (directConversation) {
+                    res.json({ conversationId: directConversation.id });
+                    return;
+                }
             }
         }
 
@@ -61,7 +79,8 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
 
         res.status(201).json({ conversationId: conv.id });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to create conversation' : error.message });
     }
 };
 
@@ -231,7 +250,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 export const toggleArchive = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
-        const { id: conversationId } = req.params;
+        const conversationId = req.params.id as string;
 
         // Get current status.
         // V2: archived_at (timestamptz) reemplaza archived (boolean).
@@ -267,23 +286,12 @@ export const toggleArchive = async (req: Request, res: Response): Promise<void> 
 export const getMessages = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
-        const { id: conversationId } = req.params;
+        const conversationId = req.params.id as string;
         const scrollToMessageId = req.query.scrollToMessageId as string | undefined;
         const before = req.query.before as string | undefined;
         const limit = parseInt(req.query.limit as string) || 50;
 
-        // Verify participation
-        const { data: part } = await supabaseAdmin
-            .from('conversation_participants')
-            .select('user_id')
-            .eq('conversation_id', conversationId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!part) {
-            res.status(403).json({ error: 'Not a participant in this conversation' });
-            return;
-        }
+        await assertConversationParticipant(userId, conversationId);
 
         const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, content, profiles!sender_id(email, full_name, avatar_url))';
         let finalMessages: any[] = [];
@@ -295,6 +303,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
                 .from('messages')
                 .select('created_at')
                 .eq('id', scrollToMessageId)
+                .eq('conversation_id', conversationId)
                 .single();
 
             if (targetMsg) {
@@ -359,7 +368,8 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         res.json({ messages: toLegacyMessageListShape(finalMessages), hasMore });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to load messages' : error.message });
     }
 };
 
@@ -373,19 +383,6 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
 
         if (!text) {
             res.status(400).json({ error: 'text is required' });
-            return;
-        }
-
-        // Verify participation
-        const { data: part } = await supabaseAdmin
-            .from('conversation_participants')
-            .select('user_id')
-            .eq('conversation_id', conversationId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!part) {
-            res.status(403).json({ error: 'Not a participant' });
             return;
         }
 
@@ -433,7 +430,8 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
 
         res.status(201).json(result);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to send message' : error.message });
     }
 };
 

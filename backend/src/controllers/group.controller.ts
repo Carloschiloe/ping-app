@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
-import { assertConversationAdmin } from '../utils/authz';
+import { assertCanReferenceProfiles, assertConversationAdmin } from '../utils/authz';
 
 // POST /groups
 export const createGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -9,6 +9,7 @@ export const createGroup = async (req: Request, res: Response, next: NextFunctio
         const userId = req.user!.id;
         // Types are guaranteed correct by Zod
         const { name, participantIds, avatarUrl } = req.body;
+        await assertCanReferenceProfiles(userId, participantIds);
 
         // Include the creator in the participants
         const allParticipantIds = Array.from(new Set([...participantIds, userId]));
@@ -71,6 +72,7 @@ export const addParticipants = async (req: Request, res: Response, next: NextFun
         }
 
         await assertConversationAdmin(userId, conversationId);
+        await assertCanReferenceProfiles(userId, newParticipantIds);
 
         const participantsData = newParticipantIds.map((id: string) => ({
             conversation_id: conversationId,

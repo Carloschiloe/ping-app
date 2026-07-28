@@ -21,6 +21,37 @@ describe('assertConversationParticipant', () => {
     });
 });
 
+describe('resource-scoped authorization', () => {
+    it('consulta un mensaje por id y conversación, no sólo por id', async () => {
+        const mock = createSupabaseAdminMock({
+            messages: [{ data: { id: 'm1', conversation_id: 'c1', sender_id: 'u1' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { assertMessageInConversation } = await import('../src/utils/authz');
+        await expect(assertMessageInConversation('m1', 'c1')).resolves.toMatchObject({ id: 'm1' });
+        expect(mock.getEqCalls('messages')).toEqual([
+            ['id', 'm1'],
+            ['conversation_id', 'c1'],
+        ]);
+    });
+
+    it('consulta una llamada por id y conversación antes de permitir su actualización', async () => {
+        const mock = createSupabaseAdminMock({
+            calls: [{ data: null, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { assertCallInConversation } = await import('../src/utils/authz');
+        await expect(assertCallInConversation('call-ajena', 'c1'))
+            .rejects.toThrow('Call not found in this conversation');
+        expect(mock.getEqCalls('calls')).toEqual([
+            ['id', 'call-ajena'],
+            ['conversation_id', 'c1'],
+        ]);
+    });
+});
+
 describe('getSharedProfileIds', () => {
     it('devuelve solo otros participantes de conversaciones compartidas y elimina duplicados', async () => {
         setSupabaseAdminMock(createSupabaseAdminMock({
@@ -41,6 +72,18 @@ describe('getSharedProfileIds', () => {
         const { getSharedProfileIds } = await import('../src/utils/authz');
         await expect(getSharedProfileIds('u1')).resolves.toEqual([]);
         expect(mock.getCalledTables()).toEqual(['conversation_participants']);
+    });
+
+    it('rechaza perfiles fuera de las relaciones ya autorizadas', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: 'c1' }], error: null },
+                { data: [{ user_id: 'u2' }], error: null },
+            ],
+        }));
+        const { assertCanReferenceProfiles } = await import('../src/utils/authz');
+        await expect(assertCanReferenceProfiles('u1', ['u3']))
+            .rejects.toThrow('outside your authorized relationship scope');
     });
 });
 

@@ -2,38 +2,9 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { insertSystemMessage } from './message.service';
 import { NotificationService } from './notification.service';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { assertConversationAdmin, assertConversationParticipant } from '../utils/authz';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
-
-async function assertParticipant(userId: string, conversationId: string) {
-    const { data, error } = await supabaseAdmin
-        .from('conversation_participants')
-        .select('user_id')
-        .eq('conversation_id', conversationId)
-        .eq('user_id', userId)
-        .single();
-
-    if (error || !data) {
-        throw new Error('Not a participant in this conversation');
-    }
-}
-
-async function assertGroupAdmin(userId: string, conversationId: string) {
-    const { data, error } = await supabaseAdmin
-        .from('conversation_participants')
-        .select('role')
-        .eq('conversation_id', conversationId)
-        .eq('user_id', userId)
-        .single();
-
-    if (error || !data) {
-        throw new Error('Participant not found');
-    }
-
-    if (data.role !== 'admin') {
-        throw new Error('Only group admins can manage checklists');
-    }
-}
 
 const OPERATION_REACTION_EMOJIS = {
     acknowledged: '👌',
@@ -334,7 +305,7 @@ async function getLatestLocation(conversationId: string) {
 }
 
 export async function getConversationOperationState(userId: string, conversationId: string) {
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     const { data: conversation, error } = await supabaseAdmin
         .from('conversations')
@@ -407,7 +378,7 @@ export async function getConversationOperationState(userId: string, conversation
 }
 
 export async function updateConversationMode(userId: string, conversationId: string, mode: 'chat' | 'operation') {
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     if (mode === 'chat') {
         await supabaseAdmin
@@ -428,7 +399,7 @@ export async function updateConversationMode(userId: string, conversationId: str
 }
 
 export async function setPinnedMessage(userId: string, conversationId: string, messageId: string | null) {
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     if (messageId) {
         const { data: message, error } = await supabaseAdmin
@@ -453,7 +424,7 @@ export async function setPinnedMessage(userId: string, conversationId: string, m
 }
 
 export async function setActiveCommitment(userId: string, conversationId: string, commitmentId: string | null) {
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     if (commitmentId) {
         const { data: commitment, error } = await supabaseAdmin
@@ -519,8 +490,8 @@ export async function saveChecklistTemplate(
         frequency?: 'manual' | 'daily' | 'shift';
     } = {}
 ) {
-    await assertParticipant(userId, conversationId);
-    await assertGroupAdmin(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
+    await assertConversationAdmin(userId, conversationId);
 
     const cleanedItems = items
         .map((item) => typeof item === 'string'
@@ -599,8 +570,8 @@ export async function saveChecklistTemplate(
 }
 
 export async function archiveChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
-    await assertParticipant(userId, conversationId);
-    await assertGroupAdmin(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
+    await assertConversationAdmin(userId, conversationId);
 
     const { data, error } = await supabaseAdmin
         .from('operation_checklists')
@@ -615,8 +586,8 @@ export async function archiveChecklistTemplate(userId: string, conversationId: s
 }
 
 export async function restoreChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
-    await assertParticipant(userId, conversationId);
-    await assertGroupAdmin(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
+    await assertConversationAdmin(userId, conversationId);
 
     const { data, error } = await supabaseAdmin
         .from('operation_checklists')
@@ -631,8 +602,8 @@ export async function restoreChecklistTemplate(userId: string, conversationId: s
 }
 
 export async function duplicateChecklistTemplate(userId: string, conversationId: string, checklistId: string) {
-    await assertParticipant(userId, conversationId);
-    await assertGroupAdmin(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
+    await assertConversationAdmin(userId, conversationId);
 
     const { data: checklist, error: checklistError } = await supabaseAdmin
         .from('operation_checklists')
@@ -683,7 +654,7 @@ export async function toggleChecklistItem(userId: string, runItemId: string, res
     if (runError || !run) throw runError || new Error('Checklist run not found');
 
     const conversationId = run.conversation_id;
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     const payload = result
         ? {
@@ -711,7 +682,7 @@ export async function toggleChecklistItem(userId: string, runItemId: string, res
 }
 
 export async function createShiftReport(userId: string, conversationId: string, body: string, source: 'text' | 'audio' = 'text', meta: any = {}) {
-    await assertParticipant(userId, conversationId);
+    await assertConversationParticipant(userId, conversationId);
 
     const { data, error } = await supabaseAdmin
         .from('shift_reports')
@@ -746,7 +717,7 @@ export async function registerCommitmentOperationAction(
     if (commitmentError || !commitment) throw commitmentError || new Error('Commitment not found');
 
     if (commitment.group_conversation_id) {
-        await assertParticipant(userId, commitment.group_conversation_id);
+        await assertConversationParticipant(userId, commitment.group_conversation_id);
     }
 
     if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {

@@ -12,6 +12,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const cursors: Record<string, number> = {};
     const inserts: Record<string, any[]> = {};
     const updates: Record<string, any[]> = {};
+    const eqCalls: Record<string, Array<[string, any]>> = {};
 
     const from = vi.fn((table: string) => {
         const tableQueue = queue[table] || [];
@@ -30,7 +31,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
                 return chain;
             }),
             delete: vi.fn(() => chain),
-            eq: vi.fn(() => chain),
+            eq: vi.fn((column: string, value: any) => {
+                (eqCalls[table] = eqCalls[table] || []).push([column, value]);
+                return chain;
+            }),
             neq: vi.fn(() => chain),
             in: vi.fn(() => chain),
             or: vi.fn(() => chain),
@@ -54,6 +58,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
         // Helpers de inspeccion para aserciones en los tests.
         getInsertCalls: (table: string) => inserts[table] || [],
         getUpdateCalls: (table: string) => updates[table] || [],
+        getEqCalls: (table: string) => eqCalls[table] || [],
         getCalledTables: () => from.mock.calls.map((c: any[]) => c[0]),
     };
 }

@@ -16,7 +16,11 @@ describe('createGroup', () => {
     it('la creacion de grupo usa conversation_type="group" (no is_group/admin_id)', async () => {
         const mock = createSupabaseAdminMock({
             conversations: [{ data: { id: 'g1', name: 'Equipo' }, error: null }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [
+                { data: [{ conversation_id: 'existing' }], error: null },
+                { data: [{ user_id: 'u2' }, { user_id: 'u3' }], error: null },
+                { data: null, error: null },
+            ],
         });
         setSupabaseAdminMock(mock);
 
@@ -35,7 +39,11 @@ describe('createGroup', () => {
     it('el creador del grupo queda con role="admin" en conversation_participants', async () => {
         const mock = createSupabaseAdminMock({
             conversations: [{ data: { id: 'g1', name: 'Equipo' }, error: null }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [
+                { data: [{ conversation_id: 'existing' }], error: null },
+                { data: [{ user_id: 'u2' }], error: null },
+                { data: null, error: null },
+            ],
         });
         setSupabaseAdminMock(mock);
 

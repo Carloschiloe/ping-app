@@ -15,6 +15,34 @@ export async function assertConversationParticipant(userId: string, conversation
     return data;
 }
 
+export async function assertMessageInConversation(messageId: string, conversationId: string) {
+    const { data: message, error } = await supabaseAdmin
+        .from('messages')
+        .select('id, conversation_id, sender_id')
+        .eq('id', messageId)
+        .eq('conversation_id', conversationId)
+        .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    if (!message) throw new AppError('Message not found in this conversation', 404);
+
+    return message;
+}
+
+export async function assertConversationParticipantReference(userId: string, conversationId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id, user_id')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    if (!data) throw new AppError('Referenced user is not a participant in this conversation', 400);
+
+    return data;
+}
+
 export async function getSharedProfileIds(userId: string): Promise<string[]> {
     const { data: ownParticipations, error: ownError } = await supabaseAdmin
         .from('conversation_participants')
@@ -36,6 +64,17 @@ export async function getSharedProfileIds(userId: string): Promise<string[]> {
             .map((row) => row.user_id)
             .filter((participantId) => participantId && participantId !== userId)
     ));
+}
+
+export async function assertCanReferenceProfiles(userId: string, profileIds: string[]) {
+    const requestedIds = Array.from(new Set(profileIds.filter((id) => id && id !== userId)));
+    if (requestedIds.length === 0) return;
+
+    const allowedIds = new Set(await getSharedProfileIds(userId));
+    const forbidden = requestedIds.find((id) => !allowedIds.has(id));
+    if (forbidden) {
+        throw new AppError('One or more people are outside your authorized relationship scope', 403);
+    }
 }
 
 // V2: la autoridad de "administrador de conversacion" vive exclusivamente en
@@ -119,5 +158,19 @@ export async function assertCallConversationParticipant(userId: string, callId: 
     if (!call) throw new AppError('Call not found', 404);
 
     await assertConversationParticipant(userId, call.conversation_id);
+    return call;
+}
+
+export async function assertCallInConversation(callId: string, conversationId: string) {
+    const { data: call, error } = await supabaseAdmin
+        .from('calls')
+        .select('id, conversation_id')
+        .eq('id', callId)
+        .eq('conversation_id', conversationId)
+        .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    if (!call) throw new AppError('Call not found in this conversation', 404);
+
     return call;
 }

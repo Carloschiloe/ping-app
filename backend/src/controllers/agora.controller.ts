@@ -5,7 +5,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from '../services/notification.service';
 import { processCallRecording } from '../services/ai.service';
 import { AppError } from '../utils/AppError';
-import { assertCallConversationParticipant, assertConversationParticipant } from '../utils/authz';
+import { assertCallConversationParticipant, assertCallInConversation, assertConversationParticipant } from '../utils/authz';
 import { serializeForInlineScript } from '../utils/inlineScript';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
@@ -43,6 +43,9 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
         }
 
         await assertConversationParticipant(userId, conversationId);
+        if (callId) {
+            await assertCallInConversation(callId, conversationId);
+        }
 
         // 1. Acquire Resource
         const recorderUid = Math.floor(Math.random() * 1000000);
@@ -57,12 +60,13 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
         // 4. Persistence - Update existing call record if callId provided, otherwise insert
         let finalCallId = callId;
         if (callId) {
-            await supabaseAdmin.from('calls').update({
+            const { error: updateError } = await supabaseAdmin.from('calls').update({
                 resource_id: resourceId,
                 sid: sid,
                 recorder_uid: recorderUid,
                 status: 'recording',
-            }).eq('id', callId);
+            }).eq('id', callId).eq('conversation_id', conversationId);
+            if (updateError) throw updateError;
         } else {
             const { data, error } = await supabaseAdmin.from('calls').insert({
                 conversation_id: conversationId,
@@ -79,7 +83,8 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
         res.status(200).json({ ok: true, callId: finalCallId, sid });
     } catch (error: any) {
         console.error('[Agora Controller] startRecording failed:', error);
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to start recording' : error.message });
     }
 };
 

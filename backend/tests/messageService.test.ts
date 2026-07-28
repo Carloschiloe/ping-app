@@ -14,6 +14,7 @@ vi.mock('../src/services/ai.service', () => ({
 describe('processUserMessage (mensaje humano)', () => {
     it('el insert de un mensaje humano incluye sender_id', async () => {
         const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
             messages: [
                 { data: { id: 'm1', conversation_id: 'c1' }, error: null },
                 { data: { id: 'm1', conversation_id: 'c1', content: 'hola', sender_id: 'u1' }, error: null },
@@ -30,6 +31,7 @@ describe('processUserMessage (mensaje humano)', () => {
 
     it('el insert de un mensaje humano NO incluye la columna user_id (eliminada en V2)', async () => {
         const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
             messages: [
                 { data: { id: 'm1', conversation_id: 'c1' }, error: null },
                 { data: { id: 'm1', conversation_id: 'c1', content: 'hola', sender_id: 'u1' }, error: null },
@@ -47,6 +49,7 @@ describe('processUserMessage (mensaje humano)', () => {
 
     it('la respuesta expone un alias "text" ademas de "content" (compatibilidad temporal con mobile)', async () => {
         const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
             messages: [
                 { data: { id: 'm1', conversation_id: 'c1' }, error: null },
                 { data: { id: 'm1', conversation_id: 'c1', content: 'hola', metadata: {}, sender_id: 'u1' }, error: null },
@@ -58,6 +61,40 @@ describe('processUserMessage (mensaje humano)', () => {
         const result = await processUserMessage('u1', 'hola', 'c1');
 
         expect(result.message.text).toBe('hola');
+    });
+
+    it('rechaza una respuesta cuyo mensaje origen no pertenece a la conversación', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+            messages: [{ data: null, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { processUserMessage } = await import('../src/services/message.service');
+        await expect(processUserMessage('u1', 'respuesta', 'c1', 'm-otra'))
+            .rejects.toThrow('Message not found in this conversation');
+
+        expect(mock.getInsertCalls('messages')).toHaveLength(0);
+        expect(mock.getEqCalls('messages')).toEqual([
+            ['id', 'm-otra'],
+            ['conversation_id', 'c1'],
+        ]);
+    });
+
+    it('permite mencionar sólo a una persona participante de la conversación', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [
+                { data: { conversation_id: 'c1', role: 'member' }, error: null },
+                { data: null, error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { processUserMessage } = await import('../src/services/message.service');
+        await expect(processUserMessage('u1', 'hola @otro', 'c1', undefined, 'u-ajeno'))
+            .rejects.toThrow('Referenced user is not a participant in this conversation');
+
+        expect(mock.getInsertCalls('messages')).toHaveLength(0);
     });
 });
 
