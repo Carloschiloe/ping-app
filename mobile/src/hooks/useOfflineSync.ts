@@ -34,7 +34,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             try {
                 const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
                 if (stored) {
-                    const parsed = JSON.parse(stored) as Array<Partial<PendingMessage>>;
+                    const parsed = JSON.parse(stored) as Partial<PendingMessage>[];
                     setQueue(parsed.map((item) => {
                         const clientMessageId = item.clientMessageId || createClientMessageId();
                         return {
@@ -110,7 +110,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
                         };
                     }));
                 }
-            } catch (err) {
+            } catch {
                 setQueue((current) => current.map((item) =>
                     item.id === msg.id
                         ? { ...item, state: 'result_unknown', lastError: 'Resultado desconocido', retryCount: item.retryCount + 1 }
