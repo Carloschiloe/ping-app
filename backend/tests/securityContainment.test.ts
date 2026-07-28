@@ -58,6 +58,32 @@ describe('automation containment gate', () => {
     });
 });
 
+describe('environment containment', () => {
+    it('rechaza un proyecto Supabase distinto del esperado', async () => {
+        process.env.SUPABASE_URL = 'https://production-ref.supabase.co';
+        process.env.SUPABASE_ANON_KEY = 'anon';
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+        process.env.ENCRYPTION_KEY = '01234567890123456789012345678901';
+        process.env.PING_EXPECTED_SUPABASE_PROJECT_REF = 'staging-ref';
+        const { validateEnvironment } = await import('../src/config/env');
+
+        expect(() => validateEnvironment()).toThrow(
+            'SUPABASE_URL does not match PING_EXPECTED_SUPABASE_PROJECT_REF'
+        );
+    });
+
+    it('acepta el project ref exacto configurado para el entorno', async () => {
+        process.env.SUPABASE_URL = 'https://staging-ref.supabase.co';
+        process.env.SUPABASE_ANON_KEY = 'anon';
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+        process.env.ENCRYPTION_KEY = '01234567890123456789012345678901';
+        process.env.PING_EXPECTED_SUPABASE_PROJECT_REF = 'staging-ref';
+        const { validateEnvironment } = await import('../src/config/env');
+
+        expect(() => validateEnvironment()).not.toThrow();
+    });
+});
+
 describe('inline script serialization', () => {
     it('neutraliza cierre de script y conserva un literal JavaScript válido', () => {
         const serialized = serializeForInlineScript('</script><script>alert(1)</script>');

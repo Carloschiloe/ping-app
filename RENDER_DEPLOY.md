@@ -64,6 +64,10 @@ como producción hasta demostrar lo contrario.
 Crear el servicio requiere acceso autenticado a Render y debe hacerse como un
 recurso separado, sin modificar `ping-backend`:
 
+El blueprint reproducible está en `render.staging.yaml`. Al crear el Blueprint
+en Render se debe seleccionar expresamente ese archivo; no sustituye ni
+modifica `render.yaml`.
+
 1. Crear un Web Service con nombre inequívoco, por ejemplo
    `ping-backend-staging`.
 2. Usar `backend` como Root Directory, `npm ci && npm run build` como Build
@@ -93,6 +97,10 @@ recurso separado, sin modificar `ping-backend`:
 8. Conectar una compilación de la aplicación destinada a staging mediante
    `EXPO_PUBLIC_API_URL`; no cambiar la configuración de producción.
 
+La variable `PING_EXPECTED_SUPABASE_PROJECT_REF` queda fijada en
+`oonijgmddgyymhrlnvuu`. El backend rechaza el arranque si `SUPABASE_URL` no
+pertenece exactamente a ese proyecto.
+
 ## Validación obligatoria antes de usar staging
 
 Con el servicio desplegado:
@@ -120,3 +128,22 @@ Antes de crear el servicio faltan:
 - seleccionar el commit aprobado para el primer despliegue;
 - definir el origen permitido y la URL pública del cliente de staging;
 - verificar después del alta que ninguna variable apunta a producción.
+
+## Checklist de creación
+
+- [ ] Render autenticado en la cuenta y equipo correctos.
+- [ ] Nuevo Blueprint creado desde `render.staging.yaml`.
+- [ ] Nombre final `ping-backend-staging`.
+- [ ] Auto-deploy desactivado.
+- [ ] `SUPABASE_URL` corresponde a `oonijgmddgyymhrlnvuu`.
+- [ ] Anon key y service-role key pertenecen al mismo proyecto.
+- [ ] `ENCRYPTION_KEY` es exclusivo de staging.
+- [ ] `ALLOWED_ORIGINS` contiene sólo el cliente de staging.
+- [ ] Ningún secreto fue copiado desde producción.
+- [ ] Commit del primer despliegue anotado.
+- [ ] `/api/health` responde correctamente.
+- [ ] Lectura privada autorizada validada.
+- [ ] Acceso cruzado y revocado rechazados.
+- [ ] Subidas, Calendar, Calls y Operation responden `503`.
+- [ ] Automatizaciones y cron permanecen inactivos.
+- [ ] Mobile staging apunta al nuevo host; mobile producción no cambió.
