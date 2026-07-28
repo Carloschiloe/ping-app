@@ -33,3 +33,7 @@ services:
         value: "false"
       - key: ENABLE_CALLS
         value: "false"
+      - key: ENABLE_PRIVATE_FILE_READS
+        value: "false"
+      - key: ENABLE_PRIVATE_FILE_UPLOADS
+        value: "false"
