@@ -1,6 +1,6 @@
 # Ping Android Beta Runbook
 
-Estado: preparación local. Ningún build ni despliegue remoto fue ejecutado al crear este documento.
+Estado: staging de datos validado; backend Render y APK pendientes.
 
 ## 1. Variantes
 
@@ -16,7 +16,12 @@ Las variantes pueden coexistir en el mismo dispositivo y usan esquemas de enlace
 
 La variable `EXPO_PUBLIC_API_URL` debe existir en el entorno EAS `preview` y apuntar exclusivamente a `ping-backend-staging`, con sufijo `/api`. No debe apuntar al backend de producción.
 
-El perfil fija `EXPO_PUBLIC_SUPABASE_PROJECT_REF=oonijgmddgyymhrlnvuu`. `app.config.ts` rechaza otro project ref declarado para staging.
+El perfil fija `EXPO_PUBLIC_SUPABASE_PROJECT_REF=oonijgmddgyymhrlnvuu`.
+`app.config.ts` rechaza otro project ref y, durante un build EAS, exige:
+
+- `EXPO_PUBLIC_SUPABASE_URL` del proyecto staging;
+- `EXPO_PUBLIC_API_URL` HTTPS y accesible desde Internet;
+- una URL de API que no sea localhost ni una dirección de red privada.
 
 En `ping-backend-staging` deben mantenerse:
 
@@ -68,7 +73,7 @@ Verificar en la configuración resuelta:
 Requiere sesión de Expo/EAS autorizada y `EXPO_PUBLIC_API_URL` configurada en el entorno `preview`:
 
 ```powershell
-npx eas-cli build --platform android --profile staging-apk
+eas build --platform android --profile staging-apk
 ```
 
 No usar el perfil `production` para probar staging. El APK interno se instala directamente; el AAB está reservado para una pista de tienda y no se instala directamente.
@@ -94,4 +99,18 @@ No usar el perfil `production` para probar staging. El APK interno se instala di
 
 La beta interna es apta sólo si backend, mobile, TypeScript, lint e integración están en verde; las migraciones aditivas fueron respaldadas y validadas en staging; no existe acceso cruzado; el APK usa el backend y Supabase de staging; los gates prohibidos siguen cerrados.
 
-Bloqueos actuales: falta desplegar y verificar `ping-backend-staging`, aplicar y validar las migraciones nuevas en staging y disponer de autenticación EAS para generar el artefacto.
+Las migraciones beta fueron aplicadas y validadas en Supabase staging el
+2026-07-28. EAS está autenticado y el proyecto `@carloschiloe/mobile` quedó
+correctamente vinculado después de conservar el slug registrado.
+
+Bloqueos actuales:
+
+- Render no tiene una sesión autenticada disponible;
+- `ping-backend-staging` aún no existe o no está desplegado;
+- el entorno EAS `preview` no posee `EXPO_PUBLIC_API_URL`,
+  `EXPO_PUBLIC_SUPABASE_URL` ni `EXPO_PUBLIC_SUPABASE_ANON_KEY`;
+- no existe SDK Android, Java ni ADB local para un build alternativo.
+
+No se debe iniciar el APK hasta disponer de una URL HTTPS verificada de
+`ping-backend-staging`. Usar la URL LAN del `.env` local produciría un
+artefacto que no funciona fuera de la red de desarrollo.
