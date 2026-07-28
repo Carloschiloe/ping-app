@@ -80,10 +80,21 @@ impide emitir URLs nuevas.
 Una URL ya emitida no puede revocarse individualmente con el mecanismo
 seleccionado. El riesgo se limita con:
 
-- expiración breve para lectura;
+- TTL de 60 segundos para lectura;
 - ausencia de persistencia;
+- prohibición de almacenar o reutilizar la URL firmada;
 - no inclusión en logs;
 - rotación de la ruta o eliminación autorizada cuando sea imprescindible.
+
+La revocación impide generar firmas posteriores, pero una URL emitida antes
+de la revocación puede continuar funcionando hasta completar su TTL. El
+cliente debe solicitar una firma nueva para cada operación de lectura y no
+puede tratar una URL firmada como referencia estable del File.
+
+El TTL de 60 segundos es la decisión para staging. Debe revisarse
+explícitamente antes de habilitar la capacidad en producción, considerando la
+experiencia de lectura, la exposición residual tras una revocación y la
+imposibilidad de invalidar individualmente una URL ya emitida.
 
 ## Feature gates
 
