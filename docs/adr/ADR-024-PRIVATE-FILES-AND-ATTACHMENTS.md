@@ -43,8 +43,9 @@ al Attachment y nunca debe persistirse.
    Profile o Conversation representa el Attachment con ese recurso.
 8. Una subida pendiente aún no es un Attachment confirmado. No puede leerse a
    través de Ping hasta que un recurso autorizado persista la referencia.
-9. Las lecturas y subidas usan gates independientes, ambos subordinados al
-   gate maestro de capacidades no-MVP.
+9. Las lecturas y subidas usan gates independientes y no dependen del gate
+   maestro de capacidades no-MVP. Esta excepción está limitada expresamente a
+   `ENABLE_PRIVATE_FILE_READS` y `ENABLE_PRIVATE_FILE_UPLOADS`.
 10. Los campos URL existentes se conservan temporalmente. La lectura futura
     priorizará `bucket + object_path` y sólo usará el campo legado mientras
     exista una compatibilidad aprobada.
@@ -102,9 +103,10 @@ imposibilidad de invalidar individualmente una URL ya emitida.
 - `ENABLE_PRIVATE_FILE_UPLOADS=false`;
 - `ENABLE_NON_MVP_CAPABILITIES=false`.
 
-La capacidad sólo funciona cuando el gate maestro y el gate específico están
-en `true`. Mobile mantiene además la subida cerrada aunque el backend se
-configure incorrectamente.
+Cada capacidad de archivos funciona únicamente con su gate específico. El
+gate maestro continúa siendo obligatorio, junto con el indicador individual,
+para Calendar, Calls y Operation. Mobile mantiene además la subida cerrada
+aunque el backend se configure incorrectamente.
 
 ## Compatibilidad
 

@@ -44,3 +44,79 @@ EXPO_PUBLIC_API_URL=https://ping-backend-xyz.onrender.com/api
 *(Asegúrate de incluir `/api` al final al igual que en local).*
 
 ¡Listo! Ya puedes encender `npm start` en `/mobile` y usar temporal o indefinidamente la App conectada de verdad desde la nube.
+
+## Estado actual de los entornos
+
+El repositorio sólo versiona un servicio Render llamado `ping-backend` en
+`render.yaml`. Ese servicio tiene despliegue automático por commit y no está
+identificado como staging. No existe un segundo servicio, blueprint o archivo
+versionado que vincule un backend remoto con `Ping Staging V2`
+(`oonijgmddgyymhrlnvuu`).
+
+Los archivos `backend/.env` y `mobile/.env` son locales e ignorados por Git.
+Permiten desarrollo contra staging, pero no prueban ni configuran un
+despliegue remoto. Tampoco se ha verificado desde el repositorio qué proyecto
+Supabase utiliza el servicio Render existente. Por seguridad debe tratarse
+como producción hasta demostrar lo contrario.
+
+## Preparación mínima de un backend exclusivo de staging
+
+Crear el servicio requiere acceso autenticado a Render y debe hacerse como un
+recurso separado, sin modificar `ping-backend`:
+
+1. Crear un Web Service con nombre inequívoco, por ejemplo
+   `ping-backend-staging`.
+2. Usar `backend` como Root Directory, `npm ci && npm run build` como Build
+   Command y `npm start` como Start Command.
+3. Desactivar inicialmente el auto-deploy. El primer despliegue debe apuntar a
+   un commit explícitamente aprobado y verificable.
+4. Configurar credenciales exclusivas de `oonijgmddgyymhrlnvuu`:
+   - `SUPABASE_URL`;
+   - `SUPABASE_ANON_KEY`;
+   - `SUPABASE_SERVICE_ROLE_KEY`.
+5. Configurar un `ENCRYPTION_KEY` exclusivo de staging y un
+   `ALLOWED_ORIGINS` limitado al cliente de staging.
+6. Mantener exactamente:
+
+   ```env
+   ENABLE_PRIVATE_FILE_READS=true
+   ENABLE_PRIVATE_FILE_UPLOADS=false
+   ENABLE_NON_MVP_CAPABILITIES=false
+   ENABLE_OPERATION_MODULE=false
+   ENABLE_CALENDAR_INTEGRATION=false
+   ENABLE_CALLS=false
+   ENABLE_AUTOMATIONS=false
+   RUN_CRON_JOBS=false
+   ```
+
+7. No compartir variables, URL ni credenciales con el servicio de producción.
+8. Conectar una compilación de la aplicación destinada a staging mediante
+   `EXPO_PUBLIC_API_URL`; no cambiar la configuración de producción.
+
+## Validación obligatoria antes de usar staging
+
+Con el servicio desplegado:
+
+- comprobar `/health` y confirmar que consulta `oonijgmddgyymhrlnvuu`;
+- verificar lectura privada autorizada mediante `/api/files/read-url`;
+- comprobar `403` para acceso cruzado o revocado;
+- comprobar `404` para recursos sin referencia de archivo, sin afectar el
+  resto del recurso;
+- comprobar `503` en `/api/files/upload-url`;
+- comprobar que Calendar, Calls y Operation permanecen en `503`;
+- confirmar que automatizaciones y cron no iniciaron procesos;
+- repetir la validación de TTL y ausencia de URLs firmadas persistidas.
+
+La reversión consiste en establecer `ENABLE_PRIVATE_FILE_READS=false` en el
+servicio staging y volver a desplegar el mismo commit. No se hace público el
+bucket, no se habilitan subidas y no se modifica producción.
+
+## Bloqueos actuales
+
+Antes de crear el servicio faltan:
+
+- una sesión autenticada o credencial administrativa de Render;
+- confirmar la cuenta/equipo y región donde vivirá staging;
+- seleccionar el commit aprobado para el primer despliegue;
+- definir el origen permitido y la URL pública del cliente de staging;
+- verificar después del alta que ninguna variable apunta a producción.
