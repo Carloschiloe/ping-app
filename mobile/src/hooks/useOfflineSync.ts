@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClientMessageId, PendingSyncState, SyncResult } from '../utils/synchronization';
-
-const OFFLINE_QUEUE_KEY = '@ping_offline_messages';
+import {
+    OFFLINE_QUEUE_KEY,
+    PendingSyncState,
+    sanitizePendingQueue,
+    serializePendingQueue,
+    SyncResult,
+} from '../utils/synchronization';
 
 export interface PendingMessage {
     id: string; // temp local id
@@ -34,21 +38,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             try {
                 const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
                 if (stored) {
-                    const parsed = JSON.parse(stored) as Partial<PendingMessage>[];
-                    setQueue(parsed.map((item) => {
-                        const clientMessageId = item.clientMessageId || createClientMessageId();
-                        return {
-                            ...item,
-                            id: item.id || `offline-${clientMessageId}`,
-                            conversationId: item.conversationId || null,
-                            userId: item.userId || null,
-                            text: item.text || '',
-                            retryCount: item.retryCount || 0,
-                            createdAt: item.createdAt || new Date().toISOString(),
-                            clientMessageId,
-                            state: item.state || 'pending',
-                        } as PendingMessage;
-                    }));
+                    setQueue(sanitizePendingQueue(JSON.parse(stored)) as PendingMessage[]);
                 }
             } catch (e) {
                 console.error('[OfflineSync] Failed to load queue', e);
@@ -61,7 +51,12 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
     useEffect(() => {
         const saveQueue = async () => {
             try {
-                await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+                const serialized = serializePendingQueue(queue);
+                if (serialized === '[]') {
+                    await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+                } else {
+                    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, serialized);
+                }
             } catch (e) {
                 console.error('[OfflineSync] Failed to save queue', e);
             }
@@ -145,7 +140,8 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             createdAt: new Date().toISOString(),
             state: 'pending',
         };
-        setQueue(prev => [...prev, newMsg]);
+        setQueue(prev =>
+            sanitizePendingQueue([...prev, newMsg]) as PendingMessage[]);
     }, []);
 
     return {

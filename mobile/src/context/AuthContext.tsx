@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import * as Localization from 'expo-localization';
+import { clearOfflineMessageQueue } from '../utils/offlineQueueStorage';
 
 type AuthConfig = {
     session: Session | null;
@@ -61,9 +62,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setInitialized(true);
         });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             setSession(session);
             setUser(session?.user ?? null);
+            if (event === 'SIGNED_OUT') {
+                void clearOfflineMessageQueue().catch(() => {
+                    console.warn('Unable to clear offline queue after sign-out');
+                });
+            }
             if (session?.user) {
                 syncLocale(session.user.id);
                 if (interval) clearInterval(interval);
