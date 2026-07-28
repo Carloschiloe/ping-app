@@ -284,6 +284,8 @@ if ([string]::IsNullOrWhiteSpace($env:PING_STAGING_DB_PASSWORD)) {
 $previousPgPassword = $env:PGPASSWORD
 $previousPgOptions = $env:PGOPTIONS
 $workingDirectory = $null
+$finalDirectory = $null
+$backupArtifactsCreated = $false
 
 try {
     $env:PGPASSWORD = $env:PING_STAGING_DB_PASSWORD
@@ -362,6 +364,7 @@ rollback;
     }
 
     New-Item -ItemType Directory -Path $workingDirectory | Out-Null
+    $backupArtifactsCreated = $true
     $incompleteMarker = Join-Path $workingDirectory 'INCOMPLETE.txt'
     'This backup is incomplete and must not be used.' |
         Out-File -LiteralPath $incompleteMarker -Encoding utf8
@@ -401,8 +404,13 @@ rollback;
         throw "Role export unexpectedly contains password material."
     }
 
+    $databaseMetadataPath = Join-Path $workingDirectory 'database-metadata.json'
+    $databaseEvidence |
+        Out-File -LiteralPath $databaseMetadataPath -Encoding utf8
+    Assert-FileNotEmpty -Path $databaseMetadataPath `
+        -Description 'database-metadata.json'
+
     $catalogExports = [ordered]@{
-        'database-metadata.json' = $databaseEvidenceSql
         'schema-columns.csv' = @"
 select table_schema, table_name, ordinal_position, column_name, data_type,
        is_nullable, column_default
@@ -486,16 +494,15 @@ order by version;
 "@
     }
 
-    $textArtifacts = @($applicationList, $storageList, $rolesFile)
+    $textArtifacts = @(
+        $applicationList,
+        $storageList,
+        $rolesFile,
+        $databaseMetadataPath
+    )
     foreach ($entry in $catalogExports.GetEnumerator()) {
         $exportPath = Join-Path $workingDirectory $entry.Key
-        if ($entry.Key -eq 'database-metadata.json') {
-            $databaseEvidence |
-                Out-File -LiteralPath $exportPath -Encoding utf8
-            Assert-FileNotEmpty -Path $exportPath -Description $entry.Key
-        } else {
-            Invoke-PsqlExport -Sql $entry.Value -Path $exportPath -Csv
-        }
+        Invoke-PsqlExport -Sql $entry.Value -Path $exportPath -Csv
         $textArtifacts += $exportPath
     }
 
@@ -656,10 +663,32 @@ Project ref: $ExpectedProjectRef
         remote_write_performed = $false
     } | ConvertTo-Json
 } catch {
-    if ($workingDirectory -and (Test-Path -LiteralPath $workingDirectory)) {
-        Write-Error "Backup failed. Incomplete artifacts remain marked at the selected encrypted destination."
+    $originalError = $_
+    if ($backupArtifactsCreated) {
+        foreach ($candidate in @($workingDirectory, $finalDirectory)) {
+            if ([string]::IsNullOrWhiteSpace($candidate)) {
+                continue
+            }
+            $candidateExists = Test-Path -LiteralPath $candidate -PathType Container
+            $candidateMarker = Join-Path $candidate 'INCOMPLETE.txt'
+            if ($candidateExists -and (Test-Path -LiteralPath $candidateMarker -PathType Leaf)) {
+                try {
+                    $fullCandidate = [IO.Path]::GetFullPath($candidate).TrimEnd('\')
+                    $fullOutput = [IO.Path]::GetFullPath($resolvedOutput).TrimEnd('\')
+                    if (-not $fullCandidate.StartsWith(
+                        "$fullOutput\",
+                        [StringComparison]::OrdinalIgnoreCase
+                    )) {
+                        throw "Incomplete backup path escaped the configured destination."
+                    }
+                    Remove-Item -LiteralPath $fullCandidate -Recurse -Force
+                } catch {
+                    Write-Warning "Automatic cleanup of an incomplete backup failed."
+                }
+            }
+        }
     }
-    throw
+    throw $originalError
 } finally {
     $env:PGPASSWORD = $previousPgPassword
     $env:PGOPTIONS = $previousPgOptions
