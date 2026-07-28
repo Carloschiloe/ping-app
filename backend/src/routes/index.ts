@@ -22,14 +22,17 @@ import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
 import * as privateFileSchema from '../schemas/privateFile.schema';
-import { requireFeature } from '../middleware/featureGate';
+import {
+    requireFeature,
+    requirePrivateFileFeature,
+} from '../middleware/featureGate';
 
 export const router = Router();
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
 const callsEnabled = requireFeature('ENABLE_CALLS');
-const privateFileReadsEnabled = requireFeature('ENABLE_PRIVATE_FILE_READS');
-const privateFileUploadsEnabled = requireFeature('ENABLE_PRIVATE_FILE_UPLOADS');
+const privateFileReadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS');
+const privateFileUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -115,8 +118,8 @@ router.get('/contacts/:id', requireAuth, validateRequest(contactSchema.getContac
 // Search
 router.get('/search', requireAuth, searchController.search);
 
-// Private files. Both routes remain closed unless the master gate and the
-// corresponding capability gate are explicitly enabled.
+// Private file reads and uploads have independent gates. Authorization on the
+// owning resource is still enforced by the service before issuing any URL.
 router.post(
     '/files/read-url',
     requireAuth,

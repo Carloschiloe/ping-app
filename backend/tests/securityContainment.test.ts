@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createOAuthState, verifyOAuthState } from '../src/utils/oauthState';
 import { serializeForInlineScript } from '../src/utils/inlineScript';
 import { validateTrustedStorageUrl } from '../src/utils/trustedMedia';
-import { requireFeature } from '../src/middleware/featureGate';
+import {
+    requireFeature,
+    requirePrivateFileFeature,
+} from '../src/middleware/featureGate';
 
 const originalEnv = { ...process.env };
 
@@ -64,25 +67,111 @@ describe('inline script serialization', () => {
     });
 });
 
-describe('feature gate', () => {
-    it('devuelve 503 por defecto y sólo continúa con habilitación explícita', () => {
+describe('feature gates', () => {
+    function createMiddlewareContext() {
         const status = vi.fn().mockReturnThis();
         const json = vi.fn();
         const next = vi.fn();
-        const middleware = requireFeature('ENABLE_TEST_CAPABILITY');
+        return { status, json, next };
+    }
 
+    it('mantiene cerrados todos los gates cuando no hay habilitación explícita', () => {
+        const nonMvp = createMiddlewareContext();
+        const reads = createMiddlewareContext();
+        const uploads = createMiddlewareContext();
         delete process.env.ENABLE_NON_MVP_CAPABILITIES;
         delete process.env.ENABLE_TEST_CAPABILITY;
-        middleware({} as any, { status, json } as any, next);
+        delete process.env.ENABLE_PRIVATE_FILE_READS;
+        delete process.env.ENABLE_PRIVATE_FILE_UPLOADS;
+
+        requireFeature('ENABLE_TEST_CAPABILITY')(
+            {} as any,
+            { status: nonMvp.status, json: nonMvp.json } as any,
+            nonMvp.next
+        );
+        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS')(
+            {} as any,
+            { status: reads.status, json: reads.json } as any,
+            reads.next
+        );
+        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
+            {} as any,
+            { status: uploads.status, json: uploads.json } as any,
+            uploads.next
+        );
+
+        for (const context of [nonMvp, reads, uploads]) {
+            expect(context.status).toHaveBeenCalledWith(503);
+            expect(context.next).not.toHaveBeenCalled();
+        }
+    });
+
+    it('habilita lectura privada con el master no-MVP cerrado', () => {
+        const { status, json, next } = createMiddlewareContext();
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
+        process.env.ENABLE_PRIVATE_FILE_READS = 'true';
+
+        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS')(
+            {} as any,
+            { status, json } as any,
+            next
+        );
+
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(status).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'ENABLE_CALENDAR_INTEGRATION',
+        'ENABLE_CALLS',
+        'ENABLE_OPERATION_MODULE',
+    ])('mantiene %s bloqueado sin el master no-MVP', (envName) => {
+        const { status, json, next } = createMiddlewareContext();
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
+        process.env[envName] = 'true';
+
+        requireFeature(envName)({} as any, { status, json } as any, next);
+
         expect(status).toHaveBeenCalledWith(503);
         expect(next).not.toHaveBeenCalled();
+    });
 
-        process.env.ENABLE_TEST_CAPABILITY = 'true';
-        middleware({} as any, { status, json } as any, next);
+    it('mantiene las subidas privadas bloqueadas aunque otros gates estén abiertos', () => {
+        const { status, json, next } = createMiddlewareContext();
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
+        process.env.ENABLE_PRIVATE_FILE_READS = 'true';
+        process.env.ENABLE_PRIVATE_FILE_UPLOADS = 'false';
+
+        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
+            {} as any,
+            { status, json } as any,
+            next
+        );
+
+        expect(status).toHaveBeenCalledWith(503);
         expect(next).not.toHaveBeenCalled();
+    });
+
+    it('exige master e indicador individual para capacidades no-MVP', () => {
+        const blocked = createMiddlewareContext();
+        const enabled = createMiddlewareContext();
+        process.env.ENABLE_TEST_CAPABILITY = 'true';
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
+
+        requireFeature('ENABLE_TEST_CAPABILITY')(
+            {} as any,
+            { status: blocked.status, json: blocked.json } as any,
+            blocked.next
+        );
+        expect(blocked.status).toHaveBeenCalledWith(503);
+        expect(blocked.next).not.toHaveBeenCalled();
 
         process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
-        middleware({} as any, { status, json } as any, next);
-        expect(next).toHaveBeenCalledTimes(1);
+        requireFeature('ENABLE_TEST_CAPABILITY')(
+            {} as any,
+            { status: enabled.status, json: enabled.json } as any,
+            enabled.next
+        );
+        expect(enabled.next).toHaveBeenCalledTimes(1);
     });
 });
