@@ -5,8 +5,24 @@ import { toLegacyCommitmentShape, toLegacyCommitmentListShape } from '../utils/c
 import * as proposalService from '../services/commitmentProposal.service';
 
 function handleError(res: Response, label: string, error: any) {
-    console.error(`[${label} Controller Error]:`, error);
-    res.status(error.statusCode || 500).json({ error: error.message || 'Internal Server Error' });
+    const postgresStatus: Record<string, number> = {
+        '22023': 400,
+        '23514': 400,
+        '40001': 409,
+        '42501': 403,
+        P0001: 409,
+        P0002: 404,
+    };
+    const status = error.statusCode || postgresStatus[error.code] || 500;
+    console.error(`[${label} Controller Error]`, {
+        code: error.code || 'UNEXPECTED',
+        status,
+    });
+    res.status(status).json({
+        error: status === 500
+            ? 'Unable to process commitment request'
+            : (error.message || 'Commitment request rejected'),
+    });
 }
 
 export const createCommitment = async (req: Request, res: Response): Promise<void> => {
