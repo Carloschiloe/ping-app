@@ -19,7 +19,8 @@ export const processUserMessage = async (
     conversationId?: string,
     replyToId?: string,
     mentionedUserId?: string,
-    incomingMeta?: any
+    incomingMeta?: any,
+    clientMessageId?: string
 ) => {
     if (conversationId) {
         await assertConversationParticipant(userId, conversationId);
@@ -36,6 +37,20 @@ export const processUserMessage = async (
     let processingText = text;
     let meta: any = incomingMeta ? { ...incomingMeta } : {};
     let imageUrl: string | undefined;
+
+    if (clientMessageId) {
+        const { data: existing, error: existingError } = await supabaseAdmin
+            .from('messages')
+            .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
+            .eq('sender_id', userId)
+            .eq('conversation_id', conversationId)
+            .eq('client_message_id', clientMessageId)
+            .maybeSingle();
+        if (existingError) throw existingError;
+        if (existing) {
+            return { message: toLegacyMessageShape(existing), idempotentReplay: true };
+        }
+    }
 
     // 1. Handle Multimedia (Audio/Image/Video/Document)
     if (text.startsWith('[audio]')) {
@@ -83,13 +98,27 @@ export const processUserMessage = async (
             sender_id: userId,
             ...(conversationId ? { conversation_id: conversationId } : {}),
             ...(replyToId ? { reply_to_id: replyToId } : {}),
+            ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
             content: text,
             metadata: meta,
         })
         .select()
         .single();
 
-    if (messageError) throw messageError;
+    if (messageError) {
+        if (clientMessageId && messageError.code === '23505') {
+            const { data: existing, error: replayError } = await supabaseAdmin
+                .from('messages')
+                .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
+                .eq('sender_id', userId)
+                .eq('conversation_id', conversationId)
+                .eq('client_message_id', clientMessageId)
+                .single();
+            if (replayError) throw replayError;
+            return { message: toLegacyMessageShape(existing), idempotentReplay: true };
+        }
+        throw messageError;
+    }
 
     // 3. Trigger Background Analysis (Non-blocking)
     analyzeAndSuggestTask(message.id, processingText, imageUrl, mentionedUserId, conversationId)

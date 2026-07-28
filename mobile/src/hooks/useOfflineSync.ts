@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClientMessageId, PendingSyncState, SyncResult } from '../utils/synchronization';
 
 const OFFLINE_QUEUE_KEY = '@ping_offline_messages';
 
@@ -12,11 +13,17 @@ export interface PendingMessage {
     mediaUri?: string | null;
     mediaType?: 'image' | 'audio' | 'video' | 'document';
     meta?: any;
+    replyToId?: string | null;
+    mentionedUserId?: string | null;
     retryCount: number;
     createdAt: string;
+    clientMessageId: string;
+    state: PendingSyncState;
+    lastError?: string | null;
+    nextAttemptAt?: string | null;
 }
 
-export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<boolean>) => {
+export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<SyncResult>) => {
     const [isConnected, setIsConnected] = useState<boolean | null>(true);
     const [queue, setQueue] = useState<PendingMessage[]>([]);
     const isSyncing = useRef(false);
@@ -27,7 +34,21 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
             try {
                 const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
                 if (stored) {
-                    setQueue(JSON.parse(stored));
+                    const parsed = JSON.parse(stored) as Array<Partial<PendingMessage>>;
+                    setQueue(parsed.map((item) => {
+                        const clientMessageId = item.clientMessageId || createClientMessageId();
+                        return {
+                            ...item,
+                            id: item.id || `offline-${clientMessageId}`,
+                            conversationId: item.conversationId || null,
+                            userId: item.userId || null,
+                            text: item.text || '',
+                            retryCount: item.retryCount || 0,
+                            createdAt: item.createdAt || new Date().toISOString(),
+                            clientMessageId,
+                            state: item.state || 'pending',
+                        } as PendingMessage;
+                    }));
                 }
             } catch (e) {
                 console.error('[OfflineSync] Failed to load queue', e);
@@ -62,21 +83,39 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
         
         isSyncing.current = true;
         
-        const remaining: PendingMessage[] = [...queue];
         const toDelete: string[] = [];
 
         for (const msg of queue) {
+            if (msg.state === 'rejected') continue;
+            if (msg.nextAttemptAt && new Date(msg.nextAttemptAt).getTime() > Date.now()) continue;
             try {
-                const success = await onSyncNow(msg);
-                if (success) {
+                setQueue((current) => current.map((item) =>
+                    item.id === msg.id ? { ...item, state: 'syncing' } : item
+                ));
+                const result = await onSyncNow(msg);
+                if (result.state === 'confirmed') {
                     toDelete.push(msg.id);
                 } else {
-                    // Update retry count
-                    const idx = remaining.findIndex(m => m.id === msg.id);
-                    if (idx !== -1) remaining[idx].retryCount++;
+                    setQueue((current) => current.map((item) => {
+                        if (item.id !== msg.id) return item;
+                        const retryCount = item.retryCount + 1;
+                        return {
+                            ...item,
+                            state: result.state,
+                            lastError: result.error,
+                            retryCount,
+                            nextAttemptAt: result.state === 'result_unknown'
+                                ? new Date(Date.now() + Math.min(30000, 1000 * (2 ** retryCount))).toISOString()
+                                : null,
+                        };
+                    }));
                 }
             } catch (err) {
-                console.warn(`[OfflineSync] Failed to sync message ${msg.id}`, err);
+                setQueue((current) => current.map((item) =>
+                    item.id === msg.id
+                        ? { ...item, state: 'result_unknown', lastError: 'Resultado desconocido', retryCount: item.retryCount + 1 }
+                        : item
+                ));
             }
         }
 
@@ -89,15 +128,22 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<bool
     // Auto-sync when connected
     useEffect(() => {
         if (isConnected && queue.length > 0) {
-            syncQueue();
+            const nextAttempt = queue
+                .filter((item) => item.state !== 'rejected')
+                .map((item) => item.nextAttemptAt ? new Date(item.nextAttemptAt).getTime() : Date.now())
+                .sort((a, b) => a - b)[0];
+            if (nextAttempt === undefined) return;
+            const timer = setTimeout(syncQueue, Math.max(0, nextAttempt - Date.now()));
+            return () => clearTimeout(timer);
         }
-    }, [isConnected, queue.length, syncQueue]);
+    }, [isConnected, queue, syncQueue]);
 
-    const addToQueue = useCallback((msg: Omit<PendingMessage, 'retryCount' | 'createdAt'>) => {
+    const addToQueue = useCallback((msg: Omit<PendingMessage, 'retryCount' | 'createdAt' | 'state'>) => {
         const newMsg: PendingMessage = {
             ...msg,
             retryCount: 0,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            state: 'pending',
         };
         setQueue(prev => [...prev, newMsg]);
     }, []);

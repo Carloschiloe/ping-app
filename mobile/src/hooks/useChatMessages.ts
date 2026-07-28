@@ -9,7 +9,8 @@ import {
     useUpdateMessageStatus
 } from '../api/queries';
 import { useOfflineSync, PendingMessage } from './useOfflineSync';
-import { apiClient } from '../api/client';
+import { classifySendFailure, createClientMessageId, SyncResult } from '../utils/synchronization';
+import { apiClient, ApiError } from '../api/client';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean) {
     const queryClient = useQueryClient();
@@ -20,12 +21,16 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             await apiClient.post(`/conversations/${msg.conversationId}/messages`, {
                 text: msg.text,
                 meta: msg.meta,
-                // Add any other fields needed
+                reply_to_id: msg.replyToId,
+                mentioned_user_id: msg.mentionedUserId,
+                client_message_id: msg.clientMessageId,
             });
-            return true;
-        } catch (e) {
-            console.warn('[ChatMessages] Sync failed', e);
-            return false;
+            return { state: 'confirmed' } as SyncResult;
+        } catch (error) {
+            return classifySendFailure(
+                error instanceof ApiError ? error.status : null,
+                error instanceof Error ? error.message : 'No se pudo confirmar el resultado del envío'
+            );
         }
     }, []);
 
@@ -57,7 +62,11 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 sender_id: user?.id,
                 text: q.text,
                 created_at: q.createdAt,
-                status: 'pending_offline', // Special UI status
+                status: q.state === 'rejected'
+                    ? 'rejected_offline'
+                    : q.state === 'result_unknown'
+                        ? 'result_unknown'
+                        : 'pending_offline',
                 meta: q.meta,
                 profiles: {
                     full_name: user?.user_metadata?.full_name,
@@ -71,7 +80,8 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
 
     // Enhanced Send Message
     const sendMessage = useCallback((data: any) => {
-        mutateSend(data, {
+        const clientMessageId = createClientMessageId();
+        mutateSend({ ...data, client_message_id: clientMessageId }, {
             onError: (err: any) => {
                 const errorMessage = err?.message || '';
                 const isNetworkError = 
@@ -86,7 +96,10 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         conversationId,
                         userId: user?.id,
                         text: data.text,
-                        meta: data.meta
+                        meta: data.meta,
+                        replyToId: data.reply_to_id,
+                        mentionedUserId: data.mentioned_user_id,
+                        clientMessageId,
                     });
                 }
             }

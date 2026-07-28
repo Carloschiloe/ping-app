@@ -367,6 +367,10 @@ const MessageItemComponent = ({
                                     size={14}
                                     color="rgba(255,255,255,0.6)"
                                 />
+                            ) : item.status === 'result_unknown' ? (
+                                <Ionicons name="help-circle-outline" size={14} color="#f59e0b" />
+                            ) : item.status === 'rejected_offline' ? (
+                                <Ionicons name="alert-circle-outline" size={14} color="#ef4444" />
                             ) : (
                                 <Ionicons
                                     name={(item.status === 'sent' || item.status === 'pending' || !item.status) ? 'checkmark' : 'checkmark-done'}

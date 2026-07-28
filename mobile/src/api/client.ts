@@ -8,6 +8,17 @@ if (!configuredApiUrl && !__DEV__) {
 
 export const API_URL = configuredApiUrl || 'http://localhost:3000/api';
 
+export class ApiError extends Error {
+    constructor(
+        message: string,
+        public readonly status: number | null,
+        public readonly resultUnknown: boolean
+    ) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
+
 export const getAuthHeaders = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     return {
@@ -60,7 +71,7 @@ export const apiClient = {
                 const errorJson = JSON.parse(responseText);
                 errorMsg = errorJson.error || errorMsg;
             } catch { }
-            throw new Error(errorMsg);
+            throw new ApiError(errorMsg, response.status, false);
         }
 
         try {

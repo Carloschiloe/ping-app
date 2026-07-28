@@ -8,6 +8,7 @@ export const sendMessageSchema = z.object({
         text: z.string().min(1),
         reply_to_id: z.string().uuid().optional().nullable(),
         mentioned_user_id: z.string().uuid().optional().nullable(),
+        client_message_id: z.string().uuid().optional(),
         meta: z.record(z.string(), z.any()).optional().nullable(),
     })
 });

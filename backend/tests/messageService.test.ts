@@ -96,6 +96,51 @@ describe('processUserMessage (mensaje humano)', () => {
 
         expect(mock.getInsertCalls('messages')).toHaveLength(0);
     });
+
+    it('returns the existing message when a client_message_id is retried', async () => {
+        const clientMessageId = '33333333-3333-4333-8333-333333333333';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+            messages: [{
+                data: {
+                    id: 'm-existing',
+                    conversation_id: 'c1',
+                    sender_id: 'u1',
+                    content: 'hola',
+                    client_message_id: clientMessageId,
+                },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { processUserMessage } = await import('../src/services/message.service');
+        const result = await processUserMessage(
+            'u1', 'hola', 'c1', undefined, undefined, undefined, clientMessageId
+        );
+
+        expect(result.idempotentReplay).toBe(true);
+        expect(result.message.id).toBe('m-existing');
+        expect(mock.getInsertCalls('messages')).toHaveLength(0);
+        expect(mock.getEqCalls('messages')).toContainEqual(['client_message_id', clientMessageId]);
+    });
+
+    it('persists client_message_id on the first confirmed send', async () => {
+        const clientMessageId = '44444444-4444-4444-8444-444444444444';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+            messages: [
+                { data: null, error: null },
+                { data: { id: 'm-new', conversation_id: 'c1', sender_id: 'u1' }, error: null },
+                { data: { id: 'm-new', conversation_id: 'c1', sender_id: 'u1', content: 'hola' }, error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { processUserMessage } = await import('../src/services/message.service');
+        await processUserMessage('u1', 'hola', 'c1', undefined, undefined, undefined, clientMessageId);
+        expect(mock.getInsertCalls('messages')[0].client_message_id).toBe(clientMessageId);
+    });
 });
 
 describe('insertSystemMessage', () => {

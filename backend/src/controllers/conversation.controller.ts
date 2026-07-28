@@ -378,7 +378,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
-        const { text, reply_to_id, mentioned_user_id, meta } = req.body;
+        const { text, reply_to_id, mentioned_user_id, client_message_id, meta } = req.body;
         console.info(`[API] SendMessage conversation=${conversationId} hasReply=${!!reply_to_id} hasMention=${!!mentioned_user_id}`);
 
         if (!text) {
@@ -386,7 +386,15 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
-        const result = await processUserMessage(userId, text, conversationId as string, reply_to_id, mentioned_user_id, meta);
+        const result = await processUserMessage(
+            userId,
+            text,
+            conversationId as string,
+            reply_to_id,
+            mentioned_user_id,
+            meta,
+            client_message_id
+        );
 
         // --- Phase 21: Push Notifications ---
         try {
