@@ -9,11 +9,10 @@ const PROPOSAL = '22222222-2222-4222-8222-222222222222';
 describe('canonical Commitment proposals', () => {
     it('createConfirmedCommitment creates Proposal before the confirmation RPC', async () => {
         const mock = createSupabaseAdminMock({
-            commitment_proposals: [{
+            'rpc:create_commitment_proposal_with_evidence': [{
                 data: { id: PROPOSAL, status: 'pending', title: 'Enviar informe' },
                 error: null,
             }],
-            commitment_proposal_events: [{ data: null, error: null }],
             'rpc:confirm_commitment_proposal': [{
                 data: { id: 'commitment-1', proposal_id: PROPOSAL, status: 'accepted' },
                 error: null,
@@ -24,26 +23,19 @@ describe('canonical Commitment proposals', () => {
         const { createConfirmedCommitment } = await import('../src/services/commitmentProposal.service');
         const result = await createConfirmedCommitment(USER, { title: 'Enviar informe' });
 
-        expect(mock.getInsertCalls('commitment_proposals')[0]).toMatchObject({
-            proposed_by_user_id: USER,
-            proposed_responsible_user_id: USER,
-            status: 'pending',
-            source_kind: 'manual',
-        });
-        expect(mock.getRpcCalls()).toEqual([{
-            name: 'confirm_commitment_proposal',
-            args: { p_proposal_id: PROPOSAL, p_actor_user_id: USER },
-        }]);
+        expect(mock.getRpcCalls().map((call) => call.name)).toEqual([
+            'create_commitment_proposal_with_evidence',
+            'confirm_commitment_proposal',
+        ]);
         expect(result.status).toBe('accepted');
     });
 
     it('rejecting a Proposal never inserts a Commitment', async () => {
         const mock = createSupabaseAdminMock({
-            commitment_proposals: [{
+            'rpc:reject_commitment_proposal_with_evidence': [{
                 data: { id: PROPOSAL, status: 'rejected', rejection_reason: 'No corresponde' },
                 error: null,
             }],
-            commitment_proposal_events: [{ data: null, error: null }],
         });
         setSupabaseAdminMock(mock);
 
@@ -51,10 +43,14 @@ describe('canonical Commitment proposals', () => {
         await rejectProposal(USER, PROPOSAL, 'No corresponde');
 
         expect(mock.getInsertCalls('commitments')).toHaveLength(0);
-        expect(mock.getInsertCalls('commitment_proposal_events')[0]).toMatchObject({
-            proposal_id: PROPOSAL,
-            event_type: 'rejected',
-        });
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'reject_commitment_proposal_with_evidence',
+            args: {
+                p_proposal_id: PROPOSAL,
+                p_actor_user_id: USER,
+                p_reason: 'No corresponde',
+            },
+        }]);
     });
 
     it('rejects a cross-conversation source message before creating a Proposal', async () => {

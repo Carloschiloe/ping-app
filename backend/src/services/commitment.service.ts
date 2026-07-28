@@ -370,26 +370,19 @@ async function applyCommitmentTransition(
         patch.resolution_result = resolutionResult;
     }
 
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update(patch)
-        .eq('id', id)
-        .select(SELECT_AFTER_TRANSITION)
-        .single();
+    const { data, error } = await supabaseAdmin.rpc('apply_commitment_transition_with_evidence', {
+        p_commitment_id: id,
+        p_actor_user_id: userId,
+        p_expected_status: snapshot.status,
+        p_patch: patch,
+        p_event_type: event.event_type,
+        p_event_payload: event.payload,
+    });
 
     if (error) {
         console.error(`[Commitment Service] ${action} update error:`, error);
         throw error;
     }
-
-    await recordCommitmentEvent({
-        commitmentId: id,
-        actorUserId: userId,
-        eventType: event.event_type,
-        previousStatus: event.previous_status,
-        newStatus: event.new_status,
-        payload: event.payload,
-    });
 
     return data;
 }

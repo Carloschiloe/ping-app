@@ -35,9 +35,7 @@ export async function createProposal(userId: string, input: any) {
         || input.sourceKind
         || (sourceMessageId ? 'conversation_message' : 'manual');
 
-    const { data: proposal, error } = await supabaseAdmin
-        .from('commitment_proposals')
-        .insert({
+    const proposalPayload = {
             proposed_by_user_id: userId,
             proposed_responsible_user_id: contactId ? null : responsibleUserId,
             counterparty_contact_id: contactId,
@@ -51,24 +49,13 @@ export async function createProposal(userId: string, input: any) {
             priority: input.priority || null,
             expected_result: input.expected_result || input.expectedResult || null,
             status: 'pending',
-        })
-        .select('*')
-        .single();
-    if (error) throw error;
-
-    const { error: eventError } = await supabaseAdmin
-        .from('commitment_proposal_events')
-        .insert({
-            proposal_id: proposal.id,
-            actor_user_id: userId,
-            event_type: 'proposed',
-            payload: {
-                source_kind: sourceKind,
-                conversation_id: conversationId,
-                source_message_id: sourceMessageId,
-            },
+    };
+    const { data: proposal, error } = await supabaseAdmin
+        .rpc('create_commitment_proposal_with_evidence', {
+            p_actor_user_id: userId,
+            p_proposal: proposalPayload,
         });
-    if (eventError) throw eventError;
+    if (error) throw error;
     return proposal;
 }
 
@@ -82,33 +69,14 @@ export async function confirmProposal(userId: string, proposalId: string) {
 }
 
 export async function rejectProposal(userId: string, proposalId: string, reason?: string | null) {
-    const now = new Date().toISOString();
     const { data, error } = await supabaseAdmin
-        .from('commitment_proposals')
-        .update({
-            status: 'rejected',
-            decision_by_user_id: userId,
-            decision_at: now,
-            rejection_reason: reason || null,
-            updated_at: now,
-        })
-        .eq('id', proposalId)
-        .eq('proposed_by_user_id', userId)
-        .eq('status', 'pending')
-        .select('*')
-        .maybeSingle();
+        .rpc('reject_commitment_proposal_with_evidence', {
+            p_proposal_id: proposalId,
+            p_actor_user_id: userId,
+            p_reason: reason || null,
+        });
     if (error) throw error;
     if (!data) throw new AppError('Pending proposal not found', 404);
-
-    const { error: eventError } = await supabaseAdmin
-        .from('commitment_proposal_events')
-        .insert({
-            proposal_id: proposalId,
-            actor_user_id: userId,
-            event_type: 'rejected',
-            payload: { reason: reason || null },
-        });
-    if (eventError) throw eventError;
     return data;
 }
 
