@@ -11,7 +11,7 @@ import type { ChatsTabNavigationProp } from '../navigation/types';
 import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
-    useResolveCommitment, useCancelCommitment, useReopenCommitment, useMarkActionCompleted,
+    useResolveCommitment, useReopenCommitment, useMarkActionCompleted,
     useContacts,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
@@ -46,7 +46,6 @@ export default function GroupTaskCard({
     const { user } = useAuth();
     const { theme } = useAppTheme();
     const { mutate: resolveCommitment, isPending: isResolving } = useResolveCommitment();
-    const { mutate: cancelCommitment } = useCancelCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutate: markActionCompleted, isPending: isMarkingActionCompleted } = useMarkActionCompleted();
     const { mutate: accept } = useAcceptCommitment();
@@ -134,7 +133,10 @@ export default function GroupTaskCard({
                     text: 'Sí, resolver',
                     onPress: () => {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        resolveCommitment(commitment.id);
+                        resolveCommitment({
+                            id: commitment.id,
+                            result: completionNote?.trim() || 'El usuario confirmó que el asunto quedó resuelto.',
+                        });
                     }
                 }
             ]
@@ -152,7 +154,7 @@ export default function GroupTaskCard({
                     style: 'destructive',
                     onPress: () => {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                        cancelCommitment(commitment.id);
+                        Alert.alert('No disponible', 'La cancelación requiere una decisión de producto pendiente.');
                     }
                 }
             ]
@@ -436,7 +438,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isOwner && !isDone && !isRejected && !isCancelled && (
+                        {false && isOwner && !isDone && !isRejected && !isCancelled && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleCancel(); }}

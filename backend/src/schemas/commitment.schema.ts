@@ -62,6 +62,20 @@ export const rejectCommitmentSchema = z.object({
     body: z.object({ reason: z.string().max(2000).optional().nullable() }),
 });
 
+export const proposalDecisionSchema = z.object({
+    params: z.object({ id: z.string().uuid() }),
+    body: z.object({
+        reason: z.string().min(1).max(2000).optional().nullable(),
+    }),
+});
+
+export const resolveCommitmentSchema = z.object({
+    params: z.object({ id: z.string().uuid() }),
+    body: z.object({
+        result: z.string().trim().min(3).max(2000),
+    }),
+});
+
 export const counterProposeCommitmentSchema = z.object({
     params: z.object({ id: z.string().uuid() }),
     body: z.object({ proposedDueAt: isoDate() }),

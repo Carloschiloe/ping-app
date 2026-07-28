@@ -129,6 +129,34 @@ export async function assertCommitmentConversationParticipant(userId: string, co
     throw new AppError('You do not have access to this commitment', 403);
 }
 
+export async function assertCommitmentOwner(userId: string, commitmentId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select('id, owner_user_id, assigned_to_user_id, conversation_id')
+        .eq('id', commitmentId)
+        .maybeSingle();
+    if (error) throw new AppError(error.message, 500);
+    if (!data) throw new AppError('Commitment not found', 404);
+    if (data.owner_user_id !== userId) {
+        throw new AppError('Only the commitment owner can perform this action', 403);
+    }
+    return data;
+}
+
+export async function assertCommitmentOwnerOrResponsible(userId: string, commitmentId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select('id, owner_user_id, assigned_to_user_id, conversation_id')
+        .eq('id', commitmentId)
+        .maybeSingle();
+    if (error) throw new AppError(error.message, 500);
+    if (!data) throw new AppError('Commitment not found', 404);
+    if (data.owner_user_id !== userId && data.assigned_to_user_id !== userId) {
+        throw new AppError('Only the owner or responsible person can perform this action', 403);
+    }
+    return data;
+}
+
 // V2: un contacto externo (tabla `contacts`) nunca tiene sesion ni RLS propia
 // — solo su owner_user_id puede leerlo/usarlo. Esta funcion es la unica
 // autoridad para decidir si `userId` puede referenciar `contactId` como

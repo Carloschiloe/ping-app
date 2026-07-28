@@ -144,9 +144,9 @@ export const useUpdateCommitment = () => {
 // transicion real 'resolve' (ver backend/src/services/commitment.service.ts
 // mapRequestedStatusToAction). Preferir useResolveCommitment en UI nueva.
 export const useMarkCommitmentDone = () => {
-    const { mutate, isPending } = useUpdateCommitmentStatus();
+    const { mutate, isPending } = useResolveCommitment();
     return {
-        mutate: (id: string) => mutate({ id, status: 'completed' }),
+        mutate: ({ id, result }: { id: string; result: string }) => mutate({ id, result }),
         isPending
     };
 };
@@ -169,7 +169,8 @@ function useCommitmentLifecycleInvalidation() {
 export const useResolveCommitment = () => {
     const invalidate = useCommitmentLifecycleInvalidation();
     return useMutation({
-        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/resolve`, {}),
+        mutationFn: async ({ id, result }: { id: string; result: string }) =>
+            apiClient.post(`/commitments/${id}/resolve`, { result }),
         onSuccess: invalidate,
     });
 };

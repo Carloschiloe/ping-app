@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { assertCommitmentConversationParticipant, assertConversationParticipant, assertOwnContact } from '../utils/authz';
+import { assertCommitmentConversationParticipant, assertCommitmentOwner, assertCommitmentOwnerOrResponsible, assertConversationParticipant, assertOwnContact } from '../utils/authz';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { isTitleMeeting } from '../utils/commitmentType';
 import { AppError } from '../utils/AppError';
@@ -14,6 +14,7 @@ import {
 } from '../utils/commitmentTransitions';
 import { recordCommitmentEvent } from '../utils/commitmentEvents';
 import { readLegacyConversationId, readLegacyAssignedToUserId, readLegacyDueAt } from '../utils/commitmentCompat';
+export { createConfirmedCommitment as createCommitment } from './commitmentProposal.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -110,7 +111,7 @@ export const extractCommitment = async (
 // entrada). Escribe unicamente columnas reales V2: conversation_id (nunca
 // group_conversation_id), sin is_group_task (derivado en la respuesta, no
 // persistido), status siempre uno de los 6 valores canonicos.
-export const createCommitment = async (userId: string, data: any) => {
+const createCommitmentLegacy = async (userId: string, data: any) => {
     console.log('[Commitment Service] Creating commitment');
 
     const title = data.title;
@@ -340,13 +341,13 @@ async function fetchCommitmentSnapshot(id: string): Promise<CommitmentStateSnaps
     };
 }
 
-const SELECT_AFTER_TRANSITION = 'id, title, due_at, proposed_due_at, status, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, meta, rejection_reason, resolved_at, action_completed_at, next_action, follow_up_at, waiting_on_user_id, waiting_on_contact_id';
+const SELECT_AFTER_TRANSITION = 'id, title, due_at, proposed_due_at, status, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, meta, rejection_reason, resolved_at, resolution_result, archived_at, action_completed_at, next_action, follow_up_at, waiting_on_user_id, waiting_on_contact_id';
 
 async function applyCommitmentTransition(
     userId: string,
     id: string,
     action: CommitmentTransitionAction,
-    extra: Partial<{ reason: string | null; newProposedDueAt: string | null; newAssignedToUserId: string | null; newCounterpartyContactId: string | null; followUpAt: string | null; nextAction: string | null; waitingOnUserId: string | null; waitingOnContactId: string | null }> = {}
+    extra: Partial<{ reason: string | null; newProposedDueAt: string | null; newAssignedToUserId: string | null; newCounterpartyContactId: string | null; followUpAt: string | null; nextAction: string | null; waitingOnUserId: string | null; waitingOnContactId: string | null; resolutionResult: string | null }> = {}
 ) {
     await assertCommitmentConversationParticipant(userId, id);
     const snapshot = await fetchCommitmentSnapshot(id);
@@ -361,6 +362,13 @@ async function applyCommitmentTransition(
         commitment: snapshot,
         ...extra,
     });
+    if (action === 'resolve') {
+        const resolutionResult = extra.resolutionResult?.trim();
+        if (!resolutionResult) {
+            throw new AppError('A comprehensible resolution result is required', 400);
+        }
+        patch.resolution_result = resolutionResult;
+    }
 
     const { data, error } = await supabaseAdmin
         .from('commitments')
@@ -449,8 +457,8 @@ export const markActionCompleted = async (userId: string, id: string) => {
     return data;
 };
 
-export const resolveCommitment = async (userId: string, id: string) => {
-    const data = await applyCommitmentTransition(userId, id, 'resolve');
+export const resolveCommitment = async (userId: string, id: string, resolutionResult: string) => {
+    const data = await applyCommitmentTransition(userId, id, 'resolve', { resolutionResult });
     const userName = await getUserName(userId);
     await insertSystemMessage(userId, data.conversation_id, `✅ ${userName} marcó como resuelto: "${data.title}"`);
     return data;
@@ -507,7 +515,8 @@ function mapRequestedStatusToAction(requestedStatus: string, currentStatus: stri
     switch (normalized) {
         case 'accepted': return 'accept';
         case 'rejected': return 'reject';
-        case 'resolved': return 'resolve';
+        case 'resolved':
+            throw new AppError('Use POST /commitments/:id/resolve with a resolution result', 400);
         case 'cancelled': return 'cancel';
         default:
             throw new AppError(
@@ -522,7 +531,7 @@ function mapRequestedStatusToAction(requestedStatus: string, currentStatus: stri
 // de llamar a un endpoint dedicado — se traduce aqui a la transicion real
 // `resolve`, nunca se escribe 'completed' a la base.
 export const updateCommitment = async (userId: string, id: string, updates: any) => {
-    await assertCommitmentConversationParticipant(userId, id);
+    await assertCommitmentOwner(userId, id);
 
     const safeFieldUpdates: Record<string, any> = {};
     if (updates.title !== undefined) safeFieldUpdates.title = updates.title;
@@ -643,6 +652,8 @@ export const getCommitments = async (userId: string, status?: string, conversati
             rejection_reason,
             action_completed_at,
             resolved_at,
+            resolution_result,
+            archived_at,
             meta,
             owner_user_id,
             assigned_to_user_id,
@@ -659,6 +670,7 @@ export const getCommitments = async (userId: string, status?: string, conversati
     } else {
         query = query.or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`);
     }
+    query = query.is('archived_at', null);
 
     if (status) {
         // Interpreta el filtro solicitado (puede venir en formato legacy de
@@ -680,10 +692,10 @@ export const getCommitments = async (userId: string, status?: string, conversati
 };
 
 export const deleteCommitment = async (userId: string, id: string) => {
-    await assertCommitmentConversationParticipant(userId, id);
+    await assertCommitmentOwner(userId, id);
     const { data, error } = await supabaseAdmin
         .from('commitments')
-        .delete()
+        .update({ archived_at: new Date().toISOString() })
         .eq('id', id)
         .eq('owner_user_id', userId)
         .select()
@@ -694,7 +706,7 @@ export const deleteCommitment = async (userId: string, id: string) => {
 };
 
 export const pingCommitment = async (userId: string, id: string) => {
-    await assertCommitmentConversationParticipant(userId, id);
+    await assertCommitmentOwnerOrResponsible(userId, id);
 
     // Basic push reminder
     const { data: c } = await supabaseAdmin.from('commitments').select('*, profiles:assigned_to_user_id(expo_push_token, full_name)').eq('id', id).single();

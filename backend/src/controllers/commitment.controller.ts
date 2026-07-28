@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as commitmentService from '../services/commitment.service';
 import * as calendarSyncService from '../services/calendar_sync.service';
 import { toLegacyCommitmentShape, toLegacyCommitmentListShape } from '../utils/commitmentCompat';
+import * as proposalService from '../services/commitmentProposal.service';
 
 function handleError(res: Response, label: string, error: any) {
     console.error(`[${label} Controller Error]:`, error);
@@ -14,7 +15,7 @@ export const createCommitment = async (req: Request, res: Response): Promise<voi
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const data = await commitmentService.createCommitment(req.user.id, req.body);
+        const data = await proposalService.createConfirmedCommitment(req.user.id, req.body);
         res.status(201).json(toLegacyCommitmentShape(data));
     } catch (error: any) {
         handleError(res, 'createCommitment', error);
@@ -52,6 +53,37 @@ export const rejectCommitment = async (req: Request, res: Response): Promise<voi
         res.status(200).json(toLegacyCommitmentShape(data));
     } catch (error: any) {
         handleError(res, 'rejectCommitment', error);
+    }
+};
+
+export const createProposal = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const data = await proposalService.createProposal(req.user!.id, req.body);
+        res.status(201).json(data);
+    } catch (error: any) {
+        handleError(res, 'createProposal', error);
+    }
+};
+
+export const confirmProposal = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const data = await proposalService.confirmProposal(req.user!.id, req.params.id as string);
+        res.status(201).json(toLegacyCommitmentShape(data));
+    } catch (error: any) {
+        handleError(res, 'confirmProposal', error);
+    }
+};
+
+export const rejectProposal = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const data = await proposalService.rejectProposal(
+            req.user!.id,
+            req.params.id as string,
+            req.body.reason
+        );
+        res.status(200).json(data);
+    } catch (error: any) {
+        handleError(res, 'rejectProposal', error);
     }
 };
 
@@ -103,7 +135,11 @@ export const resolveCommitment = async (req: Request, res: Response): Promise<vo
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const data = await commitmentService.resolveCommitment(req.user.id, req.params.id as string);
+        const data = await commitmentService.resolveCommitment(
+            req.user.id,
+            req.params.id as string,
+            req.body.result
+        );
 
         if (data.meta?.synced_to) {
             try {
@@ -123,16 +159,9 @@ export const resolveCommitment = async (req: Request, res: Response): Promise<vo
 };
 
 export const cancelCommitment = async (req: Request, res: Response): Promise<void> => {
-    try {
-        if (!req.user || !req.user.id) {
-            res.status(401).json({ error: 'Unauthorized' });
-            return;
-        }
-        const data = await commitmentService.cancelCommitment(req.user.id, req.params.id as string);
-        res.status(200).json(toLegacyCommitmentShape(data));
-    } catch (error: any) {
-        handleError(res, 'cancelCommitment', error);
-    }
+    res.status(409).json({
+        error: 'Commitment cancellation is unavailable until the product decision is approved',
+    });
 };
 
 export const reopenCommitment = async (req: Request, res: Response): Promise<void> => {
@@ -240,17 +269,7 @@ export const deleteCommitment = async (req: Request, res: Response): Promise<voi
         const commitmentId = req.params.id as string;
 
         const data = await commitmentService.deleteCommitment(userId, commitmentId);
-
-        // --- Phase 15.2: Delete from Cloud ---
-        if (data.meta?.synced_to) {
-            const eventId = data.meta.cloud_event_id || data.meta.external_event_id;
-            if (eventId) {
-                await calendarSyncService.deleteCloudEvent(userId, data.meta.synced_to, eventId);
-            }
-        }
-        // ----------------------------------------
-
-        res.status(200).json({ success: true, deleted: toLegacyCommitmentShape(data) });
+        res.status(200).json({ success: true, archived: toLegacyCommitmentShape(data) });
     } catch (error: any) {
         handleError(res, 'deleteCommitment', error);
     }

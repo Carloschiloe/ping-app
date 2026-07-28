@@ -61,18 +61,21 @@ export default function HoyScreen() {
     };
 
     const handleMarkDone = (id: string) => {
-        markDone(id);
+        markDone({
+            id,
+            result: 'El usuario confirmó que el asunto quedó resuelto.',
+        });
         cancelCommitmentReminder(id);
     };
 
     const handleDelete = (id: string, title: string) => {
         Alert.alert(
-            'Eliminar Compromiso',
-            `¿Seguro que quieres eliminar "${title}"?\nEsto también lo borrará de tu calendario en la nube si está habilitada la sincronización.`,
+            'Archivar compromiso',
+            `¿Seguro que quieres archivar "${title}"? Su historia se conservará.`,
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
-                    text: 'Eliminar',
+                    text: 'Archivar',
                     style: 'destructive',
                     onPress: () => {
                         deleteCommitment(id);

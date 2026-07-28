@@ -13,6 +13,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const inserts: Record<string, any[]> = {};
     const updates: Record<string, any[]> = {};
     const eqCalls: Record<string, Array<[string, any]>> = {};
+    const rpcCalls: Array<{ name: string; args: any }> = [];
 
     const from = vi.fn((table: string) => {
         const tableQueue = queue[table] || [];
@@ -55,11 +56,17 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
 
     return {
         from,
+        rpc: vi.fn((name: string, args: any) => {
+            rpcCalls.push({ name, args });
+            const rpcQueue = queue[`rpc:${name}`] || [];
+            return Promise.resolve(rpcQueue[0] ?? { data: null, error: null });
+        }),
         // Helpers de inspeccion para aserciones en los tests.
         getInsertCalls: (table: string) => inserts[table] || [],
         getUpdateCalls: (table: string) => updates[table] || [],
         getEqCalls: (table: string) => eqCalls[table] || [],
         getCalledTables: () => from.mock.calls.map((c: any[]) => c[0]),
+        getRpcCalls: () => rpcCalls,
     };
 }
 
@@ -104,6 +111,7 @@ export function supabaseAdminMockModule() {
     return {
         supabaseAdmin: {
             from: (...args: any[]) => current.from(...args),
+            rpc: (...args: any[]) => current.rpc(...args),
             storage: {
                 from: (...args: any[]) => currentStorage.from(...args),
             },
