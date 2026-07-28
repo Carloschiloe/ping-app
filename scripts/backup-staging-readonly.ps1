@@ -66,6 +66,7 @@ function Invoke-PsqlExport {
     $arguments = @(
         "--dbname=$DatabaseUrl",
         '--no-psqlrc',
+        '--quiet',
         '--set=ON_ERROR_STOP=1'
     )
     if ($Csv) {
@@ -73,7 +74,12 @@ function Invoke-PsqlExport {
     } else {
         $arguments += @('--tuples-only', '--no-align')
     }
-    $arguments += "--command=$Sql"
+    $guardedSql = @"
+begin transaction read only;
+$Sql
+rollback;
+"@
+    $arguments += "--command=$guardedSql"
 
     $output = & $script:PostgresTools['psql'] @arguments 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -283,35 +289,61 @@ try {
     $env:PGPASSWORD = $env:PING_STAGING_DB_PASSWORD
     $env:PGOPTIONS = '-c default_transaction_read_only=on'
 
-    $databaseEvidenceSql = @"
+    $readOnlyValidationSql = @"
+begin transaction read only;
 select json_build_object(
     'server_version', current_setting('server_version'),
     'server_version_num', current_setting('server_version_num'),
     'database_name', current_database(),
     'current_role', current_user,
-    'transaction_read_only', current_setting('transaction_read_only')
+    'transaction_read_only', current_setting('transaction_read_only'),
+    'read_only_probe', 1
 )::text;
+rollback;
 "@
-    $databaseEvidence = (& $script:PostgresTools['psql'] "--dbname=$DatabaseUrl" --no-psqlrc `
-        --set=ON_ERROR_STOP=1 --tuples-only --no-align `
-        "--command=$databaseEvidenceSql" 2>$null).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($databaseEvidence)) {
-        throw "Unable to read PostgreSQL identity from staging."
+    $validationOutput = @(
+        & $script:PostgresTools['psql'] "--dbname=$DatabaseUrl" --no-psqlrc `
+            --quiet --set=ON_ERROR_STOP=1 --tuples-only --no-align `
+            "--command=$readOnlyValidationSql" 2>$null
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to establish and roll back a read-only validation transaction."
+    }
+    $databaseEvidence = $validationOutput |
+        Where-Object { $_.Trim().StartsWith('{') } |
+        Select-Object -Last 1
+    if ([string]::IsNullOrWhiteSpace($databaseEvidence)) {
+        throw "Read-only validation did not return PostgreSQL evidence."
     }
     $databaseMetadata = $databaseEvidence | ConvertFrom-Json
-    if ($databaseMetadata.transaction_read_only -ne 'on') {
-        throw "Backup connection is not read-only."
+    $transactionIsReadOnly = $databaseMetadata.transaction_read_only -eq 'on'
+    $probeSucceeded = [int]$databaseMetadata.read_only_probe -eq 1
+    if (-not $transactionIsReadOnly -or -not $probeSucceeded) {
+        throw "Explicit read-only transaction validation failed."
     }
     $serverMajor = [int](($databaseMetadata.server_version -split '\.')[0])
     if ($selectedToolSet.Major -lt $serverMajor) {
         throw "Selected PostgreSQL client tools are older than the staging server."
     }
 
-    $storageObjectCount = (& $script:PostgresTools['psql'] "--dbname=$DatabaseUrl" --no-psqlrc `
-        --set=ON_ERROR_STOP=1 --tuples-only --no-align `
-        --command="select count(*) from storage.objects;" 2>$null).Trim()
-    if ($LASTEXITCODE -ne 0 -or $storageObjectCount -notmatch '^\d+$') {
+    $storageCountSql = @"
+begin transaction read only;
+select count(*) from storage.objects;
+rollback;
+"@
+    $storageCountOutput = @(
+        & $script:PostgresTools['psql'] "--dbname=$DatabaseUrl" --no-psqlrc `
+            --quiet --set=ON_ERROR_STOP=1 --tuples-only --no-align `
+            "--command=$storageCountSql" 2>$null
+    )
+    if ($LASTEXITCODE -ne 0) {
         throw "Unable to verify the Storage object inventory."
+    }
+    $storageObjectCount = $storageCountOutput |
+        Where-Object { $_.Trim() -match '^\d+$' } |
+        Select-Object -Last 1
+    if ([string]::IsNullOrWhiteSpace($storageObjectCount)) {
+        throw "Storage object inventory did not return a valid count."
     }
     if ([int64]$storageObjectCount -ne 0) {
         throw "Storage contains binary objects. A verified binary object backup is required before this database backup can be marked complete."
@@ -341,13 +373,13 @@ select json_build_object(
     $rolesFile = Join-Path $workingDirectory 'roles-without-passwords.sql'
 
     & $script:PostgresTools['pg_dump'] "--dbname=$DatabaseUrl" --format=custom "--file=$applicationDump" `
-        --no-owner --schema=public --schema=supabase_migrations
+        --no-owner --serializable-deferrable --schema=public --schema=supabase_migrations
     if ($LASTEXITCODE -ne 0) {
         throw "Application pg_dump failed."
     }
 
     & $script:PostgresTools['pg_dump'] "--dbname=$DatabaseUrl" --format=custom "--file=$storageDump" `
-        --no-owner --schema=storage
+        --no-owner --serializable-deferrable --schema=storage
     if ($LASTEXITCODE -ne 0) {
         throw "Storage metadata pg_dump failed."
     }
@@ -531,7 +563,10 @@ Project ref: $ExpectedProjectRef
     $validationChecks = @(
         'project ref matched connection URL',
         'password supplied only through PING_STAGING_DB_PASSWORD',
-        'read-only PostgreSQL session confirmed',
+        'BEGIN READ ONLY transaction confirmed transaction_read_only=on',
+        'innocuous read-only probe succeeded and validation transaction rolled back',
+        'catalog exports executed inside explicit read-only transactions',
+        'pg_dump archives requested serializable read-only deferrable transactions',
         'Storage binary object count confirmed as zero',
         'application archive inspected with pg_restore',
         'Storage metadata archive inspected with pg_restore',
