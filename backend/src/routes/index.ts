@@ -13,6 +13,7 @@ import * as calendarController from '../controllers/calendar.controller';
 import * as agoraController from '../controllers/agora.controller';
 import * as operationController from '../controllers/operation.controller';
 import * as contactController from '../controllers/contact.controller';
+import * as privateFileController from '../controllers/privateFile.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
@@ -20,12 +21,15 @@ import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
+import * as privateFileSchema from '../schemas/privateFile.schema';
 import { requireFeature } from '../middleware/featureGate';
 
 export const router = Router();
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
 const callsEnabled = requireFeature('ENABLE_CALLS');
+const privateFileReadsEnabled = requireFeature('ENABLE_PRIVATE_FILE_READS');
+const privateFileUploadsEnabled = requireFeature('ENABLE_PRIVATE_FILE_UPLOADS');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -110,6 +114,23 @@ router.get('/contacts/:id', requireAuth, validateRequest(contactSchema.getContac
 
 // Search
 router.get('/search', requireAuth, searchController.search);
+
+// Private files. Both routes remain closed unless the master gate and the
+// corresponding capability gate are explicitly enabled.
+router.post(
+    '/files/read-url',
+    requireAuth,
+    privateFileReadsEnabled,
+    validateRequest(privateFileSchema.createPrivateFileReadUrlSchema),
+    privateFileController.createReadUrl
+);
+router.post(
+    '/files/upload-url',
+    requireAuth,
+    privateFileUploadsEnabled,
+    validateRequest(privateFileSchema.createPrivateFileUploadUrlSchema),
+    privateFileController.createUploadUrl
+);
 
 // AI
 router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize', 'analyze-message'] }));

@@ -63,15 +63,45 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
 // configuracion de respuestas. Se crea un mock "vacio" en el modulo y cada
 // test reemplaza `current` con una instancia fresca via setSupabaseAdminMock.
 let current = createSupabaseAdminMock({});
+let currentStorage = {
+    from: vi.fn(() => ({
+        createSignedUrl: vi.fn(),
+        createSignedUploadUrl: vi.fn(),
+    })),
+};
 
 export function setSupabaseAdminMock(mock: ReturnType<typeof createSupabaseAdminMock>) {
     current = mock;
+}
+
+export function setSupabaseStorageMock(mock: typeof currentStorage) {
+    currentStorage = mock;
+}
+
+export function createSupabaseStorageMock(options: {
+    read?: { data: any; error: any };
+    upload?: { data: any; error: any };
+} = {}) {
+    const createSignedUrl = vi.fn(() => Promise.resolve(
+        options.read ?? { data: { signedUrl: 'https://signed.invalid/read' }, error: null }
+    ));
+    const createSignedUploadUrl = vi.fn(() => Promise.resolve(
+        options.upload ?? {
+            data: { signedUrl: 'https://signed.invalid/upload', token: 'temporary-token' },
+            error: null,
+        }
+    ));
+    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl }));
+    return { from, createSignedUrl, createSignedUploadUrl };
 }
 
 export function supabaseAdminMockModule() {
     return {
         supabaseAdmin: {
             from: (...args: any[]) => current.from(...args),
+            storage: {
+                from: (...args: any[]) => currentStorage.from(...args),
+            },
         },
     };
 }
