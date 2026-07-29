@@ -12,11 +12,12 @@ import { API_URL } from '../api/client';
 import { useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useAppTheme } from '../theme/ThemeContext';
+import { getDisplayNameValidationError, normalizeDisplayName, normalizeOptionalPhone } from '../utils/profile';
 
 export default function ProfileScreen() {
     const { theme } = useAppTheme();
     const styles = useMemo(() => createStyles(theme), [theme]);
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
     const [phone, setPhone] = useState('');
     const [fullName, setFullName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -230,12 +231,22 @@ export default function ProfileScreen() {
 
     const handleSaveProfile = async () => {
         if (!user) return;
+        const normalizedName = normalizeDisplayName(fullName);
+        const validationError = getDisplayNameValidationError(normalizedName);
+        if (validationError) {
+            Alert.alert('Revisa tu nombre', validationError);
+            return;
+        }
+
         setSaving(true);
         try {
             await updateProfile({
-                full_name: fullName || undefined,
+                full_name: normalizedName,
                 avatar_url: avatarUrl || undefined,
+                phone: normalizeOptionalPhone(phone),
             });
+            setFullName(normalizedName);
+            await refreshProfile();
             setIsEditing(false);
             Alert.alert('✅ Perfil actualizado', 'Tus cambios han sido guardados.');
         } catch (e: any) {

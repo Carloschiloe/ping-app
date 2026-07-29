@@ -1,53 +1,100 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
-
-function normalizePhone(raw: string): string {
-    // Remove everything except digits and leading +
-    let cleaned = raw.replace(/[^\d+]/g, '');
-    // Ensure starts with + for international format
-    if (!cleaned.startsWith('+')) {
-        // Default to Chile +56 if no country code — users can type their own
-        cleaned = '+56' + cleaned.replace(/^0/, '');
-    }
-    return cleaned;
-}
+import {
+    createRequestGate,
+    DEFAULT_SIGNUP_COOLDOWN_SECONDS,
+    getSafeAuthErrorDetails,
+    parseSignupRetryAfterSeconds,
+} from '../utils/authRegistration';
 
 export default function AuthScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [phone, setPhone] = useState('');
     const [loading, setLoading] = useState(false);
     const [isLogin, setIsLogin] = useState(true);
+    const [signupCooldown, setSignupCooldown] = useState(0);
+    const [signupSubmitted, setSignupSubmitted] = useState(false);
+    const requestGate = useRef(createRequestGate());
+
+    useEffect(() => {
+        if (signupCooldown <= 0) return;
+        const timer = setTimeout(() => {
+            setSignupCooldown((remaining) => Math.max(0, remaining - 1));
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [signupCooldown]);
 
     async function handleAuth() {
+        if (!isLogin && signupCooldown > 0) return;
+        if (!requestGate.current.tryStart()) return;
+
         setLoading(true);
         try {
+            const normalizedEmail = email.trim().toLowerCase();
+            if (!normalizedEmail || !password) {
+                Alert.alert('Datos incompletos', 'Ingresa tu correo y contraseña.');
+                return;
+            }
+
             if (isLogin) {
-                const { error } = await supabase.auth.signInWithPassword({ email, password });
-                if (error) Alert.alert('Error', error.message);
-            } else {
-                if (!phone.trim()) {
-                    Alert.alert('Número requerido', 'Ingresa tu número de teléfono para que tus contactos puedan encontrarte en Ping.');
-                    setLoading(false);
-                    return;
-                }
-                const { data, error } = await supabase.auth.signUp({ email, password });
+                const { error } = await supabase.auth.signInWithPassword({
+                    email: normalizedEmail,
+                    password,
+                });
                 if (error) {
-                    Alert.alert('Error', error.message);
-                } else if (data.user) {
-                    // Save phone to profile
-                    const normalizedPhone = normalizePhone(phone);
-                    await supabase
-                        .from('profiles')
-                        .update({ phone: normalizedPhone })
-                        .eq('id', data.user.id);
+                    console.warn('[Auth] sign-in failed', getSafeAuthErrorDetails(error));
+                    Alert.alert('No se pudo iniciar sesión', 'Revisa tus datos e inténtalo nuevamente.');
+                }
+                return;
+            }
+
+            const { data, error } = await supabase.auth.signUp({
+                email: normalizedEmail,
+                password,
+            });
+            if (error) {
+                const retryAfter = parseSignupRetryAfterSeconds(error);
+                console.warn('[Auth] sign-up failed', getSafeAuthErrorDetails(error));
+                if (retryAfter) {
+                    setSignupCooldown(retryAfter);
+                    Alert.alert(
+                        'Espera antes de reintentar',
+                        `Por seguridad, podrás solicitar el registro nuevamente en ${retryAfter} segundos.`
+                    );
+                } else {
+                    Alert.alert('No se pudo completar el registro', 'Revisa los datos e inténtalo nuevamente.');
+                }
+                return;
+            }
+
+            if (data.user) {
+                setSignupSubmitted(true);
+                setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
+                if (!data.session) {
+                    Alert.alert(
+                        'Verifica tu correo',
+                        'Te enviamos un enlace de confirmación. Después de verificarlo, vuelve a Ping para completar tu nombre.'
+                    );
                 }
             }
         } finally {
+            requestGate.current.finish();
             setLoading(false);
         }
     }
+
+    const signupBlocked = !isLogin && signupCooldown > 0;
+    const buttonDisabled = loading || signupBlocked;
+    const buttonLabel = loading
+        ? 'Procesando...'
+        : isLogin
+            ? 'Iniciar sesión'
+            : signupBlocked
+                ? `Espera ${signupCooldown} s`
+                : signupSubmitted
+                    ? 'Solicitar nuevamente'
+                    : 'Registrarse';
 
     return (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -58,11 +105,12 @@ export default function AuthScreen() {
 
                 <TextInput
                     style={styles.input}
-                    placeholder="Email"
+                    placeholder="Correo"
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
                     keyboardType="email-address"
+                    editable={!loading}
                 />
                 <TextInput
                     style={styles.input}
@@ -70,32 +118,40 @@ export default function AuthScreen() {
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
+                    editable={!loading}
                 />
 
-                {!isLogin && (
-                    <View>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Teléfono (ej: +56912345678)"
-                            value={phone}
-                            onChangeText={setPhone}
-                            keyboardType="phone-pad"
-                        />
-                        <Text style={styles.phoneHint}>
-                            Tu número permite que tus contactos te encuentren en Ping.
-                        </Text>
-                    </View>
+                {!isLogin && signupSubmitted && (
+                    <Text style={styles.notice}>
+                        Revisa tu correo para verificar la cuenta. Tu nombre se solicitará al volver a Ping.
+                    </Text>
                 )}
 
-                <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={loading}>
-                    <Text style={styles.buttonText}>
-                        {loading ? 'Cargando...' : (isLogin ? 'Iniciar Sesión' : 'Registrarse')}
+                {!isLogin && signupCooldown > 0 && (
+                    <Text style={styles.cooldown}>
+                        Por seguridad, podrás volver a intentarlo en {signupCooldown} segundos.
                     </Text>
+                )}
+
+                <TouchableOpacity
+                    style={[styles.button, buttonDisabled && styles.buttonDisabled]}
+                    onPress={handleAuth}
+                    disabled={buttonDisabled}
+                >
+                    <Text style={styles.buttonText}>{buttonLabel}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.switchButton} onPress={() => setIsLogin(!isLogin)}>
+                <TouchableOpacity
+                    style={styles.switchButton}
+                    onPress={() => {
+                        if (loading) return;
+                        setIsLogin((current) => !current);
+                        setSignupSubmitted(false);
+                    }}
+                    disabled={loading}
+                >
                     <Text style={styles.switchText}>
-                        {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia Sesión'}
+                        {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -110,9 +166,11 @@ const styles = StyleSheet.create({
     title: { fontSize: 34, fontWeight: '800', textAlign: 'center', color: '#3b82f6', marginBottom: 4 },
     subtitle: { textAlign: 'center', color: '#6b7280', marginBottom: 40, fontSize: 16 },
     input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 15, backgroundColor: '#fafafa' },
-    phoneHint: { fontSize: 12, color: '#9ca3af', marginBottom: 12, marginTop: -6, paddingHorizontal: 4 },
     button: { backgroundColor: '#3b82f6', padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 8 },
+    buttonDisabled: { opacity: 0.55 },
     buttonText: { color: 'white', fontWeight: '700', fontSize: 16 },
+    notice: { color: '#166534', backgroundColor: '#dcfce7', padding: 12, borderRadius: 10, marginBottom: 12, lineHeight: 18 },
+    cooldown: { color: '#92400e', textAlign: 'center', marginBottom: 8, lineHeight: 18 },
     switchButton: { marginTop: 24, alignItems: 'center' },
     switchText: { color: '#3b82f6', textAlign: 'center', fontSize: 15 },
 });

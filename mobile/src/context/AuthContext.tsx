@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import * as Localization from 'expo-localization';
@@ -8,18 +8,62 @@ type AuthConfig = {
     session: Session | null;
     user: User | null;
     initialized: boolean;
+    profile: AuthProfile | null;
+    profileComplete: boolean | null;
+    refreshProfile: () => Promise<AuthProfile | null>;
+};
+
+export type AuthProfile = {
+    id: string;
+    email: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    phone: string | null;
 };
 
 const AuthContext = createContext<AuthConfig>({
     session: null,
     user: null,
     initialized: false,
+    profile: null,
+    profileComplete: null,
+    refreshProfile: async () => null,
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [session, setSession] = useState<Session | null>(null);
     const [user, setUser] = useState<User | null>(null);
     const [initialized, setInitialized] = useState(false);
+    const [profile, setProfile] = useState<AuthProfile | null>(null);
+    const [profileComplete, setProfileComplete] = useState<boolean | null>(null);
+
+    const loadProfile = useCallback(async (userId: string): Promise<AuthProfile | null> => {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('id, email, full_name, avatar_url, phone')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error) {
+            console.warn('[Auth] profile load failed', {
+                code: error.code || null,
+                detailsPresent: !!error.details,
+            });
+            setProfile(null);
+            setProfileComplete(false);
+            return null;
+        }
+
+        const nextProfile = (data || null) as AuthProfile | null;
+        setProfile(nextProfile);
+        setProfileComplete(!!nextProfile?.full_name?.trim());
+        return nextProfile;
+    }, []);
+
+    const refreshProfile = useCallback(async () => {
+        if (!user?.id) return null;
+        return loadProfile(user.id);
+    }, [loadProfile, user?.id]);
 
     useEffect(() => {
         const syncLocale = async (userId: string) => {
@@ -52,12 +96,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         let interval: NodeJS.Timeout;
 
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
             setSession(session);
             setUser(session?.user ?? null);
             if (session?.user) {
+                await loadProfile(session.user.id);
                 syncLocale(session.user.id);
                 interval = heartbeat(session.user.id);
+            } else {
+                setProfile(null);
+                setProfileComplete(null);
             }
             setInitialized(true);
         });
@@ -71,11 +119,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 });
             }
             if (session?.user) {
+                void loadProfile(session.user.id);
                 syncLocale(session.user.id);
                 if (interval) clearInterval(interval);
                 interval = heartbeat(session.user.id);
-            } else if (interval) {
-                clearInterval(interval);
+            } else {
+                if (interval) clearInterval(interval);
+                setProfile(null);
+                setProfileComplete(null);
             }
         });
 
@@ -83,10 +134,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             subscription.unsubscribe();
             if (interval) clearInterval(interval);
         };
-    }, []);
+    }, [loadProfile]);
 
     return (
-        <AuthContext.Provider value={{ session, user, initialized }}>
+        <AuthContext.Provider value={{ session, user, initialized, profile, profileComplete, refreshProfile }}>
             {children}
         </AuthContext.Provider>
     );

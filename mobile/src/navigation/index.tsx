@@ -9,6 +9,7 @@ import type { ConversationsStackParamList, MainTabParamList, RootStackParamList 
 import { useAppTheme } from '../theme/ThemeContext';
 
 import AuthScreen from '../screens/AuthScreen';
+import CompleteProfileScreen from '../screens/CompleteProfileScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import TaskHistoryScreen from '../screens/TaskHistoryScreen';
@@ -44,7 +45,7 @@ const ConversationsStack = () => {
             name="Chat"
             component={ChatScreen}
             options={({ route }: any) => ({
-                title: route.params?.isSelf ? '📌 Mis Recordatorios' : (route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
+                title: route.params?.isSelf ? '📌 Mis Recordatorios' : (route.params?.otherUser?.full_name || route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
                 headerBackTitle: '',
                 headerStyle: stackHeaderStyle,
                 headerTintColor: stackTintColor,
@@ -169,10 +170,10 @@ const PushNotificationHandler = () => {
 };
 
 export const AppNavigator = () => {
-    const { session, initialized } = useAuth();
+    const { session, initialized, profileComplete } = useAuth();
     const { theme: appTheme, isDark } = useAppTheme();
 
-    if (!initialized) {
+    if (!initialized || (session && profileComplete === null)) {
         return (
             <View style={styles.loading}>
                 <ActivityIndicator size="large" color="#1e3a5f" />
@@ -207,10 +208,12 @@ export const AppNavigator = () => {
                 },
             }}
         >
-            <PushNotificationHandler />
+            {session && profileComplete && <PushNotificationHandler />}
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
-                {session ? (
+                {session && profileComplete ? (
                     <RootStack.Screen name="Main" component={MainTabs} />
+                ) : session ? (
+                    <RootStack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
                 ) : (
                     <RootStack.Screen name="Auth" component={AuthScreen} />
                 )}

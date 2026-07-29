@@ -73,7 +73,7 @@ export const useUpdateGroup = (conversationId: string) => {
 export const useUpdateProfile = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: (data: { full_name?: string; avatar_url?: string }) =>
+        mutationFn: (data: { full_name?: string; avatar_url?: string; phone?: string | null }) =>
             apiClient.patch('/user/profile', data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });

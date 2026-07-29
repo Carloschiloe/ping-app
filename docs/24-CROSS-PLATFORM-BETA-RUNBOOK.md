@@ -15,7 +15,7 @@ validación de la aplicación en cada plataforma.
 El recorrido mínimo en ambos dispositivos comprende:
 
 1. apertura sin cierre inesperado;
-2. autenticación contra staging;
+2. registro o autenticación contra staging;
 3. self-chat;
 4. envío de mensajes;
 5. desconexión, reconexión e idempotencia;
@@ -27,6 +27,25 @@ El recorrido mínimo en ambos dispositivos comprende:
 11. rechazo de acceso cruzado.
 
 Los datos de prueba deben ser no sensibles, temporales y limpiarse al terminar.
+
+## Registro y onboarding
+
+El registro inicial solicita únicamente correo y contraseña. La solicitud se
+envía directamente a Supabase Auth; el backend de Ping no intermedia el
+endpoint de alta.
+
+Supabase mantiene su rate limit de seguridad. La aplicación:
+
+- admite una sola solicitud en curso;
+- bloquea doble toque, re-render y reintentos durante el cooldown;
+- muestra en español los segundos restantes informados por Supabase;
+- no registra correo, contraseña, token ni el mensaje técnico completo;
+- no relaja ni evita el límite remoto.
+
+Después de verificar la cuenta, el usuario debe guardar un nombre visible antes
+de acceder al chat. El nombre se conserva en `profiles.full_name` y es la
+representación preferida en conversaciones, contactos y compromisos. Foto y
+teléfono se solicitan únicamente como datos opcionales desde Perfil.
 
 ## Aislamiento obligatorio
 

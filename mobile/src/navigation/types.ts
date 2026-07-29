@@ -48,6 +48,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
     Main: undefined;
     Auth: undefined;
+    CompleteProfile: undefined;
     IncomingCall: any;
     Call: {
         conversationId: string;

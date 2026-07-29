@@ -74,8 +74,8 @@ export default function NewChatScreen({ navigation }: any) {
     };
 
     const UserRow = ({ item }: { item: any }) => {
-        const label = item.contactName || item.email || item.phone;
-        const sub = item.contactName ? item.email : item.phone;
+        const label = item.full_name || item.contactName || item.email || item.phone;
+        const sub = label !== item.email ? item.email : item.phone;
         const color = avatarColor(label);
         return (
             <TouchableOpacity style={styles.row} onPress={() => handleSelectUser(item)} disabled={isPending} activeOpacity={0.7}>

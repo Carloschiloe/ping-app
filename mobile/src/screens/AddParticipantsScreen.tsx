@@ -79,12 +79,16 @@ export default function AddParticipantsScreen() {
                 style={styles.list}
                 renderItem={({ item }) => {
                     const isSelected = selectedUsers.some(su => su.id === item.id);
+                    const displayName = item.full_name || item.email;
                     return (
                         <TouchableOpacity style={styles.userRow} activeOpacity={0.7} onPress={() => toggleUser(item)}>
                             <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>{item.email.substring(0, 2).toUpperCase()}</Text>
+                                <Text style={styles.avatarText}>{displayName.substring(0, 2).toUpperCase()}</Text>
                             </View>
-                            <Text style={styles.emailText}>{item.email}</Text>
+                            <View style={styles.userIdentity}>
+                                <Text style={styles.nameText}>{displayName}</Text>
+                                {!!item.full_name && <Text style={styles.emailText}>{item.email}</Text>}
+                            </View>
                             <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                                 {isSelected && <Ionicons name="checkmark" size={16} color="white" />}
                             </View>
@@ -126,7 +130,9 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center', marginRight: 12
     },
     avatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
-    emailText: { flex: 1, fontSize: 16, color: '#374151' },
+    userIdentity: { flex: 1 },
+    nameText: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
+    emailText: { fontSize: 13, color: '#6b7280', marginTop: 2 },
     checkbox: {
         width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#d1d5db',
         alignItems: 'center', justifyContent: 'center'

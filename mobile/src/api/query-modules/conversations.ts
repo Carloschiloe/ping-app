@@ -126,7 +126,7 @@ export const useConversationMedia = (conversationId: string) => {
 
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
 
     return useMutation({
         mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string; meta?: any }) => {
@@ -148,8 +148,8 @@ export const useSendConversationMessage = (conversationId: string) => {
                     reply_to_id: data.reply_to_id,
                     profiles: {
                         id: user?.id,
-                        full_name: user?.user_metadata?.full_name,
-                        avatar_url: user?.user_metadata?.avatar_url,
+                        full_name: profile?.full_name,
+                        avatar_url: profile?.avatar_url,
                         email: user?.email,
                     }
                 };

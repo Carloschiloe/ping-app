@@ -73,11 +73,12 @@ function check(name, condition, detail = undefined) {
 
 async function createTemporaryUser(index) {
   const email = `${runMarker}-${index}@example.invalid`;
+  const profileName = index === 2 ? null : `Ping Beta E2E ${index}`;
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: `Ping Beta E2E ${index}`, e2e_run: runId },
+    user_metadata: { e2e_run: runId },
   });
   if (error || !data.user) throw error || new Error('Temporary user was not created');
   users.push(data.user.id);
@@ -85,7 +86,7 @@ async function createTemporaryUser(index) {
   const { error: profileError } = await admin.from('profiles').upsert({
     id: data.user.id,
     email,
-    full_name: `Ping Beta E2E ${index}`,
+    full_name: profileName,
   });
   if (profileError) throw profileError;
 
@@ -176,6 +177,43 @@ try {
 
   const health = await request('/health');
   check('staging health check', health.response.status === 200 && health.payload?.db_status === 'connected');
+
+  const { data: incompleteProfile, error: incompleteProfileError } = await admin
+    .from('profiles')
+    .select('full_name')
+    .eq('id', second.id)
+    .single();
+  if (incompleteProfileError) throw incompleteProfileError;
+  check('new profile starts without inferred name', incompleteProfile.full_name === null);
+
+  const rejectedEmptyName = await request('/user/profile', {
+    token: second.token,
+    method: 'PATCH',
+    body: { full_name: ' ' },
+  });
+  check('empty onboarding name rejected', rejectedEmptyName.response.status === 400);
+
+  const completedProfile = await request('/user/profile', {
+    token: second.token,
+    method: 'PATCH',
+    body: {
+      id: first.id,
+      full_name: '  Ping   Beta E2E 2  ',
+    },
+  });
+  check('onboarding name accepted',
+    completedProfile.response.status === 200
+      && completedProfile.payload?.user?.full_name === 'Ping Beta E2E 2');
+
+  const { data: persistedProfile, error: persistedProfileError } = await admin
+    .from('profiles')
+    .select('id, full_name')
+    .eq('id', second.id)
+    .single();
+  if (persistedProfileError) throw persistedProfileError;
+  check('onboarding name persisted on authenticated profile',
+    persistedProfile.id === second.id
+      && persistedProfile.full_name === 'Ping Beta E2E 2');
 
   const self = await request('/conversations/self', { token: first.token, method: 'POST' });
   check('self-chat created', self.response.status === 200 && typeof self.payload?.conversationId === 'string');

@@ -71,7 +71,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { theme: appTheme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(appTheme), [appTheme]);
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const isFocused = useIsFocused();
     const queryClient = useQueryClient();
 
@@ -166,7 +166,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     setGroupParticipants(profiles);
                 } else if (!isGroup && otherUser) {
                     setGroupParticipants([
-                        { id: user?.id || '', full_name: (user as any).user_metadata?.full_name || '', email: user?.email || '' },
+                        { id: user?.id || '', full_name: profile?.full_name || '', email: user?.email || '' },
                         { id: otherUser.id, full_name: otherUser.full_name, email: otherUser.email }
                     ]);
                 }
@@ -175,7 +175,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             }
         };
         fetchParticipants();
-    }, [conversationId, isGroup, otherUser, user]);
+    }, [conversationId, isGroup, otherUser, profile?.full_name, user]);
 
     // ─── Header Navigation Options ──────────────────────────────────────────
     const handleSummarize = React.useCallback(async () => {
