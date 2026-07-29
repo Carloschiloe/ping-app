@@ -1,8 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
+import { Ionicons } from '@expo/vector-icons';
+import {
+    AuthCard,
+    AuthField,
+    AuthMessage,
+    AuthPrimaryButton,
+    AuthScaffold,
+    AuthSegmentedControl,
+    PrivacyNote,
+} from '../components/auth/AuthKit';
 import { supabase } from '../lib/supabase';
+import { authColors } from '../theme/authTheme';
 import {
     createRequestGate,
     DEFAULT_SIGNUP_COOLDOWN_SECONDS,
@@ -10,6 +21,17 @@ import {
     getSignupCooldownMessage,
     parseSignupRetryAfterSeconds,
 } from '../utils/authRegistration';
+import {
+    AuthMode,
+    getAuthCredentialsValidationError,
+    getAuthErrorMessage,
+    normalizeAuthEmail,
+} from '../utils/authForm';
+
+type FormMessage = {
+    tone: 'error' | 'warning' | 'success' | 'info';
+    text: string;
+};
 
 export default function AuthScreen() {
     const buildLabel = Constants.expoConfig?.extra?.buildLabel as string | undefined;
@@ -17,10 +39,11 @@ export default function AuthScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [isLogin, setIsLogin] = useState(true);
+    const [mode, setMode] = useState<AuthMode>('login');
     const [signupCooldown, setSignupCooldown] = useState(0);
     const [signupSubmitted, setSignupSubmitted] = useState(false);
     const [signupEmail, setSignupEmail] = useState('');
+    const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
     const requestGate = useRef(createRequestGate());
 
     useEffect(() => {
@@ -31,15 +54,26 @@ export default function AuthScreen() {
         return () => clearTimeout(timer);
     }, [signupCooldown]);
 
+    const changeMode = (nextMode: AuthMode) => {
+        if (loading || nextMode === mode) return;
+        setMode(nextMode);
+        setSignupSubmitted(false);
+        setFormMessage(null);
+        setPassword('');
+    };
+
     async function handleAuth() {
+        const isLogin = mode === 'login';
         if (!isLogin && signupCooldown > 0) return;
         if (!requestGate.current.tryStart()) return;
 
+        setFormMessage(null);
         setLoading(true);
         try {
-            const normalizedEmail = email.trim().toLowerCase();
-            if (!normalizedEmail || !password) {
-                Alert.alert('Datos incompletos', 'Ingresa tu correo y contraseña.');
+            const normalizedEmail = normalizeAuthEmail(email);
+            const validationError = getAuthCredentialsValidationError(email, password, mode);
+            if (validationError) {
+                setFormMessage({ tone: 'error', text: validationError });
                 return;
             }
 
@@ -50,7 +84,7 @@ export default function AuthScreen() {
                 });
                 if (error) {
                     console.warn('[Auth] sign-in failed', getSafeAuthErrorDetails(error));
-                    Alert.alert('No se pudo iniciar sesión', 'Revisa tus datos e inténtalo nuevamente.');
+                    setFormMessage({ tone: 'error', text: getAuthErrorMessage(error, 'login') });
                 }
                 return;
             }
@@ -67,12 +101,12 @@ export default function AuthScreen() {
                 console.warn('[Auth] sign-up failed', getSafeAuthErrorDetails(error));
                 if (retryAfter) {
                     setSignupCooldown(retryAfter);
-                    Alert.alert(
-                        'Espera antes de reintentar',
-                        `Por seguridad, podrás solicitar el registro nuevamente en ${retryAfter} segundos.`
-                    );
+                    setFormMessage({
+                        tone: 'warning',
+                        text: `Por seguridad, podrás solicitar el registro nuevamente en ${retryAfter} segundos.`,
+                    });
                 } else {
-                    Alert.alert('No se pudo completar el registro', 'Revisa los datos e inténtalo nuevamente.');
+                    setFormMessage({ tone: 'error', text: getAuthErrorMessage(error, 'signup') });
                 }
                 return;
             }
@@ -82,12 +116,7 @@ export default function AuthScreen() {
                 setSignupSubmitted(true);
                 setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
                 setPassword('');
-                if (!data.session) {
-                    Alert.alert(
-                        'Cuenta creada',
-                        `Enviamos un correo de verificación a ${normalizedEmail}. Abre el enlace para activar tu cuenta.`
-                    );
-                }
+                setFormMessage(null);
             }
         } finally {
             requestGate.current.finish();
@@ -99,12 +128,12 @@ export default function AuthScreen() {
         if (!signupSubmitted || signupCooldown > 0) return;
         if (!requestGate.current.tryStart()) return;
 
+        setFormMessage(null);
         setLoading(true);
         try {
-            const normalizedEmail = signupEmail || email.trim().toLowerCase();
             const { error } = await supabase.auth.resend({
                 type: 'signup',
-                email: normalizedEmail,
+                email: signupEmail,
                 options: {
                     emailRedirectTo: authCallbackUrl,
                 },
@@ -115,171 +144,291 @@ export default function AuthScreen() {
                 console.warn('[Auth] verification resend failed', getSafeAuthErrorDetails(error));
                 if (retryAfter) {
                     setSignupCooldown(retryAfter);
-                    Alert.alert(
-                        'Espera antes de reenviar',
-                        `Podrás solicitar otro correo en ${retryAfter} segundos.`
-                    );
+                    setFormMessage({
+                        tone: 'warning',
+                        text: `Podrás solicitar otro correo en ${retryAfter} segundos.`,
+                    });
                 } else {
-                    Alert.alert(
-                        'No se pudo reenviar',
-                        'Espera un momento y vuelve a intentarlo.'
-                    );
+                    setFormMessage({
+                        tone: 'error',
+                        text: 'No pudimos reenviar el correo. Espera un momento e inténtalo nuevamente.',
+                    });
                 }
                 return;
             }
 
             setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
-            Alert.alert(
-                'Correo reenviado',
-                'Revisa tu bandeja de entrada y spam. Después de verificar, inicia sesión.'
-            );
+            setFormMessage({
+                tone: 'success',
+                text: 'Correo reenviado. Revisa tu bandeja de entrada y spam.',
+            });
         } finally {
             requestGate.current.finish();
             setLoading(false);
         }
     }
 
-    const signupBlocked = !isLogin && !signupSubmitted && signupCooldown > 0;
+    const signupBlocked = mode === 'signup' && signupCooldown > 0;
     const buttonDisabled = loading || signupBlocked;
-    const buttonLabel = loading
-        ? 'Procesando...'
-        : isLogin
-            ? 'Iniciar sesión'
-            : signupBlocked
-                ? `Espera ${signupCooldown} s`
-                : signupSubmitted
-                    ? 'Solicitar nuevamente'
-                    : 'Registrarse';
 
     return (
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-            <View style={styles.container}>
-                <Text style={styles.logo}>📌</Text>
-                <Text style={styles.title}>PING</Text>
-                <Text style={styles.subtitle}>Chat that remembers</Text>
-                {!!buildLabel && <Text style={styles.buildLabel}>{buildLabel}</Text>}
+        <AuthScaffold buildLabel={buildLabel}>
+            <View style={styles.intro}>
+                <Text style={styles.title}>
+                    {mode === 'login' ? 'Qué bueno verte' : 'Bienvenido'}
+                </Text>
+                <Text style={styles.description}>
+                    {mode === 'login'
+                        ? 'Retoma tus conversaciones y asuntos importantes.'
+                        : 'Organiza tus conversaciones y compromisos en un solo lugar.'}
+                </Text>
+                <View style={styles.valueRow}>
+                    <ValuePill icon="chatbubble-ellipses-outline" label="Conversaciones" />
+                    <ValuePill icon="checkmark-circle-outline" label="Compromisos" />
+                    <ValuePill icon="radio-outline" label="Memoria" />
+                </View>
+            </View>
 
-                {!isLogin && signupSubmitted ? (
-                    <>
-                        <View style={styles.successCard}>
-                            <Text style={styles.successIcon}>✓</Text>
-                            <Text style={styles.successTitle}>Cuenta creada</Text>
-                            <Text style={styles.successText}>
-                                Enviamos un correo de verificación a:
-                            </Text>
-                            <Text style={styles.successEmail}>{signupEmail}</Text>
-                            <Text style={styles.successStep}>1. Abre el correo de Ping.</Text>
-                            <Text style={styles.successStep}>2. Pulsa “Verificar mi cuenta”.</Text>
-                            <Text style={styles.successStep}>3. Vuelve a Ping y completa tu nombre.</Text>
-                            <Text style={styles.successHint}>
-                                Revisa también spam o correo no deseado. No vuelvas a registrarte.
-                            </Text>
-                        </View>
+            <AuthCard>
+                <AuthSegmentedControl value={mode} onChange={changeMode} disabled={loading} />
 
-                        {signupCooldown > 0 && (
-                            <Text style={styles.cooldown}>
-                                {getSignupCooldownMessage(true, signupCooldown)}
-                            </Text>
-                        )}
-
-                        <TouchableOpacity
-                            style={styles.button}
-                            onPress={() => {
-                                setIsLogin(true);
-                                setSignupSubmitted(false);
-                                setEmail(signupEmail);
-                            }}
-                            disabled={loading}
-                        >
-                            <Text style={styles.buttonText}>Ya verifiqué mi correo · Iniciar sesión</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.resendButton, (loading || signupCooldown > 0) && styles.buttonDisabled]}
-                            onPress={handleResendVerification}
-                            disabled={loading || signupCooldown > 0}
-                        >
-                            <Text style={styles.resendText}>
-                                {signupCooldown > 0
-                                    ? `Reenviar correo en ${signupCooldown} s`
-                                    : 'Reenviar correo de verificación'}
-                            </Text>
-                        </TouchableOpacity>
-                    </>
+                {mode === 'signup' && signupSubmitted ? (
+                    <VerificationState
+                        email={signupEmail}
+                        cooldown={signupCooldown}
+                        loading={loading}
+                        message={formMessage}
+                        onContinue={() => {
+                            setMode('login');
+                            setSignupSubmitted(false);
+                            setEmail(signupEmail);
+                            setFormMessage({
+                                tone: 'info',
+                                text: 'Ingresa con la contraseña que elegiste al crear tu cuenta.',
+                            });
+                        }}
+                        onResend={handleResendVerification}
+                    />
                 ) : (
                     <>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Correo"
+                        <AuthField
+                            icon="mail-outline"
+                            placeholder="Correo electrónico"
                             value={email}
-                            onChangeText={setEmail}
+                            onChangeText={(value) => {
+                                setEmail(value);
+                                if (formMessage?.tone === 'error') setFormMessage(null);
+                            }}
                             autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="email"
+                            textContentType="emailAddress"
                             keyboardType="email-address"
+                            returnKeyType="next"
                             editable={!loading}
+                            accessibilityLabel="Correo electrónico"
                         />
-                        <TextInput
-                            style={styles.input}
+                        <AuthField
+                            icon="lock-closed-outline"
                             placeholder="Contraseña"
                             value={password}
-                            onChangeText={setPassword}
-                            secureTextEntry
+                            onChangeText={(value) => {
+                                setPassword(value);
+                                if (formMessage?.tone === 'error') setFormMessage(null);
+                            }}
+                            secure
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                            textContentType={mode === 'login' ? 'password' : 'newPassword'}
+                            returnKeyType="done"
+                            onSubmitEditing={handleAuth}
                             editable={!loading}
+                            accessibilityLabel="Contraseña"
                         />
 
-                        {!isLogin && signupCooldown > 0 && (
-                            <Text style={styles.cooldown}>
-                                {getSignupCooldownMessage(false, signupCooldown)}
-                            </Text>
+                        {!!formMessage && (
+                            <AuthMessage tone={formMessage.tone}>{formMessage.text}</AuthMessage>
                         )}
 
-                        <TouchableOpacity
-                            style={[styles.button, buttonDisabled && styles.buttonDisabled]}
-                            onPress={handleAuth}
-                            disabled={buttonDisabled}
-                        >
-                            <Text style={styles.buttonText}>{buttonLabel}</Text>
-                        </TouchableOpacity>
+                        {mode === 'signup' && signupCooldown > 0 && !formMessage && (
+                            <AuthMessage tone="warning">
+                                {getSignupCooldownMessage(false, signupCooldown)}
+                            </AuthMessage>
+                        )}
 
-                        <TouchableOpacity
-                            style={styles.switchButton}
-                            onPress={() => {
-                                if (loading) return;
-                                setIsLogin((current) => !current);
-                                setSignupSubmitted(false);
-                            }}
+                        <AuthPrimaryButton
+                            label={mode === 'login'
+                                ? 'Iniciar sesión'
+                                : signupBlocked
+                                    ? `Espera ${signupCooldown} s`
+                                    : 'Crear cuenta'}
+                            onPress={handleAuth}
+                            loading={loading}
+                            disabled={buttonDisabled}
+                        />
+
+                        <Pressable
+                            accessibilityRole="button"
                             disabled={loading}
+                            onPress={() => changeMode(mode === 'login' ? 'signup' : 'login')}
+                            style={({ pressed }) => [styles.switchLink, pressed && styles.pressed]}
                         >
                             <Text style={styles.switchText}>
-                                {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+                                {mode === 'login' ? '¿Aún no tienes cuenta? ' : '¿Ya tienes cuenta? '}
+                                <Text style={styles.switchTextStrong}>
+                                    {mode === 'login' ? 'Créala ahora' : 'Inicia sesión'}
+                                </Text>
                             </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </>
                 )}
+
+                <PrivacyNote />
+            </AuthCard>
+        </AuthScaffold>
+    );
+}
+
+function ValuePill({
+    icon,
+    label,
+}: {
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+}) {
+    return (
+        <View style={styles.valuePill}>
+            <Ionicons name={icon} size={15} color={authColors.primary} />
+            <Text style={styles.valueLabel}>{label}</Text>
+        </View>
+    );
+}
+
+function VerificationState({
+    email,
+    cooldown,
+    loading,
+    message,
+    onContinue,
+    onResend,
+}: {
+    email: string;
+    cooldown: number;
+    loading: boolean;
+    message: FormMessage | null;
+    onContinue: () => void;
+    onResend: () => void;
+}) {
+    return (
+        <>
+            <View style={styles.verification}>
+                <View style={styles.verificationIcon}>
+                    <Ionicons name="mail-unread-outline" size={30} color={authColors.primary} />
+                </View>
+                <Text style={styles.verificationTitle}>Cuenta creada</Text>
+                <Text style={styles.verificationText}>Enviamos un correo de verificación a</Text>
+                <Text style={styles.verificationEmail}>{email}</Text>
+                <View style={styles.steps}>
+                    <Text style={styles.step}>1. Abre el correo de Ping.</Text>
+                    <Text style={styles.step}>2. Pulsa “Verificar mi cuenta”.</Text>
+                    <Text style={styles.step}>3. Vuelve a Ping y completa tu nombre.</Text>
+                </View>
+                <Text style={styles.hint}>
+                    Revisa también spam. No vuelvas a crear la cuenta.
+                </Text>
             </View>
-        </ScrollView>
+
+            {!!message && <AuthMessage tone={message.tone}>{message.text}</AuthMessage>}
+            {cooldown > 0 && !message && (
+                <AuthMessage tone="warning">
+                    {getSignupCooldownMessage(true, cooldown)}
+                </AuthMessage>
+            )}
+
+            <AuthPrimaryButton
+                label="Ya verifiqué · Iniciar sesión"
+                onPress={onContinue}
+                disabled={loading}
+                icon="log-in-outline"
+            />
+            <Pressable
+                accessibilityRole="button"
+                disabled={loading || cooldown > 0}
+                onPress={onResend}
+                style={({ pressed }) => [
+                    styles.resend,
+                    (loading || cooldown > 0) && styles.resendDisabled,
+                    pressed && styles.pressed,
+                ]}
+            >
+                <Text style={styles.resendText}>
+                    {cooldown > 0
+                        ? `Reenviar correo en ${cooldown} s`
+                        : 'Reenviar correo de verificación'}
+                </Text>
+            </Pressable>
+        </>
     );
 }
 
 const styles = StyleSheet.create({
-    scroll: { flexGrow: 1 },
-    container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'white' },
-    logo: { textAlign: 'center', fontSize: 52, marginBottom: 8 },
-    title: { fontSize: 34, fontWeight: '800', textAlign: 'center', color: '#3b82f6', marginBottom: 4 },
-    subtitle: { textAlign: 'center', color: '#6b7280', marginBottom: 10, fontSize: 16 },
-    buildLabel: { textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'center', marginBottom: 24, fontSize: 12, fontWeight: '700' },
-    input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 15, backgroundColor: '#fafafa' },
-    button: { backgroundColor: '#3b82f6', padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 8 },
-    buttonDisabled: { opacity: 0.55 },
-    buttonText: { color: 'white', fontWeight: '700', fontSize: 16 },
-    successCard: { backgroundColor: '#ecfdf5', borderColor: '#86efac', borderWidth: 1, padding: 18, borderRadius: 14, marginBottom: 14 },
-    successIcon: { color: '#15803d', fontSize: 30, fontWeight: '800', textAlign: 'center', marginBottom: 4 },
-    successTitle: { color: '#166534', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 10 },
-    successText: { color: '#374151', textAlign: 'center', lineHeight: 20 },
-    successEmail: { color: '#1d4ed8', textAlign: 'center', fontWeight: '700', marginTop: 4, marginBottom: 14 },
-    successStep: { color: '#1f2937', lineHeight: 22 },
-    successHint: { color: '#6b7280', lineHeight: 19, marginTop: 12, fontSize: 13 },
-    cooldown: { color: '#92400e', textAlign: 'center', marginBottom: 8, lineHeight: 18 },
-    resendButton: { padding: 14, alignItems: 'center', marginTop: 8 },
-    resendText: { color: '#2563eb', fontWeight: '700' },
-    switchButton: { marginTop: 24, alignItems: 'center' },
-    switchText: { color: '#3b82f6', textAlign: 'center', fontSize: 15 },
+    intro: { alignItems: 'center', marginBottom: 18, paddingHorizontal: 12 },
+    title: { color: authColors.ink, fontSize: 30, lineHeight: 36, fontWeight: '900', textAlign: 'center' },
+    description: {
+        color: authColors.inkSoft,
+        fontSize: 15,
+        lineHeight: 21,
+        textAlign: 'center',
+        maxWidth: 350,
+        marginTop: 6,
+    },
+    valueRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        gap: 7,
+        marginTop: 13,
+    },
+    valuePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: 'rgba(255,255,255,0.75)',
+        borderColor: 'rgba(124,137,207,0.24)',
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+    },
+    valueLabel: { color: authColors.inkSoft, fontSize: 11, fontWeight: '700' },
+    switchLink: { alignItems: 'center', paddingVertical: 16, marginBottom: -5 },
+    switchText: { color: authColors.inkSoft, fontSize: 14 },
+    switchTextStrong: { color: authColors.primary, fontWeight: '800' },
+    verification: { alignItems: 'center', marginBottom: 14 },
+    verificationIcon: {
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        backgroundColor: '#edf0ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
+    },
+    verificationTitle: { color: authColors.ink, fontSize: 24, fontWeight: '900' },
+    verificationText: { color: authColors.inkSoft, fontSize: 14, marginTop: 6 },
+    verificationEmail: { color: authColors.primary, fontWeight: '800', marginTop: 4, marginBottom: 14 },
+    steps: {
+        width: '100%',
+        backgroundColor: authColors.surfaceMuted,
+        borderRadius: 14,
+        paddingHorizontal: 15,
+        paddingVertical: 11,
+    },
+    step: { color: authColors.ink, lineHeight: 22, fontSize: 13 },
+    hint: { color: authColors.inkSoft, fontSize: 12, textAlign: 'center', marginTop: 10 },
+    resend: { alignItems: 'center', paddingVertical: 14 },
+    resendDisabled: { opacity: 0.5 },
+    resendText: { color: authColors.primary, fontWeight: '800', fontSize: 13 },
+    pressed: { opacity: 0.72 },
 });
