@@ -60,13 +60,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         // production remain separate Android applications through package ID.
         slug: base.slug,
         scheme: isStaging ? 'ping-staging' : 'ping',
-        plugins,
+        plugins: isStaging ? [...plugins, 'expo-web-browser'] : plugins,
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
             versionCode: 1,
             permissions: [],
             blockedPermissions: blockedBetaPermissions,
+        },
+        ios: {
+            ...base.ios,
+            ...(isStaging ? {
+                bundleIdentifier: 'com.carloschiloe.ping.staging',
+                buildNumber: '1',
+            } : {}),
         },
         extra: {
             ...base.extra,

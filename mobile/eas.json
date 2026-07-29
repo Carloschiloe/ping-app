@@ -28,6 +28,18 @@
         "buildType": "app-bundle"
       }
     },
+    "staging-ios": {
+      "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
     "production": {
       "distribution": "store",
       "environment": "production",
