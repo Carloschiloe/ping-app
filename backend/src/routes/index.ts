@@ -39,7 +39,12 @@ router.get('/health', async (req, res) => {
     try {
         const { error } = await supabaseAdmin.from('profiles').select('count', { count: 'exact', head: true });
         if (error) throw error;
-        res.json({ ok: true, db_status: 'connected', timestamp: new Date().toISOString() });
+        res.json({
+            ok: true,
+            db_status: 'connected',
+            commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
+            timestamp: new Date().toISOString(),
+        });
     } catch (error: any) {
         res.status(500).json({ ok: false, error: 'Database connection failed' });
     }
