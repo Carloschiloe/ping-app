@@ -3,6 +3,32 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
 import { useAuth } from '../../context/AuthContext';
+import { reconcileConfirmedMessage } from '../../utils/messageReconciliation';
+
+function reconcileMessagePages(oldData: any, confirmed: any) {
+    if (!oldData?.pages) return oldData;
+
+    const allMessages = oldData.pages.flatMap((page: any) => page.messages);
+    const reconciled = reconcileConfirmedMessage(allMessages, confirmed);
+    const lengthDelta = reconciled.length - allMessages.length;
+    let cursor = 0;
+
+    return {
+        ...oldData,
+        pages: oldData.pages.map((page: any, index: number) => {
+            const pageLength = Math.max(
+                0,
+                page.messages.length + (index === 0 ? lengthDelta : 0)
+            );
+            const nextPage = {
+                ...page,
+                messages: reconciled.slice(cursor, cursor + pageLength),
+            };
+            cursor += pageLength;
+            return nextPage;
+        }),
+    };
+}
 
 export const useConversations = () => {
     const queryClient = useQueryClient();
@@ -37,28 +63,7 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
                 const newMsg = payload.new;
                 queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
-                    if (!oldData) return oldData;
-                    const allMessages = oldData.pages.flatMap((page: any) => page.messages);
-                    const optimisticMatch = allMessages.find((m: any) =>
-                        m.id.startsWith('temp-') &&
-                        m.sender_id === newMsg.sender_id &&
-                        m.text === newMsg.text
-                    );
-
-                    const newPages = [...oldData.pages];
-                    if (optimisticMatch) {
-                        newPages[0] = {
-                            ...newPages[0],
-                            messages: newPages[0].messages.map((m: any) => m.id === optimisticMatch.id ? newMsg : m)
-                        };
-                    } else {
-                        if (allMessages.find((m: any) => m.id === newMsg.id)) return oldData;
-                        newPages[0] = {
-                            ...newPages[0],
-                            messages: [newMsg, ...newPages[0].messages]
-                        };
-                    }
-                    return { ...oldData, pages: newPages };
+                    return reconcileMessagePages(oldData, newMsg);
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
@@ -129,7 +134,7 @@ export const useSendConversationMessage = (conversationId: string) => {
     const { user, profile } = useAuth();
 
     return useMutation({
-        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string; meta?: any }) => {
+        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string; client_message_id?: string; meta?: any }) => {
             return apiClient.post(`/conversations/${conversationId}/messages`, data);
         },
         onMutate: async (data) => {
@@ -138,7 +143,8 @@ export const useSendConversationMessage = (conversationId: string) => {
 
             if (previousQueries && previousQueries.length > 0) {
                 const optimisticMsg = {
-                    id: `temp-${Date.now()}`,
+                    id: `temp-${data.client_message_id || Date.now()}`,
+                    client_message_id: data.client_message_id,
                     conversation_id: conversationId,
                     sender_id: user?.id,
                     text: data.text,
@@ -173,6 +179,16 @@ export const useSendConversationMessage = (conversationId: string) => {
                     queryClient.setQueryData(key, data);
                 });
             }
+        },
+        onSuccess: (result: any) => {
+            const confirmed = result?.message;
+            if (!confirmed) return;
+            queryClient.setQueriesData(
+                { queryKey: ['conversation-messages', conversationId] },
+                (oldData: any) => {
+                    return reconcileMessagePages(oldData, confirmed);
+                }
+            );
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] });

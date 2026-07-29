@@ -11,6 +11,7 @@ import {
 import { useOfflineSync, PendingMessage } from './useOfflineSync';
 import { classifySendFailure, createClientMessageId, SyncResult } from '../utils/synchronization';
 import { apiClient, ApiError } from '../api/client';
+import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean) {
     const queryClient = useQueryClient();
@@ -55,11 +56,15 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         
         // Filter queue messages for THIS conversation
         const pendingForThisConv = queue
-            .filter(q => q.conversationId === conversationId)
+            .filter(q =>
+                q.conversationId === conversationId
+                && !hasConfirmedClientMessage(serverMessages, q.clientMessageId)
+            )
             .map(q => ({
                 id: q.id,
                 conversation_id: q.conversationId,
                 sender_id: user?.id,
+                client_message_id: q.clientMessageId,
                 text: q.text,
                 created_at: q.createdAt,
                 status: q.state === 'rejected'

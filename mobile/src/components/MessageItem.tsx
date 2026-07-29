@@ -361,7 +361,7 @@ const MessageItemComponent = ({
                             <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
                             {isMe && (
                                 <View style={{ marginLeft: 4 }}>
-                            {item.status === 'pending_offline' ? (
+                            {(item.status === 'sending' || item.status === 'pending_local' || item.status === 'pending_offline') ? (
                                 <Ionicons
                                     name="time-outline"
                                     size={14}
@@ -371,11 +371,17 @@ const MessageItemComponent = ({
                                 <Ionicons name="help-circle-outline" size={14} color="#f59e0b" />
                             ) : item.status === 'rejected_offline' ? (
                                 <Ionicons name="alert-circle-outline" size={14} color="#ef4444" />
-                            ) : (
+                            ) : (item.status === 'delivered' || item.status === 'received' || item.status === 'read') ? (
                                 <Ionicons
-                                    name={(item.status === 'sent' || item.status === 'pending' || !item.status) ? 'checkmark' : 'checkmark-done'}
+                                    name="checkmark-done"
                                     size={14}
                                     color={item.status === 'read' ? '#34b7f1' : ((item.status === 'delivered' || item.status === 'received') ? theme.colors.text.muted : 'rgba(0,0,0,0.4)')}
+                                />
+                            ) : (
+                                <Ionicons
+                                    name="checkmark"
+                                    size={14}
+                                    color="rgba(0,0,0,0.4)"
                                 />
                             )}
                                 </View>
