@@ -82,6 +82,19 @@ Pasaron 31 comprobaciones:
 La limpieza final confirmó cero perfiles, mensajes, propuestas, Commitments y
 objetos temporales. `chat-media` terminó privado y vacío.
 
+Para repetir el mismo recorrido contra el backend remoto, el ejecutor acepta
+`E2E_BASE_URL`. El valor debe ser la URL HTTPS de
+`ping-backend-staging` terminada en `/api`; cualquier otro host o ruta se
+rechaza antes de crear datos temporales:
+
+```powershell
+$env:E2E_BASE_URL = 'https://ping-backend-staging.onrender.com/api'
+node backend/scripts/e2e-staging-beta.mjs
+```
+
+Las credenciales siguen obteniéndose únicamente del entorno local ignorado por
+Git. No deben incorporarse al comando, al repositorio ni a los resultados.
+
 ## Backend Render
 
 La configuración local `render.staging.yaml` mantiene despliegue manual,

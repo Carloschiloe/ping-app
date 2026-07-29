@@ -17,6 +17,15 @@ const supabaseUrl = new URL(process.env.SUPABASE_URL);
 if (supabaseUrl.hostname !== `${EXPECTED_PROJECT_REF}.supabase.co`) {
   throw new Error('E2E is restricted to Ping Staging V2');
 }
+const configuredRemoteBaseUrl = process.env.E2E_BASE_URL?.replace(/\/+$/, '');
+if (configuredRemoteBaseUrl) {
+  const remoteUrl = new URL(configuredRemoteBaseUrl);
+  const isStagingRenderHost = /^ping-backend-staging(?:-[a-z0-9]+)?\.onrender\.com$/
+    .test(remoteUrl.hostname);
+  if (remoteUrl.protocol !== 'https:' || !isStagingRenderHost || remoteUrl.pathname !== '/api') {
+    throw new Error('E2E_BASE_URL must be the HTTPS /api URL of ping-backend-staging');
+  }
+}
 
 Object.assign(process.env, {
   NODE_ENV: 'test',
@@ -131,14 +140,17 @@ async function cleanup() {
 
 let server;
 try {
-  const { app } = await import('../dist/app.js');
-  server = app.listen(0, '127.0.0.1');
-  await new Promise((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-  });
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${address.port}/api`;
+  let baseUrl = configuredRemoteBaseUrl;
+  if (!baseUrl) {
+    const { app } = await import('../dist/app.js');
+    server = app.listen(0, '127.0.0.1');
+    await new Promise((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    const address = server.address();
+    baseUrl = `http://127.0.0.1:${address.port}/api`;
+  }
 
   const request = async (path, { token, method = 'GET', body } = {}) => {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -458,6 +470,7 @@ try {
 
   console.log(JSON.stringify({
     projectRef: EXPECTED_PROJECT_REF,
+    target: configuredRemoteBaseUrl ? 'remote-staging' : 'local-staging',
     status: 'passed',
     checks,
     temporaryUsers: users.length,
