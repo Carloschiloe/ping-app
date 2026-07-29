@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
 import {
     createRequestGate,
@@ -9,6 +10,7 @@ import {
 } from '../utils/authRegistration';
 
 export default function AuthScreen() {
+    const buildLabel = Constants.expoConfig?.extra?.buildLabel as string | undefined;
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -102,6 +104,7 @@ export default function AuthScreen() {
                 <Text style={styles.logo}>📌</Text>
                 <Text style={styles.title}>PING</Text>
                 <Text style={styles.subtitle}>Chat that remembers</Text>
+                {!!buildLabel && <Text style={styles.buildLabel}>{buildLabel}</Text>}
 
                 <TextInput
                     style={styles.input}
@@ -164,7 +167,8 @@ const styles = StyleSheet.create({
     container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'white' },
     logo: { textAlign: 'center', fontSize: 52, marginBottom: 8 },
     title: { fontSize: 34, fontWeight: '800', textAlign: 'center', color: '#3b82f6', marginBottom: 4 },
-    subtitle: { textAlign: 'center', color: '#6b7280', marginBottom: 40, fontSize: 16 },
+    subtitle: { textAlign: 'center', color: '#6b7280', marginBottom: 10, fontSize: 16 },
+    buildLabel: { textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'center', marginBottom: 24, fontSize: 12, fontWeight: '700' },
     input: { borderWidth: 1.5, borderColor: '#e5e7eb', padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 15, backgroundColor: '#fafafa' },
     button: { backgroundColor: '#3b82f6', padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 8 },
     buttonDisabled: { opacity: 0.55 },

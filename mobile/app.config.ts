@@ -56,6 +56,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: isStaging ? 'Ping Staging' : 'Ping',
+        version: isStaging ? '1.0.1' : base.version,
         // Preserve the slug bound to extra.eas.projectId. Staging and
         // production remain separate Android applications through package ID.
         slug: base.slug,
@@ -64,7 +65,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: 1,
+            versionCode: isStaging ? 2 : 1,
             permissions: [],
             blockedPermissions: blockedBetaPermissions,
         },
@@ -72,12 +73,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             ...base.ios,
             ...(isStaging ? {
                 bundleIdentifier: 'com.carloschiloe.ping.staging',
-                buildNumber: '1',
+                buildNumber: '2',
             } : {}),
         },
         extra: {
             ...base.extra,
             appVariant: variant,
+            buildLabel: isStaging ? 'STAGING 1.0.1 (2) · REGISTRO V2' : undefined,
             expectedSupabaseProjectRef: isStaging ? STAGING_PROJECT_REF : undefined,
         },
     };
