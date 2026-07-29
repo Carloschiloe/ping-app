@@ -2,7 +2,9 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import * as Localization from 'expo-localization';
+import * as Linking from 'expo-linking';
 import { clearOfflineMessageQueue } from '../utils/offlineQueueStorage';
+import { parseAuthRedirectUrl } from '../utils/authRedirect';
 
 type AuthConfig = {
     session: Session | null;
@@ -64,6 +66,56 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!user?.id) return null;
         return loadProfile(user.id);
     }, [loadProfile, user?.id]);
+
+    useEffect(() => {
+        let lastHandledUrl: string | null = null;
+
+        const handleAuthRedirect = async (url: string) => {
+            if (url === lastHandledUrl) return;
+            const redirect = parseAuthRedirectUrl(url);
+            if (!redirect) return;
+            lastHandledUrl = url;
+
+            try {
+                if (redirect.errorCode) {
+                    console.warn('[Auth] redirect rejected', {
+                        code: redirect.errorCode,
+                        type: redirect.type,
+                    });
+                    return;
+                }
+
+                if (redirect.code) {
+                    const { error } = await supabase.auth.exchangeCodeForSession(redirect.code);
+                    if (error) throw error;
+                    return;
+                }
+
+                if (redirect.accessToken && redirect.refreshToken) {
+                    const { error } = await supabase.auth.setSession({
+                        access_token: redirect.accessToken,
+                        refresh_token: redirect.refreshToken,
+                    });
+                    if (error) throw error;
+                }
+            } catch (error: any) {
+                console.warn('[Auth] redirect session failed', {
+                    name: error?.name || 'UnknownError',
+                    status: typeof error?.status === 'number' ? error.status : null,
+                    code: typeof error?.code === 'string' ? error.code : null,
+                });
+            }
+        };
+
+        void Linking.getInitialURL().then((url) => {
+            if (url) void handleAuthRedirect(url);
+        });
+        const subscription = Linking.addEventListener('url', ({ url }) => {
+            void handleAuthRedirect(url);
+        });
+
+        return () => subscription.remove();
+    }, []);
 
     useEffect(() => {
         const syncLocale = async (userId: string) => {

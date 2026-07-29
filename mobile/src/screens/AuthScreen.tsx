@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import {
     createRequestGate,
@@ -12,6 +13,7 @@ import {
 
 export default function AuthScreen() {
     const buildLabel = Constants.expoConfig?.extra?.buildLabel as string | undefined;
+    const authCallbackUrl = Linking.createURL('auth/callback');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -55,6 +57,9 @@ export default function AuthScreen() {
             const { data, error } = await supabase.auth.signUp({
                 email: normalizedEmail,
                 password,
+                options: {
+                    emailRedirectTo: authCallbackUrl,
+                },
             });
             if (error) {
                 const retryAfter = parseSignupRetryAfterSeconds(error);
@@ -97,6 +102,9 @@ export default function AuthScreen() {
             const { error } = await supabase.auth.resend({
                 type: 'signup',
                 email: normalizedEmail,
+                options: {
+                    emailRedirectTo: authCallbackUrl,
+                },
             });
 
             if (error) {
