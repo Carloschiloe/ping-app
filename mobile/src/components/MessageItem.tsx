@@ -260,6 +260,19 @@ const MessageItemComponent = ({
                             { overflow: 'hidden' }
                         ]}
                     >
+                        {meta?.forwarded && (
+                            <View style={styles.forwardedLabel}>
+                                <Ionicons
+                                    name="arrow-redo-outline"
+                                    size={12}
+                                    color={isMe ? 'rgba(255,255,255,0.72)' : theme.colors.text.muted}
+                                />
+                                <Text style={[styles.forwardedText, isMe && styles.forwardedTextMe]}>
+                                    Reenviado
+                                </Text>
+                            </View>
+                        )}
+
                         {/* ─── Quoted Message (Reply) ─── */}
                         {item.reply_to && !Array.isArray(item.reply_to) && (
                             <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
@@ -510,6 +523,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     msgText: { fontSize: 15, lineHeight: 24 },
     msgTextMe: { color: theme.colors.bubbleTextMe },
     msgTextThem: { color: theme.colors.bubbleTextThem },
+    forwardedLabel: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
+    forwardedText: { color: theme.colors.text.muted, fontSize: 11, fontStyle: 'italic' },
+    forwardedTextMe: { color: 'rgba(255,255,255,0.72)' },
     msgTextOperation: { letterSpacing: 0.1 },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
     timeText: { fontSize: 11 },

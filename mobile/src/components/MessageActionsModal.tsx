@@ -12,6 +12,7 @@ type MessageActionsModalProps = {
     onClose: () => void;
     onReact: (emoji: string) => void;
     onReply: () => void;
+    onForward: () => void;
     onCopy: () => void;
     onToggleSelect: () => void;
     onTogglePin: () => void;
@@ -29,6 +30,7 @@ export function MessageActionsModal({
     onClose,
     onReact,
     onReply,
+    onForward,
     onCopy,
     onToggleSelect,
     onTogglePin,
@@ -52,6 +54,10 @@ export function MessageActionsModal({
                         <TouchableOpacity style={styles.actionRow} onPress={onReply}>
                             <Ionicons name="arrow-undo-outline" size={22} color="#8b5cf6" />
                             <Text style={styles.actionLabel}>Responder</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionRow} onPress={onForward}>
+                            <Ionicons name="arrow-redo-outline" size={22} color="#2563eb" />
+                            <Text style={styles.actionLabel}>Reenviar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.actionRow} onPress={onCopy}>
                             <Ionicons name="copy-outline" size={22} color={theme.colors.secondary} />

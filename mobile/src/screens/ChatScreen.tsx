@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, TouchableOpacity, Share, Animated, Linking, Modal
+    StatusBar, Image, Alert, TouchableOpacity, Animated, Linking, Modal
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,9 +15,10 @@ import {
     useCommitmentOperationAction,
     useSetPinnedMessage,
     useSetActiveOperationCommitment,
+    useConversations,
+    useDeleteMessage,
 } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
 import MentionPopup from '../components/MentionPopup';
 import MessageItemCard from '../components/MessageItem';
 import TypingIndicator from '../components/TypingIndicator';
@@ -33,6 +34,7 @@ import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
 import { SummaryModal } from '../components/SummaryModal';
 import { MessageActionsModal } from '../components/MessageActionsModal';
+import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
@@ -40,6 +42,12 @@ import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
 import { useChatOperation } from '../hooks/useChatOperation';
 import { useAppTheme } from '../theme/ThemeContext';
+import { createClientMessageId } from '../utils/synchronization';
+import {
+    canDeleteMessages,
+    isForwardableMessage,
+    orderMessagesForForward,
+} from '../utils/messageActions';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -85,6 +93,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
     const [multiSelect, setMultiSelect] = useState<string[]>([]);
+    const [forwardModalVisible, setForwardModalVisible] = useState(false);
+    const [isForwarding, setIsForwarding] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
     const [suggestionData, setSuggestionData] = useState<any>(null);
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
@@ -118,6 +129,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
     const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
+    const { mutateAsync: deleteMessage } = useDeleteMessage(conversationId);
+    const { data: conversationsData } = useConversations();
     const { mutate: setActiveCommitment } = useSetActiveOperationCommitment(conversationId);
 
     const {
@@ -298,19 +311,118 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         setMultiSelect(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     };
     const cancelMultiSelect = () => setMultiSelect([]);
-    const deleteSelected = () => {
-        Alert.alert('Eliminar', `¿Eliminar ${multiSelect.length} mensajes?`, [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Eliminar', style: 'destructive', onPress: async () => {
-                await supabase.from('messages').delete().in('id', multiSelect);
-                setMultiSelect([]);
-            }}
-        ]);
+
+    const selectedMessages = messages.filter((message) => multiSelect.includes(message.id));
+    const canDeleteSelection = canDeleteMessages(selectedMessages, user?.id);
+
+    const confirmDelete = (messageIds: string[]) => {
+        const count = messageIds.length;
+        if (!count || isDeleting) return;
+
+        Alert.alert(
+            count === 1 ? 'Eliminar mensaje' : `Eliminar ${count} mensajes`,
+            count === 1
+                ? 'Se eliminará para todos los participantes. Esta acción no se puede deshacer.'
+                : 'Se eliminarán para todos los participantes. Esta acción no se puede deshacer.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsDeleting(true);
+                        let deletedCount = 0;
+                        try {
+                            for (const messageId of messageIds) {
+                                await deleteMessage(messageId);
+                                deletedCount += 1;
+                            }
+                            setMultiSelect([]);
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        } catch (error) {
+                            console.warn('[Chat] Message delete rejected', {
+                                requested: messageIds.length,
+                                deleted: deletedCount,
+                                error: error instanceof Error ? error.message : 'unknown',
+                            });
+                            if (deletedCount > 0) {
+                                const remainingIds = messageIds.slice(deletedCount);
+                                setMultiSelect((current) => current.filter((id) => remainingIds.includes(id)));
+                            }
+                            Alert.alert(
+                                'No se pudo completar',
+                                deletedCount > 0
+                                    ? `Se eliminaron ${deletedCount} de ${messageIds.length} mensajes. Los demás permanecen en el chat.`
+                                    : 'No se eliminó ningún mensaje. Comprueba tu conexión e inténtalo nuevamente.'
+                            );
+                        } finally {
+                            setIsDeleting(false);
+                        }
+                    },
+                },
+            ]
+        );
     };
+
+    const deleteSelected = () => {
+        if (!canDeleteSelection) {
+            Alert.alert(
+                'Selección no eliminable',
+                'Sólo puedes eliminar tus propios mensajes que ya fueron enviados.'
+            );
+            return;
+        }
+        confirmDelete(selectedMessages.map((message) => message.id));
+    };
+
     const forwardSelected = () => {
-        const combined = messages.filter(m => multiSelect.includes(m.id)).map(m => m.text).join('\n\n');
-        Share.share({ message: combined });
-        setMultiSelect([]);
+        if (selectedMessages.some((message) => !isForwardableMessage(message))) {
+            Alert.alert(
+                'No se puede reenviar esta selección',
+                'Por seguridad, esta versión permite reenviar sólo mensajes de texto confirmados. Archivos y mensajes del sistema no se copian entre conversaciones.'
+            );
+            return;
+        }
+        setForwardModalVisible(true);
+    };
+
+    const forwardToConversation = async (targetConversationId: string) => {
+        if (isForwarding) return;
+        const messagesToForward = orderMessagesForForward(selectedMessages);
+        if (!messagesToForward.length) return;
+
+        setIsForwarding(true);
+        let sentCount = 0;
+        try {
+            for (const message of messagesToForward) {
+                await apiClient.post(`/conversations/${targetConversationId}/messages`, {
+                    text: message.text || message.content,
+                    client_message_id: createClientMessageId(),
+                    meta: { forwarded: true },
+                });
+                sentCount += 1;
+            }
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', targetConversationId] });
+            setForwardModalVisible(false);
+            setMultiSelect([]);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Reenviado', sentCount === 1 ? 'Mensaje reenviado.' : `${sentCount} mensajes reenviados.`);
+        } catch (error) {
+            console.warn('[Chat] Message forward rejected', {
+                requested: messagesToForward.length,
+                sent: sentCount,
+                error: error instanceof Error ? error.message : 'unknown',
+            });
+            Alert.alert(
+                'No se pudo completar',
+                sentCount > 0
+                    ? `Se reenviaron ${sentCount} de ${messagesToForward.length} mensajes.`
+                    : 'No se reenvió ningún mensaje. Comprueba tu conexión e inténtalo nuevamente.'
+            );
+        } finally {
+            setIsForwarding(false);
+        }
     };
 
     // ─── Rendering ───────────────────────────────────────────────────────────
@@ -550,7 +662,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         <TouchableOpacity onPress={forwardSelected} style={styles.selectBarForward}>
                             <Ionicons name="arrow-redo" size={18} color="white" />
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={deleteSelected} style={styles.selectBarDelete}>
+                        <TouchableOpacity
+                            disabled={isDeleting || !canDeleteSelection}
+                            onPress={deleteSelected}
+                            style={[
+                                styles.selectBarDelete,
+                                (!canDeleteSelection || isDeleting) && styles.selectBarActionDisabled,
+                            ]}
+                        >
                             <Ionicons name="trash" size={20} color="white" />
                             <Text style={styles.selectBarDeleteText}>Eliminar</Text>
                         </TouchableOpacity>
@@ -594,6 +713,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setReplyingToMsg(selectedMsg);
                         setSelectedMsg(null);
                     }}
+                    onForward={() => {
+                        toggleSelect(selectedMsg.id);
+                        setSelectedMsg(null);
+                        setForwardModalVisible(true);
+                    }}
                     onCopy={async () => {
                         if (selectedMsg?.text) {
                             await Clipboard.setStringAsync(selectedMsg.text);
@@ -611,8 +735,26 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setSelectedMsg(null);
                     }}
                     onDelete={() => {
-                        supabase.from('messages').delete().eq('id', selectedMsg.id).then(() => setSelectedMsg(null));
+                        const message = selectedMsg;
+                        setSelectedMsg(null);
+                        if (!canDeleteMessages([message], user?.id)) {
+                            Alert.alert('No se puede eliminar', 'El mensaje todavía no fue confirmado o no te pertenece.');
+                            return;
+                        }
+                        confirmDelete([message.id]);
                     }}
+                />
+
+                <ForwardMessagesModal
+                    visible={forwardModalVisible}
+                    conversations={conversationsData?.conversations || []}
+                    currentConversationId={conversationId}
+                    selectedCount={selectedMessages.length}
+                    isForwarding={isForwarding}
+                    onClose={() => {
+                        if (!isForwarding) setForwardModalVisible(false);
+                    }}
+                    onSelectConversation={forwardToConversation}
                 />
 
                 <ReactionsModal
@@ -646,6 +788,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     selectBarForward: { padding: 8 },
     selectBarDelete: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 8, backgroundColor: 'rgba(239, 68, 68, 0.2)', borderRadius: 8 },
     selectBarDeleteText: { color: theme.colors.danger, fontWeight: '700' },
+    selectBarActionDisabled: { opacity: 0.4 },
     replyPreview: {
         flexDirection: 'row',
         alignItems: 'center',
