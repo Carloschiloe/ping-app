@@ -29,6 +29,13 @@ export function getSafeAuthErrorDetails(error: unknown) {
     };
 }
 
+export function getSignupCooldownMessage(signupSubmitted: boolean, seconds: number): string {
+    if (signupSubmitted) {
+        return `Correo de verificación enviado. Podrás solicitar otro en ${seconds} segundos.`;
+    }
+    return `Por seguridad, podrás volver a intentarlo en ${seconds} segundos.`;
+}
+
 export function createRequestGate() {
     let inFlight = false;
 

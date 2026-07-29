@@ -6,6 +6,7 @@ import {
     createRequestGate,
     DEFAULT_SIGNUP_COOLDOWN_SECONDS,
     getSafeAuthErrorDetails,
+    getSignupCooldownMessage,
     parseSignupRetryAfterSeconds,
 } from '../utils/authRegistration';
 
@@ -75,11 +76,52 @@ export default function AuthScreen() {
                 setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
                 if (!data.session) {
                     Alert.alert(
-                        'Verifica tu correo',
-                        'Te enviamos un enlace de confirmación. Después de verificarlo, vuelve a Ping para completar tu nombre.'
+                        'Correo de verificación enviado',
+                        'No vuelvas a registrarte. Verifica el enlace recibido y luego inicia sesión para completar tu nombre.'
                     );
                 }
             }
+        } finally {
+            requestGate.current.finish();
+            setLoading(false);
+        }
+    }
+
+    async function handleResendVerification() {
+        if (!signupSubmitted || signupCooldown > 0) return;
+        if (!requestGate.current.tryStart()) return;
+
+        setLoading(true);
+        try {
+            const normalizedEmail = email.trim().toLowerCase();
+            const { error } = await supabase.auth.resend({
+                type: 'signup',
+                email: normalizedEmail,
+            });
+
+            if (error) {
+                const retryAfter = parseSignupRetryAfterSeconds(error);
+                console.warn('[Auth] verification resend failed', getSafeAuthErrorDetails(error));
+                if (retryAfter) {
+                    setSignupCooldown(retryAfter);
+                    Alert.alert(
+                        'Espera antes de reenviar',
+                        `Podrás solicitar otro correo en ${retryAfter} segundos.`
+                    );
+                } else {
+                    Alert.alert(
+                        'No se pudo reenviar',
+                        'Espera un momento y vuelve a intentarlo.'
+                    );
+                }
+                return;
+            }
+
+            setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
+            Alert.alert(
+                'Correo reenviado',
+                'Revisa tu bandeja de entrada y spam. Después de verificar, inicia sesión.'
+            );
         } finally {
             requestGate.current.finish();
             setLoading(false);
@@ -126,23 +168,49 @@ export default function AuthScreen() {
 
                 {!isLogin && signupSubmitted && (
                     <Text style={styles.notice}>
-                        Revisa tu correo para verificar la cuenta. Tu nombre se solicitará al volver a Ping.
+                        Solicitud recibida. Revisa tu correo y spam, abre el enlace de verificación y después inicia sesión. No vuelvas a registrarte.
                     </Text>
                 )}
 
                 {!isLogin && signupCooldown > 0 && (
                     <Text style={styles.cooldown}>
-                        Por seguridad, podrás volver a intentarlo en {signupCooldown} segundos.
+                        {getSignupCooldownMessage(signupSubmitted, signupCooldown)}
                     </Text>
                 )}
 
-                <TouchableOpacity
-                    style={[styles.button, buttonDisabled && styles.buttonDisabled]}
-                    onPress={handleAuth}
-                    disabled={buttonDisabled}
-                >
-                    <Text style={styles.buttonText}>{buttonLabel}</Text>
-                </TouchableOpacity>
+                {!signupSubmitted || isLogin ? (
+                    <TouchableOpacity
+                        style={[styles.button, buttonDisabled && styles.buttonDisabled]}
+                        onPress={handleAuth}
+                        disabled={buttonDisabled}
+                    >
+                        <Text style={styles.buttonText}>{buttonLabel}</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <>
+                        <TouchableOpacity
+                            style={styles.button}
+                            onPress={() => {
+                                setIsLogin(true);
+                                setSignupSubmitted(false);
+                            }}
+                            disabled={loading}
+                        >
+                            <Text style={styles.buttonText}>Ya verifiqué · Iniciar sesión</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.resendButton, (loading || signupCooldown > 0) && styles.buttonDisabled]}
+                            onPress={handleResendVerification}
+                            disabled={loading || signupCooldown > 0}
+                        >
+                            <Text style={styles.resendText}>
+                                {signupCooldown > 0
+                                    ? `Reenviar correo en ${signupCooldown} s`
+                                    : 'Reenviar correo de verificación'}
+                            </Text>
+                        </TouchableOpacity>
+                    </>
+                )}
 
                 <TouchableOpacity
                     style={styles.switchButton}
@@ -175,6 +243,8 @@ const styles = StyleSheet.create({
     buttonText: { color: 'white', fontWeight: '700', fontSize: 16 },
     notice: { color: '#166534', backgroundColor: '#dcfce7', padding: 12, borderRadius: 10, marginBottom: 12, lineHeight: 18 },
     cooldown: { color: '#92400e', textAlign: 'center', marginBottom: 8, lineHeight: 18 },
+    resendButton: { padding: 14, alignItems: 'center', marginTop: 8 },
+    resendText: { color: '#2563eb', fontWeight: '700' },
     switchButton: { marginTop: 24, alignItems: 'center' },
     switchText: { color: '#3b82f6', textAlign: 'center', fontSize: 15 },
 });

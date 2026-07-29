@@ -3,6 +3,7 @@ import {
     createRequestGate,
     DEFAULT_SIGNUP_COOLDOWN_SECONDS,
     getSafeAuthErrorDetails,
+    getSignupCooldownMessage,
     parseSignupRetryAfterSeconds,
 } from '../src/utils/authRegistration';
 
@@ -40,5 +41,14 @@ describe('registro y rate limit', () => {
         expect(serialized).not.toContain('secret-password');
         expect(serialized).not.toContain('token-value');
         expect(details.retryAfterSeconds).toBe(31);
+    });
+
+    it('distingue un registro bloqueado de un correo de verificación ya enviado', () => {
+        const blocked = getSignupCooldownMessage(false, 31);
+        const submitted = getSignupCooldownMessage(true, 60);
+
+        expect(blocked).toContain('volver a intentarlo');
+        expect(submitted).toContain('Correo de verificación enviado');
+        expect(submitted).not.toContain('volver a intentarlo');
     });
 });
