@@ -64,7 +64,10 @@ Si la cuenta no permite distribución interna, TestFlight será la alternativa,
 sin publicación pública en App Store.
 
 Las credenciales Apple se administran mediante EAS y nunca se incorporan al
-repositorio, archivos `.env`, comandos, logs ni documentación.
+repositorio, archivos `.env`, comandos, logs ni documentación. La declaración
+de cumplimiento de exportación debe resolverse después de revisar la
+criptografía del artefacto completo; no se fija sólo a partir del uso de
+`expo-secure-store`.
 
 ## Evidencia
 
