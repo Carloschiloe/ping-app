@@ -19,9 +19,9 @@ describe('identidad de la build staging', () => {
         const config = createConfig({ config: {} } as any);
 
         expect(config.name).toBe('Ping Staging');
-        expect(config.version).toBe('1.0.1');
+        expect(config.version).toBe('1.0.2');
         expect(config.android?.package).toBe('com.carloschiloe.ping.staging');
-        expect(config.android?.versionCode).toBe(2);
-        expect(config.extra?.buildLabel).toBe('STAGING 1.0.1 (2) · REGISTRO V2');
+        expect(config.android?.versionCode).toBe(3);
+        expect(config.extra?.buildLabel).toBe('STAGING 1.0.2 (3) · REGISTRO V3');
     });
 });

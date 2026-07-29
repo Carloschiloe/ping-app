@@ -20,6 +20,7 @@ export default function AuthScreen() {
     const [isLogin, setIsLogin] = useState(true);
     const [signupCooldown, setSignupCooldown] = useState(0);
     const [signupSubmitted, setSignupSubmitted] = useState(false);
+    const [signupEmail, setSignupEmail] = useState('');
     const requestGate = useRef(createRequestGate());
 
     useEffect(() => {
@@ -77,12 +78,14 @@ export default function AuthScreen() {
             }
 
             if (data.user) {
+                setSignupEmail(normalizedEmail);
                 setSignupSubmitted(true);
                 setSignupCooldown(DEFAULT_SIGNUP_COOLDOWN_SECONDS);
+                setPassword('');
                 if (!data.session) {
                     Alert.alert(
-                        'Correo de verificación enviado',
-                        'No vuelvas a registrarte. Verifica el enlace recibido y luego inicia sesión para completar tu nombre.'
+                        'Cuenta creada',
+                        `Enviamos un correo de verificación a ${normalizedEmail}. Abre el enlace para activar tu cuenta.`
                     );
                 }
             }
@@ -98,7 +101,7 @@ export default function AuthScreen() {
 
         setLoading(true);
         try {
-            const normalizedEmail = email.trim().toLowerCase();
+            const normalizedEmail = signupEmail || email.trim().toLowerCase();
             const { error } = await supabase.auth.resend({
                 type: 'signup',
                 email: normalizedEmail,
@@ -136,7 +139,7 @@ export default function AuthScreen() {
         }
     }
 
-    const signupBlocked = !isLogin && signupCooldown > 0;
+    const signupBlocked = !isLogin && !signupSubmitted && signupCooldown > 0;
     const buttonDisabled = loading || signupBlocked;
     const buttonLabel = loading
         ? 'Procesando...'
@@ -156,55 +159,39 @@ export default function AuthScreen() {
                 <Text style={styles.subtitle}>Chat that remembers</Text>
                 {!!buildLabel && <Text style={styles.buildLabel}>{buildLabel}</Text>}
 
-                <TextInput
-                    style={styles.input}
-                    placeholder="Correo"
-                    value={email}
-                    onChangeText={setEmail}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    editable={!loading}
-                />
-                <TextInput
-                    style={styles.input}
-                    placeholder="Contraseña"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                    editable={!loading}
-                />
-
-                {!isLogin && signupSubmitted && (
-                    <Text style={styles.notice}>
-                        Solicitud recibida. Revisa tu correo y spam, abre el enlace de verificación y después inicia sesión. No vuelvas a registrarte.
-                    </Text>
-                )}
-
-                {!isLogin && signupCooldown > 0 && (
-                    <Text style={styles.cooldown}>
-                        {getSignupCooldownMessage(signupSubmitted, signupCooldown)}
-                    </Text>
-                )}
-
-                {!signupSubmitted || isLogin ? (
-                    <TouchableOpacity
-                        style={[styles.button, buttonDisabled && styles.buttonDisabled]}
-                        onPress={handleAuth}
-                        disabled={buttonDisabled}
-                    >
-                        <Text style={styles.buttonText}>{buttonLabel}</Text>
-                    </TouchableOpacity>
-                ) : (
+                {!isLogin && signupSubmitted ? (
                     <>
+                        <View style={styles.successCard}>
+                            <Text style={styles.successIcon}>✓</Text>
+                            <Text style={styles.successTitle}>Cuenta creada</Text>
+                            <Text style={styles.successText}>
+                                Enviamos un correo de verificación a:
+                            </Text>
+                            <Text style={styles.successEmail}>{signupEmail}</Text>
+                            <Text style={styles.successStep}>1. Abre el correo de Ping.</Text>
+                            <Text style={styles.successStep}>2. Pulsa “Verificar mi cuenta”.</Text>
+                            <Text style={styles.successStep}>3. Vuelve a Ping y completa tu nombre.</Text>
+                            <Text style={styles.successHint}>
+                                Revisa también spam o correo no deseado. No vuelvas a registrarte.
+                            </Text>
+                        </View>
+
+                        {signupCooldown > 0 && (
+                            <Text style={styles.cooldown}>
+                                {getSignupCooldownMessage(true, signupCooldown)}
+                            </Text>
+                        )}
+
                         <TouchableOpacity
                             style={styles.button}
                             onPress={() => {
                                 setIsLogin(true);
                                 setSignupSubmitted(false);
+                                setEmail(signupEmail);
                             }}
                             disabled={loading}
                         >
-                            <Text style={styles.buttonText}>Ya verifiqué · Iniciar sesión</Text>
+                            <Text style={styles.buttonText}>Ya verifiqué mi correo · Iniciar sesión</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.resendButton, (loading || signupCooldown > 0) && styles.buttonDisabled]}
@@ -218,21 +205,55 @@ export default function AuthScreen() {
                             </Text>
                         </TouchableOpacity>
                     </>
-                )}
+                ) : (
+                    <>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Correo"
+                            value={email}
+                            onChangeText={setEmail}
+                            autoCapitalize="none"
+                            keyboardType="email-address"
+                            editable={!loading}
+                        />
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Contraseña"
+                            value={password}
+                            onChangeText={setPassword}
+                            secureTextEntry
+                            editable={!loading}
+                        />
 
-                <TouchableOpacity
-                    style={styles.switchButton}
-                    onPress={() => {
-                        if (loading) return;
-                        setIsLogin((current) => !current);
-                        setSignupSubmitted(false);
-                    }}
-                    disabled={loading}
-                >
-                    <Text style={styles.switchText}>
-                        {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
-                    </Text>
-                </TouchableOpacity>
+                        {!isLogin && signupCooldown > 0 && (
+                            <Text style={styles.cooldown}>
+                                {getSignupCooldownMessage(false, signupCooldown)}
+                            </Text>
+                        )}
+
+                        <TouchableOpacity
+                            style={[styles.button, buttonDisabled && styles.buttonDisabled]}
+                            onPress={handleAuth}
+                            disabled={buttonDisabled}
+                        >
+                            <Text style={styles.buttonText}>{buttonLabel}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.switchButton}
+                            onPress={() => {
+                                if (loading) return;
+                                setIsLogin((current) => !current);
+                                setSignupSubmitted(false);
+                            }}
+                            disabled={loading}
+                        >
+                            <Text style={styles.switchText}>
+                                {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+                            </Text>
+                        </TouchableOpacity>
+                    </>
+                )}
             </View>
         </ScrollView>
     );
@@ -249,7 +270,13 @@ const styles = StyleSheet.create({
     button: { backgroundColor: '#3b82f6', padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 8 },
     buttonDisabled: { opacity: 0.55 },
     buttonText: { color: 'white', fontWeight: '700', fontSize: 16 },
-    notice: { color: '#166534', backgroundColor: '#dcfce7', padding: 12, borderRadius: 10, marginBottom: 12, lineHeight: 18 },
+    successCard: { backgroundColor: '#ecfdf5', borderColor: '#86efac', borderWidth: 1, padding: 18, borderRadius: 14, marginBottom: 14 },
+    successIcon: { color: '#15803d', fontSize: 30, fontWeight: '800', textAlign: 'center', marginBottom: 4 },
+    successTitle: { color: '#166534', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 10 },
+    successText: { color: '#374151', textAlign: 'center', lineHeight: 20 },
+    successEmail: { color: '#1d4ed8', textAlign: 'center', fontWeight: '700', marginTop: 4, marginBottom: 14 },
+    successStep: { color: '#1f2937', lineHeight: 22 },
+    successHint: { color: '#6b7280', lineHeight: 19, marginTop: 12, fontSize: 13 },
     cooldown: { color: '#92400e', textAlign: 'center', marginBottom: 8, lineHeight: 18 },
     resendButton: { padding: 14, alignItems: 'center', marginTop: 8 },
     resendText: { color: '#2563eb', fontWeight: '700' },
