@@ -124,6 +124,11 @@ el commit y la rama correctos, pero reveló que `npm ci` omitía las dependencia
 de compilación bajo `NODE_ENV=production`. El comando reproducible anterior
 corrige esa omisión antes de repetir el despliegue manual.
 
+Los servicios opcionales de IA inicializan su cliente sólo cuando una operación
+autorizada realmente lo necesita. El backend puede arrancar sin
+`OPENAI_API_KEY`; esto evita que capacidades cerradas obliguen a configurar un
+secreto que no pertenece al alcance de la beta.
+
 ## Android y EAS
 
 EAS está autenticado como propietario del proyecto `@carloschiloe/mobile`.

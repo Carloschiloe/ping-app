@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai: OpenAI | null = null;
+function getOpenAiClient(): OpenAI {
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
+    if (!openai) openai = new OpenAI({ apiKey });
+    return openai;
+}
 
 /**
  * Summarizes a conversation using GPT-4o-mini.
@@ -27,7 +33,7 @@ ${formattedMessages}
 Responde de forma ejecutiva, usando emojis y formato Markdown (negritas, listas).`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
@@ -62,7 +68,7 @@ ${commitmentsList}
 Usando un tono cálido, en español chileno. No uses markdown, solo texto plano. Incluye algún emoji apropiado.`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.85,
@@ -99,7 +105,7 @@ ${pendingCount > 0 ? `Los pendientes son:\n${pendingList}` : ''}
 Tono: cálido, honesto, motivador. Celebra los logros. Si hay pendientes, anímalos a la próxima semana. No uses markdown, solo texto plano con emojis.`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.8,
@@ -160,7 +166,7 @@ Responde SOLO en JSON:
 }`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.7,
@@ -203,7 +209,7 @@ Responde únicamente con un JSON: { "isActionable": boolean, "reason": "breve ex
 Mensaje: "${text}"`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0,
@@ -252,7 +258,7 @@ Reglas:
 4. Usa formato Markdown suave (negritas para fechas o títulos).`;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: systemPrompt },

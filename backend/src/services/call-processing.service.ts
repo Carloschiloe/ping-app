@@ -4,7 +4,13 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from './transcription.service';
 import { extractCommitment } from './commitment.service';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai: OpenAI | null = null;
+function getOpenAiClient(): OpenAI {
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
+    if (!openai) openai = new OpenAI({ apiKey });
+    return openai;
+}
 
 /**
  * Processes a completed call recording.
@@ -77,7 +83,7 @@ Identifica también cualquier compromiso o tarea acordada.
 Transcripción:
 "${transcript}"`;
 
-        const summaryResponse = await openai.chat.completions.create({
+        const summaryResponse = await getOpenAiClient().chat.completions.create({
             model: 'gpt-4o',
             messages: [{ role: 'user', content: summaryPrompt }],
             temperature: 0.3,
