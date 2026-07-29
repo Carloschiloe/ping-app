@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile, useCalendarAccounts, useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadToSupabase } from '../lib/upload';
+import { MEDIA_UPLOADS_ENABLED, uploadToSupabase } from '../lib/upload';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../api/client';
@@ -194,6 +194,14 @@ export default function ProfileScreen() {
     };
 
     const handlePickImage = async () => {
+        if (!MEDIA_UPLOADS_ENABLED) {
+            Alert.alert(
+                'Foto de perfil no disponible',
+                'Las fotos permanecerán deshabilitadas hasta completar la activación segura de archivos privados.'
+            );
+            return;
+        }
+
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: true,
@@ -222,7 +230,10 @@ export default function ProfileScreen() {
 
             Alert.alert('✅ Foto actualizada', 'Tu foto de perfil se ha guardado correctamente.');
         } catch (e: any) {
-            console.error('[Profile] Upload error:', e);
+            console.warn('[Profile] Upload failed', {
+                name: e?.name || 'UnknownError',
+                message: typeof e?.message === 'string' ? e.message : 'Upload failed',
+            });
             Alert.alert('Error', e.message || 'No se pudo subir la imagen');
         } finally {
             setSaving(false);
@@ -298,7 +309,16 @@ export default function ProfileScreen() {
                             </View>
                         )}
                         <View style={styles.avatarWrap}>
-                            <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
+                            <TouchableOpacity
+                                onPress={handlePickImage}
+                                disabled={!MEDIA_UPLOADS_ENABLED}
+                                accessibilityRole="button"
+                                accessibilityLabel={MEDIA_UPLOADS_ENABLED
+                                    ? 'Cambiar foto de perfil'
+                                    : 'Foto de perfil temporalmente no disponible'}
+                                accessibilityState={{ disabled: !MEDIA_UPLOADS_ENABLED }}
+                                style={styles.avatarContainer}
+                            >
                                 {avatarUrl ? (
                                     <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
                                 ) : (
@@ -309,9 +329,18 @@ export default function ProfileScreen() {
                                     </View>
                                 )}
                                 <View style={styles.cameraBadge}>
-                                    <Ionicons name="camera" size={16} color="white" />
+                                    <Ionicons
+                                        name={MEDIA_UPLOADS_ENABLED ? 'camera' : 'lock-closed'}
+                                        size={15}
+                                        color="white"
+                                    />
                                 </View>
                             </TouchableOpacity>
+                            {!MEDIA_UPLOADS_ENABLED && (
+                                <Text style={styles.uploadUnavailableText}>
+                                    Foto disponible próximamente
+                                </Text>
+                            )}
                             <Text style={styles.email}>{user?.email}</Text>
                         </View>
 
@@ -617,6 +646,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     avatarPlaceholder: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' },
     avatarText: { color: 'white', fontSize: 32, fontWeight: '700' },
     cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: theme.colors.primary, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background },
+    uploadUnavailableText: { color: theme.colors.text.muted, fontSize: 12, marginBottom: 8 },
     email: { fontSize: 16, color: theme.colors.text.secondary },
     section: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.separator },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
