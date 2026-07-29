@@ -1,8 +1,6 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { extractCommitment, transcribeAudio } from './ai.service';
-import { parseDateFromText } from './date-parser.service';
-import { format, isValid } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { isValid } from 'date-fns';
 import path from 'path';
 import os from 'os';
 import { toLegacyMessageShape, toLegacyMessageListShape } from '../utils/messageCompat';
@@ -12,6 +10,7 @@ import {
     assertConversationParticipantReference,
     assertMessageInConversation,
 } from '../utils/authz';
+import { buildDeterministicCommitmentSuggestion } from '../utils/deterministicCommitmentSuggestion';
 
 export const processUserMessage = async (
     userId: string,
@@ -150,16 +149,29 @@ export const analyzeAndSuggestTask = async (
         'reunamos', 'vemos', 'juntamos', 'juntémonos'
     ];
     const hasKeywords = new RegExp(`\\b(${taskKeywords.join('|')})\\b`, 'i').test(text);
-    const isTriggered = !!mentionedUserId || hasKeywords || (imageUrl && text.trim().length > 0);
+    const deterministicSuggestion = buildDeterministicCommitmentSuggestion(text, new Date(timestamp));
+    const isTriggered = !!mentionedUserId || hasKeywords || !!deterministicSuggestion || (imageUrl && text.trim().length > 0);
 
     // If text is empty and no image, nothing to do
     if (!text && !imageUrl) return null;
 
     try {
+        if (!isTriggered) return null;
+
         const ai = await extractCommitment(text, timestamp, imageUrl);
 
-        if (ai.hasCommitment && ai.dueAt) {
-            const dueDate = new Date(ai.dueAt);
+        const extractedSuggestion = ai.hasCommitment && ai.dueAt
+            ? {
+                title: ai.title,
+                dueAt: ai.dueAt,
+                assignedToUserId: null,
+                replyText: ai.replyText,
+                type: ai.type,
+            }
+            : deterministicSuggestion;
+
+        if (extractedSuggestion?.title && extractedSuggestion.dueAt) {
+            const dueDate = new Date(extractedSuggestion.dueAt);
             if (!isValid(dueDate)) return null;
 
             let finalAssigneeId = mentionedUserId || null;
@@ -188,10 +200,11 @@ export const analyzeAndSuggestTask = async (
             }
 
             const suggestedTask = {
-                title: ai.title,
-                dueAt: ai.dueAt,
+                title: extractedSuggestion.title,
+                dueAt: extractedSuggestion.dueAt,
                 assignedToUserId: finalAssigneeId,
-                replyText: ai.replyText
+                replyText: extractedSuggestion.replyText || 'Guardar',
+                type: extractedSuggestion.type,
             };
 
             console.info(`[AI] Saving a suggestion for message ${messageId}`);
