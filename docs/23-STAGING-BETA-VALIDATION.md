@@ -111,17 +111,18 @@ ENABLE_AUTOMATIONS=false
 RUN_CRON_JOBS=false
 ```
 
-No se desplegó: el navegador disponible muestra la pantalla de inicio de
-sesión de Render y no existe `RENDER_API_KEY` ni CLI autenticada.
+El build de staging instala explícitamente las dependencias de desarrollo
+necesarias para TypeScript, compila y luego las elimina del artefacto de
+ejecución. La versión de Node queda fijada en `22.14.0`, igual que la usada en
+la validación local. El repositorio y la rama
+`codex/staging-beta` están declarados en el YAML para impedir un fallback a
+`main`.
 
-Acción manual mínima:
-
-1. iniciar sesión en Render;
-2. crear el servicio desde `render.staging.yaml`;
-3. proporcionar únicamente los secretos de staging;
-4. dejar `Auto-Deploy` deshabilitado;
-5. ejecutar un despliegue manual del commit aprobado;
-6. comprobar `/api/health` antes de configurar EAS.
+El servicio `ping-backend-staging` se creó mediante el CLI oficial de Render,
+separado de producción, con Auto-Deploy deshabilitado. Su primer build confirmó
+el commit y la rama correctos, pero reveló que `npm ci` omitía las dependencias
+de compilación bajo `NODE_ENV=production`. El comando reproducible anterior
+corrige esa omisión antes de repetir el despliegue manual.
 
 ## Android y EAS
 
