@@ -15,3 +15,8 @@ export function isMessageFromUser(message: any, userId?: string | null): boolean
     if (!userId) return false;
     return message?.sender_id === userId;
 }
+
+export function resolveReactionEmoji(reaction: any): string | null {
+    const value = reaction?.reaction ?? reaction?.emoji;
+    return typeof value === 'string' && value.trim() ? value : null;
+}

@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
+import { resolveReactionEmoji } from '../utils/messageCompat';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -407,7 +408,8 @@ const MessageItemComponent = ({
                         <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
                             {(() => {
                                 const counts = item.message_reactions.reduce((acc: any, r: any) => {
-                                    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                    const emoji = resolveReactionEmoji(r);
+                                    if (emoji) acc[emoji] = (acc[emoji] || 0) + 1;
                                     return acc;
                                 }, {});
                                 return Object.keys(counts).map(emoji => (

@@ -6,7 +6,7 @@ services:
     branch: codex/staging-beta
     region: oregon
     plan: free
-    autoDeployTrigger: off
+    autoDeployTrigger: commit
     rootDir: backend
     buildCommand: npm ci --include=dev && npm run build && npm prune --omit=dev
     startCommand: npm start

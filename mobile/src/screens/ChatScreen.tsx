@@ -48,6 +48,7 @@ import {
     isForwardableMessage,
     orderMessagesForForward,
 } from '../utils/messageActions';
+import { resolveReactionEmoji } from '../utils/messageCompat';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         const reactions = viewingReactionsMsg?.message_reactions;
         if (!Array.isArray(reactions) || reactions.length === 0) return [];
         const counts = reactions.reduce((acc: Record<string, number>, r: any) => {
-            acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+            const emoji = resolveReactionEmoji(r);
+            if (emoji) acc[emoji] = (acc[emoji] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
         return Object.keys(counts).map((emoji) => ({ emoji, count: counts[emoji] }));

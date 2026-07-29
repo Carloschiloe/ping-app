@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMessageContent, resolveMessageMetadata, isMessageFromUser } from '../src/utils/messageCompat';
+import { resolveMessageContent, resolveMessageMetadata, isMessageFromUser, resolveReactionEmoji } from '../src/utils/messageCompat';
 
 describe('isMessageFromUser', () => {
     it('sender_id identifica al autor del mensaje', () => {
@@ -9,6 +9,20 @@ describe('isMessageFromUser', () => {
 
     it('devuelve false sin userId (nunca asume autoria)', () => {
         expect(isMessageFromUser({ sender_id: 'u1' }, null)).toBe(false);
+    });
+});
+
+describe('resolveReactionEmoji', () => {
+    it('uses the V2 reaction column', () => {
+        expect(resolveReactionEmoji({ reaction: '👍' })).toBe('👍');
+    });
+
+    it('keeps compatibility with the legacy emoji column', () => {
+        expect(resolveReactionEmoji({ emoji: '❤️' })).toBe('❤️');
+    });
+
+    it('does not render invalid reactions as undefined', () => {
+        expect(resolveReactionEmoji({})).toBeNull();
     });
 });
 

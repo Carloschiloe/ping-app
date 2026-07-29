@@ -26,6 +26,17 @@ describe('deterministic commitment suggestion', () => {
         expect(suggestion?.type).toBe('task');
     });
 
+    it('detects the infinitive used in a dated note', () => {
+        const suggestion = buildDeterministicCommitmentSuggestion(
+            'Próximo Viernes a las 12:00 ver Spiderman',
+            REFERENCE_DATE
+        );
+
+        expect(suggestion).not.toBeNull();
+        expect(suggestion?.dueAt).toContain('T12:00:00-03:00');
+        expect(suggestion?.title).toBe('ver Spiderman');
+    });
+
     it('does not turn a date without an action into a commitment', () => {
         expect(
             buildDeterministicCommitmentSuggestion('Mañana es jueves', REFERENCE_DATE)
