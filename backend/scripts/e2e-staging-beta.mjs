@@ -853,6 +853,26 @@ try {
         (response) => ['approved', 'counter_proposed'].includes(response.status),
       ));
 
+  const agreementInsights = await request('/insights', { token: first.token });
+  const insightCommitments = [
+    ...(agreementInsights.payload?.needsAttention || []),
+    ...(agreementInsights.payload?.awaitingResponse || []),
+    ...(agreementInsights.payload?.overdue || []),
+    ...(agreementInsights.payload?.upcoming || []),
+    ...(agreementInsights.payload?.noDate || []),
+    ...(agreementInsights.payload?.actionDonePendingResolution || []),
+    ...(agreementInsights.payload?.recentlyResolved || []),
+  ];
+  const insightSharedCommitment = insightCommitments.find(
+    (commitment) => commitment.id === sharedCommitmentId,
+  );
+  check('Operation insights expose every participant status',
+    agreementInsights.response.status === 200
+      && insightSharedCommitment?.agreement_responses?.length === 3
+      && insightSharedCommitment.agreement_responses.every(
+        (response) => ['approved', 'counter_proposed'].includes(response.status),
+      ));
+
   const { data: fileConversation, error: fileConversationError } = await admin
     .from('conversations')
     .insert({

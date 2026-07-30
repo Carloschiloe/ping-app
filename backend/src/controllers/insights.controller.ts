@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
+import { attachAgreementResponses } from '../services/commitmentProposal.service';
 
 // V2: Insights ya NO usa group_conversation_id, is_group, el `mode` de
 // Operación, active_commitment_id ni completion_outcome (mandato explicito
@@ -77,7 +78,7 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
                 expected_result, next_action, follow_up_at,
                 waiting_on_user_id, waiting_on_contact_id,
                 action_completed_at, resolved_at, rejection_reason,
-                owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, created_at,
+                owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, proposal_id, created_at,
                 owner:owner_user_id(id, full_name, email, avatar_url),
                 assignee:assigned_to_user_id(id, full_name, email, avatar_url),
                 counterparty:counterparty_contact_id(id, display_name, phone, email)
@@ -86,7 +87,7 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
 
         if (commitmentsError) throw commitmentsError;
 
-        const commitments = commitmentsRaw || [];
+        const commitments = await attachAgreementResponses(commitmentsRaw || []);
         const now = Date.now();
         const resolvedWindowStart = now - RECENTLY_RESOLVED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 

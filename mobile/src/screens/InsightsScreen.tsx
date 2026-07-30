@@ -14,12 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
-import { useInsights, useContacts } from '../api/queries';
+import { useInsights, useContacts, useGroupParticipants } from '../api/queries';
 import type { ChatsTabNavigationProp } from '../navigation/types';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import type { Commitment, InsightsResponse } from '../types/shared';
 import { getWaitingLabel } from '../utils/commitmentDisplay';
+import { AgreementParticipantsList } from '../components/AgreementParticipantsList';
 
 // V2: esta pantalla se organiza alrededor de los 7 bloques que devuelve
 // GET /insights (backend/src/controllers/insights.controller.ts), NO de los
@@ -71,6 +72,7 @@ export default function InsightsScreen() {
     const { data: myContacts } = useContacts();
     const [detailItem, setDetailItem] = React.useState<Commitment | null>(null);
     const [showRecentlyResolved, setShowRecentlyResolved] = React.useState(false);
+    const { data: detailParticipants = [] } = useGroupParticipants(detailItem?.conversation_id || null);
 
     const insights: InsightsResponse | undefined = data;
 
@@ -229,6 +231,12 @@ export default function InsightsScreen() {
                             {detailItem ? formatDetailDate(detailItem.due_at) : ''}
                         </Text>
                     </View>
+
+                    <AgreementParticipantsList
+                        responses={detailItem?.agreement_responses}
+                        fallbackParticipants={detailParticipants}
+                        currentUserId={user?.id}
+                    />
 
                     {!!detailItem && waitingLabel(detailItem) && (
                         <View style={styles.detailRow}>

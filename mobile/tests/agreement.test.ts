@@ -3,6 +3,7 @@ import {
     getAgreementParticipantName,
     getAgreementResponseLabel,
     getAgreementSummary,
+    getInvolvedParticipants,
 } from '../src/utils/agreement';
 
 describe('shared commitment agreement presentation', () => {
@@ -39,5 +40,59 @@ describe('shared commitment agreement presentation', () => {
             participant: { full_name: 'Carlos' },
         }, 'user-1')).toBe('Tú');
         expect(getAgreementResponseLabel('counter_proposed')).toBe('Sugirió otro horario');
+    });
+
+    it('shows the recorded response snapshot when an agreement exists', () => {
+        expect(getInvolvedParticipants([
+            {
+                participant_user_id: 'user-1',
+                status: 'approved',
+                participant: { full_name: 'Carlos' },
+            },
+            {
+                participant_user_id: 'user-2',
+                status: 'pending',
+                participant: { full_name: 'Alejandra' },
+            },
+        ], [], 'user-1')).toEqual([
+            expect.objectContaining({
+                id: 'user-1',
+                name: 'Tú',
+                status: 'approved',
+                hasRecordedResponse: true,
+            }),
+            expect.objectContaining({
+                id: 'user-2',
+                name: 'Alejandra',
+                status: 'pending',
+                hasRecordedResponse: true,
+            }),
+        ]);
+    });
+
+    it('shows conversation participants without inventing responses for legacy commitments', () => {
+        expect(getInvolvedParticipants([], [
+            {
+                user_id: 'user-1',
+                profiles: { id: 'user-1', full_name: 'Carlos' },
+            },
+            {
+                user_id: 'user-2',
+                profiles: { id: 'user-2', full_name: 'Alejandra' },
+            },
+        ], 'user-1')).toEqual([
+            expect.objectContaining({
+                id: 'user-1',
+                name: 'Tú',
+                status: null,
+                hasRecordedResponse: false,
+            }),
+            expect.objectContaining({
+                id: 'user-2',
+                name: 'Alejandra',
+                status: null,
+                hasRecordedResponse: false,
+            }),
+        ]);
     });
 });

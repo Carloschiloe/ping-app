@@ -16,6 +16,14 @@ export interface AgreementResponse {
     } | null;
 }
 
+export interface InvolvedParticipant {
+    id: string;
+    name: string;
+    status: AgreementResponseStatus | null;
+    proposed_due_at?: string | null;
+    hasRecordedResponse: boolean;
+}
+
 const RESPONSE_LABELS: Record<AgreementResponseStatus, string> = {
     pending: 'Pendiente',
     approved: 'Aprobado',
@@ -32,6 +40,50 @@ export function getAgreementParticipantName(response: AgreementResponse, current
     return response.participant?.full_name?.trim()
         || response.participant?.email?.split('@')[0]
         || 'Participante';
+}
+
+export function getInvolvedParticipants(
+    responses: AgreementResponse[] = [],
+    fallbackParticipants: any[] = [],
+    currentUserId?: string | null,
+): InvolvedParticipant[] {
+    if (responses.length > 0) {
+        return responses.map((response) => ({
+            id: response.participant_user_id,
+            name: getAgreementParticipantName(response, currentUserId),
+            status: response.status,
+            proposed_due_at: response.proposed_due_at,
+            hasRecordedResponse: true,
+        }));
+    }
+
+    const seen = new Set<string>();
+    return fallbackParticipants.flatMap((participant) => {
+        const rawProfile = Array.isArray(participant?.profiles)
+            ? participant.profiles[0]
+            : participant?.profiles || participant?.profile || participant;
+        const id = participant?.user_id
+            || participant?.participant_user_id
+            || rawProfile?.id
+            || participant?.id;
+
+        if (!id || seen.has(id)) return [];
+        seen.add(id);
+
+        const name = currentUserId && id === currentUserId
+            ? 'Tú'
+            : rawProfile?.full_name?.trim()
+                || rawProfile?.email?.split('@')[0]
+                || 'Participante';
+
+        return [{
+            id,
+            name,
+            status: null,
+            proposed_due_at: null,
+            hasRecordedResponse: false,
+        }];
+    });
 }
 
 export function getAgreementSummary(responses: AgreementResponse[]): {

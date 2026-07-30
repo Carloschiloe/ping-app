@@ -12,17 +12,16 @@ import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
     useResolveCommitment, useReopenCommitment, useMarkActionCompleted,
-    useContacts, useCancelCommitment, useRespondToCommitmentProposal,
+    useContacts, useCancelCommitment, useRespondToCommitmentProposal, useGroupParticipants,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getWaitingLabel, isActionCompletedPendingResolution as computeActionCompletedPendingResolution, resolveConversationId, getRejectionReason, getStatusLabel } from '../utils/commitmentDisplay';
 import {
-    getAgreementParticipantName,
-    getAgreementResponseLabel,
     getAgreementSummary,
     type AgreementResponse,
 } from '../utils/agreement';
+import { AgreementParticipantsList } from './AgreementParticipantsList';
 
 interface GroupTaskCardProps {
     commitment: any;
@@ -66,6 +65,9 @@ export default function GroupTaskCard({
     const [showDetails, setShowDetails] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
+    const { data: detailConversationParticipants = [] } = useGroupParticipants(
+        showDetails ? conversationId : null
+    );
 
     const currentUserId = user?.id?.toLowerCase();
     const assignedId = commitment.assigned_to_user_id?.toLowerCase();
@@ -142,13 +144,6 @@ export default function GroupTaskCard({
         if (!iso) return 'Sin fecha';
         return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
     };
-    const getAgreementResponseColors = (responseStatus: string) => {
-        if (responseStatus === 'approved') return { color: '#166534', backgroundColor: '#dcfce7' };
-        if (responseStatus === 'rejected') return { color: '#991b1b', backgroundColor: '#fee2e2' };
-        if (responseStatus === 'counter_proposed') return { color: '#3730a3', backgroundColor: '#e0e7ff' };
-        return { color: '#92400e', backgroundColor: '#fef3c7' };
-    };
-
     // Parte 10: "accion realizada" y "resolver" son acciones separadas.
     const handleActionCompleted = () => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -691,48 +686,15 @@ export default function GroupTaskCard({
                         <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{dueDateFull || 'Sin fecha'}</Text>
                     </View>
 
-                    {agreementResponses.length > 0 && (
-                        <View style={styles.agreementSection}>
-                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>
-                                Personas involucradas
-                            </Text>
-                            {agreementResponses.map((response) => {
-                                const responseColors = getAgreementResponseColors(response.status);
-                                return (
-                                    <View key={response.participant_user_id} style={styles.agreementParticipantRow}>
-                                        <View style={styles.agreementParticipantInfo}>
-                                            <Ionicons
-                                                name={response.status === 'approved'
-                                                    ? 'checkmark-circle'
-                                                    : response.status === 'rejected'
-                                                        ? 'close-circle'
-                                                        : response.status === 'counter_proposed'
-                                                            ? 'time'
-                                                            : 'hourglass-outline'}
-                                                size={18}
-                                                color={responseColors.color}
-                                            />
-                                            <View style={styles.agreementParticipantCopy}>
-                                                <Text style={[styles.agreementParticipantName, theme.isDark && { color: theme.colors.text.primary }]}>
-                                                    {getAgreementParticipantName(response, user?.id)}
-                                                </Text>
-                                                {response.status === 'counter_proposed' && response.proposed_due_at && (
-                                                    <Text style={[styles.agreementParticipantDate, theme.isDark && { color: theme.colors.text.muted }]}>
-                                                        {formatDetailDate(response.proposed_due_at)}
-                                                    </Text>
-                                                )}
-                                            </View>
-                                        </View>
-                                        <View style={[styles.agreementResponseBadge, { backgroundColor: responseColors.backgroundColor }]}>
-                                            <Text style={[styles.agreementResponseBadgeText, { color: responseColors.color }]}>
-                                                {getAgreementResponseLabel(response.status)}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                );
-                            })}
-                        </View>
-                    )}
+                    <AgreementParticipantsList
+                        responses={agreementResponses}
+                        fallbackParticipants={
+                            detailConversationParticipants.length > 0
+                                ? detailConversationParticipants
+                                : groupParticipants
+                        }
+                        currentUserId={user?.id}
+                    />
 
                     {isCounter && commitment.proposed_due_at && (
                         <View style={styles.detailRow}>

@@ -41,6 +41,7 @@ export interface Commitment {
     counterparty_contact_id?: string | null;
     conversation_id?: string | null;
     message_id?: string | null;
+    proposal_id?: string | null;
     title: string;
     description?: string | null;
     due_at: string | null;
@@ -61,6 +62,7 @@ export interface Commitment {
     assignee?: Profile;
     owner?: Profile;
     counterparty?: Contact;
+    agreement_responses?: import('../utils/agreement').AgreementResponse[];
     // Alias temporales de compatibilidad devueltos por el backend (ver
     // backend/src/utils/commitmentCompat.ts). No usar en logica nueva: se
     // conservan solo por si algun consumidor viejo todavia los lee.
