@@ -2,10 +2,12 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
+import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
 
 interface ChatHeaderProps {
     chatTitle: string;
     avatarUrl?: string;
+    profileId?: string;
     isGroup: boolean;
     onVoiceCall: () => void;
     onVideoCall: () => void;
@@ -16,6 +18,7 @@ interface ChatHeaderProps {
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     chatTitle,
     avatarUrl,
+    profileId,
     isGroup,
     onVoiceCall,
     onVideoCall,
@@ -24,13 +27,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
+    const resolvedAvatarUrl = useProfileAvatarUrl(
+        isGroup ? null : profileId,
+        avatarUrl
+    );
 
     return (
         <View style={styles.headerContainer}>
             <TouchableOpacity style={styles.titleSection} onPress={onInfo} activeOpacity={0.7}>
-                {avatarUrl ? (
+                {resolvedAvatarUrl ? (
                     <View style={styles.avatarWrap}>
-                        <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                        <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatar} />
                     </View>
                 ) : (
                     <View style={[styles.avatarWrap, { backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }]}>

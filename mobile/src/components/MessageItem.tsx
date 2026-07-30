@@ -12,6 +12,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
 import { resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
+import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -52,6 +53,11 @@ const MessageItemComponent = ({
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
+    const senderProfile = Array.isArray(item?.profiles) ? item.profiles[0] : item?.profiles;
+    const resolvedSenderAvatarUrl = useProfileAvatarUrl(
+        item?.sender_id !== user?.id ? senderProfile?.id : null,
+        senderProfile?.avatar_url
+    );
 
     React.useEffect(() => {
         let active = true;
@@ -246,8 +252,8 @@ const MessageItemComponent = ({
                 {!isMe && !isSystem && (
                     <View style={styles.senderAvatarContainer}>
                         {(() => {
-                            const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-                            const avatarUrl = p?.avatar_url;
+                            const p = senderProfile;
+                            const avatarUrl = resolvedSenderAvatarUrl;
                             const email = p?.email || '';
                             const fullName = p?.full_name;
 

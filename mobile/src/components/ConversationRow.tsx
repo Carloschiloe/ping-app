@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { deriveIsGroup, deriveIsSelf } from '../utils/conversationCompat';
 import { resolveMessageMetadata } from '../utils/messageCompat';
+import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
 
@@ -75,6 +76,10 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
         }
     }
 
+    const resolvedAvatarUrl = useProfileAvatarUrl(
+        !isSelf && !isGroup ? otherUser?.id : null,
+        avatarUrl
+    );
     const color = avatarColor(colorStr);
     const preview = isTyping
         ? (typers[0].isRecording ? 'Grabando audio…' : 'Escribiendo…')
@@ -90,9 +95,9 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                 {isOperation ? (
                     <View style={styles.avatarOperationWrap}>
                         <View style={styles.avatarOperationInner}>
-                            <View style={[styles.avatarSm, !avatarUrl && { backgroundColor: color }]}>
-                                {avatarUrl ? (
-                                    <Image source={{ uri: avatarUrl }} style={styles.avatarImageSm} />
+                            <View style={[styles.avatarSm, !resolvedAvatarUrl && { backgroundColor: color }]}>
+                                {resolvedAvatarUrl ? (
+                                    <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImageSm} />
                                 ) : (
                                     <Text style={styles.avatarTextSm}>{initials}</Text>
                                 )}
@@ -100,8 +105,8 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                         </View>
                     </View>
                 ) : (
-                    <View style={[styles.avatar, !avatarUrl && { backgroundColor: color }]}>
-                        {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
+                    <View style={[styles.avatar, !resolvedAvatarUrl && { backgroundColor: color }]}>
+                        {resolvedAvatarUrl ? <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
                     </View>
                 )}
                 {online && <View style={[styles.onlineDot, { right: indicatorOffset }]} />}

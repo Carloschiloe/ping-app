@@ -45,6 +45,24 @@ describe('parseDateFromText', () => {
         expect(result?.date.toISOString()).toBe('2026-01-06T16:00:00.000Z');
     });
 
+    it('conserva las 16:00 de Santiago para "próximo domingo"', () => {
+        const result = parseDateFromText(
+            'Próximo Domingo salimos a las 16:00 a los Muermos',
+            new Date('2026-07-30T18:37:00.000Z')
+        );
+
+        expect(result?.date.toISOString()).toBe('2026-08-02T20:00:00.000Z');
+        const chileParts = new Intl.DateTimeFormat('es-CL', {
+            timeZone: 'America/Santiago',
+            weekday: 'long',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(result!.date);
+        expect(chileParts).toContain('domingo');
+        expect(chileParts).toContain('16:00');
+    });
+
     it('devuelve null cuando el texto no contiene ninguna fecha', () => {
         expect(parseDateFromText('comprar pan y leche', THURSDAY_JULY_30_IN_CHILE)).toBeNull();
     });
