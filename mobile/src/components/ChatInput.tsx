@@ -19,6 +19,7 @@ interface ChatInputProps {
     onStopRecording: () => void;
     onCancelAudio: () => void;
     onUploadAudio: () => void;
+    onFocus?: () => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -35,7 +36,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onStartRecording,
     onStopRecording,
     onCancelAudio,
-    onUploadAudio
+    onUploadAudio,
+    onFocus,
 }) => {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
@@ -113,7 +115,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     placeholderTextColor={theme.colors.text.muted}
                     value={text}
                     onChangeText={onTextChange}
+                    onFocus={onFocus}
                     multiline
+                    blurOnSubmit={false}
+                    scrollEnabled
+                    textAlignVertical="top"
+                    underlineColorAndroid="transparent"
+                    selectionColor={theme.colors.primary}
                 />
                 {text.trim() ? (
                     <TouchableOpacity 
@@ -199,9 +207,13 @@ const createStyles = (theme: any) => StyleSheet.create({
         backgroundColor: theme.colors.surface,
         borderRadius: 20,
         paddingHorizontal: 14,
-        paddingVertical: 10,
+        paddingTop: Platform.OS === 'android' ? 12 : 10,
+        paddingBottom: Platform.OS === 'android' ? 10 : 10,
         fontSize: 15,
+        lineHeight: 20,
+        minHeight: 46,
         maxHeight: 120,
+        includeFontPadding: false,
         color: theme.colors.text.primary,
         borderWidth: 1,
         borderColor: theme.colors.separator,

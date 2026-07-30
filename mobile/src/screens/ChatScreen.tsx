@@ -507,7 +507,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardAvoidingView
-                behavior="padding"
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.container}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
@@ -584,6 +584,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             maxToRenderPerBatch={12}
                             windowSize={10}
                             removeClippedSubviews={Platform.OS === 'android'}
+                            keyboardShouldPersistTaps="handled"
+                            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                             onScrollToIndexFailed={(info) => {
                                 setTimeout(() => {
                                     listRef.current?.scrollToOffset({
@@ -657,6 +659,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onStopRecording={stopRecording}
                     onCancelAudio={cancelAudio}
                     onUploadAudio={uploadAudio}
+                    onFocus={() => {
+                        setTimeout(() => {
+                            listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                        }, 120);
+                    }}
                 />
 
                 <Modal visible={headerMenuVisible} transparent animationType="fade" onRequestClose={() => setHeaderMenuVisible(false)}>
