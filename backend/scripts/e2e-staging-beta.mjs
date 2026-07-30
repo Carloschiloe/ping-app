@@ -235,6 +235,43 @@ try {
   check('contact proof rejects another authenticated account',
     crossAccountProof.response.status === 403);
 
+  const discoveredMessage = await request(
+    `/conversations/${discoveredConversation.payload.conversationId}/messages`,
+    {
+      token: first.token,
+      method: 'POST',
+      body: {
+        text: `Temporary contact chat ${runMarker}`,
+        client_message_id: randomUUID(),
+      },
+    },
+  );
+  check('message sent through discovered contact conversation',
+    discoveredMessage.response.status === 201
+      && typeof discoveredMessage.payload?.message?.id === 'string');
+  resources.messages.add(discoveredMessage.payload.message.id);
+
+  const recipientMessages = await request(
+    `/conversations/${discoveredConversation.payload.conversationId}/messages`,
+    { token: second.token },
+  );
+  check('recipient can immediately retrieve contact message',
+    recipientMessages.response.status === 200
+      && recipientMessages.payload?.messages?.some(
+        (message) => message.id === discoveredMessage.payload.message.id
+      ));
+
+  const recipientConversations = await request('/conversations', {
+    token: second.token,
+  });
+  check('recipient conversation list immediately contains new message',
+    recipientConversations.response.status === 200
+      && recipientConversations.payload?.conversations?.some(
+        (conversation) =>
+          conversation.id === discoveredConversation.payload.conversationId
+          && conversation.lastMessage?.text === `Temporary contact chat ${runMarker}`
+      ));
+
   const noContactMatch = await request('/users/sync-contacts', {
     token: first.token,
     method: 'POST',
