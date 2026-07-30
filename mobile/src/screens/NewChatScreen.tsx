@@ -1,257 +1,318 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     View, Text, TextInput, FlatList, TouchableOpacity,
-    ActivityIndicator, StyleSheet, Alert, Platform, Share
+    ActivityIndicator, StyleSheet, Alert, Platform, Share, AppState
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
-import { useUserSearch, useCreateConversation } from '../api/queries';
+import * as Linking from 'expo-linking';
 import { apiClient } from '../api/client';
 
-function normalizePhone(raw: string): string {
-    let cleaned = raw.replace(/[^\d+]/g, '');
-    if (!cleaned.startsWith('+')) {
-        cleaned = '+56' + cleaned.replace(/^0/, '');
-    }
-    return cleaned;
-}
+type RegisteredContact = {
+    id: string;
+    full_name?: string | null;
+    avatar_url?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    contactProof: string;
+};
 
-function isPhoneNumber(q: string) {
-    return /^[+\d\s\-()]{7,}$/.test(q.trim());
+type DeviceContact = {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    registered?: RegisteredContact;
+};
+
+function normalizePhone(raw: string): string | null {
+    const digits = raw.replace(/\D/g, '');
+    if (raw.trim().startsWith('+')) {
+        const value = `+${digits}`;
+        return /^\+[1-9]\d{7,14}$/.test(value) ? value : null;
+    }
+    if (digits.startsWith('56') && digits.length === 11) return `+${digits}`;
+    if (digits.length === 9) return `+56${digits}`;
+    return null;
 }
 
 const AVATAR_COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a'];
-function avatarColor(str: string) {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
-    return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+function avatarColor(value: string) {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = value.charCodeAt(index) + ((hash << 5) - hash);
+    }
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 export default function NewChatScreen({ navigation }: any) {
     const [query, setQuery] = useState('');
-    const [pingContacts, setPingContacts] = useState<any[]>([]);
+    const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
     const [contactsLoading, setContactsLoading] = useState(true);
-    const [invitationText, setInvitationText] = useState('');
-    const [invitationBusy, setInvitationBusy] = useState(false);
-    const { data: searchData, isLoading: searchLoading } = useUserSearch(query);
-    const { mutate: createConversation, isPending } = useCreateConversation();
+    const [permissionDenied, setPermissionDenied] = useState(false);
+    const [canAskForContacts, setCanAskForContacts] = useState(true);
+    const [busyContactId, setBusyContactId] = useState<string | null>(null);
 
-    useEffect(() => { loadContacts(); }, []);
-
-    const loadContacts = async () => {
+    const loadContacts = useCallback(async () => {
+        setContactsLoading(true);
+        setPermissionDenied(false);
         try {
-            const { status } = await Contacts.requestPermissionsAsync();
-            if (status !== 'granted') { setContactsLoading(false); return; }
+            let permission = await Contacts.getPermissionsAsync();
+            if (permission.status !== 'granted' && permission.canAskAgain) {
+                permission = await Contacts.requestPermissionsAsync();
+            }
+            setCanAskForContacts(permission.canAskAgain);
+            if (permission.status !== 'granted') {
+                setPermissionDenied(true);
+                setDeviceContacts([]);
+                return;
+            }
 
             const { data } = await Contacts.getContactsAsync({
-                fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+                fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Name],
+                sort: Contacts.SortTypes.FirstName,
             });
 
-            const phoneMap: Record<string, string> = {};
-            data?.forEach(contact => {
-                contact.phoneNumbers?.forEach(pn => {
-                    if (pn.number) phoneMap[normalizePhone(pn.number)] = contact.name || normalizePhone(pn.number);
+            const contacts: DeviceContact[] = [];
+            for (const contact of data || []) {
+                const phone = (contact.phoneNumbers || [])
+                    .map((entry) => entry.number ? normalizePhone(entry.number) : null)
+                    .find((value): value is string => !!value);
+                const email = (contact.emails || [])
+                    .map((entry) => entry.email?.trim().toLowerCase())
+                    .find((value): value is string => !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+                if (!phone && !email) continue;
+                contacts.push({
+                    id: contact.id,
+                    name: contact.name?.trim() || phone || email || 'Contacto',
+                    phone,
+                    email,
                 });
-            });
+            }
 
-            const phones = Object.keys(phoneMap);
-            if (phones.length === 0) { setContactsLoading(false); return; }
+            if (contacts.length === 0) {
+                setDeviceContacts([]);
+                return;
+            }
 
-            const result = await apiClient.post('/users/sync-contacts', { phones });
-            setPingContacts((result.users || []).map((u: any) => ({
-                ...u, contactName: phoneMap[u.phone] || u.email,
+            const matchedUsers: RegisteredContact[] = [];
+            for (let index = 0; index < contacts.length; index += 200) {
+                const batch = contacts.slice(index, index + 200);
+                const result = await apiClient.post('/users/sync-contacts', {
+                    phones: Array.from(new Set(
+                        batch.map((contact) => contact.phone).filter(Boolean)
+                    )),
+                    emails: Array.from(new Set(
+                        batch.map((contact) => contact.email).filter(Boolean)
+                    )),
+                });
+                matchedUsers.push(...(result.users || []));
+            }
+            const matchesByPhone = new Map<string, RegisteredContact>();
+            const matchesByEmail = new Map<string, RegisteredContact>();
+            for (const user of matchedUsers) {
+                if (user.phone) matchesByPhone.set(user.phone, user);
+                if (user.email) matchesByEmail.set(user.email.toLowerCase(), user);
+            }
+
+            setDeviceContacts(contacts.map((contact) => ({
+                ...contact,
+                registered: (contact.phone ? matchesByPhone.get(contact.phone) : undefined)
+                    || (contact.email ? matchesByEmail.get(contact.email) : undefined),
             })));
-        } catch (err) {
-            console.warn('Contact sync failed', err);
+        } catch (error: any) {
+            console.warn('[Contacts] Discovery failed', {
+                name: error?.name || 'UnknownError',
+                status: error?.status ?? null,
+            });
+            Alert.alert(
+                'No pudimos cargar tus contactos',
+                error?.message || 'Revisa la conexión e inténtalo nuevamente.'
+            );
         } finally {
             setContactsLoading(false);
         }
-    };
+    }, []);
 
-    const handleSelectUser = (user: any) => {
-        createConversation(user.id, {
-            onSuccess: ({ conversationId }) =>
-                navigation.replace('Chat', { conversationId, otherUser: user }),
-            onError: (err: any) => Alert.alert('Error', err.message),
+    useEffect(() => {
+        loadContacts();
+    }, [loadContacts]);
+
+    useEffect(() => {
+        if (!permissionDenied) return;
+        const subscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') loadContacts();
         });
+        return () => subscription.remove();
+    }, [loadContacts, permissionDenied]);
+
+    const openRegisteredContact = async (contact: DeviceContact) => {
+        if (!contact.registered?.contactProof) return;
+        setBusyContactId(contact.id);
+        try {
+            const result = await apiClient.post('/conversations/from-contact', {
+                proof: contact.registered.contactProof,
+            });
+            navigation.replace('Chat', {
+                conversationId: result.conversationId,
+                otherUser: contact.registered,
+            });
+        } catch (error: any) {
+            Alert.alert(
+                'No se pudo abrir el chat',
+                error?.message || 'Actualiza tus contactos e inténtalo nuevamente.'
+            );
+        } finally {
+            setBusyContactId(null);
+        }
     };
 
-    const handleCreateInvitation = async () => {
-        const inviteeEmail = query.trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteeEmail)) {
-            Alert.alert('Escribe su correo', 'Usa el mismo correo con que la otra persona se registró en Ping.');
-            return;
-        }
-
-        setInvitationBusy(true);
+    const inviteContact = async (contact: DeviceContact) => {
+        setBusyContactId(contact.id);
         try {
-            const result = await apiClient.post('/conversation-invitations', { inviteeEmail });
+            const appUrl = Linking.createURL('/');
             await Share.share({
                 title: 'Invitación a Ping',
                 message: [
-                    'Quiero conversar contigo en Ping.',
-                    'Abre Ping, entra en “Nuevo chat” y pega este código:',
-                    result.token,
-                    'El código vence en 15 minutos y sólo funciona con tu cuenta.',
+                    `Hola ${contact.name}, te invito a conversar conmigo en Ping.`,
+                    'Instala Expo Go y abre este enlace para entrar a nuestra beta:',
+                    appUrl,
                 ].join('\n\n'),
             });
         } catch (error: any) {
-            Alert.alert('No se pudo crear', error?.message || 'Revisa el correo e inténtalo nuevamente.');
+            if (error?.message) {
+                Alert.alert('No se pudo compartir', 'Inténtalo nuevamente desde este contacto.');
+            }
         } finally {
-            setInvitationBusy(false);
+            setBusyContactId(null);
         }
     };
 
-    const handleAcceptInvitation = async () => {
-        const token = invitationText.match(/PING1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/)?.[0];
-        if (!token) {
-            Alert.alert('Código no válido', 'Copia y pega el código completo que recibiste.');
-            return;
-        }
+    const filteredContacts = useMemo(() => {
+        const normalizedQuery = query.trim().toLocaleLowerCase('es');
+        if (!normalizedQuery) return deviceContacts;
+        const digits = query.replace(/\D/g, '');
+        return deviceContacts.filter((contact) =>
+            contact.name.toLocaleLowerCase('es').includes(normalizedQuery)
+            || (!!digits && !!contact.phone && contact.phone.replace(/\D/g, '').includes(digits))
+            || (!!contact.email && contact.email.includes(normalizedQuery))
+        );
+    }, [deviceContacts, query]);
 
-        setInvitationBusy(true);
-        try {
-            const result = await apiClient.post('/conversation-invitations/accept', { token });
-            setInvitationText('');
-            navigation.replace('Chat', { conversationId: result.conversationId });
-        } catch (error: any) {
-            Alert.alert('No se pudo unir', error?.message || 'Pide una invitación nueva.');
-        } finally {
-            setInvitationBusy(false);
-        }
-    };
+    const registeredCount = deviceContacts.filter((contact) => !!contact.registered).length;
 
-    const UserRow = ({ item }: { item: any }) => {
-        const label = item.full_name || item.contactName || item.email || item.phone;
-        const sub = label !== item.email ? item.email : item.phone;
-        const color = avatarColor(label);
+    const renderContact = ({ item }: { item: DeviceContact }) => {
+        const isRegistered = !!item.registered;
+        const isBusy = busyContactId === item.id;
+        const label = item.registered?.full_name || item.name;
         return (
-            <TouchableOpacity style={styles.row} onPress={() => handleSelectUser(item)} disabled={isPending} activeOpacity={0.7}>
-                <View style={[styles.avatar, { backgroundColor: color }]}>
+            <TouchableOpacity
+                style={styles.row}
+                onPress={() => isRegistered ? openRegisteredContact(item) : inviteContact(item)}
+                disabled={!!busyContactId}
+                activeOpacity={0.7}
+            >
+                <View style={[styles.avatar, { backgroundColor: avatarColor(label) }]}>
                     <Text style={styles.avatarText}>{label.substring(0, 2).toUpperCase()}</Text>
                 </View>
                 <View style={styles.info}>
                     <Text style={styles.name}>{label}</Text>
-                    {sub && <Text style={styles.sub}>{sub}</Text>}
+                    <Text style={styles.sub}>{item.phone || item.email}</Text>
                 </View>
-                <Text style={styles.arrow}>›</Text>
+                {isBusy ? (
+                    <ActivityIndicator size="small" color="#3346e8" />
+                ) : (
+                    <View style={[styles.contactAction, isRegistered ? styles.chatAction : styles.inviteAction]}>
+                        <Text style={[styles.contactActionText, isRegistered ? styles.chatActionText : styles.inviteActionText]}>
+                            {isRegistered ? 'Chatear' : 'Invitar'}
+                        </Text>
+                    </View>
+                )}
             </TouchableOpacity>
         );
     };
 
-    const isSearching = query.length >= 2;
-    const results = searchData?.users || [];
-
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
                     <Text style={styles.backText}>‹</Text>
                 </TouchableOpacity>
-                <Text style={styles.title}>Nuevo chat</Text>
+                <View style={styles.headerCopy}>
+                    <Text style={styles.title}>Nuevo chat</Text>
+                    <Text style={styles.headerSubtitle}>Elige a alguien de tus contactos</Text>
+                </View>
+                <TouchableOpacity onPress={loadContacts} style={styles.refreshButton} disabled={contactsLoading}>
+                    <Text style={styles.refreshText}>↻</Text>
+                </TouchableOpacity>
             </View>
 
-            {/* Search input */}
             <View style={styles.searchWrap}>
                 <Text style={styles.searchIcon}>🔍</Text>
                 <TextInput
                     style={styles.searchInput}
-                    placeholder="Buscar por nombre, email o teléfono..."
+                    placeholder="Buscar contacto o número..."
                     placeholderTextColor="#9ca3af"
                     value={query}
                     onChangeText={setQuery}
                     autoCapitalize="none"
-                    autoFocus
                 />
-                {query.length > 0 && (
+                {query.length > 0 ? (
                     <TouchableOpacity onPress={() => setQuery('')}>
                         <Text style={styles.clearBtn}>✕</Text>
                     </TouchableOpacity>
-                )}
+                ) : null}
             </View>
 
-            <View style={styles.invitationCard}>
-                <Text style={styles.invitationTitle}>Conectar con otra persona</Text>
-                <Text style={styles.invitationHint}>
-                    Escribe arriba su correo registrado y comparte una invitación privada.
-                </Text>
-                <TouchableOpacity
-                    style={[
-                        styles.inviteButton,
-                        (!query.includes('@') || invitationBusy) && styles.buttonDisabled,
-                    ]}
-                    onPress={handleCreateInvitation}
-                    disabled={!query.includes('@') || invitationBusy}
-                >
-                    <Text style={styles.inviteButtonText}>
-                        {invitationBusy ? 'Procesando…' : 'Compartir invitación'}
+            {!permissionDenied ? (
+                <View style={styles.privacyNote}>
+                    <Text style={styles.privacyTitle}>Tus contactos permanecen privados</Text>
+                    <Text style={styles.privacyText}>
+                        Ping compara números exactos para mostrar quién ya está aquí. No publica tu agenda.
                     </Text>
-                </TouchableOpacity>
+                </View>
+            ) : null}
 
-                <View style={styles.invitationDivider} />
-                <Text style={styles.invitationHint}>¿Recibiste una invitación? Pégala aquí.</Text>
-                <View style={styles.acceptRow}>
-                    <TextInput
-                        style={styles.invitationInput}
-                        placeholder="Código PING1…"
-                        placeholderTextColor="#9ca3af"
-                        value={invitationText}
-                        onChangeText={setInvitationText}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                    />
+            {contactsLoading ? (
+                <View style={styles.centerState}>
+                    <ActivityIndicator size="large" color="#3346e8" />
+                    <Text style={styles.stateText}>Buscando tus contactos…</Text>
+                </View>
+            ) : permissionDenied ? (
+                <View style={styles.centerState}>
+                    <Text style={styles.emptyIcon}>👥</Text>
+                    <Text style={styles.emptyTitle}>Permite el acceso a contactos</Text>
+                    <Text style={styles.emptyText}>
+                        Ping necesita tu autorización para que puedas elegir a quién invitar o escribir.
+                    </Text>
                     <TouchableOpacity
-                        style={[
-                            styles.acceptButton,
-                            (!invitationText.trim() || invitationBusy) && styles.buttonDisabled,
-                        ]}
-                        onPress={handleAcceptInvitation}
-                        disabled={!invitationText.trim() || invitationBusy}
+                        style={styles.primaryButton}
+                        onPress={() => canAskForContacts ? loadContacts() : Linking.openSettings()}
                     >
-                        <Text style={styles.acceptButtonText}>Unirme</Text>
+                        <Text style={styles.primaryButtonText}>
+                            {canAskForContacts ? 'Permitir contactos' : 'Abrir configuración'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
-            </View>
-
-            {isSearching ? (
-                // Search results
-                searchLoading ? (
-                    <ActivityIndicator size="large" color="#0a84ff" style={{ marginTop: 32 }} />
-                ) : results.length === 0 ? (
-                    <View style={styles.empty}>
-                        <Text style={styles.emptyIcon}>🔍</Text>
-                        <Text style={styles.emptyTitle}>Sin resultados</Text>
-                        <Text style={styles.emptyText}>
-                            {isPhoneNumber(query)
-                                ? 'Ese número no está registrado en Ping aún'
-                                : 'No se encontró ningún usuario con ese email'}
-                        </Text>
-                    </View>
-                ) : (
-                    <>
-                        <Text style={styles.sectionLabel}>RESULTADOS ({results.length})</Text>
-                        <FlatList data={results} keyExtractor={u => u.id} renderItem={({ item }) => <UserRow item={item} />} />
-                    </>
-                )
             ) : (
-                // Contacts already on Ping
                 <>
                     <Text style={styles.sectionLabel}>
-                        {contactsLoading ? 'BUSCANDO CONTACTOS...' : `EN PING (${pingContacts.length})`}
+                        {registeredCount} EN PING · {deviceContacts.length} CONTACTOS
                     </Text>
-                    {contactsLoading ? (
-                        <ActivityIndicator size="large" color="#0a84ff" style={{ marginTop: 32 }} />
-                    ) : pingContacts.length === 0 ? (
-                        <View style={styles.empty}>
-                            <Text style={styles.emptyIcon}>👥</Text>
-                            <Text style={styles.emptyTitle}>Ningún contacto en Ping</Text>
-                            <Text style={styles.emptyText}>
-                                Invítalos a registrarse o busca por email/teléfono arriba.
-                            </Text>
-                        </View>
-                    ) : (
-                        <FlatList data={pingContacts} keyExtractor={u => u.id} renderItem={({ item }) => <UserRow item={item} />} />
-                    )}
+                    <FlatList
+                        data={filteredContacts}
+                        keyExtractor={(contact) => contact.id}
+                        renderItem={renderContact}
+                        keyboardShouldPersistTaps="handled"
+                        ListEmptyComponent={() => (
+                            <View style={styles.centerState}>
+                                <Text style={styles.emptyIcon}>🔍</Text>
+                                <Text style={styles.emptyTitle}>No encontramos contactos</Text>
+                                <Text style={styles.emptyText}>
+                                    Prueba con otro nombre o revisa que el contacto tenga un número móvil.
+                                </Text>
+                            </View>
+                        )}
+                    />
                 </>
             )}
         </View>
@@ -260,91 +321,101 @@ export default function NewChatScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f9fafb' },
-
-    // Header
     header: {
-        backgroundColor: '#1e3a5f', flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 56 : 16, paddingBottom: 16,
+        backgroundColor: '#1e3a5f',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingTop: Platform.OS === 'ios' ? 56 : 16,
+        paddingBottom: 16,
     },
     back: { padding: 8, marginRight: 4 },
     backText: { fontSize: 32, color: 'white', lineHeight: 32, fontWeight: '300' },
+    headerCopy: { flex: 1 },
     title: { fontSize: 20, fontWeight: '700', color: 'white' },
-
-    // Search
+    headerSubtitle: { color: 'rgba(255,255,255,0.72)', fontSize: 12, marginTop: 2 },
+    refreshButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    refreshText: { color: 'white', fontSize: 26, lineHeight: 28 },
     searchWrap: {
-        flexDirection: 'row', alignItems: 'center',
-        margin: 16, backgroundColor: 'white', borderRadius: 14,
-        paddingHorizontal: 14, paddingVertical: 10,
-        shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 4, elevation: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        margin: 16,
+        backgroundColor: 'white',
+        borderRadius: 14,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        shadowColor: '#000',
+        shadowOpacity: 0.07,
+        shadowRadius: 4,
+        elevation: 2,
     },
     searchIcon: { fontSize: 16, marginRight: 8 },
     searchInput: { flex: 1, fontSize: 15, color: '#111' },
     clearBtn: { fontSize: 16, color: '#9ca3af', paddingLeft: 8 },
-    invitationCard: {
+    privacyNote: {
         marginHorizontal: 16,
         marginBottom: 14,
-        padding: 14,
+        padding: 12,
         borderRadius: 14,
         backgroundColor: '#eef2ff',
         borderWidth: 1,
         borderColor: '#c7d2fe',
     },
-    invitationTitle: { fontSize: 15, fontWeight: '700', color: '#1e3a8a' },
-    invitationHint: { fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 17 },
-    inviteButton: {
-        marginTop: 10,
-        borderRadius: 10,
-        backgroundColor: '#3346e8',
-        paddingVertical: 10,
-        alignItems: 'center',
-    },
-    inviteButtonText: { color: 'white', fontSize: 14, fontWeight: '700' },
-    invitationDivider: { height: 1, backgroundColor: '#c7d2fe', marginVertical: 12 },
-    acceptRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-    invitationInput: {
-        flex: 1,
-        minWidth: 0,
-        borderRadius: 10,
-        backgroundColor: 'white',
-        borderWidth: 1,
-        borderColor: '#cbd5e1',
-        paddingHorizontal: 10,
-        paddingVertical: 9,
-        fontSize: 12,
-        color: '#111827',
-    },
-    acceptButton: {
-        borderRadius: 10,
-        backgroundColor: '#1e3a8a',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-    },
-    acceptButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
-    buttonDisabled: { opacity: 0.45 },
-
-    // Section label
+    privacyTitle: { color: '#1e3a8a', fontSize: 13, fontWeight: '800' },
+    privacyText: { color: '#475569', fontSize: 12, lineHeight: 17, marginTop: 3 },
     sectionLabel: {
-        paddingHorizontal: 20, paddingVertical: 8,
-        fontSize: 11, fontWeight: '600', color: '#9ca3af', letterSpacing: 0.8,
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748b',
+        letterSpacing: 0.7,
         backgroundColor: '#f3f4f6',
     },
-
-    // User rows
     row: {
-        flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 16, paddingVertical: 12,
-        backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
     },
-    avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    avatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 14,
+    },
     avatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
-    info: { flex: 1 },
-    name: { fontSize: 15, fontWeight: '600', color: '#111' },
+    info: { flex: 1, minWidth: 0 },
+    name: { fontSize: 15, fontWeight: '700', color: '#111827' },
     sub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-    arrow: { fontSize: 24, color: '#d1d5db' },
-
-    // Empty state
-    empty: { padding: 48, alignItems: 'center' },
+    contactAction: {
+        borderRadius: 999,
+        paddingHorizontal: 13,
+        paddingVertical: 8,
+        minWidth: 68,
+        alignItems: 'center',
+    },
+    chatAction: { backgroundColor: '#3346e8' },
+    inviteAction: { backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe' },
+    contactActionText: { fontSize: 12, fontWeight: '800' },
+    chatActionText: { color: 'white' },
+    inviteActionText: { color: '#3346e8' },
+    centerState: { padding: 42, alignItems: 'center' },
+    stateText: { marginTop: 12, fontSize: 14, color: '#64748b' },
     emptyIcon: { fontSize: 48, marginBottom: 12 },
-    emptyTitle: { fontSize: 17, fontWeight: '600', color: '#374151', marginBottom: 8 },
+    emptyTitle: { fontSize: 17, fontWeight: '700', color: '#374151', marginBottom: 8 },
     emptyText: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20 },
+    primaryButton: {
+        marginTop: 18,
+        backgroundColor: '#3346e8',
+        borderRadius: 12,
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+    },
+    primaryButtonText: { color: 'white', fontWeight: '800', fontSize: 14 },
 });

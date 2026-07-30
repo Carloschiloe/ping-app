@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getSharedProfileIds } from '../utils/authz';
 import { normalizeFullNameInput, normalizePhoneInput } from '../utils/profileValidation';
+import { createContactProof } from '../utils/contactDiscovery';
 
 // GET /users?q=email — search users by email (excludes self)
 export const search = async (req: Request, res: Response): Promise<void> => {
@@ -41,9 +42,59 @@ export const search = async (req: Request, res: Response): Promise<void> => {
 
 // POST /users/sync-contacts — find which phone numbers from device are registered in Ping
 export const syncContacts = async (req: Request, res: Response): Promise<void> => {
-    res.status(503).json({
-        error: 'Contact discovery is temporarily disabled pending the People and Privacy architecture decisions',
-    });
+    try {
+        const requesterUserId = req.user!.id;
+        const phones = Array.from(new Set(
+            (req.body.phones as string[])
+                .map((phone) => normalizePhoneInput(phone))
+                .filter((phone): phone is string => !!phone)
+        ));
+        const emails = Array.from(new Set(
+            (req.body.emails as string[])
+                .map((email) => email.trim().toLowerCase())
+        ));
+
+        const [phoneResult, emailResult] = await Promise.all([
+            phones.length > 0
+                ? supabaseAdmin
+                    .from('profiles')
+                    .select('id, full_name, avatar_url, phone, email')
+                    .in('phone', phones)
+                    .neq('id', requesterUserId)
+                    .limit(500)
+                : Promise.resolve({ data: [], error: null }),
+            emails.length > 0
+                ? supabaseAdmin
+                    .from('profiles')
+                    .select('id, full_name, avatar_url, phone, email')
+                    .in('email', emails)
+                    .neq('id', requesterUserId)
+                    .limit(500)
+                : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (phoneResult.error) throw phoneResult.error;
+        if (emailResult.error) throw emailResult.error;
+
+        const profiles = new Map<string, any>();
+        for (const profile of [...(phoneResult.data || []), ...(emailResult.data || [])]) {
+            profiles.set(profile.id, profile);
+        }
+        const users = Array.from(profiles.values()).map((profile) => ({
+            id: profile.id,
+            full_name: profile.full_name,
+            avatar_url: profile.avatar_url,
+            phone: profile.phone,
+            email: profile.email,
+            contactProof: createContactProof(requesterUserId, profile.id).proof,
+        }));
+        res.json({ users });
+    } catch (error: any) {
+        const status = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+        res.status(status).json({
+            error: status === 500 ? 'No se pudieron comparar tus contactos' : error.message,
+        });
+    }
 };
 
 // PATCH /api/user/profile — update full_name or avatar_url

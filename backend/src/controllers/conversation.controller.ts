@@ -14,6 +14,7 @@ import {
 } from '../utils/conversationInvitation';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyArchived } from '../utils/conversationCompat';
+import { verifyContactProofForRequester } from '../utils/contactDiscovery';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -448,6 +449,30 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to send message' : error.message });
+    }
+};
+
+// POST /conversations/from-contact — starts a direct conversation only from a
+// short-lived proof issued after matching an explicitly authorized device contact.
+export const createFromContact = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const requesterUserId = req.user!.id;
+        const match = verifyContactProofForRequester(req.body.proof, requesterUserId);
+        if (match.matchedUserId === requesterUserId) {
+            res.status(400).json({ error: 'No puedes iniciar un chat contigo mediante contactos' });
+            return;
+        }
+
+        const conversationId = await getOrCreateDirectConversationId(
+            requesterUserId,
+            match.matchedUserId
+        );
+        res.json({ conversationId });
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'No se pudo iniciar la conversación' : error.message,
+        });
     }
 };
 

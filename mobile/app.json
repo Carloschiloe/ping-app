@@ -57,6 +57,12 @@
       "expo-secure-store",
       "expo-localization",
       [
+        "expo-contacts",
+        {
+          "contactsPermission": "Ping necesita acceso a tus contactos para mostrarte quién ya usa Ping y permitirte invitar a quien tú elijas."
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Ping necesita acceso a tu cámara para las videollamadas.",

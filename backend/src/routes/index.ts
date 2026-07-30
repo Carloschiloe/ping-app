@@ -23,6 +23,7 @@ import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
 import * as privateFileSchema from '../schemas/privateFile.schema';
 import * as conversationInvitationSchema from '../schemas/conversationInvitation.schema';
+import * as contactDiscoverySchema from '../schemas/contactDiscovery.schema';
 import {
     requireFeature,
     requirePrivateFileFeature,
@@ -59,13 +60,24 @@ router.post('/push/token', requireAuth, pushController.saveToken);
 
 // Users
 router.get('/users', requireAuth, userController.search);
-router.post('/users/sync-contacts', requireAuth, userController.syncContacts);
+router.post(
+    '/users/sync-contacts',
+    requireAuth,
+    validateRequest(contactDiscoverySchema.syncContactsSchema),
+    userController.syncContacts
+);
 router.patch('/user/profile', requireAuth, userController.updateProfile);
 
 
 // Conversations
 router.post('/conversations/self', requireAuth, conversationController.createSelf);
 router.post('/conversations', requireAuth, conversationController.createOrFind);
+router.post(
+    '/conversations/from-contact',
+    requireAuth,
+    validateRequest(contactDiscoverySchema.createFromContactSchema),
+    conversationController.createFromContact
+);
 router.post(
     '/conversation-invitations',
     requireAuth,
