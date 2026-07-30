@@ -24,6 +24,8 @@ type DeviceContact = {
     registered?: RegisteredContact;
 };
 
+type ContactAccess = 'all' | 'limited' | 'none';
+
 function normalizePhone(raw: string): string | null {
     const digits = raw.replace(/\D/g, '');
     if (raw.trim().startsWith('+')) {
@@ -50,6 +52,7 @@ export default function NewChatScreen({ navigation }: any) {
     const [contactsLoading, setContactsLoading] = useState(true);
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [canAskForContacts, setCanAskForContacts] = useState(true);
+    const [contactAccess, setContactAccess] = useState<ContactAccess>('none');
     const [busyContactId, setBusyContactId] = useState<string | null>(null);
     const [matchingContacts, setMatchingContacts] = useState(false);
     const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
@@ -64,6 +67,11 @@ export default function NewChatScreen({ navigation }: any) {
                 permission = await Contacts.requestPermissionsAsync();
             }
             setCanAskForContacts(permission.canAskAgain);
+            setContactAccess(
+                permission.status === 'granted'
+                    ? (permission.accessPrivileges || 'all')
+                    : 'none'
+            );
             if (permission.status !== 'granted') {
                 setPermissionDenied(true);
                 setDeviceContacts([]);
@@ -159,12 +167,30 @@ export default function NewChatScreen({ navigation }: any) {
     }, [loadContacts]);
 
     useEffect(() => {
-        if (!permissionDenied) return;
+        if (!permissionDenied && contactAccess !== 'limited') return;
         const subscription = AppState.addEventListener('change', (state) => {
             if (state === 'active') loadContacts();
         });
         return () => subscription.remove();
-    }, [loadContacts, permissionDenied]);
+    }, [contactAccess, loadContacts, permissionDenied]);
+
+    const selectLimitedContacts = async () => {
+        setContactsLoading(true);
+        try {
+            await Contacts.presentAccessPickerAsync();
+            await loadContacts();
+        } catch (error: any) {
+            console.warn('[Contacts] Limited access picker failed', {
+                name: error?.name || 'UnknownError',
+            });
+            Alert.alert(
+                'No pudimos abrir tus contactos',
+                'Puedes dar acceso completo desde Configuración.'
+            );
+        } finally {
+            setContactsLoading(false);
+        }
+    };
 
     const openRegisteredContact = async (contact: DeviceContact) => {
         if (!contact.registered?.contactProof) return;
@@ -336,11 +362,41 @@ export default function NewChatScreen({ navigation }: any) {
                         keyboardShouldPersistTaps="handled"
                         ListEmptyComponent={() => (
                             <View style={styles.centerState}>
-                                <Text style={styles.emptyIcon}>🔍</Text>
-                                <Text style={styles.emptyTitle}>No encontramos contactos</Text>
-                                <Text style={styles.emptyText}>
-                                    Prueba con otro nombre o revisa que el contacto tenga un número móvil.
-                                </Text>
+                                {contactAccess === 'limited' ? (
+                                    <>
+                                        <Text style={styles.emptyIcon}>👥</Text>
+                                        <Text style={styles.emptyTitle}>Selecciona tus contactos</Text>
+                                        <Text style={styles.emptyText}>
+                                            iOS dio acceso limitado, pero todavía no elegiste contactos para compartir con Ping.
+                                        </Text>
+                                        <TouchableOpacity
+                                            style={styles.primaryButton}
+                                            onPress={selectLimitedContacts}
+                                        >
+                                            <Text style={styles.primaryButtonText}>Seleccionar contactos</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.secondaryButton}
+                                            onPress={() => Linking.openSettings()}
+                                        >
+                                            <Text style={styles.secondaryButtonText}>Dar acceso completo</Text>
+                                        </TouchableOpacity>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.emptyIcon}>🔍</Text>
+                                        <Text style={styles.emptyTitle}>No encontramos contactos</Text>
+                                        <Text style={styles.emptyText}>
+                                            Revisa que tus contactos tengan un número móvil o correo electrónico.
+                                        </Text>
+                                        <TouchableOpacity
+                                            style={styles.secondaryButton}
+                                            onPress={() => Linking.openSettings()}
+                                        >
+                                            <Text style={styles.secondaryButtonText}>Revisar permiso de contactos</Text>
+                                        </TouchableOpacity>
+                                    </>
+                                )}
                             </View>
                         )}
                     />
@@ -472,4 +528,18 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
     },
     primaryButtonText: { color: 'white', fontWeight: '800', fontSize: 14 },
+    secondaryButton: {
+        marginTop: 10,
+        borderRadius: 12,
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: '#c7d2fe',
+        backgroundColor: 'white',
+    },
+    secondaryButtonText: {
+        color: '#3346e8',
+        fontWeight: '800',
+        fontSize: 14,
+    },
 });
