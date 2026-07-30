@@ -94,9 +94,22 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
         };
     }, [conversationId, fadeAnim, slideAnim, pulseAnim, pulseAnim2, pulseAnim3, handleDecline]);
 
-    const handleAccept = useCallback(() => {
+    const handleAccept = useCallback(async () => {
         Vibration.cancel();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        if (channelRef.current) {
+            try {
+                await channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'accepted',
+                    payload: {},
+                });
+            } catch (err) {
+                console.error('[IncomingCall] Failed to confirm acceptance:', err);
+            }
+        }
+
         navigation.replace('Call', {
             conversationId,
             isVideo,

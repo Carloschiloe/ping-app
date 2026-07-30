@@ -7,11 +7,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
+import { Camera } from 'expo-camera';
 import { apiClient } from '../api/client';
 import { supabase } from '../lib/supabase';
+import {
+    buildCallPageUrl,
+    parseCallBridgeMessage,
+} from '../utils/callBridge';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://ping-app-con3.onrender.com/api';
-const CALL_BASE_URL = API_URL.replace('/api', '');
 
 const CallScreen = ({ route, navigation }: any) => {
     const { conversationId, isIncoming = false } = route.params;
@@ -24,9 +29,11 @@ const CallScreen = ({ route, navigation }: any) => {
     const [callUrl, setCallUrl] = useState<string | null>(null);
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(!isVideo);
+    const [connectionLabel, setConnectionLabel] = useState('Conectando...');
     const webviewRef = useRef<any>(null);
     const channelRef = useRef<any>(null);
     const isHangingUp = useRef(false);
+    const callErrorShown = useRef(false);
 
     const setupCallChannel = React.useCallback(() => {
         // Subscribe to Supabase Realtime for this call channel
@@ -35,6 +42,9 @@ const CallScreen = ({ route, navigation }: any) => {
         });
 
         channel
+            .on('broadcast', { event: 'accepted' }, () => {
+                setConnectionLabel('Llamada aceptada · conectando audio...');
+            })
             .on('broadcast', { event: 'hangup' }, () => {
                 // Other party hung up
                 if (!isHangingUp.current) {
@@ -48,11 +58,30 @@ const CallScreen = ({ route, navigation }: any) => {
         channelRef.current = channel;
     }, [conversationId, navigation]);
 
+    const ensurePermissions = React.useCallback(async () => {
+        const microphone = await Audio.requestPermissionsAsync();
+        if (!microphone.granted) {
+            throw new Error('Debes permitir el micrófono para realizar llamadas.');
+        }
+
+        if (isVideo) {
+            const camera = await Camera.requestCameraPermissionsAsync();
+            if (!camera.granted) {
+                throw new Error('Debes permitir la cámara para realizar videollamadas.');
+            }
+        }
+    }, [isVideo]);
+
     const fetchToken = React.useCallback(async () => {
         try {
+            await ensurePermissions();
             const { token, appId } = await apiClient.get(`/agora/token/${conversationId}`);
-            const ts = Date.now();
-            const url = `${CALL_BASE_URL}/call?appId=${appId}&token=${encodeURIComponent(token)}&channel=${encodeURIComponent(conversationId)}&video=${isVideo}&t=${ts}`;
+            const url = buildCallPageUrl(API_URL, {
+                appId,
+                token,
+                channel: conversationId,
+                video: isVideo,
+            });
             setCallUrl(url);
 
             // Notify the other user(s) via push + realtime ONLY IF we are the ones starting the call
@@ -72,7 +101,7 @@ const CallScreen = ({ route, navigation }: any) => {
         } finally {
             setLoading(false);
         }
-    }, [conversationId, isIncoming, isVideo, navigation]);
+    }, [conversationId, ensurePermissions, isIncoming, isVideo, navigation]);
 
     useEffect(() => {
         fetchToken();
@@ -146,10 +175,50 @@ const CallScreen = ({ route, navigation }: any) => {
                 domStorageEnabled
                 allowsFullscreenVideo
                 onPermissionRequest={(request: any) => request.grant(request.resources)}
-                onError={(e: any) => console.error('[WebView Error]', e.nativeEvent.description)}
+                onError={(e: any) => {
+                    console.error('[CallScreen] WebView load failed', {
+                        code: e.nativeEvent.code,
+                        domain: e.nativeEvent.domain,
+                    });
+                    if (!callErrorShown.current) {
+                        callErrorShown.current = true;
+                        Alert.alert(
+                            'No se pudo conectar',
+                            'La llamada no pudo cargar. Vuelve al chat e inténtalo nuevamente.'
+                        );
+                    }
+                }}
+                onHttpError={(e: any) => {
+                    console.error('[CallScreen] Call page HTTP error', {
+                        statusCode: e.nativeEvent.statusCode,
+                    });
+                    if (!callErrorShown.current) {
+                        callErrorShown.current = true;
+                        Alert.alert(
+                            'No se pudo conectar',
+                            'El servicio de llamadas no respondió correctamente.'
+                        );
+                    }
+                }}
                 onMessage={(event: any) => {
                     if (event.nativeEvent.data === 'hangup') {
                         hangup();
+                        return;
+                    }
+                    const message = parseCallBridgeMessage(event.nativeEvent.data);
+                    if (!message) return;
+                    if (message.status === 'joining') {
+                        setConnectionLabel('Conectando...');
+                    } else if (message.status === 'waiting') {
+                        setConnectionLabel(isIncoming
+                            ? 'Conectando con la otra persona...'
+                            : 'Esperando respuesta...');
+                    } else if (message.status === 'accepted') {
+                        setConnectionLabel('Llamada aceptada · conectando audio...');
+                    } else if (message.status === 'connected') {
+                        setConnectionLabel('Conectada');
+                    } else if (message.status === 'error') {
+                        setConnectionLabel('No se pudo conectar');
                     }
                 }}
                 originWhitelist={['*']}
@@ -161,13 +230,14 @@ const CallScreen = ({ route, navigation }: any) => {
                 <View style={styles.header} pointerEvents="box-none">
                     <View style={styles.encryptedHeader}>
                         <Ionicons name="lock-closed" size={11} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.encryptedText}>Cifrado de extremo a extremo</Text>
+                        <Text style={styles.encryptedText}>Conexión segura</Text>
                     </View>
                 </View>
 
                 {/* Bottom controls */}
                 <View style={styles.footer}>
                     <Text style={styles.callerName} numberOfLines={1}>{displayName}</Text>
+                    <Text style={styles.connectionLabel}>{connectionLabel}</Text>
 
                     <View style={styles.controlsRow}>
                         <View style={styles.controlCol}>
@@ -224,6 +294,12 @@ const styles = StyleSheet.create({
     callerName: {
         color: 'white', fontSize: 20, fontWeight: '700',
         textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+    },
+    connectionLabel: {
+        color: 'rgba(255,255,255,0.78)',
+        fontSize: 13,
+        fontWeight: '600',
+        marginTop: -10,
     },
     controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 24 },
     controlCol: { alignItems: 'center', gap: 8 },

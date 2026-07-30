@@ -1,5 +1,6 @@
 
 import { Request, Response } from 'express';
+import { randomBytes } from 'crypto';
 import * as agoraService from '../services/agora.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from '../services/notification.service';
@@ -269,7 +270,13 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
 
 export const renderCallPage = (req: Request, res: Response): void => {
     const { token, appId, channel, video } = req.query as Record<string, string>;
+    if (!token || !appId || !channel) {
+        res.status(400).type('text/plain').send('Missing call access parameters');
+        return;
+    }
+
     const withVideo = video === 'true';
+    const scriptNonce = randomBytes(18).toString('base64url');
     const serializedAppId = serializeForInlineScript(appId || '');
     const serializedToken = serializeForInlineScript(token || '');
     const serializedChannel = serializeForInlineScript(channel || '');
@@ -293,8 +300,8 @@ export const renderCallPage = (req: Request, res: Response): void => {
 <body>
 <div id="remote-video"><div id="status">Conectando...</div></div>
 <div id="local-video"></div>
-<script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
-<script>
+<script nonce="${scriptNonce}" src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+<script nonce="${scriptNonce}">
 const APP_ID  = ${serializedAppId};
 const TOKEN   = ${serializedToken};
 const CHANNEL = ${serializedChannel};
@@ -302,9 +309,27 @@ const WITH_VIDEO = ${withVideo};
 
 const client = AgoraRTC.createClient({ mode:"rtc", codec:"vp8" });
 let localAudioTrack=null, localVideoTrack=null;
+const remoteMedia = new Map();
+
+function postStatus(status) {
+  if(window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "call-status",
+      status
+    }));
+  }
+}
+
+function setStatus(text, status) {
+  const element = document.getElementById("status");
+  element.style.display = "block";
+  element.textContent = text;
+  postStatus(status);
+}
 
 async function joinCall() {
   try {
+    setStatus("Conectando...", "joining");
     await client.join(APP_ID, CHANNEL, TOKEN, null);
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     const tracks = [localAudioTrack];
@@ -314,24 +339,36 @@ async function joinCall() {
       localVideoTrack.play("local-video");
     }
     await client.publish(tracks);
-    document.getElementById("status").textContent = "Llamando...";
+    setStatus("Esperando respuesta...", "waiting");
   } catch(e) {
-    document.getElementById("status").textContent = "Error: " + e.message;
+    setStatus("No se pudo conectar", "error");
     console.error(e);
   }
 }
 
-client.on("user-published", async (user, mediaType) => {
-  await client.subscribe(user, mediaType);
-  document.getElementById("status").style.display="none";
-  if(mediaType==="video") user.videoTrack.play("remote-video");
-  if(mediaType==="audio") user.audioTrack.play();
+client.on("user-joined", () => {
+  setStatus("Llamada aceptada · conectando...", "accepted");
 });
 
-client.on("user-unpublished", () => {
-  const s = document.getElementById("status");
-  s.style.display="block";
-  s.textContent="La otra persona apagó su cámara/micro";
+client.on("user-published", async (user, mediaType) => {
+  try {
+    await client.subscribe(user, mediaType);
+    remoteMedia.set(user.uid + ":" + mediaType, true);
+    document.getElementById("status").style.display="none";
+    if(mediaType==="video") user.videoTrack.play("remote-video");
+    if(mediaType==="audio") user.audioTrack.play();
+    postStatus("connected");
+  } catch(e) {
+    setStatus("No se pudo reproducir la llamada", "error");
+    console.error(e);
+  }
+});
+
+client.on("user-unpublished", (user, mediaType) => {
+  remoteMedia.delete(user.uid + ":" + mediaType);
+  if(remoteMedia.size === 0) {
+    setStatus("La otra persona pausó su cámara o micrófono", "accepted");
+  }
 });
 
 client.on("user-left", (user) => {
@@ -359,6 +396,23 @@ joinCall();
 </script>
 </body>
 </html>`;
+    res.setHeader(
+        'Content-Security-Policy',
+        [
+            "default-src 'none'",
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+            "form-action 'none'",
+            `script-src 'nonce-${scriptNonce}' https://download.agora.io`,
+            "style-src 'unsafe-inline'",
+            'connect-src https: wss:',
+            'media-src blob:',
+            'img-src data: blob:',
+            'worker-src blob:',
+        ].join('; ')
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
 };
