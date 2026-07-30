@@ -370,6 +370,23 @@ try {
   });
   check('cross-user conversation rejected', [403, 404].includes(crossConversation.response.status));
 
+  if (configuredRemoteBaseUrl) {
+    const authorizedCallToken = await request(`/agora/token/${conversationId}`, {
+      token: first.token,
+    });
+    check('authorized participant receives call token',
+      authorizedCallToken.response.status === 200
+        && typeof authorizedCallToken.payload?.token === 'string'
+        && typeof authorizedCallToken.payload?.appId === 'string',
+      `status=${authorizedCallToken.response.status}`);
+
+    const crossCallToken = await request(`/agora/token/${conversationId}`, {
+      token: second.token,
+    });
+    check('cross-user call token rejected',
+      [403, 404].includes(crossCallToken.response.status));
+  }
+
   const { error: directProposalError } = await first.client
     .from('commitment_proposals')
     .insert({
@@ -655,6 +672,61 @@ try {
       && !JSON.stringify(attachedMessage.payload?.message).includes(attachmentUpload.payload.signedUrl));
   const attachedMessageId = attachedMessage.payload.message.id;
   resources.messages.add(attachedMessageId);
+
+  const audioUpload = await request('/files/message-attachment/upload-url', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      conversationId: fileConversation.id,
+      mimeType: 'audio/m4a',
+    },
+  });
+  check('authorized audio upload signed',
+    audioUpload.response.status === 200
+      && audioUpload.payload?.objectPath?.startsWith(
+        `conversations/${fileConversation.id}/attachments/${first.id}/`
+      ));
+  resources.objectPaths.add(audioUpload.payload.objectPath);
+  const audioBytes = Uint8Array.from([0, 0, 0, 20, 102, 116, 121, 112, 77, 52, 65, 32]);
+  const { error: audioUploadError } = await first.client.storage
+    .from('chat-media')
+    .uploadToSignedUrl(
+      audioUpload.payload.objectPath,
+      audioUpload.payload.token,
+      audioBytes,
+      { contentType: 'audio/m4a' },
+    );
+  if (audioUploadError) throw audioUploadError;
+
+  const audioMessage = await request(`/conversations/${fileConversation.id}/messages`, {
+    token: first.token,
+    method: 'POST',
+    body: {
+      text: 'Audio',
+      client_message_id: randomUUID(),
+      attachment: {
+        bucket: 'chat-media',
+        objectPath: audioUpload.payload.objectPath,
+        mimeType: 'audio/m4a',
+        fileName: 'temporary-e2e.m4a',
+      },
+    },
+  });
+  check('audio reference persisted on message',
+    audioMessage.response.status === 201
+      && audioMessage.payload?.message?.media_object_path === audioUpload.payload.objectPath);
+  const audioMessageId = audioMessage.payload.message.id;
+  resources.messages.add(audioMessageId);
+
+  const signedAudio = await request('/files/read-url', {
+    token: second.token,
+    method: 'POST',
+    body: { resourceType: 'message', resourceId: audioMessageId },
+  });
+  check('participant private audio signed',
+    signedAudio.response.status === 200 && signedAudio.payload?.expiresIn === 60);
+  const downloadedAudio = await fetch(signedAudio.payload.signedUrl);
+  check('participant private audio downloaded', downloadedAudio.status === 200);
 
   const signed = await request('/files/read-url', {
     token: second.token,
