@@ -853,6 +853,17 @@ try {
         (response) => ['approved', 'counter_proposed'].includes(response.status),
       ));
 
+  const recipientCommitments = await request('/commitments', { token: second.token });
+  const recipientSharedCommitment = recipientCommitments.payload?.find(
+    (commitment) => commitment.id === sharedCommitmentId,
+  );
+  check('recipient sees confirmed shared Commitment in their dashboard',
+    recipientCommitments.response.status === 200
+      && recipientSharedCommitment?.id === sharedCommitmentId
+      && recipientSharedCommitment?.agreement_responses?.some(
+        (response) => response.participant_user_id === second.id,
+      ));
+
   const agreementInsights = await request('/insights', { token: first.token });
   const insightCommitments = [
     ...(agreementInsights.payload?.needsAttention || []),
@@ -871,6 +882,22 @@ try {
       && insightSharedCommitment?.agreement_responses?.length === 3
       && insightSharedCommitment.agreement_responses.every(
         (response) => ['approved', 'counter_proposed'].includes(response.status),
+      ));
+
+  const recipientAgreementInsights = await request('/insights', { token: second.token });
+  const recipientInsightCommitments = [
+    ...(recipientAgreementInsights.payload?.needsAttention || []),
+    ...(recipientAgreementInsights.payload?.awaitingResponse || []),
+    ...(recipientAgreementInsights.payload?.overdue || []),
+    ...(recipientAgreementInsights.payload?.upcoming || []),
+    ...(recipientAgreementInsights.payload?.noDate || []),
+    ...(recipientAgreementInsights.payload?.actionDonePendingResolution || []),
+    ...(recipientAgreementInsights.payload?.recentlyResolved || []),
+  ];
+  check('recipient sees confirmed shared Commitment in Insights',
+    recipientAgreementInsights.response.status === 200
+      && recipientInsightCommitments.some(
+        (commitment) => commitment.id === sharedCommitmentId,
       ));
 
   const { data: fileConversation, error: fileConversationError } = await admin

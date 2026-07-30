@@ -14,6 +14,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const updates: Record<string, any[]> = {};
     const eqCalls: Record<string, Array<[string, any]>> = {};
     const selectCalls: Record<string, any[]> = {};
+    const orCalls: Record<string, string[]> = {};
     const rpcCalls: Array<{ name: string; args: any }> = [];
 
     const from = vi.fn((table: string) => {
@@ -42,7 +43,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
             }),
             neq: vi.fn(() => chain),
             in: vi.fn(() => chain),
-            or: vi.fn(() => chain),
+            or: vi.fn((filter: string) => {
+                (orCalls[table] = orCalls[table] || []).push(filter);
+                return chain;
+            }),
             is: vi.fn(() => chain),
             not: vi.fn(() => chain),
             order: vi.fn(() => chain),
@@ -70,6 +74,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
         getUpdateCalls: (table: string) => updates[table] || [],
         getEqCalls: (table: string) => eqCalls[table] || [],
         getSelectCalls: (table: string) => selectCalls[table] || [],
+        getOrCalls: (table: string) => orCalls[table] || [],
         getCalledTables: () => from.mock.calls.map((c: any[]) => c[0]),
         getRpcCalls: () => rpcCalls,
     };

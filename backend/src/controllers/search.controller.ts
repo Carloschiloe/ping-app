@@ -5,6 +5,10 @@ import { toLegacyIsGroup } from '../utils/conversationCompat';
 import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
 import { isCanonicalCommitmentStatus, normalizeCommitmentStatus, tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getSharedProfileIds } from '../utils/authz';
+import {
+    buildCommitmentVisibilityFilter,
+    getParticipantProposalIds,
+} from '../utils/commitmentVisibility';
 
 const COMMITMENT_SELECT = `
     id, title, description, due_at, proposed_due_at, status, type, priority,
@@ -21,7 +25,8 @@ const COMMITMENT_SELECT = `
 // contraparte (usuario asignado o contacto externo) y status V2. `meta` no
 // se usa como fuente de busqueda.
 async function searchCommitmentsV2(userId: string, q: string) {
-    const ownershipFilter = `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`;
+    const participantProposalIds = await getParticipantProposalIds(userId);
+    const ownershipFilter = buildCommitmentVisibilityFilter(userId, participantProposalIds);
     const resultsById = new Map<string, any>();
 
     const addAll = (rows: any[] | null | undefined) => {
@@ -206,10 +211,11 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         // "conversation" pedida explicitamente): se agregan al mismo set.
         const matchingConversationIds = (conversations || []).map((c) => c.id);
         if (matchingConversationIds.length > 0) {
+            const participantProposalIds = await getParticipantProposalIds(userId);
             const { data: byConversation } = await supabaseAdmin
                 .from('commitments')
                 .select('id, title, description, due_at, proposed_due_at, status, type, priority, expected_result, next_action, follow_up_at, rejection_reason, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, message_id, created_at, owner:owner_user_id(id, full_name, email, avatar_url), assignee:assigned_to_user_id(id, full_name, email, avatar_url)')
-                .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
+                .or(buildCommitmentVisibilityFilter(userId, participantProposalIds))
                 .in('conversation_id', matchingConversationIds)
                 .limit(20);
             for (const row of byConversation || []) commitmentsById.set(row.id, row);

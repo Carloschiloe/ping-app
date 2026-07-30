@@ -259,4 +259,53 @@ describe('getCommitments agreement traceability', () => {
             }),
         ]);
     });
+
+    it('includes confirmed agreements for a recipient who is not owner or assignee', async () => {
+        const recipientId = '22222222-2222-4222-8222-222222222222';
+        const proposalId = '33333333-3333-4333-8333-333333333333';
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [
+                {
+                    data: [{ proposal_id: proposalId }],
+                    error: null,
+                },
+                {
+                    data: [{
+                        proposal_id: proposalId,
+                        participant_user_id: recipientId,
+                        status: 'approved',
+                        profile: { id: recipientId, full_name: 'Receptora' },
+                    }],
+                    error: null,
+                },
+            ],
+            commitments: [{
+                data: [{
+                    id: 'commitment-visible-to-recipient',
+                    proposal_id: proposalId,
+                    owner_user_id: OWNER,
+                    assigned_to_user_id: OWNER,
+                    status: 'accepted',
+                }],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { getCommitments } = await import('../src/services/commitment.service');
+        const result = await getCommitments(recipientId);
+
+        expect(mock.getOrCalls('commitments')[0]).toContain(`proposal_id.in.(${proposalId})`);
+        expect(result).toEqual([
+            expect.objectContaining({
+                id: 'commitment-visible-to-recipient',
+                agreement_responses: [
+                    expect.objectContaining({
+                        participant_user_id: recipientId,
+                        status: 'approved',
+                    }),
+                ],
+            }),
+        ]);
+    });
 });

@@ -3,6 +3,10 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
 import { attachAgreementResponses } from '../services/commitmentProposal.service';
+import {
+    buildCommitmentVisibilityFilter,
+    getParticipantProposalIds,
+} from '../utils/commitmentVisibility';
 
 // V2: Insights ya NO usa group_conversation_id, is_group, el `mode` de
 // Operación, active_commitment_id ni completion_outcome (mandato explicito
@@ -66,10 +70,12 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
         if (participationsError) throw participationsError;
 
         const conversationIds = (participations || []).map((item) => item.conversation_id);
-
-        const orFilter = conversationIds.length > 0
-            ? `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId},and(assigned_to_user_id.is.null,conversation_id.in.(${conversationIds.join(',')}))`
-            : `owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`;
+        const participantProposalIds = await getParticipantProposalIds(userId);
+        const orFilter = buildCommitmentVisibilityFilter(
+            userId,
+            participantProposalIds,
+            conversationIds
+        );
 
         const { data: commitmentsRaw, error: commitmentsError } = await supabaseAdmin
             .from('commitments')

@@ -16,6 +16,10 @@ import { recordCommitmentEvent } from '../utils/commitmentEvents';
 import { readLegacyConversationId, readLegacyAssignedToUserId, readLegacyDueAt } from '../utils/commitmentCompat';
 export { createConfirmedCommitment as createCommitment } from './commitmentProposal.service';
 import { attachAgreementResponses } from './commitmentProposal.service';
+import {
+    buildCommitmentVisibilityFilter,
+    getParticipantProposalIds,
+} from '../utils/commitmentVisibility';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -680,7 +684,8 @@ export const getCommitments = async (userId: string, status?: string, conversati
     if (conversationId) {
         query = query.eq('conversation_id', conversationId);
     } else {
-        query = query.or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`);
+        const participantProposalIds = await getParticipantProposalIds(userId);
+        query = query.or(buildCommitmentVisibilityFilter(userId, participantProposalIds));
     }
     query = query.is('archived_at', null);
 
