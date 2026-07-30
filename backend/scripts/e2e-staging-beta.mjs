@@ -163,6 +163,7 @@ async function cleanup() {
   if (proposalIds.length > 0) {
     await admin.from('commitment_audit_records').delete().in('proposal_id', proposalIds);
     await admin.from('commitment_proposal_events').delete().in('proposal_id', proposalIds);
+    await admin.from('commitment_proposal_responses').delete().in('proposal_id', proposalIds);
     await admin.from('commitment_proposals').delete().in('id', proposalIds);
   }
   if (messageIds.length > 0) {
@@ -193,22 +194,35 @@ try {
   }
 
   const request = async (path, { token, method = 'GET', body } = {}) => {
-    const response = await fetchWithTimeout(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const text = await response.text();
-    let payload;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      payload = text;
+    const attempts = method === 'GET' ? 3 : 1;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetchWithTimeout(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        if (attempt < attempts && [502, 503, 504].includes(response.status)) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+          continue;
+        }
+        const text = await response.text();
+        let payload;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = text;
+        }
+        return { response, payload };
+      } catch (error) {
+        if (attempt === attempts) throw error;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+      }
     }
-    return { response, payload };
+    throw new Error('Remote request exhausted safe GET retries');
   };
 
   const first = await createTemporaryUser(1);
@@ -712,6 +726,132 @@ try {
     .eq('id', proposalId);
   if (crossSelectError) throw crossSelectError;
   check('RLS hides another user proposal', crossRows.length === 0);
+
+  const { data: agreementConversation, error: agreementConversationError } = await admin
+    .from('conversations')
+    .insert({
+      conversation_type: 'group',
+      name: `Temporary agreement ${runMarker}`,
+      created_by: first.id,
+    })
+    .select('id')
+    .single();
+  if (agreementConversationError) throw agreementConversationError;
+  resources.conversations.add(agreementConversation.id);
+  const { error: agreementParticipantsError } = await admin
+    .from('conversation_participants')
+    .insert([
+      { conversation_id: agreementConversation.id, user_id: first.id, role: 'admin' },
+      { conversation_id: agreementConversation.id, user_id: second.id, role: 'member' },
+      { conversation_id: agreementConversation.id, user_id: third.id, role: 'member' },
+    ]);
+  if (agreementParticipantsError) throw agreementParticipantsError;
+
+  const agreementMessage = await request(`/conversations/${agreementConversation.id}/messages`, {
+    token: first.token,
+    method: 'POST',
+    body: {
+      text: `Reunión de acuerdo ${runMarker}`,
+      client_message_id: randomUUID(),
+    },
+  });
+  check('shared agreement source message created', agreementMessage.response.status === 201);
+  const agreementMessageId = agreementMessage.payload.message.id;
+  resources.messages.add(agreementMessageId);
+
+  const initialDueAt = new Date(Date.now() + (3 * 86_400_000)).toISOString();
+  const sharedProposal = await request('/commitment-proposals/shared', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      title: 'Temporary shared agreement',
+      conversation_id: agreementConversation.id,
+      message_id: agreementMessageId,
+      assigned_to_user_id: first.id,
+      due_at: initialDueAt,
+      expected_result: 'Every participant approves the same version',
+    },
+  });
+  check('shared proposal created without Commitment',
+    sharedProposal.response.status === 201
+      && sharedProposal.payload?.status === 'pending');
+  const sharedProposalId = sharedProposal.payload.id;
+  resources.proposals.add(sharedProposalId);
+
+  const visibleAgreement = await request(
+    `/commitment-proposals?conversationId=${agreementConversation.id}`,
+    { token: second.token },
+  );
+  const visibleSharedProposal = visibleAgreement.payload?.find(
+    (proposal) => proposal.id === sharedProposalId,
+  );
+  check('all required participant responses are visible',
+    visibleAgreement.response.status === 200
+      && visibleSharedProposal?.agreement_responses?.length === 3
+      && visibleSharedProposal.agreement_responses.filter(
+        (response) => response.status === 'approved',
+      ).length === 1
+      && visibleSharedProposal.agreement_responses.filter(
+        (response) => response.status === 'pending',
+      ).length === 2);
+
+  const { count: commitmentBeforeAgreement, error: commitmentBeforeAgreementError } = await admin
+    .from('commitments')
+    .select('*', { count: 'exact', head: true })
+    .eq('proposal_id', sharedProposalId);
+  if (commitmentBeforeAgreementError) throw commitmentBeforeAgreementError;
+  check('pending participant responses create no Commitment', commitmentBeforeAgreement === 0);
+
+  const counterDueAt = new Date(Date.now() + (4 * 86_400_000)).toISOString();
+  const counterProposal = await request(`/commitment-proposals/${sharedProposalId}/respond`, {
+    token: third.token,
+    method: 'POST',
+    body: {
+      decision: 'counter_propose',
+      proposedDueAt: counterDueAt,
+    },
+  });
+  check('participant can suggest another time',
+    counterProposal.response.status === 200
+      && counterProposal.payload?.proposal?.agreement_version === 2
+      && new Date(counterProposal.payload?.proposal?.due_at).getTime() === new Date(counterDueAt).getTime()
+      && counterProposal.payload?.commitment === null);
+
+  const proposerApproval = await request(`/commitment-proposals/${sharedProposalId}/respond`, {
+    token: first.token,
+    method: 'POST',
+    body: { decision: 'approve' },
+  });
+  check('partial approval still creates no Commitment',
+    proposerApproval.response.status === 200
+      && proposerApproval.payload?.commitment === null);
+
+  const finalApproval = await request(`/commitment-proposals/${sharedProposalId}/respond`, {
+    token: second.token,
+    method: 'POST',
+    body: { decision: 'approve' },
+  });
+  check('last required approval creates the Commitment',
+    finalApproval.response.status === 200
+      && finalApproval.payload?.proposal?.status === 'confirmed'
+      && finalApproval.payload?.commitment?.status === 'accepted'
+      && new Date(finalApproval.payload?.commitment?.due_at).getTime() === new Date(counterDueAt).getTime());
+  const sharedCommitmentId = finalApproval.payload.commitment.id;
+  resources.commitments.add(sharedCommitmentId);
+
+  const confirmedAgreement = await request(
+    `/commitments?conversationId=${agreementConversation.id}`,
+    { token: first.token },
+  );
+  const confirmedSharedCommitment = confirmedAgreement.payload?.find(
+    (commitment) => commitment.id === sharedCommitmentId,
+  );
+  check('confirmed Commitment exposes every participant status',
+    confirmedAgreement.response.status === 200
+      && confirmedSharedCommitment?.agreement_responses?.length === 3
+      && confirmedSharedCommitment.agreement_responses.every(
+        (response) => ['approved', 'counter_proposed'].includes(response.status),
+      ));
 
   const { data: fileConversation, error: fileConversationError } = await admin
     .from('conversations')

@@ -671,6 +671,7 @@ export const getCommitments = async (userId: string, status?: string, conversati
             counterparty_contact_id,
             conversation_id,
             message_id,
+            proposal_id,
             created_at,
             owner:owner_user_id(id, full_name, email, avatar_url),
             assignee:assigned_to_user_id(id, full_name, email, avatar_url)

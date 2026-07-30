@@ -222,3 +222,41 @@ describe('checkConflict', () => {
         expect(mock.getCalledTables()).toContain('commitments');
     });
 });
+
+describe('getCommitments agreement traceability', () => {
+    it('selects proposal_id and attaches every participant response', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: [{
+                    id: 'c1',
+                    proposal_id: 'proposal-1',
+                    title: 'Acuerdo confirmado',
+                    status: 'accepted',
+                }],
+                error: null,
+            }],
+            commitment_proposal_responses: [{
+                data: [{
+                    proposal_id: 'proposal-1',
+                    participant_user_id: OWNER,
+                    status: 'approved',
+                    profile: { id: OWNER, full_name: 'Carlos' },
+                }],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { getCommitments } = await import('../src/services/commitment.service');
+        const result = await getCommitments(OWNER);
+
+        expect(String(mock.getSelectCalls('commitments')[0])).toContain('proposal_id');
+        expect(result[0].agreement_responses).toEqual([
+            expect.objectContaining({
+                participant_user_id: OWNER,
+                status: 'approved',
+                participant: { id: OWNER, full_name: 'Carlos' },
+            }),
+        ]);
+    });
+});
