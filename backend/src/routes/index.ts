@@ -135,7 +135,7 @@ router.post('/commitments/:id/postpone', requireAuth, validateRequest(commitment
 router.post('/commitments/:id/counter-propose', requireAuth, validateRequest(commitmentSchema.counterProposeCommitmentSchema), commitmentController.counterProposeCommitment);
 router.post('/commitments/:id/action-completed', requireAuth, commitmentController.markActionCompleted);
 router.post('/commitments/:id/resolve', requireAuth, validateRequest(commitmentSchema.resolveCommitmentSchema), commitmentController.resolveCommitment);
-router.post('/commitments/:id/cancel', requireAuth, commitmentController.cancelCommitment);
+router.post('/commitments/:id/cancel', requireAuth, validateRequest(commitmentSchema.cancelCommitmentSchema), commitmentController.cancelCommitment);
 router.post('/commitments/:id/reopen', requireAuth, commitmentController.reopenCommitment);
 router.post('/commitments/:id/reassign', requireAuth, validateRequest(commitmentSchema.reassignCommitmentSchema), commitmentController.reassignCommitment);
 router.post('/commitments/:id/follow-up', requireAuth, validateRequest(commitmentSchema.scheduleFollowUpSchema), commitmentController.scheduleFollowUp);

@@ -178,7 +178,8 @@ export const useResolveCommitment = () => {
 export const useCancelCommitment = () => {
     const invalidate = useCommitmentLifecycleInvalidation();
     return useMutation({
-        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/cancel`, {}),
+        mutationFn: async ({ id, reason }: { id: string; reason?: string }) =>
+            apiClient.post(`/commitments/${id}/cancel`, { reason: reason?.trim() || null }),
         onSuccess: invalidate,
     });
 };

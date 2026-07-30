@@ -18,6 +18,8 @@ interface AISuggestionModalProps {
     onUpdateData: (data: any) => void;
     avatarColor: (str: string) => string;
     isEditing?: boolean;
+    onCancel?: (reason?: string) => Promise<void> | void;
+    isCancelling?: boolean;
 }
 
 export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
@@ -30,12 +32,17 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     onConfirm,
     onUpdateData,
     avatarColor,
-    isEditing
+    isEditing,
+    onCancel,
+    isCancelling = false,
 }) => {
     const [conflicts, setConflicts] = useState<any[]>([]);
     const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
     const [showPicker, setShowPicker] = useState(false);
     const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+    const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
+    const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
     const { data: myContacts } = useContacts();
     const { mutateAsync: createContact, isPending: isCreatingContact } = useCreateContact();
 
@@ -78,6 +85,24 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             setConflicts([]);
         }
     }, [visible, suggestionData?.dueAt, suggestionData?.assignedToUserId, checkConflicts]);
+
+    useEffect(() => {
+        if (!visible) {
+            setShowCancelConfirmation(false);
+            setCancelReason('');
+            setIsSubmittingCancellation(false);
+        }
+    }, [visible]);
+
+    const handleCancelCommitment = async () => {
+        if (!onCancel || isCancelling || isSubmittingCancellation) return;
+        try {
+            setIsSubmittingCancellation(true);
+            await onCancel(cancelReason.trim() || undefined);
+        } finally {
+            setIsSubmittingCancellation(false);
+        }
+    };
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (event.type === 'dismissed') {
             setShowPicker(false);
@@ -304,6 +329,64 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 {isEditing ? 'Guardar cambios' : 'Agendar'}
                             </Text>
                         </TouchableOpacity>
+
+                        {isEditing && onCancel && !showCancelConfirmation && (
+                            <TouchableOpacity
+                                style={styles.cancelCommitmentBtn}
+                                onPress={() => setShowCancelConfirmation(true)}
+                                disabled={isCancelling || isSubmittingCancellation}
+                            >
+                                <Ionicons name="ban-outline" size={19} color="#dc2626" />
+                                <Text style={styles.cancelCommitmentBtnText}>
+                                    Cancelar {isMeeting ? 'reunión' : 'compromiso'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {isEditing && onCancel && showCancelConfirmation && (
+                            <View style={styles.cancelConfirmation}>
+                                <View style={styles.cancelConfirmationTitleRow}>
+                                    <Ionicons name="warning-outline" size={20} color="#b91c1c" />
+                                    <Text style={styles.cancelConfirmationTitle}>Confirmar cancelación</Text>
+                                </View>
+                                <Text style={styles.cancelConfirmationText}>
+                                    Se conservará el historial y las personas del chat verán que fue cancelada.
+                                </Text>
+                                <TextInput
+                                    style={styles.cancelReasonInput}
+                                    value={cancelReason}
+                                    onChangeText={setCancelReason}
+                                    placeholder="Motivo opcional, por ejemplo: se resolvió antes"
+                                    placeholderTextColor="#9ca3af"
+                                    maxLength={500}
+                                    multiline
+                                    editable={!isCancelling && !isSubmittingCancellation}
+                                />
+                                <View style={styles.cancelConfirmationActions}>
+                                    <TouchableOpacity
+                                        style={styles.keepCommitmentBtn}
+                                        onPress={() => {
+                                            setShowCancelConfirmation(false);
+                                            setCancelReason('');
+                                        }}
+                                        disabled={isCancelling || isSubmittingCancellation}
+                                    >
+                                        <Text style={styles.keepCommitmentBtnText}>Volver</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.confirmCancellationBtn}
+                                        onPress={handleCancelCommitment}
+                                        disabled={isCancelling || isSubmittingCancellation}
+                                    >
+                                        {(isCancelling || isSubmittingCancellation) ? (
+                                            <ActivityIndicator size="small" color="white" />
+                                        ) : (
+                                            <Text style={styles.confirmCancellationBtnText}>Sí, cancelar</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
                     </ScrollView>
                 </View>
             </View>
@@ -394,6 +477,91 @@ const styles = StyleSheet.create({
     },
     acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+    cancelCommitmentBtn: {
+        marginTop: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        backgroundColor: '#fff7f7',
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: 8,
+    },
+    cancelCommitmentBtnText: {
+        color: '#dc2626',
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    cancelConfirmation: {
+        marginTop: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        backgroundColor: '#fff7f7',
+        padding: 14,
+    },
+    cancelConfirmationTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    cancelConfirmationTitle: {
+        color: '#991b1b',
+        fontSize: 15,
+        fontWeight: '800',
+    },
+    cancelConfirmationText: {
+        color: '#7f1d1d',
+        fontSize: 13,
+        lineHeight: 18,
+        marginTop: 8,
+    },
+    cancelReasonInput: {
+        minHeight: 64,
+        marginTop: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#fecaca',
+        backgroundColor: 'white',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        color: '#111827',
+        fontSize: 14,
+        textAlignVertical: 'top',
+    },
+    cancelConfirmationActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 12,
+    },
+    keepCommitmentBtn: {
+        flex: 1,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#d1d5db',
+        paddingVertical: 12,
+        alignItems: 'center',
+        backgroundColor: 'white',
+    },
+    keepCommitmentBtnText: {
+        color: '#374151',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    confirmCancellationBtn: {
+        flex: 1,
+        borderRadius: 12,
+        paddingVertical: 12,
+        alignItems: 'center',
+        backgroundColor: '#dc2626',
+    },
+    confirmCancellationBtnText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '800',
+    },
     pickerWrapper: {
         backgroundColor: '#f9fafb',
         borderRadius: 16,

@@ -607,6 +607,60 @@ try {
   check('commitment events preserved', eventCount >= 4);
   check('commitment audit evidence preserved', auditCount >= 3);
 
+  const cancellationProposalResponse = await request('/commitment-proposals', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      title: 'Temporary meeting to cancel',
+      conversation_id: conversationId,
+      message_id: messageId,
+      type: 'meeting',
+      expected_result: 'Cancellation remains distinct from resolution',
+    },
+  });
+  check('cancellation proposal created', cancellationProposalResponse.response.status === 201);
+  const cancellationProposalId = cancellationProposalResponse.payload.id;
+  resources.proposals.add(cancellationProposalId);
+
+  const cancellationConfirmed = await request(`/commitment-proposals/${cancellationProposalId}/confirm`, {
+    token: first.token,
+    method: 'POST',
+    body: {},
+  });
+  check('cancellation proposal confirmed',
+    cancellationConfirmed.response.status === 201
+      && cancellationConfirmed.payload?.status === 'accepted');
+  const cancellationCommitmentId = cancellationConfirmed.payload.id;
+  resources.commitments.add(cancellationCommitmentId);
+
+  const crossCancellation = await request(`/commitments/${cancellationCommitmentId}/cancel`, {
+    token: second.token,
+    method: 'POST',
+    body: { reason: 'Unauthorized cancellation' },
+  });
+  check('cross-user cancellation rejected', [403, 404].includes(crossCancellation.response.status));
+
+  const cancellationReason = 'Se resolvió antes de reunirnos';
+  const cancelled = await request(`/commitments/${cancellationCommitmentId}/cancel`, {
+    token: first.token,
+    method: 'POST',
+    body: { reason: cancellationReason },
+  });
+  check('owner cancellation succeeds without resolving',
+    cancelled.response.status === 200
+      && cancelled.payload?.status === 'cancelled'
+      && !cancelled.payload?.resolved_at);
+
+  const { data: cancellationEvents, error: cancellationEventsError } = await admin
+    .from('commitment_events')
+    .select('event_type, payload')
+    .eq('commitment_id', cancellationCommitmentId)
+    .eq('event_type', 'cancelled');
+  if (cancellationEventsError) throw cancellationEventsError;
+  check('cancellation reason preserved in business evidence',
+    cancellationEvents.length === 1
+      && cancellationEvents[0].payload?.reason === cancellationReason);
+
   const { data: crossRows, error: crossSelectError } = await second.client
     .from('commitment_proposals')
     .select('id')

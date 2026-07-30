@@ -307,6 +307,8 @@ function computeCancel(input: CommitmentTransitionInput): CommitmentTransitionRe
         throw new AppError('Only the owner can cancel this commitment', 403);
     }
 
+    const reason = input.reason?.trim() || null;
+
     return {
         patch: {
             status: 'cancelled',
@@ -317,7 +319,7 @@ function computeCancel(input: CommitmentTransitionInput): CommitmentTransitionRe
             event_type: 'cancelled',
             previous_status: commitment.status,
             new_status: 'cancelled',
-            payload: {},
+            payload: { reason },
         },
     };
 }

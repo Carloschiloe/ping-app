@@ -76,6 +76,13 @@ export const resolveCommitmentSchema = z.object({
     }),
 });
 
+export const cancelCommitmentSchema = z.object({
+    params: z.object({ id: z.string().uuid() }),
+    body: z.object({
+        reason: z.string().trim().min(3).max(500).optional().nullable(),
+    }),
+});
+
 export const counterProposeCommitmentSchema = z.object({
     params: z.object({ id: z.string().uuid() }),
     body: z.object({ proposedDueAt: isoDate() }),

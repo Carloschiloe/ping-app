@@ -105,6 +105,40 @@ describe('atomic Commitment evidence', () => {
         await expect(resolveCommitment(OWNER, 'c1', '  ')).rejects.toThrow('resolution result');
         expect(mock.getRpcCalls()).toHaveLength(0);
     });
+
+    it('cancel sends the reason and confirmed cancellation through the atomic RPC', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [
+                { data: { id: 'c1', conversation_id: null, owner_user_id: OWNER, assigned_to_user_id: null, counterparty_contact_id: null }, error: null },
+                { data: { id: 'c1', status: 'accepted', owner_user_id: OWNER, assigned_to_user_id: null, counterparty_contact_id: null, due_at: null, proposed_due_at: null }, error: null },
+            ],
+            'rpc:apply_commitment_transition_with_evidence': [{
+                data: {
+                    id: 'c1',
+                    title: 'Reunión de prueba',
+                    type: 'meeting',
+                    status: 'cancelled',
+                    owner_user_id: OWNER,
+                    assigned_to_user_id: null,
+                    conversation_id: null,
+                    meta: {},
+                },
+                error: null,
+            }],
+            profiles: [{ data: { full_name: 'Carlos' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { cancelCommitment } = await import('../src/services/commitment.service');
+        const result = await cancelCommitment(OWNER, 'c1', 'Se resolvió antes');
+        const transitionCall = mock.getRpcCalls()[0];
+
+        expect(transitionCall.name).toBe('apply_commitment_transition_with_evidence');
+        expect(transitionCall.args.p_patch.status).toBe('cancelled');
+        expect(transitionCall.args.p_event_type).toBe('cancelled');
+        expect(transitionCall.args.p_event_payload).toEqual({ reason: 'Se resolvió antes' });
+        expect(result.status).toBe('cancelled');
+    });
 });
 
 describe('updateCommitment: compatibilidad temporal de status legacy', () => {

@@ -175,9 +175,20 @@ export const resolveCommitment = async (req: Request, res: Response): Promise<vo
 };
 
 export const cancelCommitment = async (req: Request, res: Response): Promise<void> => {
-    res.status(409).json({
-        error: 'Commitment cancellation is unavailable until the product decision is approved',
-    });
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const data = await commitmentService.cancelCommitment(
+            req.user.id,
+            req.params.id as string,
+            req.body.reason
+        );
+        res.status(200).json(toLegacyCommitmentShape(data));
+    } catch (error: any) {
+        handleError(res, 'cancelCommitment', error);
+    }
 };
 
 export const reopenCommitment = async (req: Request, res: Response): Promise<void> => {

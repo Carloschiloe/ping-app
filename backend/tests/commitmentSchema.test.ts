@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createCommitmentSchema, updateCommitmentSchema } from '../src/schemas/commitment.schema';
+import { cancelCommitmentSchema, createCommitmentSchema, updateCommitmentSchema } from '../src/schemas/commitment.schema';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const VALID_UUID_2 = '22222222-2222-4222-8222-222222222222';
@@ -138,6 +138,27 @@ describe('updateCommitmentSchema', () => {
         const result = await updateCommitmentSchema.safeParseAsync({
             params: { id: VALID_UUID },
             body: { proposed_due_at: 'no-es-una-fecha' },
+        });
+        expect(result.success).toBe(false);
+    });
+});
+
+describe('cancelCommitmentSchema', () => {
+    it('acepta cancelación con motivo opcional y elimina espacios exteriores', async () => {
+        const result = await cancelCommitmentSchema.safeParseAsync({
+            params: { id: VALID_UUID },
+            body: { reason: '  Se resolvió antes  ' },
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.body.reason).toBe('Se resolvió antes');
+        }
+    });
+
+    it('rechaza motivos no vacíos demasiado cortos', async () => {
+        const result = await cancelCommitmentSchema.safeParseAsync({
+            params: { id: VALID_UUID },
+            body: { reason: 'x' },
         });
         expect(result.success).toBe(false);
     });

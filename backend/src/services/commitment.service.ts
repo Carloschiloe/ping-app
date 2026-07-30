@@ -457,10 +457,23 @@ export const resolveCommitment = async (userId: string, id: string, resolutionRe
     return data;
 };
 
-export const cancelCommitment = async (userId: string, id: string) => {
-    const data = await applyCommitmentTransition(userId, id, 'cancel');
+export const cancelCommitment = async (userId: string, id: string, reason?: string | null) => {
+    const normalizedReason = reason?.trim() || null;
+    const data = await applyCommitmentTransition(userId, id, 'cancel', { reason: normalizedReason });
     const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `🚫 ${userName} canceló: "${data.title}"`);
+    await insertSystemMessage(
+        userId,
+        data.conversation_id,
+        `🚫 ${userName} canceló: "${data.title}"${normalizedReason ? `. Motivo: ${normalizedReason}` : ''}`
+    );
+    if (data.assigned_to_user_id && data.assigned_to_user_id !== userId) {
+        await notifyUser(
+            data.assigned_to_user_id,
+            data.type === 'meeting' ? 'Reunión cancelada' : 'Compromiso cancelado',
+            `${userName} canceló "${data.title}"`,
+            { type: 'commitment_cancelled', commitmentId: data.id, conversationId: data.conversation_id }
+        );
+    }
     return data;
 };
 

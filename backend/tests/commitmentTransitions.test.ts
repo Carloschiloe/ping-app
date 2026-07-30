@@ -147,9 +147,22 @@ describe('computeCommitmentTransition: cancel', () => {
     });
 
     it('el owner cancela correctamente', () => {
-        const result = computeCommitmentTransition({ action: 'cancel', actorUserId: OWNER, commitment: snapshot(), now: NOW });
+        const result = computeCommitmentTransition({
+            action: 'cancel',
+            actorUserId: OWNER,
+            commitment: snapshot(),
+            reason: 'Se resolvió antes',
+            now: NOW,
+        });
         expect(result.patch.status).toBe('cancelled');
         expect(result.event.event_type).toBe('cancelled');
+        expect(result.event.payload).toEqual({ reason: 'Se resolvió antes' });
+        expect(result.patch).not.toHaveProperty('resolved_at');
+    });
+
+    it('cancelar sin motivo conserva evidencia explícita sin inventar una razón', () => {
+        const result = computeCommitmentTransition({ action: 'cancel', actorUserId: OWNER, commitment: snapshot(), now: NOW });
+        expect(result.event.payload).toEqual({ reason: null });
     });
 });
 

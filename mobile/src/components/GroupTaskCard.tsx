@@ -12,7 +12,7 @@ import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
     useResolveCommitment, useReopenCommitment, useMarkActionCompleted,
-    useContacts,
+    useContacts, useCancelCommitment,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
@@ -50,6 +50,7 @@ export default function GroupTaskCard({
     const { mutate: markActionCompleted, isPending: isMarkingActionCompleted } = useMarkActionCompleted();
     const { mutate: accept } = useAcceptCommitment();
     const { mutate: reject } = useRejectCommitment();
+    const { mutateAsync: cancelCommitment, isPending: isCancelling } = useCancelCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const { data: myContacts } = useContacts();
@@ -146,7 +147,7 @@ export default function GroupTaskCard({
     const handleCancel = () => {
         Alert.alert(
             `Cancelar ${typeLabel}`,
-            '¿Confirmas que quieres cancelar este compromiso?',
+            `¿Confirmas que quieres cancelar esta ${isMeeting ? 'reunión' : 'tarea'}? Se conservará su historial.`,
             [
                 { text: 'Volver', style: 'cancel' },
                 {
@@ -154,7 +155,15 @@ export default function GroupTaskCard({
                     style: 'destructive',
                     onPress: () => {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                        Alert.alert('No disponible', 'La cancelación requiere una decisión de producto pendiente.');
+                        cancelCommitment({ id: commitment.id }).catch((error) => {
+                            console.warn('[Commitment] Cancellation rejected', {
+                                message: error instanceof Error ? error.message : 'unknown',
+                            });
+                            Alert.alert(
+                                'No se pudo cancelar',
+                                `La ${isMeeting ? 'reunión' : 'tarea'} no fue cancelada. Inténtalo nuevamente.`
+                            );
+                        });
                     }
                 }
             ]
@@ -438,7 +447,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {false && isOwner && !isDone && !isRejected && !isCancelled && (
+                        {isOwner && !isDone && !isRejected && !isCancelled && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleCancel(); }}
@@ -537,6 +546,27 @@ export default function GroupTaskCard({
                         }}
                         onUpdateData={setEditData}
                         onConfirm={onConfirmEdit}
+                        isCancelling={isCancelling}
+                        onCancel={async (reason?: string) => {
+                            try {
+                                await cancelCommitment({ id: commitment.id, reason });
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                if (conversationId) {
+                                    queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                                }
+                                setShowEditModal(false);
+                                setEditData(null);
+                            } catch (error) {
+                                console.warn('[Commitment] Cancellation rejected', {
+                                    message: error instanceof Error ? error.message : 'unknown',
+                                });
+                                Alert.alert(
+                                    'No se pudo cancelar',
+                                    `La ${isMeeting ? 'reunión' : 'tarea'} no fue cancelada. Inténtalo nuevamente.`
+                                );
+                                throw error;
+                            }
+                        }}
                     />
                 </View>
             )}
