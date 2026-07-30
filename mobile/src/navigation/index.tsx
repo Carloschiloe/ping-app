@@ -122,6 +122,7 @@ const MainTabs = () => {
     <Tab.Navigator
         screenOptions={({ route }) => ({
             headerShown: false,
+            tabBarHideOnKeyboard: true,
             tabBarActiveTintColor: appTheme.isDark ? appTheme.colors.accent : appTheme.colors.primary,
             tabBarInactiveTintColor: appTheme.isDark ? appTheme.colors.text.secondary : appTheme.colors.text.muted,
             tabBarStyle: {

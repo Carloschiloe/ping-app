@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator, Switch, Linking } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, ActivityIndicator, Switch, Linking, Modal } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile, useCalendarAccounts, useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { resolvePrivateFileUrl, uploadPrivateProfileAvatar } from '../lib/privateFiles';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,6 +22,7 @@ export default function ProfileScreen() {
     const [phone, setPhone] = useState('');
     const [fullName, setFullName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+    const [pendingAvatar, setPendingAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
     const [saving, setSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const { mutateAsync: updateProfile } = useUpdateProfile();
@@ -204,33 +206,46 @@ export default function ProfileScreen() {
     const handlePickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.5,
+            allowsEditing: false,
+            quality: 1,
         });
 
         if (!result.canceled && result.assets[0].uri) {
             const asset = result.assets[0];
-            const mimeType = asset.mimeType === 'image/png' || asset.mimeType === 'image/webp'
-                ? asset.mimeType
-                : 'image/jpeg';
-            if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
-                Alert.alert('Imagen demasiado grande', 'Elige una imagen de hasta 5 MB.');
+            if (asset.fileSize && asset.fileSize > 25 * 1024 * 1024) {
+                Alert.alert('Imagen demasiado grande', 'Elige una imagen de hasta 25 MB.');
                 return;
             }
-            uploadAvatar(asset.uri, mimeType);
+            setPendingAvatar(asset);
         }
     };
 
-    const uploadAvatar = async (
-        uri: string,
-        mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
-    ) => {
+    const confirmAvatar = async () => {
+        if (!pendingAvatar) return;
         setSaving(true);
         try {
             if (!user) throw new Error('Debes iniciar sesión nuevamente.');
-            const { signedUrl } = await uploadPrivateProfileAvatar(user.id, uri, mimeType);
+            const width = pendingAvatar.width || 1;
+            const height = pendingAvatar.height || 1;
+            const squareSize = Math.min(width, height);
+            const prepared = await ImageManipulator.manipulateAsync(
+                pendingAvatar.uri,
+                [
+                    {
+                        crop: {
+                            originX: Math.max(0, Math.floor((width - squareSize) / 2)),
+                            originY: Math.max(0, Math.floor((height - squareSize) / 2)),
+                            width: squareSize,
+                            height: squareSize,
+                        },
+                    },
+                    { resize: { width: 1024, height: 1024 } },
+                ],
+                { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+            );
+            const { signedUrl } = await uploadPrivateProfileAvatar(user.id, prepared.uri, 'image/jpeg');
             setAvatarUrl(signedUrl);
+            setPendingAvatar(null);
             await refreshProfile();
 
             Alert.alert('✅ Foto actualizada', 'Tu foto de perfil se ha guardado correctamente.');
@@ -629,6 +644,49 @@ export default function ProfileScreen() {
                     </View>
                 )}
             </View>
+
+            <Modal
+                visible={!!pendingAvatar}
+                transparent
+                animationType="fade"
+                onRequestClose={() => !saving && setPendingAvatar(null)}
+            >
+                <View style={styles.avatarPreviewBackdrop}>
+                    <View style={styles.avatarPreviewCard}>
+                        <Text style={styles.avatarPreviewTitle}>Ajustar foto de perfil</Text>
+                        <Text style={styles.avatarPreviewHint}>
+                            Ping centrará, recortará y redimensionará la imagen para tu perfil.
+                        </Text>
+                        {pendingAvatar?.uri ? (
+                            <Image
+                                source={{ uri: pendingAvatar.uri }}
+                                style={styles.avatarPreviewImage}
+                                resizeMode="cover"
+                            />
+                        ) : null}
+                        <View style={styles.avatarPreviewActions}>
+                            <TouchableOpacity
+                                style={styles.avatarPreviewCancel}
+                                onPress={() => setPendingAvatar(null)}
+                                disabled={saving}
+                            >
+                                <Text style={styles.avatarPreviewCancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.avatarPreviewConfirm}
+                                onPress={confirmAvatar}
+                                disabled={saving}
+                            >
+                                {saving ? (
+                                    <ActivityIndicator size="small" color="white" />
+                                ) : (
+                                    <Text style={styles.avatarPreviewConfirmText}>Usar foto</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 }
@@ -643,6 +701,16 @@ const createStyles = (theme: any) => StyleSheet.create({
     avatarPlaceholder: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' },
     avatarText: { color: 'white', fontSize: 32, fontWeight: '700' },
     cameraBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: theme.colors.primary, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background },
+    avatarPreviewBackdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.72)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+    avatarPreviewCard: { width: '100%', maxWidth: 380, borderRadius: 24, backgroundColor: theme.colors.surface, padding: 20, alignItems: 'center' },
+    avatarPreviewTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.primary, marginBottom: 6 },
+    avatarPreviewHint: { fontSize: 13, lineHeight: 19, textAlign: 'center', color: theme.colors.text.secondary, marginBottom: 18 },
+    avatarPreviewImage: { width: 220, height: 220, borderRadius: 110, backgroundColor: theme.colors.surfaceMuted, marginBottom: 22 },
+    avatarPreviewActions: { width: '100%', flexDirection: 'row', gap: 10 },
+    avatarPreviewCancel: { flex: 1, minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
+    avatarPreviewCancelText: { color: theme.colors.text.secondary, fontWeight: '700', fontSize: 15 },
+    avatarPreviewConfirm: { flex: 1, minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary },
+    avatarPreviewConfirmText: { color: 'white', fontWeight: '800', fontSize: 15 },
     uploadUnavailableText: { color: theme.colors.text.muted, fontSize: 12, marginBottom: 8 },
     email: { fontSize: 16, color: theme.colors.text.secondary },
     section: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.separator },

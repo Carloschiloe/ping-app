@@ -494,7 +494,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior="padding"
                 style={styles.container}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >

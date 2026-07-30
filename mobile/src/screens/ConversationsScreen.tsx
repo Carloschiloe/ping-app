@@ -34,7 +34,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
-    const [showQuickActions, setShowQuickActions] = React.useState(false);
+    const [showQuickActions, setShowQuickActions] = React.useState(true);
     const debouncedSearchQuery = useDebouncedValue(searchQuery, 220);
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
@@ -241,9 +241,24 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             <Text style={styles.title}>Ping</Text>
                             <Text style={styles.headerSubtitle}>Tus conversaciones y tareas en un solo lugar</Text>
                         </View>
-                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('PingAI')}>
-                            <Ionicons name="sparkles" size={24} color="white" />
-                        </TouchableOpacity>
+                        <View style={styles.headerActions}>
+                            <TouchableOpacity
+                                style={styles.headerIconBtn}
+                                onPress={() => navigation.navigate('NewChat')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Iniciar un nuevo chat"
+                            >
+                                <Ionicons name="chatbubble-ellipses" size={22} color="white" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.headerIconBtn}
+                                onPress={() => navigation.navigate('PingAI')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Abrir Ping AI"
+                            >
+                                <Ionicons name="sparkles" size={22} color="white" />
+                            </TouchableOpacity>
+                        </View>
                     </View>
                     <Animated.View style={[styles.searchContainer, { transform: [{ scale: searchScale }] }]}>
                         <View style={styles.searchBar}>
@@ -395,6 +410,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceMuted },
     headerSection: { paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, zIndex: 10 },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     title: { fontSize: 24, fontWeight: '800', color: theme.colors.white, letterSpacing: -0.3 },
     headerSubtitle: { marginTop: 2, fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: '600' },
     headerIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
