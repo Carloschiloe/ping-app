@@ -2,7 +2,7 @@ import { registerRootComponent } from 'expo';
 import React, { useEffect, useState, useRef } from 'react';
 import { AppNavigator } from './src/navigation';
 import { AuthProvider } from './src/context/AuthContext';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, AppState, AppStateStatus } from 'react-native';
@@ -61,6 +61,7 @@ export default function App() {
 
 const AppContent = () => {
     usePushNotifications();
+    const appQueryClient = useQueryClient();
     const { isDark, theme } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
@@ -80,6 +81,13 @@ const AppContent = () => {
                     setIsLocked(true);
                 }
             }
+            focusManager.setFocused(nextAppState === 'active');
+            if (nextAppState === 'active') {
+                await Promise.all([
+                    appQueryClient.invalidateQueries({ queryKey: ['conversations'] }),
+                    appQueryClient.invalidateQueries({ queryKey: ['conversation-messages'] }),
+                ]);
+            }
             appState.current = nextAppState;
         };
 
@@ -90,7 +98,7 @@ const AppContent = () => {
 
         const subscription = AppState.addEventListener('change', checkBiometricPreference);
         return () => subscription.remove();
-    }, []);
+    }, [appQueryClient]);
 
     return (
         <>

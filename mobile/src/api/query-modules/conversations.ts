@@ -36,19 +36,24 @@ export const useConversations = () => {
     useEffect(() => {
         const channel = supabase
             .channel('conversations-list')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
-            })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                }
+            });
         return () => { supabase.removeChannel(channel); };
     }, [queryClient]);
 
     return useQuery({
         queryKey: ['conversations'],
         queryFn: () => apiClient.get('/conversations'),
+        refetchOnMount: 'always',
+        refetchOnReconnect: 'always',
+        refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
     });
 };
 
@@ -95,7 +100,13 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    queryClient.invalidateQueries({
+                        queryKey: ['conversation-messages', conversationId],
+                    });
+                }
+            });
         return () => { supabase.removeChannel(channel); };
     }, [conversationId, queryClient, scrollToMessageId, user?.id]);
 
@@ -115,6 +126,10 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             return lastPage.messages[lastPage.messages.length - 1].created_at;
         },
         enabled: !!conversationId,
+        refetchOnMount: 'always',
+        refetchOnReconnect: 'always',
+        refetchInterval: 4_000,
+        refetchIntervalInBackground: false,
     });
 };
 
