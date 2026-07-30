@@ -48,7 +48,7 @@ import {
     isForwardableMessage,
     orderMessagesForForward,
 } from '../utils/messageActions';
-import { resolveReactionEmoji } from '../utils/messageCompat';
+import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { activeTypers, handleTyping, broadcastRecording } = useChatPresence(conversationId, user);
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
     const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
-    const { mutate: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
+    const { mutateAsync: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
     const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
@@ -284,7 +284,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     });
 
     const { startRecording, stopRecording, isRecording, recordingUri, cancelAudio, uploadAudio } = useAudioRecorder({
-        onAudioSent: (t) => sendMessage({ text: t, reply_to_id: replyingToMsg?.id }),
+        conversationId,
+        onAudioSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
         onRecordingStateChange: (isRecording) => broadcastRecording(isRecording),
         setSendingMedia
     });
@@ -452,8 +453,15 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     groupParticipants={groupParticipants}
                     onPress={(msg) => {
                         if (isMultiSelecting) { toggleSelect(msg.id); return; }
-                        if (msg?._isSuggestionTap || msg?.meta?.suggestedTask) {
-                            setSuggestionData({ ...msg.meta.suggestedTask, messageId: msg.id });
+                        const messageMeta = resolveMessageMetadata(msg);
+                        if (msg?._isSuggestionTap || messageMeta.suggestedTask) {
+                            const suggestion = messageMeta.suggestedTask;
+                            if (!suggestion) return;
+                            setSuggestionData({
+                                ...suggestion,
+                                messageId: msg.id,
+                                assignedToUserId: suggestion.assignedToUserId || user?.id,
+                            });
                             setSuggestionModalVisible(true);
                             return;
                         }
@@ -509,13 +517,23 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onClose={() => setSuggestionModalVisible(false)}
                     onUpdateData={setSuggestionData}
                     onConfirm={async () => {
-                        await createCommitment({
-                            ...suggestionData,
-                            conversation_id: conversationId
-                        });
-                        // Force refresh of messages to show system message
-                        queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-                        setSuggestionModalVisible(false);
+                        try {
+                            await createCommitment({
+                                ...suggestionData,
+                                conversation_id: conversationId,
+                                message_id: suggestionData.messageId,
+                            });
+                            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                            setSuggestionModalVisible(false);
+                        } catch (error) {
+                            console.warn('[Commitment] Confirmation failed', {
+                                message: error instanceof Error ? error.message : 'unknown',
+                            });
+                            Alert.alert(
+                                'No se pudo agendar',
+                                'El compromiso no fue guardado. Revisa los datos e inténtalo nuevamente.'
+                            );
+                        }
                     }}
                     avatarColor={avatarColor}
                 />

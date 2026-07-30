@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { useAppTheme } from '../theme/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AuthScreen from '../screens/AuthScreen';
 import CompleteProfileScreen from '../screens/CompleteProfileScreen';
@@ -117,6 +118,8 @@ const ConversationsStack = () => {
 
 const MainTabs = () => {
     const { theme: appTheme } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const bottomInset = Math.max(insets.bottom, 10);
 
     return (
     <Tab.Navigator
@@ -129,8 +132,8 @@ const MainTabs = () => {
                 backgroundColor: appTheme.isDark ? appTheme.colors.surfaceElevated : appTheme.colors.surface,
                 borderTopColor: appTheme.isDark ? appTheme.colors.border : appTheme.colors.separator,
                 borderTopWidth: 1,
-                height: 64,
-                paddingBottom: 10,
+                height: 54 + bottomInset,
+                paddingBottom: bottomInset,
                 paddingTop: 6,
                 shadowColor: '#000',
                 shadowOpacity: appTheme.isDark ? 0.2 : 0.08,

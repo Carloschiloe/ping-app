@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Alert } from 'react-native';
 import {
     PrivateMessageAttachment,
@@ -13,17 +14,41 @@ interface UseMediaPickerProps {
 }
 
 export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }: UseMediaPickerProps) {
+    const prepareImage = async (asset: any) => {
+        const longestSide = Math.max(Number(asset.width || 0), Number(asset.height || 0));
+        const resize = longestSide > 1920
+            ? (Number(asset.width || 0) >= Number(asset.height || 0)
+                ? { width: 1920 }
+                : { height: 1920 })
+            : null;
+        const result = await manipulateAsync(
+            asset.uri,
+            resize ? [{ resize }] : [],
+            { compress: 0.82, format: SaveFormat.JPEG }
+        );
+        return {
+            uri: result.uri,
+            mimeType: 'image/jpeg',
+            fileName: `${(asset.fileName || asset.name || 'imagen').replace(/\.[^.]+$/, '')}.jpg`,
+        };
+    };
+
     const uploadAndSendMedia = async (asset: any) => {
         setSendingMedia(true);
         try {
             const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
-            const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
-            const fileName = asset.fileName || `archivo.${isVideo ? 'mp4' : 'jpg'}`;
+            const prepared = isVideo
+                ? {
+                    uri: asset.uri,
+                    mimeType: asset.mimeType || 'video/mp4',
+                    fileName: asset.fileName || 'video.mp4',
+                }
+                : await prepareImage(asset);
             const attachment = await uploadPrivateMessageAttachment(
                 conversationId,
-                asset.uri,
-                mimeType,
-                fileName
+                prepared.uri,
+                prepared.mimeType,
+                prepared.fileName
             );
             onMediaSent({
                 text: isVideo ? 'Video' : 'Imagen',
@@ -50,13 +75,20 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
 
             const asset = result.assets[0];
             setSendingMedia(true);
+            const prepared = asset.mimeType?.startsWith('image/')
+                ? await prepareImage(asset)
+                : {
+                    uri: asset.uri,
+                    mimeType: asset.mimeType || 'application/pdf',
+                    fileName: asset.name,
+                };
             const attachment = await uploadPrivateMessageAttachment(
                 conversationId,
-                asset.uri,
-                asset.mimeType || 'application/pdf',
-                asset.name
+                prepared.uri,
+                prepared.mimeType,
+                prepared.fileName
             );
-            onMediaSent({ text: asset.name, attachment });
+            onMediaSent({ text: prepared.fileName, attachment });
             setSendingMedia(false);
         } catch (err) {
             setSendingMedia(false);

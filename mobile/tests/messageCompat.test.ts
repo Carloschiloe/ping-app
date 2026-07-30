@@ -44,4 +44,10 @@ describe('resolveMessageMetadata', () => {
     it('cae a meta si metadata no esta presente', () => {
         expect(resolveMessageMetadata({ meta: { isSystem: true } })).toEqual({ isSystem: true });
     });
+
+    it('permite actuar sobre una sugerencia recibida por Realtime usando metadata V2', () => {
+        const suggestedTask = { title: 'Ver película', dueAt: '2026-07-31T16:00:00.000Z' };
+        expect(resolveMessageMetadata({ metadata: { suggestedTask } }).suggestedTask)
+            .toEqual(suggestedTask);
+    });
 });

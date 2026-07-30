@@ -32,18 +32,22 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
       - key: RUN_CRON_JOBS
         value: "false"
       - key: ENABLE_AUTOMATIONS
         value: "false"
       - key: ENABLE_NON_MVP_CAPABILITIES
-        value: "false"
+        value: "true"
       - key: ENABLE_OPERATION_MODULE
         value: "false"
       - key: ENABLE_CALENDAR_INTEGRATION
         value: "false"
       - key: ENABLE_CALLS
-        value: "false"
+        value: "true"
       - key: ENABLE_PRIVATE_FILE_READS
         value: "true"
       - key: ENABLE_PRIVATE_FILE_UPLOADS

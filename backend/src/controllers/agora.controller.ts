@@ -24,7 +24,10 @@ export const getToken = async (req: Request, res: Response): Promise<void> => {
         res.status(200).json({ token, appId: process.env.AGORA_APP_ID });
     } catch (error: any) {
         console.error('[Agora Controller] Failed to get token:', error);
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to create call access' : error.message,
+        });
     }
 };
 

@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import { Audio } from 'expo-av';
 import { Alert } from 'react-native';
-import { uploadToSupabase } from '../lib/upload';
+import {
+    PrivateMessageAttachment,
+    uploadPrivateMessageAttachment,
+} from '../lib/privateFiles';
 
 interface UseAudioRecorderProps {
-    onAudioSent: (textStr: string) => void;
+    conversationId: string;
+    onAudioSent: (payload: { text: string; attachment: PrivateMessageAttachment }) => void;
     onRecordingStateChange?: (isRecording: boolean) => void;
     setSendingMedia: (sending: boolean) => void;
 }
 
-export function useAudioRecorder({ onAudioSent, onRecordingStateChange, setSendingMedia }: UseAudioRecorderProps) {
+export function useAudioRecorder({ conversationId, onAudioSent, onRecordingStateChange, setSendingMedia }: UseAudioRecorderProps) {
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingUri, setRecordingUri] = useState<string | null>(null);
@@ -67,16 +71,19 @@ export function useAudioRecorder({ onAudioSent, onRecordingStateChange, setSendi
         if (!recordingUri) return;
         setSendingMedia(true);
         try {
-            const url = await uploadToSupabase(recordingUri, 'chat-media', 'audio/m4a');
-            if (url) {
-                onAudioSent(`[audio]${url}`);
-                setRecordingUri(null);
-            } else {
-                Alert.alert('Error', 'No se pudo subir el audio.');
-            }
+            const attachment = await uploadPrivateMessageAttachment(
+                conversationId,
+                recordingUri,
+                'audio/m4a',
+                `audio-${Date.now()}.m4a`
+            );
+            onAudioSent({ text: 'Audio', attachment });
+            setRecordingUri(null);
         } catch (e) {
-            console.error('[Audio upload]', e);
-            Alert.alert('Error', 'No se pudo subir el audio.');
+            console.warn('[Audio] Private upload failed', {
+                message: e instanceof Error ? e.message : 'unknown',
+            });
+            Alert.alert('No se pudo enviar', 'El audio no se subió. Inténtalo nuevamente.');
         } finally {
             setSendingMedia(false);
         }

@@ -193,7 +193,7 @@ export const analyzeAndSuggestTask = async (
                 title: ai.title,
                 dueAt: ai.dueAt,
                 assignedToUserId: null,
-                replyText: ai.replyText,
+                replyText: 'Agendar',
                 type: ai.type,
             }
             : deterministicSuggestion;
@@ -231,7 +231,7 @@ export const analyzeAndSuggestTask = async (
                 title: extractedSuggestion.title,
                 dueAt: extractedSuggestion.dueAt,
                 assignedToUserId: finalAssigneeId,
-                replyText: extractedSuggestion.replyText || 'Guardar',
+                replyText: 'Agendar',
                 type: extractedSuggestion.type,
             };
 

@@ -13,7 +13,7 @@ describe('deterministic commitment suggestion', () => {
         expect(suggestion).not.toBeNull();
         expect(suggestion?.dueAt).toContain('2026-07-30T12:00:00-03:00');
         expect(suggestion?.type).toBe('meeting');
-        expect(suggestion?.replyText).toBe('Guardar');
+        expect(suggestion?.replyText).toBe('Agendar');
     });
 
     it('detects a dated personal task', () => {

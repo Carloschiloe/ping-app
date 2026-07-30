@@ -14,7 +14,12 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://ping-app-con3.onrend
 const CALL_BASE_URL = API_URL.replace('/api', '');
 
 const CallScreen = ({ route, navigation }: any) => {
-    const { conversationId, isVideo = true, remoteUser, isIncoming = false } = route.params;
+    const { conversationId, isIncoming = false } = route.params;
+    const requestedCallType = route.params.type || route.params.callType;
+    const isVideo = requestedCallType
+        ? requestedCallType === 'video'
+        : (route.params.isVideo ?? true);
+    const remoteUser = route.params.remoteUser || route.params.otherUser;
     const [loading, setLoading] = useState(true);
     const [callUrl, setCallUrl] = useState<string | null>(null);
     const [isMuted, setIsMuted] = useState(false);
@@ -22,7 +27,6 @@ const CallScreen = ({ route, navigation }: any) => {
     const webviewRef = useRef<any>(null);
     const channelRef = useRef<any>(null);
     const isHangingUp = useRef(false);
-    const currentCallId = useRef<string | null>(route.params.callId || null);
 
     const setupCallChannel = React.useCallback(() => {
         // Subscribe to Supabase Realtime for this call channel
@@ -54,22 +58,10 @@ const CallScreen = ({ route, navigation }: any) => {
             // Notify the other user(s) via push + realtime ONLY IF we are the ones starting the call
             if (!isIncoming) {
                 try {
-                    const response = await apiClient.post(`/agora/call/notify`, {
+                    await apiClient.post(`/agora/call/notify`, {
                         conversationId,
                         callType: isVideo ? 'video' : 'voice'
                     });
-                    if (response.callId) {
-                        currentCallId.current = response.callId;
-                        
-                        // START RECORDING (Initiator only for now)
-                        apiClient.post('/agora/recording/start', {
-                            channelName: conversationId,
-                            conversationId,
-                            callId: response.callId
-                        }).catch(recErr => {
-                            console.warn('[CallScreen] Recording failed to start:', recErr);
-                        });
-                    }
                 } catch (notifyErr) {
                     console.warn('[notifyCall] soft fail', notifyErr);
                 }
@@ -125,12 +117,6 @@ const CallScreen = ({ route, navigation }: any) => {
             } catch (err: any) {
                 console.error('[CallScreen] Hangup broadcast error:', err);
             }
-        }
-
-        // STOP RECORDING
-        if (currentCallId.current) {
-            apiClient.post(`/agora/recording/${currentCallId.current}/stop`, {})
-                .catch(err => console.error('[CallScreen] Stop recording failed:', err));
         }
 
         webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);

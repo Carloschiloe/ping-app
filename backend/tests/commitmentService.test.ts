@@ -108,6 +108,26 @@ describe('atomic Commitment evidence', () => {
 });
 
 describe('updateCommitment: compatibilidad temporal de status legacy', () => {
+    it('un cambio sólo de título no se anuncia como cambio de fecha u hora', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [
+                { data: { id: 'c1', owner_user_id: OWNER, assigned_to_user_id: null, conversation_id: 'conv-1' }, error: null },
+                { data: { id: 'c1', title: 'Título anterior', due_at: '2026-07-31T16:00:00.000Z', assigned_to_user_id: null, conversation_id: 'conv-1', type: 'meeting' }, error: null },
+                { data: { id: 'c1', title: 'Spiderman el viernes', due_at: '2026-07-31T16:00:00.000Z', assigned_to_user_id: null, conversation_id: 'conv-1', type: 'meeting', status: 'accepted' }, error: null },
+            ],
+            messages: [{ data: { id: 'system-1' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { updateCommitment } = await import('../src/services/commitment.service');
+        await updateCommitment(OWNER, 'c1', { title: 'Spiderman el viernes' });
+
+        const notice = mock.getInsertCalls('messages')[0].content;
+        expect(notice).toContain('Título actualizado: Spiderman el viernes');
+        expect(notice).not.toContain('fecha');
+        expect(notice).not.toContain('hora');
+    });
+
     it('status:"completed" no puede eludir el resultado obligatorio de resolución', async () => {
         const mock = createSupabaseAdminMock({
             commitments: [

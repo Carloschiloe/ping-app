@@ -42,7 +42,7 @@ Extrae la siguiente información en JSON:
 - hasCommitment (boolean): true si hay un compromiso, tarea o evento con fecha/hora implícita o explícita
 - title (string | null): título corto y claro del compromiso (máx 60 caracteres)
 - dueAt (string | null): fecha y hora en formato ISO 8601 con offset (ej: 2026-03-05T15:00:00-03:00), calculada desde la fecha de hoy.
-- replyText (string | null): Texto para el botón de acción UI. Debe ser muy corto y directo (ej: "Agendar reunión", "Guardar recordatorio", "Asignar tarea"). MÁXIMO 3 palabras.
+- replyText (string | null): Texto para el botón de acción UI. Cuando exista una fecha, devuelve siempre "Agendar".
 - assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor o no hay claridad, devuelve null.
 - type (string): "meeting" si es una reunión, call, junta o evento con hora fija. "task" si es una acción a realizar, un favor o un pendiente.
 
@@ -54,7 +54,7 @@ Reglas:
 - Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos
 - "mañana" = día siguiente al enviado.
 - Si no hay hora, usa 09:00:00-03:00.
-- El replyText debe ser SOLO el texto para el botón UI, sin "Entendido" ni saludos.
+- El replyText debe ser SOLO "Agendar", sin "Entendido", tipo de compromiso ni saludos.
 - Interpreta lenguaje natural chileno.
 - Usa el contexto completo del mensaje para entender compromisos implícitos
 
@@ -591,27 +591,30 @@ export const updateCommitment = async (userId: string, id: string, updates: any)
         });
     }
 
-    if (data && (updates.title || updates.due_at || updates.assigned_to_user_id)) {
-        const userName = await getUserName(userId);
-        let detail = '';
-        const finalType = (data.type === 'meeting' || isTitleMeeting(updates.title || data.title)) ? 'la reunión' : 'la tarea';
+    if (data && (updates.title !== undefined || updates.due_at !== undefined)) {
+        const titleChanged = updates.title !== undefined && updates.title !== oldCommitment?.title;
+        const dueAtChanged = updates.due_at !== undefined && updates.due_at !== oldCommitment?.due_at;
+        const notices: string[] = [];
 
-        let actionText = `editó ${finalType}`;
-        if (updates.due_at) {
-            actionText = `propuso un cambio de fecha/hora para ${finalType}`;
-            const dateObj = new Date(updates.due_at);
+        if (titleChanged) {
+            notices.push(`Título actualizado: ${data.title}`);
+        }
+        if (dueAtChanged) {
+            const dateObj = new Date(data.due_at);
             const dateStr = dateObj.toLocaleString('es-CL', {
                 timeZone: 'America/Santiago',
-                weekday: 'long',
                 day: 'numeric',
-                month: 'long',
+                month: 'short',
                 hour: '2-digit',
                 minute: '2-digit',
                 hour12: false
             });
-            detail = `: ${dateStr}`;
+            notices.push(`Nuevo horario: ${dateStr}`);
         }
-        await insertSystemMessage(userId, data.conversation_id, `✏️ ${userName} ${actionText}${detail}`);
+
+        if (notices.length > 0) {
+            await insertSystemMessage(userId, data.conversation_id, `✏️ ${notices.join(' · ')}`);
+        }
     }
 
     return data;

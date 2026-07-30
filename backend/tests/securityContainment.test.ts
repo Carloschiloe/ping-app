@@ -231,4 +231,34 @@ describe('feature gates', () => {
         );
         expect(enabled.next).toHaveBeenCalledTimes(1);
     });
+
+    it('puede habilitar llamadas en staging sin abrir Calendar ni Operation', () => {
+        const calls = createMiddlewareContext();
+        const calendar = createMiddlewareContext();
+        const operation = createMiddlewareContext();
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
+        process.env.ENABLE_CALLS = 'true';
+        process.env.ENABLE_CALENDAR_INTEGRATION = 'false';
+        process.env.ENABLE_OPERATION_MODULE = 'false';
+
+        requireFeature('ENABLE_CALLS')(
+            {} as any,
+            { status: calls.status, json: calls.json } as any,
+            calls.next
+        );
+        requireFeature('ENABLE_CALENDAR_INTEGRATION')(
+            {} as any,
+            { status: calendar.status, json: calendar.json } as any,
+            calendar.next
+        );
+        requireFeature('ENABLE_OPERATION_MODULE')(
+            {} as any,
+            { status: operation.status, json: operation.json } as any,
+            operation.next
+        );
+
+        expect(calls.next).toHaveBeenCalledTimes(1);
+        expect(calendar.status).toHaveBeenCalledWith(503);
+        expect(operation.status).toHaveBeenCalledWith(503);
+    });
 });

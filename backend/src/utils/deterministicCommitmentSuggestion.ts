@@ -42,7 +42,7 @@ export function buildDeterministicCommitmentSuggestion(
         title: cleanTitle(normalized, parsedDate.textRef),
         dueAt: toChileWallClock(parsedDate.date),
         assignedToUserId: null,
-        replyText: 'Guardar',
+        replyText: 'Agendar',
         type: MEETING_PATTERN.test(normalized) ? 'meeting' : 'task',
     };
 }

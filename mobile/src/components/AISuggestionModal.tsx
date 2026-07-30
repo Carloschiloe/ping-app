@@ -136,7 +136,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 <View style={styles.suggestionModal}>
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>
-                            {isEditing ? `✏️ Editar ${typeLabel}` : `✨ Agendar con AI`}
+                            {isEditing ? `✏️ Editar ${typeLabel}` : 'Agendar'}
                         </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
                             <Ionicons name="close" size={24} color="#6b7280" />
@@ -301,7 +301,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId)}
                         >
                             <Text style={styles.acceptBtnText}>
-                                {isEditing ? `Guardar Cambios` : `¡Agendar ${isMeeting ? 'Reunión' : 'Tarea'}!`}
+                                {isEditing ? 'Guardar cambios' : 'Agendar'}
                             </Text>
                         </TouchableOpacity>
                     </ScrollView>

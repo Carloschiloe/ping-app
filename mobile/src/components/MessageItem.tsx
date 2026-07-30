@@ -465,7 +465,7 @@ const MessageItemComponent = ({
                         >
                             <Text style={styles.suggestionIcon}>✨</Text>
                             <Text style={styles.suggestionText} numberOfLines={1}>
-                                {meta.suggestedTask.replyText || 'Guardar'}
+                                Agendar
                             </Text>
                         </TouchableOpacity>
                     )}
