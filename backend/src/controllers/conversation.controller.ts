@@ -4,7 +4,14 @@ import { processUserMessage } from '../services/message.service';
 import { NotificationService } from '../services/notification.service';
 import { AppError } from '../utils/AppError';
 import { assertCanReferenceProfiles, assertConversationParticipant } from '../utils/authz';
-import { getOrCreateSelfConversationId } from '../services/conversation.service';
+import {
+    getOrCreateDirectConversationId,
+    getOrCreateSelfConversationId,
+} from '../services/conversation.service';
+import {
+    createConversationInvitation,
+    verifyConversationInvitation,
+} from '../utils/conversationInvitation';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyArchived } from '../utils/conversationCompat';
 
@@ -441,6 +448,59 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to send message' : error.message });
+    }
+};
+
+export const createInvitation = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const inviterUserId = req.user!.id;
+        const inviteeEmail = String(req.body.inviteeEmail).trim().toLowerCase();
+        const { data: invitee, error } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .eq('email', inviteeEmail)
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!invitee || invitee.id === inviterUserId) {
+            res.status(400).json({
+                error: invitee?.id === inviterUserId
+                    ? 'No puedes invitarte a ti mismo'
+                    : 'No existe una cuenta Ping con ese correo',
+            });
+            return;
+        }
+
+        res.json(createConversationInvitation(inviterUserId, invitee.id));
+    } catch {
+        res.status(500).json({ error: 'No se pudo crear la invitación' });
+    }
+};
+
+export const acceptInvitation = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const acceptingUserId = req.user!.id;
+        const invitation = verifyConversationInvitation(req.body.token);
+        if (invitation.inviteeUserId !== acceptingUserId) {
+            res.status(403).json({ error: 'Esta invitación fue creada para otra cuenta' });
+            return;
+        }
+        if (invitation.inviterUserId === acceptingUserId) {
+            res.status(400).json({ error: 'No puedes aceptar tu propia invitación' });
+            return;
+        }
+
+        const conversationId = await getOrCreateDirectConversationId(
+            invitation.inviterUserId,
+            acceptingUserId
+        );
+        res.json({ conversationId });
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'No se pudo aceptar la invitación' : error.message,
+        });
     }
 };
 

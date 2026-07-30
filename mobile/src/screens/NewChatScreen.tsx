@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     View, Text, TextInput, FlatList, TouchableOpacity,
-    ActivityIndicator, StyleSheet, Alert, Platform
+    ActivityIndicator, StyleSheet, Alert, Platform, Share
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import { useUserSearch, useCreateConversation } from '../api/queries';
@@ -30,6 +30,8 @@ export default function NewChatScreen({ navigation }: any) {
     const [query, setQuery] = useState('');
     const [pingContacts, setPingContacts] = useState<any[]>([]);
     const [contactsLoading, setContactsLoading] = useState(true);
+    const [invitationText, setInvitationText] = useState('');
+    const [invitationBusy, setInvitationBusy] = useState(false);
     const { data: searchData, isLoading: searchLoading } = useUserSearch(query);
     const { mutate: createConversation, isPending } = useCreateConversation();
 
@@ -71,6 +73,51 @@ export default function NewChatScreen({ navigation }: any) {
                 navigation.replace('Chat', { conversationId, otherUser: user }),
             onError: (err: any) => Alert.alert('Error', err.message),
         });
+    };
+
+    const handleCreateInvitation = async () => {
+        const inviteeEmail = query.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteeEmail)) {
+            Alert.alert('Escribe su correo', 'Usa el mismo correo con que la otra persona se registró en Ping.');
+            return;
+        }
+
+        setInvitationBusy(true);
+        try {
+            const result = await apiClient.post('/conversation-invitations', { inviteeEmail });
+            await Share.share({
+                title: 'Invitación a Ping',
+                message: [
+                    'Quiero conversar contigo en Ping.',
+                    'Abre Ping, entra en “Nuevo chat” y pega este código:',
+                    result.token,
+                    'El código vence en 15 minutos y sólo funciona con tu cuenta.',
+                ].join('\n\n'),
+            });
+        } catch (error: any) {
+            Alert.alert('No se pudo crear', error?.message || 'Revisa el correo e inténtalo nuevamente.');
+        } finally {
+            setInvitationBusy(false);
+        }
+    };
+
+    const handleAcceptInvitation = async () => {
+        const token = invitationText.match(/PING1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/)?.[0];
+        if (!token) {
+            Alert.alert('Código no válido', 'Copia y pega el código completo que recibiste.');
+            return;
+        }
+
+        setInvitationBusy(true);
+        try {
+            const result = await apiClient.post('/conversation-invitations/accept', { token });
+            setInvitationText('');
+            navigation.replace('Chat', { conversationId: result.conversationId });
+        } catch (error: any) {
+            Alert.alert('No se pudo unir', error?.message || 'Pide una invitación nueva.');
+        } finally {
+            setInvitationBusy(false);
+        }
     };
 
     const UserRow = ({ item }: { item: any }) => {
@@ -121,6 +168,49 @@ export default function NewChatScreen({ navigation }: any) {
                         <Text style={styles.clearBtn}>✕</Text>
                     </TouchableOpacity>
                 )}
+            </View>
+
+            <View style={styles.invitationCard}>
+                <Text style={styles.invitationTitle}>Conectar con otra persona</Text>
+                <Text style={styles.invitationHint}>
+                    Escribe arriba su correo registrado y comparte una invitación privada.
+                </Text>
+                <TouchableOpacity
+                    style={[
+                        styles.inviteButton,
+                        (!query.includes('@') || invitationBusy) && styles.buttonDisabled,
+                    ]}
+                    onPress={handleCreateInvitation}
+                    disabled={!query.includes('@') || invitationBusy}
+                >
+                    <Text style={styles.inviteButtonText}>
+                        {invitationBusy ? 'Procesando…' : 'Compartir invitación'}
+                    </Text>
+                </TouchableOpacity>
+
+                <View style={styles.invitationDivider} />
+                <Text style={styles.invitationHint}>¿Recibiste una invitación? Pégala aquí.</Text>
+                <View style={styles.acceptRow}>
+                    <TextInput
+                        style={styles.invitationInput}
+                        placeholder="Código PING1…"
+                        placeholderTextColor="#9ca3af"
+                        value={invitationText}
+                        onChangeText={setInvitationText}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                    <TouchableOpacity
+                        style={[
+                            styles.acceptButton,
+                            (!invitationText.trim() || invitationBusy) && styles.buttonDisabled,
+                        ]}
+                        onPress={handleAcceptInvitation}
+                        disabled={!invitationText.trim() || invitationBusy}
+                    >
+                        <Text style={styles.acceptButtonText}>Unirme</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {isSearching ? (
@@ -190,6 +280,47 @@ const styles = StyleSheet.create({
     searchIcon: { fontSize: 16, marginRight: 8 },
     searchInput: { flex: 1, fontSize: 15, color: '#111' },
     clearBtn: { fontSize: 16, color: '#9ca3af', paddingLeft: 8 },
+    invitationCard: {
+        marginHorizontal: 16,
+        marginBottom: 14,
+        padding: 14,
+        borderRadius: 14,
+        backgroundColor: '#eef2ff',
+        borderWidth: 1,
+        borderColor: '#c7d2fe',
+    },
+    invitationTitle: { fontSize: 15, fontWeight: '700', color: '#1e3a8a' },
+    invitationHint: { fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 17 },
+    inviteButton: {
+        marginTop: 10,
+        borderRadius: 10,
+        backgroundColor: '#3346e8',
+        paddingVertical: 10,
+        alignItems: 'center',
+    },
+    inviteButtonText: { color: 'white', fontSize: 14, fontWeight: '700' },
+    invitationDivider: { height: 1, backgroundColor: '#c7d2fe', marginVertical: 12 },
+    acceptRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+    invitationInput: {
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 10,
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        paddingHorizontal: 10,
+        paddingVertical: 9,
+        fontSize: 12,
+        color: '#111827',
+    },
+    acceptButton: {
+        borderRadius: 10,
+        backgroundColor: '#1e3a8a',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+    },
+    acceptButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
+    buttonDisabled: { opacity: 0.45 },
 
     // Section label
     sectionLabel: {

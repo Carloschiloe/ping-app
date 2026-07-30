@@ -120,6 +120,7 @@ async function createTemporaryUser(index) {
   console.info(`[E2E] temporary user ${index} ready`);
   return {
     id: data.user.id,
+    email,
     token: session.session.access_token,
     client,
   };
@@ -197,6 +198,35 @@ try {
 
   const health = await request('/health');
   check('staging health check', health.response.status === 200 && health.payload?.db_status === 'connected');
+
+  const invitation = await request('/conversation-invitations', {
+    token: first.token,
+    method: 'POST',
+    body: { inviteeEmail: second.email },
+  });
+  check('explicit conversation invitation created',
+    invitation.response.status === 200
+      && invitation.payload?.token?.startsWith('PING1.')
+      && invitation.payload?.expiresIn === 900);
+
+  const acceptedInvitation = await request('/conversation-invitations/accept', {
+    token: second.token,
+    method: 'POST',
+    body: { token: invitation.payload.token },
+  });
+  check('intended recipient accepts invitation',
+    acceptedInvitation.response.status === 200
+      && typeof acceptedInvitation.payload?.conversationId === 'string');
+  resources.conversations.add(acceptedInvitation.payload.conversationId);
+
+  const replayedInvitation = await request('/conversation-invitations/accept', {
+    token: second.token,
+    method: 'POST',
+    body: { token: invitation.payload.token },
+  });
+  check('invitation replay is idempotent for intended recipient',
+    replayedInvitation.response.status === 200
+      && replayedInvitation.payload?.conversationId === acceptedInvitation.payload.conversationId);
 
   const { data: incompleteProfile, error: incompleteProfileError } = await admin
     .from('profiles')

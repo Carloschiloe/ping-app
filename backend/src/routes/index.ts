@@ -22,6 +22,7 @@ import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
 import * as privateFileSchema from '../schemas/privateFile.schema';
+import * as conversationInvitationSchema from '../schemas/conversationInvitation.schema';
 import {
     requireFeature,
     requirePrivateFileFeature,
@@ -65,6 +66,18 @@ router.patch('/user/profile', requireAuth, userController.updateProfile);
 // Conversations
 router.post('/conversations/self', requireAuth, conversationController.createSelf);
 router.post('/conversations', requireAuth, conversationController.createOrFind);
+router.post(
+    '/conversation-invitations',
+    requireAuth,
+    validateRequest(conversationInvitationSchema.createInvitationSchema),
+    conversationController.createInvitation
+);
+router.post(
+    '/conversation-invitations/accept',
+    requireAuth,
+    validateRequest(conversationInvitationSchema.acceptInvitationSchema),
+    conversationController.acceptInvitation
+);
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
