@@ -194,25 +194,29 @@ export default function PingAIScreen({ navigation }: any) {
                 </TouchableOpacity>
             </View>
 
-            <FlatList
-                ref={listRef}
-                data={messages}
-                keyExtractor={item => item.id}
-                renderItem={renderItem}
-                contentContainerStyle={styles.listContent}
-            />
-
-            {isPending && (
-                <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#3b82f6" />
-                    <Text style={styles.loadingText}>Ping está pensando...</Text>
-                </View>
-            )}
-
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                style={styles.keyboardArea}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={0}
             >
+                <FlatList
+                    ref={listRef}
+                    style={styles.messageList}
+                    data={messages}
+                    keyExtractor={item => item.id}
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.listContent}
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    keyboardShouldPersistTaps="handled"
+                />
+
+                {isPending && (
+                    <View style={styles.loadingRow}>
+                        <ActivityIndicator size="small" color="#3b82f6" />
+                        <Text style={styles.loadingText}>Ping está pensando...</Text>
+                    </View>
+                )}
+
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.input}
@@ -265,6 +269,8 @@ const styles = StyleSheet.create({
     title: { color: 'white', fontSize: 18, fontWeight: '700' },
     subtitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
 
+    keyboardArea: { flex: 1 },
+    messageList: { flex: 1 },
     listContent: { padding: 16, paddingBottom: 24 },
     messageRow: { flexDirection: 'row', marginBottom: 12 },
     aiRow: { justifyContent: 'flex-start' },
