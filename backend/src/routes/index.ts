@@ -43,6 +43,7 @@ router.get('/health', async (req, res) => {
             ok: true,
             db_status: 'connected',
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
+            deployment_marker: 'staging-auto-deploy-v1',
             timestamp: new Date().toISOString(),
         });
     } catch (error: any) {
