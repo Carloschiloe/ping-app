@@ -3,6 +3,8 @@ import { View, TextInput, TouchableOpacity, ActivityIndicator, Pressable, StyleS
 import { Ionicons } from '@expo/vector-icons';
 import AudioPlayer from './AudioPlayer';
 import { useAppTheme } from '../theme/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatRecordingDuration } from '../utils/audioRecording';
 
 interface ChatInputProps {
     text: string;
@@ -13,6 +15,7 @@ interface ChatInputProps {
     sendingMedia: boolean;
     recordingUri: string | null;
     isRecording: boolean;
+    recordingDurationMs: number;
     onPickMedia: () => void;
     onShareLocation: () => void;
     onStartRecording: () => void;
@@ -31,6 +34,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     sendingMedia,
     recordingUri,
     isRecording,
+    recordingDurationMs,
     onPickMedia,
     onShareLocation,
     onStartRecording,
@@ -40,6 +44,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onFocus,
 }) => {
     const { theme } = useAppTheme();
+    const insets = useSafeAreaInsets();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [showActions, setShowActions] = React.useState(false);
 
@@ -55,7 +60,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     if (recordingUri) {
         return (
-            <View style={styles.inputBar}>
+            <View
+                style={[
+                    styles.inputBar,
+                    { paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16) },
+                ]}
+            >
                 <TouchableOpacity 
                     style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]} 
                     onPress={onCancelAudio} 
@@ -80,7 +90,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
 
     return (
-        <View style={styles.inputContainer}>
+        <View
+            style={[
+                styles.inputContainer,
+                { paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16) },
+            ]}
+        >
             {showActions && (
                 <View style={styles.actionsRow}>
                     <TouchableOpacity
@@ -109,20 +124,35 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 >
                     <Ionicons name={showActions ? 'close' : 'add'} size={22} color={theme.colors.text.secondary} />
                 </TouchableOpacity>
-                <TextInput
-                    style={styles.input}
-                    placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
-                    placeholderTextColor={theme.colors.text.muted}
-                    value={text}
-                    onChangeText={onTextChange}
-                    onFocus={onFocus}
-                    multiline
-                    blurOnSubmit={false}
-                    scrollEnabled
-                    textAlignVertical="top"
-                    underlineColorAndroid="transparent"
-                    selectionColor={theme.colors.primary}
-                />
+                {isRecording ? (
+                    <View style={styles.recordingStatus}>
+                        <View style={styles.recordingPulse}>
+                            <Ionicons name="mic" size={19} color={theme.colors.white} />
+                        </View>
+                        <View style={styles.recordingCopy}>
+                            <Text style={styles.recordingTitle}>Grabando audio</Text>
+                            <Text style={styles.recordingHint}>Suelta para terminar</Text>
+                        </View>
+                        <Text style={styles.recordingTime}>
+                            {formatRecordingDuration(recordingDurationMs)}
+                        </Text>
+                    </View>
+                ) : (
+                    <TextInput
+                        style={styles.input}
+                        placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
+                        placeholderTextColor={theme.colors.text.muted}
+                        value={text}
+                        onChangeText={onTextChange}
+                        onFocus={onFocus}
+                        multiline
+                        blurOnSubmit={false}
+                        scrollEnabled
+                        textAlignVertical="top"
+                        underlineColorAndroid="transparent"
+                        selectionColor={theme.colors.primary}
+                    />
+                )}
                 {text.trim() ? (
                     <TouchableOpacity 
                         style={[styles.sendBtn, isPending && styles.sendDisabled]} 
@@ -150,7 +180,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 const createStyles = (theme: any) => StyleSheet.create({
     inputContainer: {
         backgroundColor: theme.isDark ? '#101924' : '#f4f3f2',
-        paddingBottom: Platform.OS === 'ios' ? 24 : 10,
     },
     actionsRow: {
         flexDirection: 'row',
@@ -223,6 +252,47 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     recordingBtn: {
         backgroundColor: theme.colors.danger,
+    },
+    recordingStatus: {
+        flex: 1,
+        minHeight: 46,
+        borderRadius: 23,
+        paddingHorizontal: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        backgroundColor: theme.isDark ? '#2b1b20' : '#fff1f2',
+        borderWidth: 1,
+        borderColor: theme.isDark ? '#7f1d1d' : '#fecdd3',
+    },
+    recordingPulse: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.danger,
+    },
+    recordingCopy: {
+        flex: 1,
+    },
+    recordingTitle: {
+        color: theme.colors.text.primary,
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    recordingHint: {
+        color: theme.colors.text.muted,
+        fontSize: 10,
+        marginTop: 1,
+    },
+    recordingTime: {
+        minWidth: 42,
+        color: theme.colors.danger,
+        fontSize: 14,
+        fontWeight: '800',
+        fontVariant: ['tabular-nums'],
+        textAlign: 'right',
     },
     audioPreviewContainer: {
         backgroundColor: theme.colors.white,

@@ -309,6 +309,7 @@ const WITH_VIDEO = ${withVideo};
 
 const client = AgoraRTC.createClient({ mode:"rtc", codec:"vp8" });
 let localAudioTrack=null, localVideoTrack=null;
+let activeCameraIndex=0;
 const remoteMedia = new Map();
 
 function postStatus(status) {
@@ -386,6 +387,25 @@ client.on("user-left", (user) => {
 
 window.toggleMute  = (m) => localAudioTrack  && localAudioTrack.setMuted(m);
 window.toggleVideo = (o) => localVideoTrack && localVideoTrack.setMuted(o);
+window.switchCamera = async () => {
+  if(!localVideoTrack) return false;
+  try {
+    const cameras = await AgoraRTC.getCameras();
+    if(cameras.length < 2) return false;
+
+    const mediaTrack = localVideoTrack.getMediaStreamTrack();
+    const activeDeviceId = mediaTrack && mediaTrack.getSettings
+      ? mediaTrack.getSettings().deviceId
+      : null;
+    const activeIndex = cameras.findIndex((camera) => camera.deviceId === activeDeviceId);
+    activeCameraIndex = ((activeIndex >= 0 ? activeIndex : activeCameraIndex) + 1) % cameras.length;
+    await localVideoTrack.setDevice(cameras[activeCameraIndex].deviceId);
+    return true;
+  } catch(e) {
+    console.error("Could not switch camera", e);
+    return false;
+  }
+};
 window.leaveCall   = async () => {
   localAudioTrack && localAudioTrack.close();
   localVideoTrack && localVideoTrack.close();

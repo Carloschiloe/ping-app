@@ -39,6 +39,7 @@ import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
 import { useChatOperation } from '../hooks/useChatOperation';
@@ -50,7 +51,8 @@ import {
     orderMessagesForForward,
 } from '../utils/messageActions';
 import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
-import { getChatKeyboardBehavior } from '../utils/chatKeyboard';
+import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
+import { formatRecordingDuration } from '../utils/audioRecording';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -85,6 +87,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { user, profile } = useAuth();
     const isFocused = useIsFocused();
     const queryClient = useQueryClient();
+    const safeAreaInsets = useSafeAreaInsets();
 
     // UI States
     const [text, setText] = useState('');
@@ -126,6 +129,15 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     } = useChatMessages(conversationId, user, isFocused);
 
     const { activeTypers, handleTyping, broadcastRecording } = useChatPresence(conversationId, user);
+    const [activityClock, setActivityClock] = useState(Date.now());
+    const remoteRecorder = activeTypers.find((activity) => activity.isRecording);
+
+    useEffect(() => {
+        if (!remoteRecorder) return;
+        setActivityClock(Date.now());
+        const timer = setInterval(() => setActivityClock(Date.now()), 1_000);
+        return () => clearInterval(timer);
+    }, [remoteRecorder]);
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
     const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
     const { mutateAsync: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
@@ -250,7 +262,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     const handleTextChange = (t: string) => {
         setText(t);
-        handleTyping();
+        handleTyping(t.trim().length > 0);
 
         // Mention Logic
         const atIndex = t.lastIndexOf('@');
@@ -291,7 +303,15 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         setSendingMedia
     });
 
-    const { startRecording, stopRecording, isRecording, recordingUri, cancelAudio, uploadAudio } = useAudioRecorder({
+    const {
+        startRecording,
+        stopRecording,
+        isRecording,
+        recordingUri,
+        recordingDurationMs,
+        cancelAudio,
+        uploadAudio,
+    } = useAudioRecorder({
         conversationId,
         onAudioSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
         onRecordingStateChange: (isRecording) => broadcastRecording(isRecording),
@@ -513,7 +533,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             <KeyboardAvoidingView
                 behavior={getChatKeyboardBehavior(Platform.OS)}
                 style={styles.container}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                keyboardVerticalOffset={getChatKeyboardOffset(Platform.OS, safeAreaInsets.bottom)}
             >
                 <StatusBar barStyle="light-content" />
 
@@ -607,9 +627,21 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 {activeTypers.length > 0 && (
                     <View style={styles.typingIndicatorContainer}>
                         <View style={styles.typingRow}>
-                            {activeTypers.some(t => t.isRecording) ? <Ionicons name="mic" size={16} color="#6b7280" /> : <TypingIndicator />}
+                            {remoteRecorder ? (
+                                <View style={styles.remoteRecordingIcon}>
+                                    <Ionicons name="mic" size={16} color={appTheme.colors.white} />
+                                </View>
+                            ) : (
+                                <TypingIndicator />
+                            )}
                             <Text style={styles.typingIndicatorText} numberOfLines={1}>
-                                {activeTypers.map(t => t.name).join(', ')} {activeTypers.length > 1 ? 'están' : 'está'} {activeTypers.some(t => t.isRecording) ? 'grabando...' : 'escribiendo...'}
+                                {activeTypers.map(t => t.name).join(', ')}{' '}
+                                {activeTypers.length > 1 ? 'están' : 'está'}{' '}
+                                {remoteRecorder
+                                    ? `grabando audio · ${formatRecordingDuration(
+                                        Math.max(0, activityClock - (remoteRecorder.recordingStartedAt || activityClock))
+                                    )}`
+                                    : 'escribiendo'}
                             </Text>
                         </View>
                     </View>
@@ -657,6 +689,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     sendingMedia={sendingMedia}
                     recordingUri={recordingUri}
                     isRecording={isRecording}
+                    recordingDurationMs={recordingDurationMs}
                     onPickMedia={pickMediaSource}
                     onShareLocation={handleShareLocation}
                     onStartRecording={startRecording}
@@ -835,9 +868,41 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontSize: 12, paddingHorizontal: 12, paddingVertical: 4,
         borderRadius: 10, overflow: 'hidden', fontWeight: '500',
     },
-    typingIndicatorContainer: { height: 24, paddingHorizontal: 15, justifyContent: 'center' },
-    typingRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    typingIndicatorText: { fontSize: 12, color: theme.colors.text.secondary },
+    typingIndicatorContainer: {
+        minHeight: 42,
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        justifyContent: 'center',
+        backgroundColor: theme.colors.chatBackground,
+    },
+    typingRow: {
+        alignSelf: 'flex-start',
+        maxWidth: '88%',
+        minHeight: 32,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 11,
+        paddingVertical: 6,
+        borderRadius: 16,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    typingIndicatorText: {
+        flexShrink: 1,
+        fontSize: 12,
+        color: theme.colors.text.secondary,
+        fontWeight: '600',
+    },
+    remoteRecordingIcon: {
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.danger,
+    },
     viewerBackdrop: { flex: 1, backgroundColor: theme.colors.black, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },
     viewerClose: { position: 'absolute', top: 50, right: 20 },

@@ -59,6 +59,8 @@ describe('Agora call page', () => {
         expect(result.body).toContain('AgoraRTC_N-4.20.2.js');
         expect(result.body).toContain('window.ReactNativeWebView.postMessage');
         expect(result.body).toContain('postStatus("connected")');
+        expect(result.body).toContain('window.switchCamera');
+        expect(result.body).toContain('localVideoTrack.setDevice');
 
         const csp = result.headers.get('content-security-policy') || '';
         expect(csp).toContain('https://download.agora.io');

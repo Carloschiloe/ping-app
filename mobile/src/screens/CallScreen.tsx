@@ -129,6 +129,13 @@ const CallScreen = ({ route, navigation }: any) => {
         webviewRef.current?.injectJavaScript(`window.toggleVideo(${newState}); true;`);
     };
 
+    const switchCamera = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        webviewRef.current?.injectJavaScript(
+            `window.switchCamera && window.switchCamera(); true;`
+        );
+    };
+
     const hangup = async () => {
         if (isHangingUp.current) return;
         isHangingUp.current = true;
@@ -268,6 +275,19 @@ const CallScreen = ({ route, navigation }: any) => {
                                 <Text style={styles.controlLabel}>{isVideoOff ? 'Cámara off' : 'Cámara'}</Text>
                             </View>
                         )}
+
+                        {isVideo && (
+                            <View style={styles.controlCol}>
+                                <TouchableOpacity
+                                    style={[styles.controlBtn, isVideoOff && styles.controlBtnDisabled]}
+                                    onPress={switchCamera}
+                                    disabled={isVideoOff}
+                                >
+                                    <Ionicons name="camera-reverse" size={25} color="white" />
+                                </TouchableOpacity>
+                                <Text style={styles.controlLabel}>Voltear</Text>
+                            </View>
+                        )}
                     </View>
                 </View>
             </SafeAreaView>
@@ -309,6 +329,7 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
     },
     controlBtnActive: { backgroundColor: '#3b82f6' },
+    controlBtnDisabled: { opacity: 0.4 },
     hangupBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#ef4444' },
     controlLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: '600' },
 });

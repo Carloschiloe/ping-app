@@ -17,6 +17,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingUri, setRecordingUri] = useState<string | null>(null);
+    const [recordingDurationMs, setRecordingDurationMs] = useState(0);
 
     const startRecording = async () => {
         if (isRecording || recording) return;
@@ -28,16 +29,23 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             }
             await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
 
-            onRecordingStateChange?.(true);
-
             const { recording: rec } = await Audio.Recording.createAsync(
                 Audio.RecordingOptionsPresets.HIGH_QUALITY
             );
+            rec.setProgressUpdateInterval(250);
+            rec.setOnRecordingStatusUpdate((recordingStatus) => {
+                if (recordingStatus.isRecording) {
+                    setRecordingDurationMs(recordingStatus.durationMillis);
+                }
+            });
             setRecording(rec);
+            setRecordingDurationMs(0);
             setIsRecording(true);
+            onRecordingStateChange?.(true);
         } catch (e) {
             console.error('[Audio]', e);
             setIsRecording(false);
+            setRecordingDurationMs(0);
             onRecordingStateChange?.(false);
         }
     };
@@ -48,7 +56,8 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
         onRecordingStateChange?.(false);
 
         try {
-            await recording.stopAndUnloadAsync();
+            const finalStatus = await recording.stopAndUnloadAsync();
+            setRecordingDurationMs(finalStatus.durationMillis);
             const uri = recording.getURI();
             setRecording(null);
 
@@ -65,6 +74,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
 
     const cancelAudio = () => {
         setRecordingUri(null);
+        setRecordingDurationMs(0);
     };
 
     const uploadAudio = async () => {
@@ -79,6 +89,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             );
             onAudioSent({ text: 'Audio', attachment });
             setRecordingUri(null);
+            setRecordingDurationMs(0);
         } catch (e) {
             console.warn('[Audio] Private upload failed', {
                 message: e instanceof Error ? e.message : 'unknown',
@@ -93,6 +104,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
         isRecording,
         recording,
         recordingUri,
+        recordingDurationMs,
         startRecording,
         stopRecording,
         cancelAudio,
