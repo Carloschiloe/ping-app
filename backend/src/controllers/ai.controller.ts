@@ -1,7 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from '../services/transcription.service';
-import { askPing as askPingService, summarizeConversation } from '../services/synthesis.service';
+import {
+    askPing as askPingService,
+    isAiConfigured,
+    summarizeConversation,
+} from '../services/synthesis.service';
 import { analyzeAndSuggestTask } from '../services/message.service';
 import path from 'path';
 import os from 'os';
@@ -73,9 +77,27 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
             transcript: query.startsWith('[audio]') ? processingText : undefined
         });
     } catch (error: any) {
-        console.error('[AI Controller] Error:', error);
-        res.status(500).json({ error: error.message });
+        const status = error?.statusCode === 503 ? 503 : 500;
+        console.error('[AI Controller] Request failed', {
+            status,
+            errorType: error?.name || 'UnknownError',
+        });
+        res.status(status).json({
+            error: status === 503
+                ? 'Ping AI no está disponible temporalmente'
+                : 'No se pudo procesar la consulta de IA',
+        });
     }
+};
+
+export const getHealth = async (_req: Request, res: Response): Promise<void> => {
+    const configured = isAiConfigured();
+    res.status(configured ? 200 : 503).json({
+        ok: configured,
+        configured,
+        version: '2.2',
+        routes: ['ask', 'summarize', 'analyze-message'],
+    });
 };
 
 export const getHistory = async (req: Request, res: Response): Promise<void> => {
@@ -88,7 +110,14 @@ export const getHistory = async (req: Request, res: Response): Promise<void> => 
             .order('created_at', { ascending: true });
 
         if (error) throw error;
-        res.json({ messages: data || [] });
+        const legacyTechnicalFailures = new Set([
+            'Lo siento, no tengo acceso a mi cerebro de IA en este momento.',
+            'Hubo un error al consultar a la IA.',
+        ]);
+        const visibleMessages = (data || []).filter(
+            (message: any) => !legacyTechnicalFailures.has(message.text)
+        );
+        res.json({ messages: visibleMessages });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

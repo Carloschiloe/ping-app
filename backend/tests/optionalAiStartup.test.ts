@@ -22,4 +22,16 @@ describe('optional AI startup', () => {
             import('../src/services/call-processing.service'),
         ])).resolves.toHaveLength(3);
     });
+
+    it('rechaza una consulta con 503 si la IA no está configurada, sin fingir una respuesta normal', async () => {
+        delete process.env.OPENAI_API_KEY;
+        vi.resetModules();
+
+        const { askPing } = await import('../src/services/synthesis.service');
+        await expect(askPing('Hola', new Date().toISOString(), { commitments: [] }))
+            .rejects.toMatchObject({
+                statusCode: 503,
+                message: 'Ping AI is not configured',
+            });
+    });
 });

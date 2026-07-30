@@ -32,6 +32,15 @@ export const useAskPing = () => {
     });
 };
 
+export const useAIHealth = () => {
+    return useQuery({
+        queryKey: ['ai-health'],
+        queryFn: () => apiClient.get('/ai/health'),
+        retry: 1,
+        staleTime: 30_000,
+    });
+};
+
 export function useInsights() {
     return useQuery({
         queryKey: ['insights'],

@@ -221,7 +221,9 @@ try {
   if (configuredRemoteBaseUrl) {
     const aiHealth = await request('/ai/health', { token: first.token });
     check('authenticated AI health check',
-      aiHealth.response.status === 200 && aiHealth.payload?.ok === true);
+      aiHealth.response.status === 200
+        && aiHealth.payload?.ok === true
+        && aiHealth.payload?.configured === true);
 
     const aiAnswer = await request('/ai/ask', {
       token: first.token,

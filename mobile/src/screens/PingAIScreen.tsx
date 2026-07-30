@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useAskPing, useAIHistory, useClearAIHistory } from '../api/queries';
+import { useAskPing, useAIHealth, useAIHistory, useClearAIHistory } from '../api/queries';
 import { Audio } from 'expo-av';
 import { uploadToSupabase } from '../lib/upload';
 import AudioPlayer from '../components/AudioPlayer';
@@ -14,6 +14,7 @@ import AudioPlayer from '../components/AudioPlayer';
 export default function PingAIScreen({ navigation }: any) {
     const [text, setText] = useState('');
     const { data: historyData } = useAIHistory();
+    const { data: healthData, isLoading: isCheckingHealth, isError: isHealthError } = useAIHealth();
     const { mutate: clearHistory } = useClearAIHistory();
     const [messages, setMessages] = useState<any[]>([]);
 
@@ -23,12 +24,18 @@ export default function PingAIScreen({ navigation }: any) {
     // Load history when data arrives
     useEffect(() => {
         if (historyData?.messages) {
-            const history = historyData.messages.map((m: any) => ({
-                id: m.id,
-                text: m.text,
-                isAi: m.is_ai,
-                created_at: m.created_at
-            }));
+            const legacyTechnicalFailures = new Set([
+                'Lo siento, no tengo acceso a mi cerebro de IA en este momento.',
+                'Hubo un error al consultar a la IA.',
+            ]);
+            const history = historyData.messages
+                .filter((m: any) => !legacyTechnicalFailures.has(m.text))
+                .map((m: any) => ({
+                    id: m.id,
+                    text: m.text,
+                    isAi: m.is_ai,
+                    created_at: m.created_at
+                }));
 
             if (history.length === 0) {
                 setMessages([
@@ -69,8 +76,17 @@ export default function PingAIScreen({ navigation }: any) {
                 };
                 setMessages(prev => [...prev, aiMsg]);
             },
-            onError: () => {
-                const errorMsg = { id: (Date.now() + 1).toString(), text: 'Desconectado. Por favor intenta de nuevo.', isAi: true, isError: true };
+            onError: (error: any) => {
+                console.warn('[PingAI] Request rejected', {
+                    status: typeof error?.status === 'number' ? error.status : null,
+                    resultUnknown: error?.resultUnknown === true,
+                });
+                const errorMsg = {
+                    id: (Date.now() + 1).toString(),
+                    text: 'Ping no pudo conectarse a la IA. Reintenta en unos segundos.',
+                    isAi: true,
+                    isError: true,
+                };
                 setMessages(prev => [...prev, errorMsg]);
             }
         });
@@ -158,7 +174,15 @@ export default function PingAIScreen({ navigation }: any) {
                 </TouchableOpacity>
                 <View style={styles.headerInfo}>
                     <Text style={styles.title}>Preguntar a Ping</Text>
-                    <Text style={styles.subtitle}>IA que recuerda</Text>
+                    <Text style={styles.subtitle}>
+                        {isCheckingHealth
+                            ? 'Verificando IA…'
+                            : healthData?.configured
+                                ? 'IA conectada'
+                                : isHealthError
+                                    ? 'IA no disponible'
+                                    : 'IA que recuerda'}
+                    </Text>
                 </View>
                 <TouchableOpacity onPress={() => {
                     Alert.alert('Borrar historial', '¿Estás seguro?', [

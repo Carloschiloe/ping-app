@@ -4,6 +4,7 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
 vi.mock('../src/services/synthesis.service', () => ({
     askPing: vi.fn(),
+    isAiConfigured: vi.fn(() => true),
     summarizeConversation: vi.fn(),
 }));
 vi.mock('../src/services/message.service', () => ({
@@ -22,6 +23,40 @@ function responseMock() {
 }
 
 describe('AI route authorization', () => {
+    it('el health de IA informa configuración real', async () => {
+        const { getHealth } = await import('../src/controllers/ai.controller');
+        const res = responseMock();
+
+        await getHealth({} as any, res);
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            ok: true,
+            configured: true,
+        }));
+    });
+
+    it('oculta respuestas técnicas antiguas del historial visible', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            ai_messages: [{
+                data: [
+                    { id: 'a1', text: 'Lo siento, no tengo acceso a mi cerebro de IA en este momento.', is_ai: true },
+                    { id: 'a2', text: 'Respuesta útil', is_ai: true },
+                ],
+                error: null,
+            }],
+        }));
+        const { getHistory } = await import('../src/controllers/ai.controller');
+        const req: any = { user: { id: 'user-1' } };
+        const res = responseMock();
+
+        await getHistory(req, res);
+
+        expect(res.json).toHaveBeenCalledWith({
+            messages: [{ id: 'a2', text: 'Respuesta útil', is_ai: true }],
+        });
+    });
+
     it('no resume una conversación ajena', async () => {
         setSupabaseAdminMock(createSupabaseAdminMock({
             conversation_participants: [{ data: null, error: null }],

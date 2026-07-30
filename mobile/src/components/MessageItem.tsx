@@ -11,6 +11,7 @@ import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
 import { resolvePrivateFileUrl } from '../lib/privateFiles';
+import { getQuotedMessagePalette } from '../utils/messagePresentation';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -84,6 +85,7 @@ const MessageItemComponent = ({
     const meta = item.metadata ?? item.meta ?? {};
     const isSystem = meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
+    const quotedPalette = getQuotedMessagePalette(isMe, theme.isDark, theme.colors);
     const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
     const msgText: string = item.content ?? item.text ?? '';
@@ -305,14 +307,20 @@ const MessageItemComponent = ({
 
                         {/* ─── Quoted Message (Reply) ─── */}
                         {item.reply_to && !Array.isArray(item.reply_to) && (
-                            <View style={[styles.quotedContainer, isMe ? styles.quotedMe : styles.quotedThem]}>
-                                <Text style={[styles.quotedName, isMe ? { color: theme.colors.white } : { color: theme.colors.secondary }]} numberOfLines={1}>
+                            <View style={[
+                                styles.quotedContainer,
+                                {
+                                    backgroundColor: quotedPalette.backgroundColor,
+                                    borderLeftColor: quotedPalette.borderLeftColor,
+                                },
+                            ]}>
+                                <Text style={[styles.quotedName, { color: quotedPalette.nameColor }]} numberOfLines={1}>
                                     {(() => {
                                         const p = Array.isArray(item.reply_to.profiles) ? item.reply_to.profiles[0] : item.reply_to.profiles;
                                         return p?.full_name || (p?.email || 'Usuario').split('@')[0];
                                     })()}
                                 </Text>
-                                <Text style={[styles.quotedText, isMe ? { color: 'rgba(255,255,255,0.8)' } : { color: theme.colors.text.secondary }]} numberOfLines={1}>
+                                <Text style={[styles.quotedText, { color: quotedPalette.textColor }]} numberOfLines={1}>
                                     {item.reply_to.content ?? item.reply_to.text ?? 'Sin texto'}
                                 </Text>
                             </View>
@@ -631,8 +639,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     checkCircleOn: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
     bubbleSelected: { opacity: 0.9 },
     quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
-    quotedMe: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: theme.colors.white },
-    quotedThem: { backgroundColor: theme.colors.background, borderLeftColor: theme.colors.secondary },
     quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
     quotedText: { fontSize: 12 },
     reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, marginBottom: 2 },

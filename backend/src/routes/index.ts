@@ -193,7 +193,7 @@ router.post(
 );
 
 // AI
-router.get('/ai/health', requireAuth, (req, res) => res.json({ ok: true, version: '2.1', routes: ['ask', 'summarize', 'analyze-message'] }));
+router.get('/ai/health', requireAuth, aiController.getHealth);
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.get('/ai/history', requireAuth, aiController.getHistory);
 router.delete('/ai/history', requireAuth, aiController.clearHistory);

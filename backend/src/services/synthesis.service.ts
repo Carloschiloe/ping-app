@@ -1,6 +1,9 @@
 import OpenAI from 'openai';
+import { AppError } from '../utils/AppError';
 
 let openai: OpenAI | null = null;
+export const isAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim());
+
 function getOpenAiClient(): OpenAI {
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
@@ -236,8 +239,8 @@ export const askPing = async (
     nowIso: string,
     context: { commitments: any[] }
 ): Promise<string> => {
-    if (!process.env.OPENAI_API_KEY) {
-        return 'Lo siento, no tengo acceso a mi cerebro de IA en este momento.';
+    if (!isAiConfigured()) {
+        throw new AppError('Ping AI is not configured', 503);
     }
 
     const commitmentsText = context.commitments.length > 0
@@ -269,8 +272,12 @@ Reglas:
         });
 
         return response.choices[0]?.message?.content || 'No supe qué responder, intenta de nuevo.';
-    } catch (err) {
-        console.error('[Synthesis Service] askPing failed:', err);
-        return 'Hubo un error al consultar a la IA.';
+    } catch (err: any) {
+        console.error('[Synthesis Service] askPing failed', {
+            providerStatus: typeof err?.status === 'number' ? err.status : null,
+            errorType: err?.name || 'UnknownError',
+        });
+        if (err instanceof AppError) throw err;
+        throw new AppError('Ping AI is temporarily unavailable', 503);
     }
 };
