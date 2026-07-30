@@ -20,3 +20,19 @@ export function useProfileAvatarUrl(
 
     return legacyAvatarUrl || privateAvatar.data?.signedUrl || null;
 }
+
+
+export async function getFreshProfileAvatarUrl(
+    profileId?: string | null,
+    legacyAvatarUrl?: string | null
+) {
+    if (legacyAvatarUrl) return legacyAvatarUrl;
+    if (!profileId) return null;
+
+    try {
+        const { signedUrl } = await resolvePrivateFileUrl('profile', profileId);
+        return signedUrl;
+    } catch {
+        return null;
+    }
+}

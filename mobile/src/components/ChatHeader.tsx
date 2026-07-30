@@ -2,7 +2,10 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
-import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
+import {
+    getFreshProfileAvatarUrl,
+    useProfileAvatarUrl,
+} from '../hooks/useProfileAvatarUrl';
 
 interface ChatHeaderProps {
     chatTitle: string;
@@ -13,6 +16,7 @@ interface ChatHeaderProps {
     onVideoCall: () => void;
     onInfo: () => void;
     onMenu: () => void;
+    onAvatarPress?: (url: string) => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -23,7 +27,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     onVoiceCall,
     onVideoCall,
     onInfo,
-    onMenu
+    onMenu,
+    onAvatarPress,
 }) => {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
@@ -34,18 +39,31 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
     return (
         <View style={styles.headerContainer}>
-            <TouchableOpacity style={styles.titleSection} onPress={onInfo} activeOpacity={0.7}>
+            <View style={styles.titleSection}>
                 {resolvedAvatarUrl ? (
-                    <View style={styles.avatarWrap}>
+                    <TouchableOpacity
+                        style={styles.avatarWrap}
+                        onPress={async () => {
+                            const freshUrl = await getFreshProfileAvatarUrl(
+                                isGroup ? null : profileId,
+                                avatarUrl
+                            );
+                            if (freshUrl) onAvatarPress?.(freshUrl);
+                        }}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Ver foto de perfil"
+                    >
                         <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatar} />
-                    </View>
+                    </TouchableOpacity>
                 ) : (
                     <View style={[styles.avatarWrap, { backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }]}>
                         <Ionicons name={isGroup ? "people" : "person"} size={20} color={theme.colors.secondary} />
                     </View>
                 )}
-                <Text style={styles.titleText} numberOfLines={1}>{chatTitle}</Text>
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.titleTextWrap} onPress={onInfo} activeOpacity={0.7}>
+                    <Text style={styles.titleText} numberOfLines={1}>{chatTitle}</Text>
+                </TouchableOpacity>
+            </View>
 
             <View style={styles.actionsSection}>
                 <TouchableOpacity onPress={onMenu} style={[styles.iconBtn, styles.menuBtn]}>
@@ -89,6 +107,10 @@ const createStyles = (theme: any) => StyleSheet.create({
         color: theme.colors.white,
         fontSize: theme.typography.h3.fontSize,
         fontWeight: theme.typography.h3.fontWeight as any,
+    },
+    titleTextWrap: {
+        flex: 1,
+        justifyContent: 'center',
     },
     actionsSection: {
         flexDirection: 'row',

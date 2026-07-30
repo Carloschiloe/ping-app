@@ -1,7 +1,8 @@
 import React from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
-    ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated
+    ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated,
+    Modal, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive, useCreateConversation } from '../api/queries';
@@ -35,6 +36,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
     const [showQuickActions, setShowQuickActions] = React.useState(true);
+    const [profileViewerUrl, setProfileViewerUrl] = React.useState<string | null>(null);
     const debouncedSearchQuery = useDebouncedValue(searchQuery, 220);
 
     const scrollY = React.useRef(new Animated.Value(0)).current;
@@ -225,6 +227,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 isOnline={isOnline}
                 styles={styles}
                 theme={theme}
+                onAvatarPress={setProfileViewerUrl}
                 onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, isSelf: item.isSelf, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
             />
         </Swipeable>
@@ -367,6 +370,29 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         )}
                     />
                 )}
+                <Modal
+                    visible={!!profileViewerUrl}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setProfileViewerUrl(null)}
+                >
+                    <TouchableOpacity
+                        style={styles.profileViewerBackdrop}
+                        activeOpacity={1}
+                        onPress={() => setProfileViewerUrl(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cerrar foto de perfil"
+                    >
+                        <Image
+                            source={{ uri: profileViewerUrl || '' }}
+                            style={styles.profileViewerImage}
+                            resizeMode="contain"
+                        />
+                        <View style={styles.profileViewerClose}>
+                            <Ionicons name="close-circle" size={38} color="white" />
+                        </View>
+                    </TouchableOpacity>
+                </Modal>
             </View>
         </GestureHandlerRootView>
     );
@@ -403,6 +429,22 @@ function ConversationSkeleton({ styles }: any) {
 
 const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.screen },
+    profileViewerBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.92)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    profileViewerImage: {
+        width: '100%',
+        height: '82%',
+    },
+    profileViewerClose: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 54 : 24,
+        right: 20,
+    },
     loadingContainer: { flex: 1, paddingTop: 20 },
     skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16 },
     skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.surfaceMuted, marginRight: 16 },

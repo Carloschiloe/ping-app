@@ -50,6 +50,7 @@ import {
     orderMessagesForForward,
 } from '../utils/messageActions';
 import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
+import { getChatKeyboardBehavior } from '../utils/chatKeyboard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -223,6 +224,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
                     onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
                     onMenu={() => setHeaderMenuVisible(true)}
+                    onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
                 />
             ),
             headerStyle: { backgroundColor: theme.colors.primary },
@@ -495,6 +497,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onToggleSelect={toggleSelect}
                     onSwipeLeft={setReplyingToMsg}
                     onViewReactions={setViewingReactionsMsg}
+                    onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
                     formatTime={formatTime}
                     avatarColor={avatarColor}
                     swipeableRowRefs={swipeableRowRefs}
@@ -508,7 +511,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={getChatKeyboardBehavior(Platform.OS)}
                 style={styles.container}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >

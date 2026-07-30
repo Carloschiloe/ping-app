@@ -12,7 +12,10 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
 import { resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
-import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
+import {
+    getFreshProfileAvatarUrl,
+    useProfileAvatarUrl,
+} from '../hooks/useProfileAvatarUrl';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -36,6 +39,7 @@ interface MessageItemProps {
     onToggleSelect: (id: string) => void;
     onSwipeLeft: (item: any) => void;
     onViewReactions: (item: any) => void;
+    onAvatarPress?: (url: string) => void;
     formatTime: (iso: string) => string;
     avatarColor: (str: string) => string;
     swipeableRowRefs: React.MutableRefObject<Map<string, any>>;
@@ -48,6 +52,7 @@ const MessageItemComponent = ({
     item, user, isGroup, isMultiSelecting, isSelected,
     highlightedMsgId, groupTasks, onPress, onLongPress,
     onToggleSelect, onSwipeLeft, onViewReactions,
+    onAvatarPress,
     formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat', activeCommitmentId = null
 }: MessageItemProps) => {
     const { theme } = useAppTheme();
@@ -250,7 +255,19 @@ const MessageItemComponent = ({
                 )}
 
                 {!isMe && !isSystem && (
-                    <View style={styles.senderAvatarContainer}>
+                    <TouchableOpacity
+                        style={styles.senderAvatarContainer}
+                        onPress={async () => {
+                            const freshUrl = await getFreshProfileAvatarUrl(
+                                senderProfile?.id,
+                                senderProfile?.avatar_url
+                            );
+                            if (freshUrl) onAvatarPress?.(freshUrl);
+                        }}
+                        disabled={!resolvedSenderAvatarUrl}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Ver foto de perfil"
+                    >
                         {(() => {
                             const p = senderProfile;
                             const avatarUrl = resolvedSenderAvatarUrl;
@@ -276,7 +293,7 @@ const MessageItemComponent = ({
                                 </View>
                             );
                         })()}
-                    </View>
+                    </TouchableOpacity>
                 )}
 
                 <View style={{ maxWidth: '68%', position: 'relative' }}>

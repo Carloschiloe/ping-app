@@ -4,7 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { deriveIsGroup, deriveIsSelf } from '../utils/conversationCompat';
 import { resolveMessageMetadata } from '../utils/messageCompat';
-import { useProfileAvatarUrl } from '../hooks/useProfileAvatarUrl';
+import {
+    getFreshProfileAvatarUrl,
+    useProfileAvatarUrl,
+} from '../hooks/useProfileAvatarUrl';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
 
@@ -24,13 +27,14 @@ type ConversationRowProps = {
     userId?: string;
     typingUsers: Record<string, { name: string; isRecording: boolean }[]>;
     onPress: () => void;
+    onAvatarPress?: (url: string) => void;
     formatTime: (iso: string) => string;
     isOnline: (lastSeen?: string) => boolean;
     styles: any;
     theme: any;
 };
 
-export function ConversationRow({ item, userId, typingUsers, onPress, formatTime, isOnline, styles, theme }: ConversationRowProps) {
+export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme }: ConversationRowProps) {
     const isGroup = deriveIsGroup(item);
     const isSelf = deriveIsSelf(item);
     const otherUser = item.otherUser;
@@ -91,7 +95,19 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
             activeOpacity={0.6}
             onPress={onPress}
         >
-            <View style={styles.avatarContainer}>
+            <TouchableOpacity
+                style={styles.avatarContainer}
+                onPress={async () => {
+                    const freshUrl = await getFreshProfileAvatarUrl(
+                        !isSelf && !isGroup ? otherUser?.id : null,
+                        avatarUrl
+                    );
+                    if (freshUrl) onAvatarPress?.(freshUrl);
+                }}
+                disabled={!resolvedAvatarUrl}
+                accessibilityRole="imagebutton"
+                accessibilityLabel="Ver foto de perfil"
+            >
                 {isOperation ? (
                     <View style={styles.avatarOperationWrap}>
                         <View style={styles.avatarOperationInner}>
@@ -112,7 +128,7 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
                 {online && <View style={[styles.onlineDot, { right: indicatorOffset }]} />}
                 {isUnread && !online && <View style={[styles.unreadIndicator, { right: indicatorOffset }]} />}
                 {isUnread && online && <View style={[styles.unreadIndicator, { right: indicatorOffset + 14 }]} />}
-            </View>
+            </TouchableOpacity>
             <View style={styles.info}>
                 <View style={styles.topRow}>
                     <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
