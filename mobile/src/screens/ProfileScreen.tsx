@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile, useCalendarAccounts, useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../api/queries';
 import * as ImagePicker from 'expo-image-picker';
-import { MEDIA_UPLOADS_ENABLED, uploadToSupabase } from '../lib/upload';
+import { resolvePrivateFileUrl, uploadPrivateProfileAvatar } from '../lib/privateFiles';
 import * as Calendar from 'expo-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../api/client';
@@ -56,13 +56,21 @@ export default function ProfileScreen() {
         if (!user) return;
         supabase
             .from('profiles')
-            .select('phone, full_name, avatar_url')
+            .select('phone, full_name, avatar_url, avatar_bucket, avatar_object_path')
             .eq('id', user.id)
             .single()
             .then(({ data }) => {
                 if (data?.phone) setPhone(data.phone);
                 if (data?.full_name) setFullName(data.full_name);
-                if (data?.avatar_url) setAvatarUrl(data.avatar_url);
+                if (data?.avatar_bucket && data?.avatar_object_path) {
+                    resolvePrivateFileUrl('profile', user.id)
+                        .then(({ signedUrl }) => setAvatarUrl(signedUrl))
+                        .catch(() => setAvatarUrl(null));
+                } else if (data?.avatar_url) {
+                    setAvatarUrl(data.avatar_url);
+                } else {
+                    setAvatarUrl(null);
+                }
             });
 
         checkCalendars();
@@ -194,14 +202,6 @@ export default function ProfileScreen() {
     };
 
     const handlePickImage = async () => {
-        if (!MEDIA_UPLOADS_ENABLED) {
-            Alert.alert(
-                'Foto de perfil no disponible',
-                'Las fotos permanecerán deshabilitadas hasta completar la activación segura de archivos privados.'
-            );
-            return;
-        }
-
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: true,
@@ -210,23 +210,28 @@ export default function ProfileScreen() {
         });
 
         if (!result.canceled && result.assets[0].uri) {
-            uploadAvatar(result.assets[0].uri);
+            const asset = result.assets[0];
+            const mimeType = asset.mimeType === 'image/png' || asset.mimeType === 'image/webp'
+                ? asset.mimeType
+                : 'image/jpeg';
+            if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+                Alert.alert('Imagen demasiado grande', 'Elige una imagen de hasta 5 MB.');
+                return;
+            }
+            uploadAvatar(asset.uri, mimeType);
         }
     };
 
-    const uploadAvatar = async (uri: string) => {
+    const uploadAvatar = async (
+        uri: string,
+        mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+    ) => {
         setSaving(true);
         try {
-            const publicUrl = await uploadToSupabase(uri, 'chat-media', 'image/jpeg');
-
-            if (!publicUrl) throw new Error('No se pudo subir la imagen.');
-
-            setAvatarUrl(publicUrl);
-
-            // We await the profile update here
-            await updateProfile({
-                avatar_url: publicUrl,
-            });
+            if (!user) throw new Error('Debes iniciar sesión nuevamente.');
+            const { signedUrl } = await uploadPrivateProfileAvatar(user.id, uri, mimeType);
+            setAvatarUrl(signedUrl);
+            await refreshProfile();
 
             Alert.alert('✅ Foto actualizada', 'Tu foto de perfil se ha guardado correctamente.');
         } catch (e: any) {
@@ -253,7 +258,6 @@ export default function ProfileScreen() {
         try {
             await updateProfile({
                 full_name: normalizedName,
-                avatar_url: avatarUrl || undefined,
                 phone: normalizeOptionalPhone(phone),
             });
             setFullName(normalizedName);
@@ -311,12 +315,10 @@ export default function ProfileScreen() {
                         <View style={styles.avatarWrap}>
                             <TouchableOpacity
                                 onPress={handlePickImage}
-                                disabled={!MEDIA_UPLOADS_ENABLED}
+                                disabled={saving}
                                 accessibilityRole="button"
-                                accessibilityLabel={MEDIA_UPLOADS_ENABLED
-                                    ? 'Cambiar foto de perfil'
-                                    : 'Foto de perfil temporalmente no disponible'}
-                                accessibilityState={{ disabled: !MEDIA_UPLOADS_ENABLED }}
+                                accessibilityLabel="Cambiar foto de perfil"
+                                accessibilityState={{ disabled: saving }}
                                 style={styles.avatarContainer}
                             >
                                 {avatarUrl ? (
@@ -330,17 +332,12 @@ export default function ProfileScreen() {
                                 )}
                                 <View style={styles.cameraBadge}>
                                     <Ionicons
-                                        name={MEDIA_UPLOADS_ENABLED ? 'camera' : 'lock-closed'}
+                                        name="camera"
                                         size={15}
                                         color="white"
                                     />
                                 </View>
                             </TouchableOpacity>
-                            {!MEDIA_UPLOADS_ENABLED && (
-                                <Text style={styles.uploadUnavailableText}>
-                                    Foto disponible próximamente
-                                </Text>
-                            )}
                             <Text style={styles.email}>{user?.email}</Text>
                         </View>
 

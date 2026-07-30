@@ -25,6 +25,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 reply_to_id: msg.replyToId,
                 mentioned_user_id: msg.mentionedUserId,
                 client_message_id: msg.clientMessageId,
+                attachment: msg.attachment,
             });
             return { state: 'confirmed' } as SyncResult;
         } catch (error) {
@@ -73,6 +74,10 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         ? 'result_unknown'
                         : 'pending_offline',
                 meta: q.meta,
+                ...(q.attachment ? {
+                    media_bucket: q.attachment.bucket,
+                    media_object_path: q.attachment.objectPath,
+                } : {}),
                 profiles: {
                     full_name: user?.user_metadata?.full_name,
                     avatar_url: user?.user_metadata?.avatar_url,
@@ -104,6 +109,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         meta: data.meta,
                         replyToId: data.reply_to_id,
                         mentionedUserId: data.mentioned_user_id,
+                        attachment: data.attachment,
                         clientMessageId,
                     });
                 }

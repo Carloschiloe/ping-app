@@ -10,6 +10,7 @@ import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
+import { resolvePrivateFileUrl } from '../lib/privateFiles';
 
 function buildMapUrl(latitude: number, longitude: number) {
     const query = `${latitude},${longitude}`;
@@ -49,6 +50,24 @@ const MessageItemComponent = ({
 }: MessageItemProps) => {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
+    const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        let active = true;
+        if (!item?.id || !item?.media_bucket || !item?.media_object_path) {
+            setPrivateMediaUrl(null);
+            return () => { active = false; };
+        }
+
+        resolvePrivateFileUrl('message', item.id)
+            .then(({ signedUrl }) => {
+                if (active) setPrivateMediaUrl(signedUrl);
+            })
+            .catch(() => {
+                if (active) setPrivateMediaUrl(null);
+            });
+        return () => { active = false; };
+    }, [item?.id, item?.media_bucket, item?.media_object_path]);
 
     if (item.type === 'divider') {
         return (
@@ -119,14 +138,21 @@ const MessageItemComponent = ({
     }
 
     const trimmedText = msgText.trim();
-    let isImage = trimmedText.startsWith('[imagen]');
-    const isAudio = trimmedText.startsWith('[audio]');
-    let isVideo = trimmedText.startsWith('[video]');
-    const isDocument = trimmedText.startsWith('[document=');
+    const privateMimeType = String(meta?.attachment?.mimeType || '');
+    const hasPrivateAttachment = !!item.media_bucket && !!item.media_object_path;
+    let isImage = privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]');
+    const isAudio = privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]');
+    let isVideo = privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]');
+    const isDocument = (
+        hasPrivateAttachment
+        && !isImage
+        && !isAudio
+        && !isVideo
+    ) || trimmedText.startsWith('[document=');
     const isLocationShare = meta?.messageType === 'location_share';
 
-    let mediaUrl = null;
-    let documentName = '';
+    let mediaUrl: string | null = hasPrivateAttachment ? privateMediaUrl : null;
+    let documentName = hasPrivateAttachment ? (meta?.attachment?.fileName || 'Archivo') : '';
 
     let description = '';
     const extractUrlAndDescription = (text: string, prefixLength: number) => {
@@ -137,19 +163,19 @@ const MessageItemComponent = ({
         return { url: match[1], desc: match[2].trim() };
     };
 
-    if (isImage) {
+    if (!hasPrivateAttachment && isImage) {
         const res = extractUrlAndDescription(msgText, 8);
         mediaUrl = res.url;
         description = res.desc;
-    } else if (isAudio) {
+    } else if (!hasPrivateAttachment && isAudio) {
         const res = extractUrlAndDescription(msgText, 7);
         mediaUrl = res.url;
         description = res.desc;
-    } else if (isVideo) {
+    } else if (!hasPrivateAttachment && isVideo) {
         const res = extractUrlAndDescription(msgText, 7);
         mediaUrl = res.url;
         description = res.desc;
-    } else if (isDocument) {
+    } else if (!hasPrivateAttachment && isDocument) {
         const match = msgText.match(/^\[document=([^\]]+)\](.*)$/);
         if (match) {
             documentName = match[1];
@@ -248,7 +274,10 @@ const MessageItemComponent = ({
                 <View style={{ maxWidth: '68%', position: 'relative' }}>
                     <TouchableOpacity
                         activeOpacity={0.85}
-                        onPress={() => onPress(item)}
+                        onPress={() => onPress({
+                            ...item,
+                            ...(privateMediaUrl ? { _resolvedMediaUrl: privateMediaUrl } : {}),
+                        })}
                         onLongPress={() => onLongPress(item)}
                         delayLongPress={350}
                         style={[

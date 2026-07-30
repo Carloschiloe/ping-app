@@ -134,7 +134,19 @@ export const useSendConversationMessage = (conversationId: string) => {
     const { user, profile } = useAuth();
 
     return useMutation({
-        mutationFn: (data: { text: string; reply_to_id?: string; mentioned_user_id?: string; client_message_id?: string; meta?: any }) => {
+        mutationFn: (data: {
+            text: string;
+            reply_to_id?: string;
+            mentioned_user_id?: string;
+            client_message_id?: string;
+            meta?: any;
+            attachment?: {
+                bucket: 'chat-media';
+                objectPath: string;
+                mimeType: string;
+                fileName: string;
+            };
+        }) => {
             return apiClient.post(`/conversations/${conversationId}/messages`, data);
         },
         onMutate: async (data) => {
@@ -151,6 +163,17 @@ export const useSendConversationMessage = (conversationId: string) => {
                     created_at: new Date().toISOString(),
                     status: 'sending',
                     meta: data.meta || {},
+                    ...(data.attachment ? {
+                        media_bucket: data.attachment.bucket,
+                        media_object_path: data.attachment.objectPath,
+                        metadata: {
+                            ...(data.meta || {}),
+                            attachment: {
+                                mimeType: data.attachment.mimeType,
+                                fileName: data.attachment.fileName,
+                            },
+                        },
+                    } : {}),
                     reply_to_id: data.reply_to_id,
                     profiles: {
                         id: user?.id,

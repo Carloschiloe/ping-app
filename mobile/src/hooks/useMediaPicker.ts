@@ -1,31 +1,48 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Alert } from 'react-native';
-import { uploadToSupabase } from '../lib/upload';
+import {
+    PrivateMessageAttachment,
+    uploadPrivateMessageAttachment,
+} from '../lib/privateFiles';
 
 interface UseMediaPickerProps {
-    onMediaSent: (text: string) => void;
+    conversationId: string;
+    onMediaSent: (payload: { text: string; attachment: PrivateMessageAttachment }) => void;
     setSendingMedia: (sending: boolean) => void;
 }
 
-export function useMediaPicker({ onMediaSent, setSendingMedia }: UseMediaPickerProps) {
+export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }: UseMediaPickerProps) {
     const uploadAndSendMedia = async (asset: any) => {
         setSendingMedia(true);
-        const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
-        const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
-        const url = await uploadToSupabase(asset.uri, 'chat-media', mimeType);
-        setSendingMedia(false);
-        if (url) {
-            onMediaSent(`[${isVideo ? 'video' : 'imagen'}]${url}`);
-        } else {
-            Alert.alert('Error', 'No se pudo subir el archivo.');
+        try {
+            const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+            const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
+            const fileName = asset.fileName || `archivo.${isVideo ? 'mp4' : 'jpg'}`;
+            const attachment = await uploadPrivateMessageAttachment(
+                conversationId,
+                asset.uri,
+                mimeType,
+                fileName
+            );
+            onMediaSent({
+                text: isVideo ? 'Video' : 'Imagen',
+                attachment,
+            });
+        } catch (error) {
+            console.warn('[MediaPicker] Private upload failed', {
+                message: error instanceof Error ? error.message : 'unknown',
+            });
+            Alert.alert('No se pudo enviar', 'El archivo no se subió. Inténtalo nuevamente.');
+        } finally {
+            setSendingMedia(false);
         }
     };
 
     const openDocumentPicker = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({
-                type: '*/*',
+                type: ['application/pdf', 'image/*', 'video/*'],
                 copyToCacheDirectory: true,
             });
 
@@ -33,14 +50,14 @@ export function useMediaPicker({ onMediaSent, setSendingMedia }: UseMediaPickerP
 
             const asset = result.assets[0];
             setSendingMedia(true);
-            const url = await uploadToSupabase(asset.uri, 'chat-media', asset.mimeType || 'application/octet-stream', asset.name);
+            const attachment = await uploadPrivateMessageAttachment(
+                conversationId,
+                asset.uri,
+                asset.mimeType || 'application/pdf',
+                asset.name
+            );
+            onMediaSent({ text: asset.name, attachment });
             setSendingMedia(false);
-
-            if (url) {
-                onMediaSent(`[document=${asset.name}]${url}`);
-            } else {
-                Alert.alert('Error', 'No se pudo subir el documento.');
-            }
         } catch (err) {
             setSendingMedia(false);
             console.error('[MediaPicker] Document selection failed', err);
@@ -85,7 +102,7 @@ export function useMediaPicker({ onMediaSent, setSendingMedia }: UseMediaPickerP
             [
                 { text: '📷 Cámara (Foto o Video)', onPress: () => openCamera() },
                 { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
-                { text: '📄 Documento (PDF, Word, Excel...)', onPress: () => openDocumentPicker() },
+                { text: '📄 Documento PDF', onPress: () => openDocumentPicker() },
                 { text: 'Cancelar', style: 'cancel' },
             ]
         );

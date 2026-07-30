@@ -278,7 +278,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     }, [messages]);
 
     const { pickMediaSource } = useMediaPicker({
-        onMediaSent: (t) => sendMessage({ text: t, reply_to_id: replyingToMsg?.id }),
+        conversationId,
+        onMediaSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
         setSendingMedia
     });
 
@@ -454,6 +455,17 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         if (msg?._isSuggestionTap || msg?.meta?.suggestedTask) {
                             setSuggestionData({ ...msg.meta.suggestedTask, messageId: msg.id });
                             setSuggestionModalVisible(true);
+                            return;
+                        }
+                        if (msg?._resolvedMediaUrl) {
+                            const mimeType = msg?.meta?.attachment?.mimeType || '';
+                            if (mimeType.startsWith('image/')) {
+                                setViewerMedia({ url: msg._resolvedMediaUrl, type: 'image' });
+                            } else if (mimeType.startsWith('video/')) {
+                                setViewerMedia({ url: msg._resolvedMediaUrl, type: 'video' });
+                            } else {
+                                Linking.openURL(msg._resolvedMediaUrl);
+                            }
                             return;
                         }
                         const t = msg.text || '';

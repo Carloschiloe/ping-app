@@ -23,6 +23,12 @@ type PersistablePendingMessage = {
     state?: PendingSyncState;
     lastError?: string | null;
     nextAttemptAt?: string | null;
+    attachment?: {
+        bucket: 'chat-media';
+        objectPath: string;
+        mimeType: string;
+        fileName: string;
+    } | null;
 };
 
 const looksLikeTransientCredential = (value: string) =>
@@ -74,6 +80,20 @@ export function sanitizePendingQueue(
                     : null,
                 nextAttemptAt: typeof item.nextAttemptAt === 'string'
                     ? item.nextAttemptAt
+                    : null,
+                attachment: item.attachment
+                    && item.attachment.bucket === 'chat-media'
+                    && typeof item.attachment.objectPath === 'string'
+                    && item.attachment.objectPath.startsWith('conversations/')
+                    && !item.attachment.objectPath.includes('..')
+                    && typeof item.attachment.mimeType === 'string'
+                    && typeof item.attachment.fileName === 'string'
+                    ? {
+                        bucket: 'chat-media' as const,
+                        objectPath: item.attachment.objectPath.slice(0, 500),
+                        mimeType: item.attachment.mimeType.slice(0, 100),
+                        fileName: item.attachment.fileName.slice(0, 200),
+                    }
                     : null,
             };
         })

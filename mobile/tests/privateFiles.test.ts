@@ -5,16 +5,31 @@ vi.mock('../src/api/client', () => ({
         post: vi.fn(),
     },
 }));
+vi.mock('../src/lib/supabase', () => ({
+    supabase: {
+        storage: {
+            from: vi.fn(() => ({
+                uploadToSignedUrl: vi.fn().mockResolvedValue({ error: null }),
+            })),
+        },
+    },
+}));
 
 import { apiClient } from '../src/api/client';
 import {
     requestPrivateFileUploadUrl,
     resolvePrivateFileUrl,
+    uploadPrivateMessageAttachment,
+    uploadPrivateProfileAvatar,
 } from '../src/lib/privateFiles';
 
 describe('private file mobile preparation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+        }));
     });
 
     it('resuelve lectura por recurso sin aceptar bucket ni object_path del cliente', async () => {
@@ -45,5 +60,61 @@ describe('private file mobile preparation', () => {
             '[Upload] Private media uploads remain disabled in mobile'
         );
         warning.mockRestore();
+    });
+
+    it('sube y confirma un avatar sin persistir la URL firmada', async () => {
+        vi.mocked(apiClient.post)
+            .mockResolvedValueOnce({
+                bucket: 'chat-media',
+                objectPath: 'profiles/11111111-1111-4111-8111-111111111111/avatar/test.jpg',
+                signedUrl: 'https://signed.invalid/upload',
+                token: 'temporary-token',
+            })
+            .mockResolvedValueOnce({ ok: true })
+            .mockResolvedValueOnce({
+                signedUrl: 'https://signed.invalid/read',
+                expiresIn: 60,
+            });
+
+        const result = await uploadPrivateProfileAvatar(
+            '11111111-1111-4111-8111-111111111111',
+            'file:///avatar.jpg',
+            'image/jpeg'
+        );
+
+        expect(result.expiresIn).toBe(60);
+        expect(apiClient.post).toHaveBeenNthCalledWith(
+            2,
+            '/files/profile-avatar/complete',
+            {
+                bucket: 'chat-media',
+                objectPath: 'profiles/11111111-1111-4111-8111-111111111111/avatar/test.jpg',
+            }
+        );
+    });
+
+    it('devuelve sólo bucket y ruta al preparar un adjunto de mensaje', async () => {
+        vi.mocked(apiClient.post).mockResolvedValueOnce({
+            bucket: 'chat-media',
+            objectPath: 'conversations/33333333-3333-4333-8333-333333333333/attachments/11111111-1111-4111-8111-111111111111/test.pdf',
+            signedUrl: 'https://signed.invalid/upload',
+            token: 'temporary-token',
+        });
+
+        const result = await uploadPrivateMessageAttachment(
+            '33333333-3333-4333-8333-333333333333',
+            'file:///test.pdf',
+            'application/pdf',
+            'test.pdf'
+        );
+
+        expect(result).toEqual({
+            bucket: 'chat-media',
+            objectPath: 'conversations/33333333-3333-4333-8333-333333333333/attachments/11111111-1111-4111-8111-111111111111/test.pdf',
+            mimeType: 'application/pdf',
+            fileName: 'test.pdf',
+        });
+        expect(JSON.stringify(result)).not.toContain('signed.invalid');
+        expect(JSON.stringify(result)).not.toContain('temporary-token');
     });
 });
