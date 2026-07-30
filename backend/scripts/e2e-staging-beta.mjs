@@ -203,6 +203,23 @@ try {
   const health = await request('/health');
   check('staging health check', health.response.status === 200 && health.payload?.db_status === 'connected');
 
+  if (configuredRemoteBaseUrl) {
+    const aiHealth = await request('/ai/health', { token: first.token });
+    check('authenticated AI health check',
+      aiHealth.response.status === 200 && aiHealth.payload?.ok === true);
+
+    const aiAnswer = await request('/ai/ask', {
+      token: first.token,
+      method: 'POST',
+      body: { query: 'Responde únicamente: PING_OK' },
+    });
+    const answerText = String(aiAnswer.payload?.answer || '');
+    check('OpenAI answers through staging backend',
+      aiAnswer.response.status === 200
+        && answerText.length > 0
+        && !/no tengo acceso a mi cerebro|hubo un error al consultar a la ia/i.test(answerText));
+  }
+
   const contactDiscovery = await request('/users/sync-contacts', {
     token: first.token,
     method: 'POST',

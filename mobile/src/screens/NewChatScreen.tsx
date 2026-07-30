@@ -51,10 +51,13 @@ export default function NewChatScreen({ navigation }: any) {
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [canAskForContacts, setCanAskForContacts] = useState(true);
     const [busyContactId, setBusyContactId] = useState<string | null>(null);
+    const [matchingContacts, setMatchingContacts] = useState(false);
+    const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
 
     const loadContacts = useCallback(async () => {
         setContactsLoading(true);
         setPermissionDenied(false);
+        setDiscoveryWarning(null);
         try {
             let permission = await Contacts.getPermissionsAsync();
             if (permission.status !== 'granted' && permission.canAskAgain) {
@@ -94,31 +97,49 @@ export default function NewChatScreen({ navigation }: any) {
                 return;
             }
 
-            const matchedUsers: RegisteredContact[] = [];
-            for (let index = 0; index < contacts.length; index += 200) {
-                const batch = contacts.slice(index, index + 200);
-                const result = await apiClient.post('/users/sync-contacts', {
-                    phones: Array.from(new Set(
-                        batch.map((contact) => contact.phone).filter(Boolean)
-                    )),
-                    emails: Array.from(new Set(
-                        batch.map((contact) => contact.email).filter(Boolean)
-                    )),
-                });
-                matchedUsers.push(...(result.users || []));
-            }
-            const matchesByPhone = new Map<string, RegisteredContact>();
-            const matchesByEmail = new Map<string, RegisteredContact>();
-            for (const user of matchedUsers) {
-                if (user.phone) matchesByPhone.set(user.phone, user);
-                if (user.email) matchesByEmail.set(user.email.toLowerCase(), user);
-            }
+            // The address book is useful even while staging is waking up.
+            // Never hide local contacts behind the remote matching request.
+            setDeviceContacts(contacts);
+            setContactsLoading(false);
+            setMatchingContacts(true);
 
-            setDeviceContacts(contacts.map((contact) => ({
-                ...contact,
-                registered: (contact.phone ? matchesByPhone.get(contact.phone) : undefined)
-                    || (contact.email ? matchesByEmail.get(contact.email) : undefined),
-            })));
+            try {
+                const matchedUsers: RegisteredContact[] = [];
+                for (let index = 0; index < contacts.length; index += 200) {
+                    const batch = contacts.slice(index, index + 200);
+                    const result = await apiClient.post('/users/sync-contacts', {
+                        phones: Array.from(new Set(
+                            batch.map((contact) => contact.phone).filter(Boolean)
+                        )),
+                        emails: Array.from(new Set(
+                            batch.map((contact) => contact.email).filter(Boolean)
+                        )),
+                    });
+                    matchedUsers.push(...(result.users || []));
+                }
+                const matchesByPhone = new Map<string, RegisteredContact>();
+                const matchesByEmail = new Map<string, RegisteredContact>();
+                for (const user of matchedUsers) {
+                    if (user.phone) matchesByPhone.set(user.phone, user);
+                    if (user.email) matchesByEmail.set(user.email.toLowerCase(), user);
+                }
+
+                setDeviceContacts(contacts.map((contact) => ({
+                    ...contact,
+                    registered: (contact.phone ? matchesByPhone.get(contact.phone) : undefined)
+                        || (contact.email ? matchesByEmail.get(contact.email) : undefined),
+                })));
+            } catch (error: any) {
+                console.warn('[Contacts] Remote matching failed', {
+                    name: error?.name || 'UnknownError',
+                    status: error?.status ?? null,
+                });
+                setDiscoveryWarning(
+                    'Mostramos tu agenda, pero aún no pudimos comprobar quién ya usa Ping. Puedes invitar igualmente.'
+                );
+            } finally {
+                setMatchingContacts(false);
+            }
         } catch (error: any) {
             console.warn('[Contacts] Discovery failed', {
                 name: error?.name || 'UnknownError',
@@ -296,8 +317,18 @@ export default function NewChatScreen({ navigation }: any) {
             ) : (
                 <>
                     <Text style={styles.sectionLabel}>
-                        {registeredCount} EN PING · {deviceContacts.length} CONTACTOS
+                        {matchingContacts
+                            ? `${deviceContacts.length} CONTACTOS · COMPROBANDO QUIÉN USA PING…`
+                            : `${registeredCount} EN PING · ${deviceContacts.length} CONTACTOS`}
                     </Text>
+                    {discoveryWarning ? (
+                        <View style={styles.discoveryWarning}>
+                            <Text style={styles.discoveryWarningText}>{discoveryWarning}</Text>
+                            <TouchableOpacity onPress={loadContacts}>
+                                <Text style={styles.discoveryRetry}>Reintentar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : null}
                     <FlatList
                         data={filteredContacts}
                         keyExtractor={(contact) => contact.id}
@@ -371,6 +402,29 @@ const styles = StyleSheet.create({
         color: '#64748b',
         letterSpacing: 0.7,
         backgroundColor: '#f3f4f6',
+    },
+    discoveryWarning: {
+        marginHorizontal: 16,
+        marginVertical: 10,
+        padding: 12,
+        borderRadius: 12,
+        backgroundColor: '#fff7ed',
+        borderWidth: 1,
+        borderColor: '#fed7aa',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    discoveryWarningText: {
+        flex: 1,
+        color: '#9a3412',
+        fontSize: 12,
+        lineHeight: 17,
+    },
+    discoveryRetry: {
+        color: '#c2410c',
+        fontSize: 12,
+        fontWeight: '800',
     },
     row: {
         flexDirection: 'row',

@@ -1,11 +1,11 @@
 import { registerRootComponent } from 'expo';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { AppNavigator } from './src/navigation';
 import { AuthProvider } from './src/context/AuthContext';
 import { QueryClient, QueryClientProvider, focusManager, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { View, Text, StyleSheet, AppState, AppStateStatus } from 'react-native';
+import { View, Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
@@ -15,33 +15,73 @@ const queryClient = new QueryClient();
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 const BackendBanner = () => {
-    const [connected, setConnected] = useState<boolean | null>(null);
+    const [status, setStatus] = useState<'checking' | 'waking' | 'connected' | 'offline'>('checking');
+    const checkingRef = useRef(false);
+    const failuresRef = useRef(0);
 
-    useEffect(() => {
-        const checkHealth = async () => {
-            try {
-                // We check the health relative to the API_URL. 
-                // Note: apiClient already handles cases where backend is rebooting with retries, 
-                // but this banner is for the global initial connection.
-                const res = await fetch(`${API_URL}/health`);
-                setConnected(res.ok);
-            } catch {
-                setConnected(false);
-            }
-        };
+    const checkHealth = useCallback(async () => {
+        if (checkingRef.current) return;
+        checkingRef.current = true;
+        const controller = new AbortController();
+        const wakingTimer = setTimeout(() => {
+            setStatus(current => current === 'connected' ? current : 'waking');
+        }, 4_000);
+        const timeout = setTimeout(() => controller.abort(), 65_000);
 
-        checkHealth();
-        const timer = setInterval(checkHealth, 20000); // Check every 20s
-        return () => clearInterval(timer);
+        try {
+            const res = await fetch(`${API_URL}/health`, {
+                signal: controller.signal,
+                headers: { Accept: 'application/json' },
+            });
+            if (!res.ok) throw new Error(`Health check returned ${res.status}`);
+            failuresRef.current = 0;
+            setStatus('connected');
+        } catch (error: any) {
+            failuresRef.current += 1;
+            setStatus(failuresRef.current >= 3 ? 'offline' : 'waking');
+            console.warn('[Backend health] Check failed', {
+                name: error?.name || 'NetworkError',
+                attempts: failuresRef.current,
+            });
+        } finally {
+            clearTimeout(wakingTimer);
+            clearTimeout(timeout);
+            checkingRef.current = false;
+        }
     }, []);
 
-    if (connected === null || connected === true) return null;
+    useEffect(() => {
+        checkHealth();
+        const timer = setInterval(checkHealth, 15_000);
+        const subscription = AppState.addEventListener('change', nextState => {
+            if (nextState === 'active') checkHealth();
+        });
+        return () => {
+            clearInterval(timer);
+            subscription.remove();
+        };
+    }, [checkHealth]);
+
+    if (status === 'checking' || status === 'connected') return null;
+    const isOffline = status === 'offline';
 
     return (
-        <View style={styles.banner}>
-            <Text style={styles.bannerTitle}>Backend no conectado</Text>
-            <Text style={styles.bannerText}>Revisa EXPO_PUBLIC_API_URL en el .env</Text>
-        </View>
+        <TouchableOpacity
+            style={[styles.banner, isOffline ? styles.bannerOffline : styles.bannerWaking]}
+            onPress={checkHealth}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Reintentar conexión con Ping"
+        >
+            <Text style={styles.bannerTitle}>
+                {isOffline ? 'Sin conexión con Ping' : 'Conectando con Ping…'}
+            </Text>
+            <Text style={styles.bannerText}>
+                {isOffline
+                    ? 'Reintentamos automáticamente. Toca aquí para intentar ahora.'
+                    : 'El servidor de pruebas puede tardar unos segundos en despertar.'}
+            </Text>
+        </TouchableOpacity>
     );
 };
 
@@ -112,11 +152,16 @@ const AppContent = () => {
 
 const styles = StyleSheet.create({
     banner: {
-        backgroundColor: '#ef4444',
         paddingTop: 48,
         paddingBottom: 16,
         paddingHorizontal: 16,
         alignItems: 'center',
+    },
+    bannerWaking: {
+        backgroundColor: '#3346e8',
+    },
+    bannerOffline: {
+        backgroundColor: '#dc2626',
     },
     bannerTitle: {
         color: 'white',
