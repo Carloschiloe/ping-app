@@ -48,3 +48,7 @@ services:
         value: "true"
       - key: ENABLE_PRIVATE_FILE_UPLOADS
         value: "false"
+      - key: ENABLE_PRIVATE_AVATAR_UPLOADS
+        value: "true"
+      - key: ENABLE_PRIVATE_MESSAGE_UPLOADS
+        value: "true"

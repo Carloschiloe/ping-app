@@ -27,12 +27,23 @@ if (configuredRemoteBaseUrl) {
   }
 }
 
+const REMOTE_TIMEOUT_MS = 30_000;
+const fetchWithTimeout = (input, init = {}) => {
+  const timeoutSignal = AbortSignal.timeout(REMOTE_TIMEOUT_MS);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(input, { ...init, signal });
+};
+
 Object.assign(process.env, {
   NODE_ENV: 'test',
   PING_ENVIRONMENT: 'staging-e2e',
   PING_EXPECTED_SUPABASE_PROJECT_REF: EXPECTED_PROJECT_REF,
   ENABLE_PRIVATE_FILE_READS: 'true',
   ENABLE_PRIVATE_FILE_UPLOADS: 'false',
+  ENABLE_PRIVATE_AVATAR_UPLOADS: 'true',
+  ENABLE_PRIVATE_MESSAGE_UPLOADS: 'true',
   ENABLE_NON_MVP_CAPABILITIES: 'false',
   ENABLE_OPERATION_MODULE: 'false',
   ENABLE_CALENDAR_INTEGRATION: 'false',
@@ -45,12 +56,18 @@ Object.assign(process.env, {
 const admin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { fetch: fetchWithTimeout },
+  },
 );
 const publicClient = () => createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { fetch: fetchWithTimeout },
+  },
 );
 
 const runId = randomUUID();
@@ -69,9 +86,11 @@ const checks = [];
 function check(name, condition, detail = undefined) {
   if (!condition) throw new Error(`Check failed: ${name}${detail ? ` (${detail})` : ''}`);
   checks.push(name);
+  console.info(`[E2E] passed: ${name}`);
 }
 
 async function createTemporaryUser(index) {
+  console.info(`[E2E] creating temporary user ${index}`);
   const email = `${runMarker}-${index}@example.invalid`;
   const profileName = index === 2 ? null : `Ping Beta E2E ${index}`;
   const { data, error } = await admin.auth.admin.createUser({
@@ -98,6 +117,7 @@ async function createTemporaryUser(index) {
   if (signInError || !session.session?.access_token) {
     throw signInError || new Error('Temporary user could not sign in');
   }
+  console.info(`[E2E] temporary user ${index} ready`);
   return {
     id: data.user.id,
     token: session.session.access_token,
@@ -154,7 +174,7 @@ try {
   }
 
   const request = async (path, { token, method = 'GET', body } = {}) => {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetchWithTimeout(`${baseUrl}${path}`, {
       method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -444,7 +464,26 @@ try {
   if (crossSelectError) throw crossSelectError;
   check('RLS hides another user proposal', crossRows.length === 0);
 
-  const objectPath = `conversations/${conversationId}/attachments/${runMarker}.png`;
+  const third = await createTemporaryUser(3);
+  const { data: fileConversation, error: fileConversationError } = await admin
+    .from('conversations')
+    .insert({
+      conversation_type: 'group',
+      name: `Temporary files ${runMarker}`,
+      created_by: first.id,
+    })
+    .select('id')
+    .single();
+  if (fileConversationError) throw fileConversationError;
+  resources.conversations.add(fileConversation.id);
+  const { error: fileParticipantsError } = await admin
+    .from('conversation_participants')
+    .insert([
+      { conversation_id: fileConversation.id, user_id: first.id, role: 'admin' },
+      { conversation_id: fileConversation.id, user_id: second.id, role: 'member' },
+    ]);
+  if (fileParticipantsError) throw fileParticipantsError;
+
   const png = Uint8Array.from([
     137, 80, 78, 71, 13, 10, 26, 10,
     0, 0, 0, 13, 73, 72, 68, 82,
@@ -453,33 +492,86 @@ try {
     137, 0, 0, 0, 0, 73, 69, 78,
     68, 174, 66, 96, 130,
   ]);
-  const { error: uploadError } = await admin.storage
-    .from('chat-media')
-    .upload(objectPath, png, { contentType: 'image/png', upsert: false });
-  if (uploadError) throw uploadError;
-  resources.objectPaths.add(objectPath);
 
-  const { error: referenceError } = await admin
-    .from('messages')
-    .update({ media_bucket: 'chat-media', media_object_path: objectPath })
-    .eq('id', messageId);
-  if (referenceError) throw referenceError;
-
-  const signed = await request('/files/read-url', {
+  const attachmentUpload = await request('/files/message-attachment/upload-url', {
     token: first.token,
     method: 'POST',
-    body: { resourceType: 'message', resourceId: messageId },
+    body: {
+      conversationId: fileConversation.id,
+      mimeType: 'image/png',
+    },
   });
-  check('authorized private file signed', signed.response.status === 200 && signed.payload?.expiresIn === 60);
-  const downloaded = await fetch(signed.payload.signedUrl);
-  check('authorized private file downloaded', downloaded.status === 200);
+  check('authorized attachment upload signed',
+    attachmentUpload.response.status === 200
+      && attachmentUpload.payload?.bucket === 'chat-media'
+      && attachmentUpload.payload?.objectPath?.startsWith(
+        `conversations/${fileConversation.id}/attachments/${first.id}/`
+      ));
+  resources.objectPaths.add(attachmentUpload.payload.objectPath);
 
-  const crossSigned = await request('/files/read-url', {
+  const { error: uploadError } = await first.client.storage
+    .from('chat-media')
+    .uploadToSignedUrl(
+      attachmentUpload.payload.objectPath,
+      attachmentUpload.payload.token,
+      png,
+      { contentType: 'image/png' },
+    );
+  if (uploadError) throw uploadError;
+
+  const attachedMessage = await request(`/conversations/${fileConversation.id}/messages`, {
+    token: first.token,
+    method: 'POST',
+    body: {
+      text: 'Imagen temporal de validación',
+      client_message_id: randomUUID(),
+      attachment: {
+        bucket: 'chat-media',
+        objectPath: attachmentUpload.payload.objectPath,
+        mimeType: 'image/png',
+        fileName: 'temporary-e2e.png',
+      },
+    },
+  });
+  check('attachment reference persisted on message',
+    attachedMessage.response.status === 201
+      && attachedMessage.payload?.message?.media_bucket === 'chat-media'
+      && attachedMessage.payload?.message?.media_object_path === attachmentUpload.payload.objectPath
+      && !JSON.stringify(attachedMessage.payload?.message).includes(attachmentUpload.payload.signedUrl));
+  const attachedMessageId = attachedMessage.payload.message.id;
+  resources.messages.add(attachedMessageId);
+
+  const signed = await request('/files/read-url', {
     token: second.token,
     method: 'POST',
-    body: { resourceType: 'message', resourceId: messageId },
+    body: { resourceType: 'message', resourceId: attachedMessageId },
+  });
+  check('participant private file signed', signed.response.status === 200 && signed.payload?.expiresIn === 60);
+  const downloaded = await fetch(signed.payload.signedUrl);
+  check('participant private file downloaded', downloaded.status === 200);
+
+  const crossSigned = await request('/files/read-url', {
+    token: third.token,
+    method: 'POST',
+    body: { resourceType: 'message', resourceId: attachedMessageId },
   });
   check('cross-user private file rejected', [403, 404].includes(crossSigned.response.status));
+
+  const arbitraryReference = await request(`/conversations/${fileConversation.id}/messages`, {
+    token: first.token,
+    method: 'POST',
+    body: {
+      text: 'Arbitrary path must fail',
+      client_message_id: randomUUID(),
+      attachment: {
+        bucket: 'chat-media',
+        objectPath: `conversations/${fileConversation.id}/attachments/${third.id}/not-owned.png`,
+        mimeType: 'image/png',
+        fileName: 'not-owned.png',
+      },
+    },
+  });
+  check('arbitrary attachment path rejected', arbitraryReference.response.status === 403);
 
   const uploadGate = await request('/files/upload-url', {
     token: first.token,
@@ -490,19 +582,58 @@ try {
       mimeType: 'image/png',
     },
   });
-  check('private uploads remain disabled', uploadGate.response.status === 503);
+  check('generic private upload gate remains disabled', uploadGate.response.status === 503);
+
+  const avatarUpload = await request('/files/profile-avatar/upload-url', {
+    token: first.token,
+    method: 'POST',
+    body: { mimeType: 'image/png' },
+  });
+  check('own avatar upload signed',
+    avatarUpload.response.status === 200
+      && avatarUpload.payload?.objectPath?.startsWith(`profiles/${first.id}/avatar/`));
+  resources.objectPaths.add(avatarUpload.payload.objectPath);
+  const { error: avatarUploadError } = await first.client.storage
+    .from('chat-media')
+    .uploadToSignedUrl(
+      avatarUpload.payload.objectPath,
+      avatarUpload.payload.token,
+      png,
+      { contentType: 'image/png' },
+    );
+  if (avatarUploadError) throw avatarUploadError;
+
+  const completedAvatar = await request('/files/profile-avatar/complete', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      bucket: 'chat-media',
+      objectPath: avatarUpload.payload.objectPath,
+    },
+  });
+  check('avatar private reference persisted',
+    completedAvatar.response.status === 200
+      && completedAvatar.payload?.avatar_bucket === 'chat-media'
+      && completedAvatar.payload?.avatar_object_path === avatarUpload.payload.objectPath);
+
+  const avatarRead = await request('/files/read-url', {
+    token: first.token,
+    method: 'POST',
+    body: { resourceType: 'profile', resourceId: first.id },
+  });
+  check('own avatar can be read', avatarRead.response.status === 200);
 
   const { error: revokeError } = await admin
     .from('conversation_participants')
     .delete()
-    .eq('conversation_id', conversationId)
-    .eq('user_id', first.id);
+    .eq('conversation_id', fileConversation.id)
+    .eq('user_id', second.id);
   if (revokeError) throw revokeError;
 
   const afterRevocation = await request('/files/read-url', {
-    token: first.token,
+    token: second.token,
     method: 'POST',
-    body: { resourceType: 'message', resourceId: messageId },
+    body: { resourceType: 'message', resourceId: attachedMessageId },
   });
   check('revocation blocks new signatures', [403, 404].includes(afterRevocation.response.status));
 

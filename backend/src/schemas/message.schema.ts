@@ -10,5 +10,11 @@ export const sendMessageSchema = z.object({
         mentioned_user_id: z.string().uuid().optional().nullable(),
         client_message_id: z.string().uuid().optional(),
         meta: z.record(z.string(), z.any()).optional().nullable(),
+        attachment: z.object({
+            bucket: z.literal('chat-media'),
+            objectPath: z.string().min(1).max(500),
+            mimeType: z.string().min(1).max(100),
+            fileName: z.string().min(1).max(200),
+        }).optional().nullable(),
     })
 });

@@ -11,6 +11,7 @@ import {
     assertMessageInConversation,
 } from '../utils/authz';
 import { buildDeterministicCommitmentSuggestion } from '../utils/deterministicCommitmentSuggestion';
+import { validatePrivateFileUploadReference } from './privateFile.service';
 
 export const processUserMessage = async (
     userId: string,
@@ -19,7 +20,13 @@ export const processUserMessage = async (
     replyToId?: string,
     mentionedUserId?: string,
     incomingMeta?: any,
-    clientMessageId?: string
+    clientMessageId?: string,
+    attachment?: {
+        bucket: string;
+        objectPath: string;
+        mimeType: string;
+        fileName: string;
+    }
 ) => {
     if (conversationId) {
         await assertConversationParticipant(userId, conversationId);
@@ -36,6 +43,23 @@ export const processUserMessage = async (
     let processingText = text;
     let meta: any = incomingMeta ? { ...incomingMeta } : {};
     let imageUrl: string | undefined;
+
+    if (attachment) {
+        if (!conversationId) throw new Error('Attachments require a conversation');
+        const verified = await validatePrivateFileUploadReference(
+            userId,
+            'message_attachment',
+            conversationId,
+            attachment.bucket,
+            attachment.objectPath
+        );
+        const safeFileName = attachment.fileName.replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 200);
+        meta.attachment = {
+            mimeType: verified.mimeType,
+            fileName: safeFileName,
+            size: verified.size,
+        };
+    }
 
     if (clientMessageId) {
         const { data: existing, error: existingError } = await supabaseAdmin
@@ -100,6 +124,10 @@ export const processUserMessage = async (
             ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
             content: text,
             metadata: meta,
+            ...(attachment ? {
+                media_bucket: attachment.bucket,
+                media_object_path: attachment.objectPath,
+            } : {}),
         })
         .select()
         .single();

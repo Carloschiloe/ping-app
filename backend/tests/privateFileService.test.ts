@@ -13,6 +13,7 @@ import {
     createPrivateFileReadUrl,
     createPrivateFileUploadUrl,
     PRIVATE_FILE_READ_TTL_SECONDS,
+    validatePrivateFileUploadReference,
 } from '../src/services/privateFile.service';
 
 const userId = '11111111-1111-4111-8111-111111111111';
@@ -119,7 +120,7 @@ describe('private file authorization', () => {
 
         expect(result.bucket).toBe('chat-media');
         expect(result.objectPath).toMatch(
-            new RegExp(`^conversations/${conversationId}/attachments/[0-9a-f-]+\\.pdf$`)
+            new RegExp(`^conversations/${conversationId}/attachments/${userId}/[0-9a-f-]+\\.pdf$`)
         );
         expect(storage.createSignedUploadUrl).toHaveBeenCalledWith(
             result.objectPath,
@@ -142,5 +143,58 @@ describe('private file authorization', () => {
             'application/pdf'
         )).rejects.toMatchObject({ statusCode: 403 });
         expect(storage.createSignedUploadUrl).not.toHaveBeenCalled();
+    });
+
+    it('verifica que el adjunto exista dentro de la ruta del remitente', async () => {
+        const filename = 'evidence.pdf';
+        const objectPath = `conversations/${conversationId}/attachments/${userId}/${filename}`;
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+        });
+        const storage = createSupabaseStorageMock({
+            list: {
+                data: [{
+                    name: filename,
+                    metadata: { size: 128, mimetype: 'application/pdf' },
+                }],
+                error: null,
+            },
+        });
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(validatePrivateFileUploadReference(
+            userId,
+            'message_attachment',
+            conversationId,
+            'chat-media',
+            objectPath
+        )).resolves.toMatchObject({
+            bucket: 'chat-media',
+            objectPath,
+            mimeType: 'application/pdf',
+        });
+        expect(storage.list).toHaveBeenCalledWith(
+            `conversations/${conversationId}/attachments/${userId}`,
+            { search: filename, limit: 2 }
+        );
+    });
+
+    it('rechaza una ruta arbitraria aunque el usuario participe', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(validatePrivateFileUploadReference(
+            userId,
+            'message_attachment',
+            conversationId,
+            'chat-media',
+            `conversations/${conversationId}/attachments/${otherUserId}/evidence.pdf`
+        )).rejects.toMatchObject({ statusCode: 403 });
+        expect(storage.list).not.toHaveBeenCalled();
     });
 });

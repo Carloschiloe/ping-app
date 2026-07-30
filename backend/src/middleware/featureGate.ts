@@ -2,7 +2,9 @@ import { NextFunction, Request, Response } from 'express';
 
 type PrivateFileFeature =
     | 'ENABLE_PRIVATE_FILE_READS'
-    | 'ENABLE_PRIVATE_FILE_UPLOADS';
+    | 'ENABLE_PRIVATE_FILE_UPLOADS'
+    | 'ENABLE_PRIVATE_AVATAR_UPLOADS'
+    | 'ENABLE_PRIVATE_MESSAGE_UPLOADS';
 
 function createFeatureGate(envName: string, requiresNonMvpMaster: boolean) {
     return (_req: Request, res: Response, next: NextFunction) => {

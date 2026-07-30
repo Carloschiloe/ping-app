@@ -20,3 +20,23 @@ export const createPrivateFileUploadUrlSchema = z.object({
         mimeType: z.string().min(1).max(100),
     }),
 });
+
+export const createProfileAvatarUploadUrlSchema = z.object({
+    body: z.object({
+        mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+    }),
+});
+
+export const completeProfileAvatarSchema = z.object({
+    body: z.object({
+        bucket: z.literal('chat-media'),
+        objectPath: z.string().min(1).max(500),
+    }),
+});
+
+export const createMessageAttachmentUploadUrlSchema = z.object({
+    body: z.object({
+        conversationId: id,
+        mimeType: z.string().min(1).max(100),
+    }),
+});

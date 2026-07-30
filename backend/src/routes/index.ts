@@ -33,6 +33,8 @@ const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
 const callsEnabled = requireFeature('ENABLE_CALLS');
 const privateFileReadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS');
 const privateFileUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS');
+const privateAvatarUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_AVATAR_UPLOADS');
+const privateMessageUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_MESSAGE_UPLOADS');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -142,6 +144,27 @@ router.post(
     privateFileUploadsEnabled,
     validateRequest(privateFileSchema.createPrivateFileUploadUrlSchema),
     privateFileController.createUploadUrl
+);
+router.post(
+    '/files/profile-avatar/upload-url',
+    requireAuth,
+    privateAvatarUploadsEnabled,
+    validateRequest(privateFileSchema.createProfileAvatarUploadUrlSchema),
+    privateFileController.createProfileAvatarUploadUrl
+);
+router.post(
+    '/files/profile-avatar/complete',
+    requireAuth,
+    privateAvatarUploadsEnabled,
+    validateRequest(privateFileSchema.completeProfileAvatarSchema),
+    privateFileController.completeProfileAvatar
+);
+router.post(
+    '/files/message-attachment/upload-url',
+    requireAuth,
+    privateMessageUploadsEnabled,
+    validateRequest(privateFileSchema.createMessageAttachmentUploadUrlSchema),
+    privateFileController.createMessageAttachmentUploadUrl
 );
 
 // AI

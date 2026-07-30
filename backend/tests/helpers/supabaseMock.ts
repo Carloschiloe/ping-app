@@ -93,6 +93,7 @@ export function setSupabaseStorageMock(mock: typeof currentStorage) {
 export function createSupabaseStorageMock(options: {
     read?: { data: any; error: any };
     upload?: { data: any; error: any };
+    list?: { data: any; error: any };
 } = {}) {
     const createSignedUrl = vi.fn(() => Promise.resolve(
         options.read ?? { data: { signedUrl: 'https://signed.invalid/read' }, error: null }
@@ -103,8 +104,17 @@ export function createSupabaseStorageMock(options: {
             error: null,
         }
     ));
-    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl }));
-    return { from, createSignedUrl, createSignedUploadUrl };
+    const list = vi.fn(() => Promise.resolve(
+        options.list ?? {
+            data: [{
+                name: 'evidence.pdf',
+                metadata: { size: 128, mimetype: 'application/pdf' },
+            }],
+            error: null,
+        }
+    ));
+    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl, list }));
+    return { from, createSignedUrl, createSignedUploadUrl, list };
 }
 
 export function supabaseAdminMockModule() {

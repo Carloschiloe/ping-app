@@ -34,6 +34,9 @@ const allowedMimeTypes = new Set([
     'application/pdf',
 ]);
 
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const MAX_MESSAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 type StoredReference = {
     bucket: string;
     objectPath: string;
@@ -153,7 +156,7 @@ async function authorizeUpload(
 ): Promise<string> {
     if (purpose === 'message_attachment') {
         await assertConversationParticipant(userId, ownerResourceId);
-        return `conversations/${ownerResourceId}/attachments`;
+        return `conversations/${ownerResourceId}/attachments/${userId}`;
     }
 
     if (purpose === 'conversation_avatar') {
@@ -165,6 +168,100 @@ async function authorizeUpload(
         throw new AppError('You can only upload an avatar for your own profile', 403);
     }
     return `profiles/${ownerResourceId}/avatar`;
+}
+
+function expectedUploadPrefix(
+    userId: string,
+    purpose: PrivateFileUploadPurpose,
+    ownerResourceId: string
+) {
+    if (purpose === 'message_attachment') {
+        return `conversations/${ownerResourceId}/attachments/${userId}/`;
+    }
+    if (purpose === 'conversation_avatar') {
+        return `conversations/${ownerResourceId}/avatar/`;
+    }
+    return `profiles/${userId}/avatar/`;
+}
+
+export async function validatePrivateFileUploadReference(
+    userId: string,
+    purpose: PrivateFileUploadPurpose,
+    ownerResourceId: string,
+    bucket: string,
+    objectPath: string
+) {
+    if (bucket !== PRIVATE_FILE_BUCKET) {
+        throw new AppError('Invalid private file bucket', 400);
+    }
+
+    await authorizeUpload(userId, purpose, ownerResourceId);
+    const prefix = expectedUploadPrefix(userId, purpose, ownerResourceId);
+    if (!objectPath.startsWith(prefix) || objectPath.includes('..') || objectPath.includes('://')) {
+        throw new AppError('Private file path is not authorized', 403);
+    }
+
+    const filename = objectPath.slice(prefix.length);
+    if (!filename || filename.includes('/')) {
+        throw new AppError('Private file path is invalid', 400);
+    }
+
+    const { data, error } = await supabaseAdmin.storage
+        .from(PRIVATE_FILE_BUCKET)
+        .list(prefix.slice(0, -1), { search: filename, limit: 2 });
+
+    if (error) throw new AppError('Unable to verify private file upload', 502);
+    const storedObject = (data || []).find((candidate: any) => candidate.name === filename);
+    if (!storedObject) throw new AppError('Uploaded private file was not found', 400);
+
+    const size = Number(storedObject.metadata?.size ?? 0);
+    const maxBytes = purpose === 'profile_avatar'
+        ? MAX_AVATAR_BYTES
+        : MAX_MESSAGE_ATTACHMENT_BYTES;
+    if (!Number.isFinite(size) || size <= 0 || size > maxBytes) {
+        throw new AppError('Private file size is not allowed', 400);
+    }
+
+    const mimeType = String(storedObject.metadata?.mimetype || '');
+    if (!allowedMimeTypes.has(mimeType)) {
+        throw new AppError('Stored private file type is not allowed', 400);
+    }
+    if (purpose === 'profile_avatar' && !mimeType.startsWith('image/')) {
+        throw new AppError('Profile avatars must be images', 400);
+    }
+
+    return { bucket, objectPath, mimeType, size };
+}
+
+export async function completePrivateProfileAvatar(
+    userId: string,
+    bucket: string,
+    objectPath: string
+) {
+    await validatePrivateFileUploadReference(
+        userId,
+        'profile_avatar',
+        userId,
+        bucket,
+        objectPath
+    );
+
+    const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .update({
+            avatar_bucket: bucket,
+            avatar_object_path: objectPath,
+            avatar_url: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('id, avatar_bucket, avatar_object_path')
+        .single();
+
+    if (error || !data) {
+        throw new AppError(error?.message || 'Unable to save private profile avatar', 500);
+    }
+    return data;
 }
 
 export async function createPrivateFileUploadUrl(

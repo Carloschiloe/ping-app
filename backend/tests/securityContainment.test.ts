@@ -178,6 +178,37 @@ describe('feature gates', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it('habilita sólo avatar y adjuntos sin abrir el gate genérico', () => {
+        const avatar = createMiddlewareContext();
+        const message = createMiddlewareContext();
+        const generic = createMiddlewareContext();
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
+        process.env.ENABLE_PRIVATE_FILE_UPLOADS = 'false';
+        process.env.ENABLE_PRIVATE_AVATAR_UPLOADS = 'true';
+        process.env.ENABLE_PRIVATE_MESSAGE_UPLOADS = 'true';
+
+        requirePrivateFileFeature('ENABLE_PRIVATE_AVATAR_UPLOADS')(
+            {} as any,
+            { status: avatar.status, json: avatar.json } as any,
+            avatar.next
+        );
+        requirePrivateFileFeature('ENABLE_PRIVATE_MESSAGE_UPLOADS')(
+            {} as any,
+            { status: message.status, json: message.json } as any,
+            message.next
+        );
+        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
+            {} as any,
+            { status: generic.status, json: generic.json } as any,
+            generic.next
+        );
+
+        expect(avatar.next).toHaveBeenCalledTimes(1);
+        expect(message.next).toHaveBeenCalledTimes(1);
+        expect(generic.status).toHaveBeenCalledWith(503);
+        expect(generic.next).not.toHaveBeenCalled();
+    });
+
     it('exige master e indicador individual para capacidades no-MVP', () => {
         const blocked = createMiddlewareContext();
         const enabled = createMiddlewareContext();
