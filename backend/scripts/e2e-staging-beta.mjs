@@ -92,6 +92,7 @@ function check(name, condition, detail = undefined) {
 async function createTemporaryUser(index) {
   console.info(`[E2E] creating temporary user ${index}`);
   const email = `${runMarker}-${index}@example.invalid`;
+  const phone = `+569${randomBytes(4).readUInt32BE(0).toString().padStart(10, '0').slice(0, 8)}`;
   const profileName = index === 2 ? null : `Ping Beta E2E ${index}`;
   const { data, error } = await admin.auth.admin.createUser({
     email,
@@ -106,6 +107,7 @@ async function createTemporaryUser(index) {
     id: data.user.id,
     email,
     full_name: profileName,
+    phone,
   });
   if (profileError) throw profileError;
 
@@ -121,6 +123,7 @@ async function createTemporaryUser(index) {
   return {
     id: data.user.id,
     email,
+    phone,
     token: session.session.access_token,
     client,
   };
@@ -195,9 +198,55 @@ try {
 
   const first = await createTemporaryUser(1);
   const second = await createTemporaryUser(2);
+  const third = await createTemporaryUser(3);
 
   const health = await request('/health');
   check('staging health check', health.response.status === 200 && health.payload?.db_status === 'connected');
+
+  const contactDiscovery = await request('/users/sync-contacts', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      phones: [second.phone],
+      emails: [second.email],
+    },
+  });
+  check('authorized address-book match returns short-lived proof',
+    contactDiscovery.response.status === 200
+      && contactDiscovery.payload?.users?.length === 1
+      && contactDiscovery.payload.users[0]?.id === second.id
+      && contactDiscovery.payload.users[0]?.contactProof?.startsWith('PINGC1.'));
+
+  const discoveredConversation = await request('/conversations/from-contact', {
+    token: first.token,
+    method: 'POST',
+    body: { proof: contactDiscovery.payload.users[0].contactProof },
+  });
+  check('matched device contact opens direct conversation',
+    discoveredConversation.response.status === 200
+      && typeof discoveredConversation.payload?.conversationId === 'string');
+  resources.conversations.add(discoveredConversation.payload.conversationId);
+
+  const crossAccountProof = await request('/conversations/from-contact', {
+    token: third.token,
+    method: 'POST',
+    body: { proof: contactDiscovery.payload.users[0].contactProof },
+  });
+  check('contact proof rejects another authenticated account',
+    crossAccountProof.response.status === 403);
+
+  const noContactMatch = await request('/users/sync-contacts', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      phones: ['+56900000000'],
+      emails: ['not-a-ping-user@example.invalid'],
+    },
+  });
+  check('unknown address-book entry reveals no profile',
+    noContactMatch.response.status === 200
+      && Array.isArray(noContactMatch.payload?.users)
+      && noContactMatch.payload.users.length === 0);
 
   const invitation = await request('/conversation-invitations', {
     token: first.token,
@@ -494,7 +543,6 @@ try {
   if (crossSelectError) throw crossSelectError;
   check('RLS hides another user proposal', crossRows.length === 0);
 
-  const third = await createTemporaryUser(3);
   const { data: fileConversation, error: fileConversationError } = await admin
     .from('conversations')
     .insert({
