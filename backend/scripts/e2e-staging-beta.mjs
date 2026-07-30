@@ -82,6 +82,7 @@ const resources = {
   objectPaths: new Set(),
 };
 const checks = [];
+const deferredFailures = [];
 
 function check(name, condition, detail = undefined) {
   if (!condition) throw new Error(`Check failed: ${name}${detail ? ` (${detail})` : ''}`);
@@ -239,16 +240,30 @@ try {
         && aiHealth.payload?.ok === true
         && aiHealth.payload?.configured === true);
 
-    const aiAnswer = await request('/ai/ask', {
-      token: first.token,
-      method: 'POST',
-      body: { query: 'Responde únicamente: PING_OK' },
-    });
-    const answerText = String(aiAnswer.payload?.answer || '');
-    check('OpenAI answers through staging backend',
-      aiAnswer.response.status === 200
+    try {
+      const aiAnswer = await request('/ai/ask', {
+        token: first.token,
+        method: 'POST',
+        body: { query: 'Responde únicamente: PING_OK' },
+      });
+      const answerText = String(aiAnswer.payload?.answer || '');
+      const aiPassed = aiAnswer.response.status === 200
         && answerText.length > 0
-        && !/no tengo acceso a mi cerebro|hubo un error al consultar a la ia/i.test(answerText));
+        && !/no tengo acceso a mi cerebro|hubo un error al consultar a la ia/i.test(answerText);
+      if (aiPassed) {
+        check('OpenAI answers through staging backend', true);
+      } else {
+        deferredFailures.push(
+          `OpenAI answers through staging backend (HTTP ${aiAnswer.response.status})`
+        );
+        console.error('[E2E] deferred failure: OpenAI answers through staging backend');
+      }
+    } catch (error) {
+      deferredFailures.push(
+        `OpenAI answers through staging backend (${error instanceof Error ? error.name : 'request failed'})`
+      );
+      console.error('[E2E] deferred failure: OpenAI answers through staging backend');
+    }
   }
 
   const contactDiscovery = await request('/users/sync-contacts', {
@@ -1126,6 +1141,10 @@ try {
     body: { resourceType: 'message', resourceId: attachedMessageId },
   });
   check('revocation blocks new signatures', [403, 404].includes(afterRevocation.response.status));
+
+  if (deferredFailures.length > 0) {
+    throw new Error(`Deferred E2E failures: ${deferredFailures.join('; ')}`);
+  }
 
   console.log(JSON.stringify({
     projectRef: EXPECTED_PROJECT_REF,
