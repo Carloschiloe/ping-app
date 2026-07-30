@@ -81,6 +81,45 @@ export const createProposal = async (req: Request, res: Response): Promise<void>
     }
 };
 
+export const createSharedProposal = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const data = await proposalService.createSharedProposal(req.user!.id, req.body);
+        res.status(201).json(data);
+    } catch (error: any) {
+        handleError(res, 'createSharedProposal', error);
+    }
+};
+
+export const getAgreementProposals = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const conversationId = req.query.conversationId as string | undefined;
+        const data = await proposalService.getAgreementProposals(
+            req.user!.id,
+            conversationId
+        );
+        res.status(200).json(data);
+    } catch (error: any) {
+        handleError(res, 'getAgreementProposals', error);
+    }
+};
+
+export const respondToSharedProposal = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const data = await proposalService.respondToSharedProposal(
+            req.user!.id,
+            req.params.id as string,
+            req.body.decision,
+            {
+                reason: req.body.reason,
+                proposedDueAt: req.body.proposedDueAt,
+            }
+        );
+        res.status(200).json(data);
+    } catch (error: any) {
+        handleError(res, 'respondToSharedProposal', error);
+    }
+};
+
 export const confirmProposal = async (req: Request, res: Response): Promise<void> => {
     try {
         const data = await proposalService.confirmProposal(req.user!.id, req.params.id as string);

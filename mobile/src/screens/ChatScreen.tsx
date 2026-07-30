@@ -10,6 +10,7 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import {
     useConversationGroupTasks,
     useCreateCommitment,
+    useCreateSharedCommitmentProposal,
     useConversationOperationState,
     useToggleOperationChecklistItem,
     useCommitmentOperationAction,
@@ -127,6 +128,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
     const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
     const { mutateAsync: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
+    const {
+        mutateAsync: createSharedProposal,
+        isPending: isPendingSharedProposal,
+    } = useCreateSharedCommitmentProposal();
     const { mutate: toggleChecklistItem } = useToggleOperationChecklistItem(conversationId);
     const { mutateAsync: runCommitmentAction } = useCommitmentOperationAction();
     const { mutate: setPinnedMessage } = useSetPinnedMessage(conversationId);
@@ -518,11 +523,16 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onUpdateData={setSuggestionData}
                     onConfirm={async () => {
                         try {
-                            await createCommitment({
+                            const payload = {
                                 ...suggestionData,
                                 conversation_id: conversationId,
                                 message_id: suggestionData.messageId,
-                            });
+                            };
+                            if (isSelf) {
+                                await createCommitment(payload);
+                            } else {
+                                await createSharedProposal(payload);
+                            }
                             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
                             setSuggestionModalVisible(false);
                         } catch (error) {
@@ -531,7 +541,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             });
                             Alert.alert(
                                 'No se pudo agendar',
-                                'El compromiso no fue guardado. Revisa los datos e inténtalo nuevamente.'
+                                isSelf
+                                    ? 'El compromiso no fue guardado. Revisa los datos e inténtalo nuevamente.'
+                                    : 'La propuesta no fue enviada. Revisa los datos e inténtalo nuevamente.'
                             );
                         }
                     }}
@@ -617,11 +629,15 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     </View>
                 )}
 
-                {(isSending || isPendingCommitment || sendingMedia) && (
+                {(isSending || isPendingCommitment || isPendingSharedProposal || sendingMedia) && (
                     <View style={styles.sendStatusBar}>
                         <ActivityIndicator size="small" color={theme.colors.text.muted} />
                         <Text style={styles.sendStatusText}>
-                            {sendingMedia ? 'Subiendo archivo...' : (isPendingCommitment ? 'Creando compromiso...' : 'Enviando mensaje...')}
+                            {sendingMedia
+                                ? 'Subiendo archivo...'
+                                : (isPendingCommitment || isPendingSharedProposal)
+                                    ? (isSelf ? 'Creando compromiso...' : 'Enviando propuesta...')
+                                    : 'Enviando mensaje...'}
                         </Text>
                     </View>
                 )}
@@ -631,7 +647,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onTextChange={handleTextChange}
                     onSend={handleSend}
                     isSelf={!!isSelf}
-                    isPending={isSending || isPendingCommitment}
+                    isPending={isSending || isPendingCommitment || isPendingSharedProposal}
                     sendingMedia={sendingMedia}
                     recordingUri={recordingUri}
                     isRecording={isRecording}

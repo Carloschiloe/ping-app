@@ -127,6 +127,9 @@ router.get('/commitments/check-conflict', requireAuth, commitmentController.chec
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
 router.post('/commitment-proposals', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createProposal);
+router.get('/commitment-proposals', requireAuth, commitmentController.getAgreementProposals);
+router.post('/commitment-proposals/shared', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createSharedProposal);
+router.post('/commitment-proposals/:id/respond', requireAuth, validateRequest(commitmentSchema.sharedProposalResponseSchema), commitmentController.respondToSharedProposal);
 router.post('/commitment-proposals/:id/confirm', requireAuth, validateRequest(commitmentSchema.proposalDecisionSchema), commitmentController.confirmProposal);
 router.post('/commitment-proposals/:id/reject', requireAuth, validateRequest(commitmentSchema.proposalDecisionSchema), commitmentController.rejectProposal);
 router.post('/commitments/:id/accept', requireAuth, commitmentController.acceptCommitment);

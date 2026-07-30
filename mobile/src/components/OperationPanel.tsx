@@ -18,6 +18,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { useAppTheme } from '../theme/ThemeContext';
+import { useAuth } from '../context/AuthContext';
+import { getAgreementParticipantName, getAgreementResponseLabel } from '../utils/agreement';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -298,6 +300,7 @@ export function OperationPanel({
     feedbackMessage = null,
 }: OperationPanelProps) {
     const { theme } = useAppTheme();
+    const { user } = useAuth();
     const styles = useMemo(() => createStyles(theme), [theme]);
     const [showChecklistModal, setShowChecklistModal] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -381,6 +384,26 @@ export function OperationPanel({
                             {isExpanded ? (
                                 <>
                                     <Text style={styles.helperText}>Aqui marcas el avance real. La tarjeta del chat queda como respaldo y coordinacion.</Text>
+
+                                    {Array.isArray(activeCommitment.agreement_responses) && activeCommitment.agreement_responses.length > 0 ? (
+                                        <View style={styles.participantsSection}>
+                                            <Text style={styles.participantsTitle}>Personas involucradas</Text>
+                                            {activeCommitment.agreement_responses.map((response: any) => (
+                                                <View key={response.participant_user_id} style={styles.participantRow}>
+                                                    <Text style={styles.participantName}>
+                                                        {getAgreementParticipantName(response, user?.id)}
+                                                    </Text>
+                                                    <Text style={[
+                                                        styles.participantStatus,
+                                                        response.status === 'rejected' && styles.participantStatusRejected,
+                                                        response.status === 'pending' && styles.participantStatusPending,
+                                                    ]}>
+                                                        {getAgreementResponseLabel(response.status)}
+                                                    </Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    ) : null}
 
                                     <View style={styles.actionsRow}>
                                         <TouchableOpacity
@@ -578,6 +601,43 @@ const createStyles = (theme: any) => StyleSheet.create({
     statePillText: {
         fontSize: 12,
         fontWeight: '700',
+    },
+    participantsSection: {
+        gap: 6,
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.separator,
+    },
+    participantsTitle: {
+        fontSize: 11,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        color: theme.colors.text.muted,
+    },
+    participantRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+    },
+    participantName: {
+        flex: 1,
+        fontSize: 12,
+        fontWeight: '700',
+        color: theme.colors.text.primary,
+    },
+    participantStatus: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#166534',
+    },
+    participantStatusRejected: {
+        color: '#991b1b',
+    },
+    participantStatusPending: {
+        color: '#92400e',
     },
     actionsRow: {
         flexDirection: 'row',

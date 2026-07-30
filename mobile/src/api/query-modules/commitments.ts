@@ -43,7 +43,13 @@ export const useCommitments = (status?: string) => {
         queryKey: ['commitments', status],
         queryFn: async () => {
             const endpoint = status ? `/commitments?status=${status}` : '/commitments';
-            return apiClient.get(endpoint);
+            const [commitments, proposals] = await Promise.all([
+                apiClient.get(endpoint),
+                status && status !== 'proposed'
+                    ? Promise.resolve([])
+                    : apiClient.get('/commitment-proposals'),
+            ]);
+            return [...(commitments || []), ...(proposals || [])];
         }
     });
 };
@@ -59,6 +65,51 @@ export const useCreateCommitment = () => {
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        },
+    });
+};
+
+export const useCreateSharedCommitmentProposal = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: any) => apiClient.post('/commitment-proposals/shared', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        },
+    });
+};
+
+export const useRespondToCommitmentProposal = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({
+            id,
+            decision,
+            reason,
+            proposedDueAt,
+        }: {
+            id: string;
+            decision: 'approve' | 'reject' | 'counter_propose';
+            reason?: string | null;
+            proposedDueAt?: string | null;
+        }) => apiClient.post(`/commitment-proposals/${id}/respond`, {
+            decision,
+            reason: reason?.trim() || null,
+            proposedDueAt: proposedDueAt || null,
+        }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
         },
     });
 };
@@ -281,6 +332,14 @@ export const useConversationGroupTasks = (conversationId: string | null) => {
                 queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['commitments'] });
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'commitment_proposals', filter: `conversation_id=eq.${conversationId}` }, () => {
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'commitment_proposal_responses' }, () => {
+                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [conversationId, queryClient]);
@@ -289,7 +348,11 @@ export const useConversationGroupTasks = (conversationId: string | null) => {
         queryKey: ['group-tasks-conv', conversationId, user?.id],
         queryFn: async () => {
             if (!conversationId) return [];
-            return apiClient.get(`/commitments?conversationId=${conversationId}`);
+            const [commitments, proposals] = await Promise.all([
+                apiClient.get(`/commitments?conversationId=${conversationId}`),
+                apiClient.get(`/commitment-proposals?conversationId=${conversationId}`),
+            ]);
+            return [...(commitments || []), ...(proposals || [])];
         },
         enabled: !!conversationId,
     });

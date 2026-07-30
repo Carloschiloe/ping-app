@@ -15,6 +15,7 @@ import {
 import { recordCommitmentEvent } from '../utils/commitmentEvents';
 import { readLegacyConversationId, readLegacyAssignedToUserId, readLegacyDueAt } from '../utils/commitmentCompat';
 export { createConfirmedCommitment as createCommitment } from './commitmentProposal.service';
+import { attachAgreementResponses } from './commitmentProposal.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -698,7 +699,7 @@ export const getCommitments = async (userId: string, status?: string, conversati
 
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return attachAgreementResponses(data || []);
 };
 
 export const deleteCommitment = async (userId: string, id: string) => {

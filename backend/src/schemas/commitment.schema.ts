@@ -69,6 +69,23 @@ export const proposalDecisionSchema = z.object({
     }),
 });
 
+export const sharedProposalResponseSchema = z.object({
+    params: z.object({ id: z.string().uuid() }),
+    body: z.object({
+        decision: z.enum(['approve', 'reject', 'counter_propose']),
+        reason: z.string().trim().min(1).max(500).optional().nullable(),
+        proposedDueAt: isoDate().optional().nullable(),
+    }).superRefine((body, ctx) => {
+        if (body.decision === 'counter_propose' && !body.proposedDueAt) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'proposedDueAt is required for a counterproposal',
+                path: ['proposedDueAt'],
+            });
+        }
+    }),
+});
+
 export const resolveCommitmentSchema = z.object({
     params: z.object({ id: z.string().uuid() }),
     body: z.object({

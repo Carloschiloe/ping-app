@@ -71,4 +71,63 @@ describe('canonical Commitment proposals', () => {
         })).rejects.toThrow('Message not found in this conversation');
         expect(mock.getInsertCalls('commitment_proposals')).toHaveLength(0);
     });
+
+    it('creates a shared agreement through the atomic response-snapshot RPC', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{
+                data: { conversation_id: 'conversation-1', role: 'member' },
+                error: null,
+            }],
+            'rpc:create_shared_commitment_proposal_with_responses': [{
+                data: { id: PROPOSAL, status: 'pending', agreement_version: 1 },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { createSharedProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await createSharedProposal(USER, {
+            title: 'Revisar contrato',
+            conversation_id: 'conversation-1',
+            due_at: '2026-08-05T13:00:00.000Z',
+        });
+
+        expect(result).toMatchObject({ id: PROPOSAL, status: 'pending' });
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'create_shared_commitment_proposal_with_responses',
+            args: {
+                p_actor_user_id: USER,
+                p_proposal: expect.objectContaining({
+                    conversation_id: 'conversation-1',
+                    title: 'Revisar contrato',
+                }),
+            },
+        }]);
+    });
+
+    it('records participant decisions through the guarded agreement RPC', async () => {
+        const mock = createSupabaseAdminMock({
+            'rpc:respond_to_commitment_proposal': [{
+                data: { proposal_id: PROPOSAL, decision: 'counter_propose', finalized: false },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { respondToSharedProposal } = await import('../src/services/commitmentProposal.service');
+        await respondToSharedProposal(USER, PROPOSAL, 'counter_propose', {
+            proposedDueAt: '2026-08-05T16:00:00.000Z',
+        });
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'respond_to_commitment_proposal',
+            args: {
+                p_proposal_id: PROPOSAL,
+                p_actor_user_id: USER,
+                p_decision: 'counter_propose',
+                p_reason: null,
+                p_proposed_due_at: '2026-08-05T16:00:00.000Z',
+            },
+        }]);
+    });
 });

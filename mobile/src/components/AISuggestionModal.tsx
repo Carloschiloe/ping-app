@@ -18,6 +18,7 @@ interface AISuggestionModalProps {
     onUpdateData: (data: any) => void;
     avatarColor: (str: string) => string;
     isEditing?: boolean;
+    isCounterProposal?: boolean;
     onCancel?: (reason?: string) => Promise<void> | void;
     isCancelling?: boolean;
 }
@@ -33,6 +34,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     onUpdateData,
     avatarColor,
     isEditing,
+    isCounterProposal = false,
     onCancel,
     isCancelling = false,
 }) => {
@@ -161,7 +163,11 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 <View style={styles.suggestionModal}>
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>
-                            {isEditing ? `✏️ Editar ${typeLabel}` : 'Agendar'}
+                            {isCounterProposal
+                                ? 'Sugerir otro horario'
+                                : isEditing
+                                    ? `✏️ Editar ${typeLabel}`
+                                    : 'Agendar'}
                         </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
                             <Ionicons name="close" size={24} color="#6b7280" />
@@ -174,13 +180,17 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         showsVerticalScrollIndicator={false}
                     >
                         <View style={styles.modalBody}>
-                            <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={suggestionData.title}
-                                onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
-                                placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
-                            />
+                            {!isCounterProposal && (
+                                <>
+                                    <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
+                                    <TextInput
+                                        style={styles.modalInput}
+                                        value={suggestionData.title}
+                                        onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
+                                        placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
+                                    />
+                                </>
+                            )}
 
                             <Text style={styles.inputLabel}>FECHA Y HORA (Toca para cambiar)</Text>
                             <TouchableOpacity 
@@ -239,6 +249,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 )}
                             </View>
 
+                            {!isCounterProposal && (
+                            <>
                             <Text style={styles.inputLabel}>RESPONSABLE</Text>
                             <View style={styles.assigneeSelectorContainer}>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeList}>
@@ -314,19 +326,21 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 <Ionicons name="checkmark-circle" size={16} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
                                 <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
                             </View>
+                            </>
+                            )}
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (isGroup
+                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (!isCounterProposal && isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId && { opacity: 0.5 })
-                                : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
+                                : (!isCounterProposal && !suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
                             onPress={onConfirm}
-                            disabled={isGroup
+                            disabled={!isCounterProposal && (isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId)
-                                : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId)}
+                                : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId))}
                         >
                             <Text style={styles.acceptBtnText}>
-                                {isEditing ? 'Guardar cambios' : 'Agendar'}
+                                {isCounterProposal ? 'Enviar nuevo horario' : isEditing ? 'Guardar cambios' : 'Agendar'}
                             </Text>
                         </TouchableOpacity>
 

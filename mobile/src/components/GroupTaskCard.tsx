@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Modal, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -12,11 +12,17 @@ import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
     useResolveCommitment, useReopenCommitment, useMarkActionCompleted,
-    useContacts, useCancelCommitment,
+    useContacts, useCancelCommitment, useRespondToCommitmentProposal,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getWaitingLabel, isActionCompletedPendingResolution as computeActionCompletedPendingResolution, resolveConversationId, getRejectionReason, getStatusLabel } from '../utils/commitmentDisplay';
+import {
+    getAgreementParticipantName,
+    getAgreementResponseLabel,
+    getAgreementSummary,
+    type AgreementResponse,
+} from '../utils/agreement';
 
 interface GroupTaskCardProps {
     commitment: any;
@@ -52,6 +58,7 @@ export default function GroupTaskCard({
     const { mutate: reject } = useRejectCommitment();
     const { mutateAsync: cancelCommitment, isPending: isCancelling } = useCancelCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
+    const { mutateAsync: respondToProposal, isPending: isRespondingToProposal } = useRespondToCommitmentProposal();
     const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const { data: myContacts } = useContacts();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -66,6 +73,15 @@ export default function GroupTaskCard({
     const isEveryone = !commitment.assigned_to_user_id;
     // You are an assignee if it's assigned to you specifically, or if it's for everyone and you're not the owner
     const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
+    const isAgreementProposal = commitment._isAgreementProposal === true;
+    const agreementResponses: AgreementResponse[] = Array.isArray(commitment.agreement_responses)
+        ? commitment.agreement_responses
+        : [];
+    const currentAgreementResponse = agreementResponses.find(
+        (response) => response.participant_user_id?.toLowerCase() === currentUserId
+    );
+    const agreementSummary = getAgreementSummary(agreementResponses);
+    const canRespondToAgreement = isAgreementProposal && currentAgreementResponse?.status === 'pending';
 
     const status = normalizeCommitmentStatus(commitment.status);
     // V2: 'completed' ya no es un estado (ver utils/commitmentStatus.ts). Lo
@@ -82,6 +98,13 @@ export default function GroupTaskCard({
     const isActionCompletedPendingResolution = computeActionCompletedPendingResolution(commitment);
     const waitingLabel = getWaitingLabel(commitment, user?.id, myContacts || [], groupParticipants);
     const isWaitingOnMe = waitingLabel === 'Te corresponde actuar';
+    const agreementWaitingLabel = isAgreementProposal
+        ? (canRespondToAgreement
+            ? 'Te corresponde responder'
+            : agreementSummary.pending > 0
+                ? `Esperando ${agreementSummary.pending} respuesta${agreementSummary.pending === 1 ? '' : 's'}`
+                : agreementSummary.label)
+        : null;
 
     const requesterName = commitment.owner?.full_name || (isOwner ? 'Tú' : 'Alguien');
     const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id
@@ -89,7 +112,9 @@ export default function GroupTaskCard({
         : (currentUserId === assignedId ? 'Tú' : (commitment.assignee?.full_name || 'Alguien'));
 
     const responsibilityLabel = `Responsable: ${assigneeName}`;
-    const requesterLabel = isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`;
+    const requesterLabel = isAgreementProposal
+        ? (isOwner ? 'Propuesta por ti' : `Propone: ${requesterName}`)
+        : (isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`);
 
     const dueDateStr = commitment.due_at
         ? format(new Date(commitment.due_at), "dd MMM · HH:mm", { locale: es }).replace('.', '')
@@ -116,6 +141,12 @@ export default function GroupTaskCard({
     const formatDetailDate = (iso?: string | null) => {
         if (!iso) return 'Sin fecha';
         return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
+    };
+    const getAgreementResponseColors = (responseStatus: string) => {
+        if (responseStatus === 'approved') return { color: '#166534', backgroundColor: '#dcfce7' };
+        if (responseStatus === 'rejected') return { color: '#991b1b', backgroundColor: '#fee2e2' };
+        if (responseStatus === 'counter_proposed') return { color: '#3730a3', backgroundColor: '#e0e7ff' };
+        return { color: '#92400e', backgroundColor: '#fef3c7' };
     };
 
     // Parte 10: "accion realizada" y "resolver" son acciones separadas.
@@ -175,12 +206,41 @@ export default function GroupTaskCard({
         reopenCommitment(commitment.id);
     };
 
-    const handleAccept = () => {
+    const handleAccept = async () => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (isAgreementProposal) {
+            try {
+                await respondToProposal({ id: commitment.id, decision: 'approve' });
+            } catch {
+                Alert.alert('No se pudo aprobar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+            }
+            return;
+        }
         accept(commitment.id);
     };
 
     const handleReject = () => {
+        if (isAgreementProposal) {
+            Alert.alert(
+                `Rechazar ${typeLabel}`,
+                'El compromiso no se creará y se conservará el rechazo en el acuerdo.',
+                [
+                    { text: 'Volver', style: 'cancel' },
+                    {
+                        text: 'Rechazar',
+                        style: 'destructive',
+                        onPress: async () => {
+                            try {
+                                await respondToProposal({ id: commitment.id, decision: 'reject' });
+                            } catch {
+                                Alert.alert('No se pudo rechazar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+                            }
+                        },
+                    },
+                ]
+            );
+            return;
+        }
         Alert.prompt(
             `Rechazar ${typeLabel}`,
             'Indica el motivo del rechazo:',
@@ -226,6 +286,17 @@ export default function GroupTaskCard({
         if (!editData) return;
         try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            if (isAgreementProposal) {
+                await respondToProposal({
+                    id: commitment.id,
+                    decision: 'counter_propose',
+                    proposedDueAt: editData.dueAt,
+                });
+                setShowEditModal(false);
+                setEditData(null);
+                return;
+            }
             
             // Map camelCase to snake_case for API
             const payload = {
@@ -280,6 +351,15 @@ export default function GroupTaskCard({
 
     const getStatusInfo = () => {
         const isDark = theme.isDark;
+        if (isAgreementProposal) {
+            if (agreementSummary.rejected > 0) {
+                return { label: 'Rechazado', color: isDark ? '#fca5a5' : '#991b1b', bg: isDark ? '#3b1d1d' : '#fee2e2' };
+            }
+            if (agreementSummary.counterProposed > 0 && agreementSummary.pending > 0) {
+                return { label: 'Nuevo horario', color: isDark ? '#c4b5fd' : '#3730a3', bg: isDark ? '#2b2141' : '#e0e7ff' };
+            }
+            return { label: agreementSummary.label, color: isDark ? '#fcd34d' : '#92400e', bg: isDark ? '#3b2a15' : '#fef3c7' };
+        }
         const label = getStatusLabel(status);
         if (isDone) return { label, color: isDark ? '#86efac' : '#166534', bg: isDark ? '#1f3a2b' : '#dcfce7' };
         if (isCancelled) return { label, color: isDark ? '#cbd5e1' : '#475569', bg: isDark ? '#233044' : '#e2e8f0' };
@@ -357,7 +437,7 @@ export default function GroupTaskCard({
                         {!isCompactOperationCard && (
                         <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}> 
                             <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
-                                {statusInfo.label.split(' ')[1] || statusInfo.label}
+                                {statusInfo.label}
                             </Text>
                         </View>
                         )}
@@ -374,9 +454,9 @@ export default function GroupTaskCard({
                     </Text>
                 )}
 
-                {!isDone && !isRejected && !isCancelled && waitingLabel && (
+                {!isDone && !isRejected && !isCancelled && (agreementWaitingLabel || waitingLabel) && (
                     <Text style={[styles.operationHint, theme.isDark && { color: theme.colors.text.secondary }]}>
-                        {isWaitingOnMe ? '👉 ' : '⏳ '}{waitingLabel}
+                        {(canRespondToAgreement || isWaitingOnMe) ? '👉 ' : '⏳ '}{agreementWaitingLabel || waitingLabel}
                     </Text>
                 )}
 
@@ -415,17 +495,20 @@ export default function GroupTaskCard({
                         <View style={[styles.actionMenu, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}>
                             <Text style={[styles.actionMenuTitle, theme.isDark && { color: theme.colors.text.primary }]}>{commitment.title}</Text>
 
-                        {isAssignee && (isProposed || isCounter) && (
+                        {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && isAssignee && (isProposed || isCounter))) && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleAccept(); }}
+                                disabled={isRespondingToProposal}
                             >
                                 <Ionicons name={isMeeting ? "calendar" : "checkmark-circle"} size={24} color="#22c55e" />
-                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Aceptar {typeLabel}</Text>
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>
+                                    {isAgreementProposal ? 'Aprobar propuesta' : `Aceptar ${typeLabel}`}
+                                </Text>
                             </TouchableOpacity>
                         )}
 
-                        {(isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !commitment.action_completed_at && !isOperationMode && (
+                        {!isAgreementProposal && (isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !commitment.action_completed_at && !isOperationMode && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleActionCompleted(); }}
@@ -436,7 +519,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {(isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !isProposed && !isOperationMode && (
+                        {!isAgreementProposal && (isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !isProposed && !isOperationMode && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleResolve(); }}
@@ -447,7 +530,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isOwner && !isDone && !isRejected && !isCancelled && (
+                        {!isAgreementProposal && isOwner && !isDone && !isRejected && !isCancelled && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleCancel(); }}
@@ -457,7 +540,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isReopenable && (isOwner || isAssignee) && (
+                        {!isAgreementProposal && isReopenable && (isOwner || isAssignee) && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleReopen(); }}
@@ -467,7 +550,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {isOwner && !isDone && !isRejected && !isCancelled && (
+                        {!isAgreementProposal && isOwner && !isDone && !isRejected && !isCancelled && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handleEdit(); }}
@@ -477,27 +560,30 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {(isOwner || isAssignee) && !isMeeting && (isProposed || isCounter || isAccepted) && (
+                        {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && (isOwner || isAssignee) && !isMeeting && (isProposed || isCounter || isAccepted))) && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handlePostpone(); }}
                             >
                                 <Ionicons name="time" size={24} color="#6366f1" />
-                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>Contraproponer fecha</Text>
+                                <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>
+                                    {isAgreementProposal ? 'Sugerir otro horario' : 'Contraproponer fecha'}
+                                </Text>
                             </TouchableOpacity>
                         )}
 
-                        {isAssignee && (isProposed || isCounter) && (
+                        {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && isAssignee && (isProposed || isCounter))) && (
                             <TouchableOpacity
                                 style={styles.menuItem}
                                 onPress={() => { setShowActions(false); handleReject(); }}
+                                disabled={isRespondingToProposal}
                             >
                                 <Ionicons name="close-circle" size={24} color="#ef4444" />
                                 <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Rechazar</Text>
                             </TouchableOpacity>
                         )}
 
-                        {isOperationMode && !isRejected && !isDone && canSetOperationFocus && isAccepted && (
+                        {!isAgreementProposal && isOperationMode && !isRejected && !isDone && canSetOperationFocus && isAccepted && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: theme.colors.separator }]}
                                 onPress={() => {
@@ -526,7 +612,8 @@ export default function GroupTaskCard({
                 <View style={{ position: 'absolute' }}>
                     <AISuggestionModal
                         visible={showEditModal}
-                        isEditing={true}
+                        isEditing={!isAgreementProposal}
+                        isCounterProposal={isAgreementProposal}
                         suggestionData={editData}
                         user={user}
                         isGroup={true}
@@ -547,7 +634,7 @@ export default function GroupTaskCard({
                         onUpdateData={setEditData}
                         onConfirm={onConfirmEdit}
                         isCancelling={isCancelling}
-                        onCancel={async (reason?: string) => {
+                        onCancel={isAgreementProposal ? undefined : async (reason?: string) => {
                             try {
                                 await cancelCommitment({ id: commitment.id, reason });
                                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -572,7 +659,8 @@ export default function GroupTaskCard({
             )}
             <Modal visible={showDetails} transparent animationType="slide" onRequestClose={() => setShowDetails(false)}>
                 <Pressable style={styles.detailOverlay} onPress={() => setShowDetails(false)} />
-                <View style={[styles.detailSheet, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}> 
+                <View style={[styles.detailSheet, theme.isDark && { backgroundColor: theme.colors.surfaceElevated }]}>
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
                     <View style={styles.detailHeader}>
                         <Text style={[styles.detailTitle, theme.isDark && { color: theme.colors.text.primary }]} numberOfLines={2}>{commitment.title}</Text>
                         <TouchableOpacity onPress={() => setShowDetails(false)}>
@@ -584,7 +672,7 @@ export default function GroupTaskCard({
                         <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Estado</Text>
                         <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
                             <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
-                                {statusInfo.label.split(' ')[1] || statusInfo.label}
+                                {statusInfo.label}
                             </Text>
                         </View>
                     </View>
@@ -602,6 +690,49 @@ export default function GroupTaskCard({
                         <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>Fecha</Text>
                         <Text style={[styles.detailValue, theme.isDark && { color: theme.colors.text.primary }]}>{dueDateFull || 'Sin fecha'}</Text>
                     </View>
+
+                    {agreementResponses.length > 0 && (
+                        <View style={styles.agreementSection}>
+                            <Text style={[styles.detailLabel, theme.isDark && { color: theme.colors.text.muted }]}>
+                                Personas involucradas
+                            </Text>
+                            {agreementResponses.map((response) => {
+                                const responseColors = getAgreementResponseColors(response.status);
+                                return (
+                                    <View key={response.participant_user_id} style={styles.agreementParticipantRow}>
+                                        <View style={styles.agreementParticipantInfo}>
+                                            <Ionicons
+                                                name={response.status === 'approved'
+                                                    ? 'checkmark-circle'
+                                                    : response.status === 'rejected'
+                                                        ? 'close-circle'
+                                                        : response.status === 'counter_proposed'
+                                                            ? 'time'
+                                                            : 'hourglass-outline'}
+                                                size={18}
+                                                color={responseColors.color}
+                                            />
+                                            <View style={styles.agreementParticipantCopy}>
+                                                <Text style={[styles.agreementParticipantName, theme.isDark && { color: theme.colors.text.primary }]}>
+                                                    {getAgreementParticipantName(response, user?.id)}
+                                                </Text>
+                                                {response.status === 'counter_proposed' && response.proposed_due_at && (
+                                                    <Text style={[styles.agreementParticipantDate, theme.isDark && { color: theme.colors.text.muted }]}>
+                                                        {formatDetailDate(response.proposed_due_at)}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </View>
+                                        <View style={[styles.agreementResponseBadge, { backgroundColor: responseColors.backgroundColor }]}>
+                                            <Text style={[styles.agreementResponseBadgeText, { color: responseColors.color }]}>
+                                                {getAgreementResponseLabel(response.status)}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    )}
 
                     {isCounter && commitment.proposed_due_at && (
                         <View style={styles.detailRow}>
@@ -678,6 +809,7 @@ export default function GroupTaskCard({
                             <Text style={styles.viewConversationBtnText}>Ver conversación</Text>
                         </TouchableOpacity>
                     )}
+                    </ScrollView>
                 </View>
             </Modal>
         </TouchableOpacity>
@@ -892,12 +1024,16 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.3)',
     },
     detailSheet: {
+        maxHeight: '82%',
         padding: 16,
         borderTopLeftRadius: 18,
         borderTopRightRadius: 18,
         backgroundColor: 'white',
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
+    },
+    detailContent: {
+        paddingBottom: 8,
     },
     detailHeader: {
         flexDirection: 'row',
@@ -933,6 +1069,47 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: '#0f172a',
+    },
+    agreementSection: {
+        marginBottom: 12,
+        gap: 8,
+    },
+    agreementParticipantRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        paddingVertical: 5,
+    },
+    agreementParticipantInfo: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    agreementParticipantCopy: {
+        flex: 1,
+    },
+    agreementParticipantName: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    agreementParticipantDate: {
+        marginTop: 2,
+        fontSize: 11,
+        color: '#64748b',
+    },
+    agreementResponseBadge: {
+        maxWidth: '48%',
+        borderRadius: 999,
+        paddingHorizontal: 9,
+        paddingVertical: 4,
+    },
+    agreementResponseBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        textAlign: 'center',
     },
     viewConversationBtn: {
         flexDirection: 'row',

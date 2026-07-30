@@ -31,7 +31,11 @@ export default function TaskDashboardScreen() {
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
         queryFn: async () => {
-            return apiClient.get('/commitments');
+            const [confirmed, proposals] = await Promise.all([
+                apiClient.get('/commitments'),
+                apiClient.get('/commitment-proposals'),
+            ]);
+            return [...(confirmed || []), ...(proposals || [])];
         }
     });
 
@@ -67,6 +71,12 @@ export default function TaskDashboardScreen() {
             if (c.owner && c.owner.id !== user?.id) {
                 membersMap.set(c.owner.id, c.owner);
             }
+            (c.agreement_responses || []).forEach((response: any) => {
+                const participant = response.participant;
+                if (participant?.id && participant.id !== user?.id) {
+                    membersMap.set(participant.id, participant);
+                }
+            });
         });
         return Array.from(membersMap.values());
     }, [commitments, user?.id]);
@@ -78,7 +88,9 @@ export default function TaskDashboardScreen() {
             if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
 
             if (filterType === 'todo') {
-                if (c.assigned_to_user_id !== user?.id) return false;
+                const isAgreementParticipant = c._isAgreementProposal
+                    && (c.agreement_responses || []).some((response: any) => response.participant_user_id === user?.id);
+                if (c.assigned_to_user_id !== user?.id && !isAgreementParticipant) return false;
                 if (selectedUserId && c.owner_user_id !== selectedUserId) return false;
             } else {
                 const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
