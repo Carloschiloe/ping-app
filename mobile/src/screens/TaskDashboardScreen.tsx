@@ -308,7 +308,7 @@ export default function TaskDashboardScreen() {
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <View style={styles.headerTitleRow}>
-                        <Text style={styles.headerTitle}>Tablero</Text>
+                        <Text style={styles.headerTitle}>Tu día</Text>
                         <View style={styles.headerDatePill}>
                             <Ionicons name="calendar" size={14} color={theme.colors.accent} />
                             <Text style={styles.headerDateText}>{format(selectedDate, 'EEE d MMM', { locale: es })}</Text>

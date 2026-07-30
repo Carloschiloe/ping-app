@@ -168,7 +168,7 @@ export default function InsightsScreen() {
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={theme.colors.accent} />}
             >
                 <View style={styles.header}>
-                    <Text style={styles.title}>Insights</Text>
+                    <Text style={styles.title}>Compromisos</Text>
                     <TouchableOpacity onPress={() => refetch()} style={styles.refreshBtn}>
                         <Ionicons name="refresh" size={18} color={theme.colors.text.secondary} />
                     </TouchableOpacity>
