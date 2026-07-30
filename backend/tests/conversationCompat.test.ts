@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toLegacyIsGroup, toLegacyArchived } from '../src/utils/conversationCompat';
+import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../src/utils/conversationCompat';
 
 describe('toLegacyIsGroup', () => {
     it('conversation_type "group" se devuelve como is_group=true', () => {
@@ -27,5 +27,16 @@ describe('toLegacyArchived', () => {
 
     it('archived_at undefined se transforma en archived=false', () => {
         expect(toLegacyArchived(undefined)).toBe(false);
+    });
+});
+
+describe('toLegacyIsSelf', () => {
+    it('identifica una conversación directa con un único participante', () => {
+        expect(toLegacyIsSelf('direct', 1)).toBe(true);
+    });
+
+    it('no confunde un chat directo compartido ni un grupo con Para mí', () => {
+        expect(toLegacyIsSelf('direct', 2)).toBe(false);
+        expect(toLegacyIsSelf('group', 1)).toBe(false);
     });
 });

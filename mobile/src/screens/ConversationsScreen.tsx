@@ -225,7 +225,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 isOnline={isOnline}
                 styles={styles}
                 theme={theme}
-                onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
+                onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, isSelf: item.isSelf, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
             />
         </Swipeable>
     ), [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
@@ -330,7 +330,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                     </TouchableOpacity>
                                     {showQuickActions && (
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsContent}>
-                                            <QuickAction styles={styles} label="Notas" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
+                                            <QuickAction styles={styles} label="Para mí" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
                                             <QuickAction styles={styles} label="AI" emoji="🤖" bg={theme.isDark ? '#173320' : '#f0fdf4'} onPress={() => navigation.navigate('PingAI')} />
                                             <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
                                             <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />

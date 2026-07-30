@@ -210,7 +210,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         navigation.setOptions({
             headerTitle: () => (
                 <ChatHeader
-                    chatTitle={isSelf ? 'Mi Espacio' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
+                    chatTitle={isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
                     avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
                     isGroup={!!isGroup}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}

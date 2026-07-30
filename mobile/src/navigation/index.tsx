@@ -46,7 +46,7 @@ const ConversationsStack = () => {
             name="Chat"
             component={ChatScreen}
             options={({ route }: any) => ({
-                title: route.params?.isSelf ? '📌 Mis Recordatorios' : (route.params?.otherUser?.full_name || route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
+                title: route.params?.isSelf ? 'Para mí' : (route.params?.otherUser?.full_name || route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
                 headerBackTitle: '',
                 headerStyle: stackHeaderStyle,
                 headerTintColor: stackTintColor,

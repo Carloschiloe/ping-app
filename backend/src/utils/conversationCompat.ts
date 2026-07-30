@@ -15,6 +15,13 @@ export function toLegacyIsGroup(conversationType: string | null | undefined): bo
     return conversationType === 'group';
 }
 
+export function toLegacyIsSelf(
+    conversationType: string | null | undefined,
+    participantCount: number
+): boolean {
+    return conversationType === 'direct' && participantCount === 1;
+}
+
 export function toLegacyArchived(archivedAt: string | null | undefined): boolean {
     return archivedAt !== null && archivedAt !== undefined;
 }

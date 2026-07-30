@@ -109,7 +109,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </TouchableOpacity>
                 <TextInput
                     style={styles.input}
-                    placeholder={isSelf ? 'Escribe un recordatorio...' : 'Escribe un mensaje...'}
+                    placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
                     placeholderTextColor={theme.colors.text.muted}
                     value={text}
                     onChangeText={onTextChange}

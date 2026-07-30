@@ -12,3 +12,13 @@ export function deriveIsGroup(input: { conversation_type?: string | null; isGrou
 export function deriveIsDirect(input: { conversation_type?: string | null; isGroup?: boolean }): boolean {
     return !deriveIsGroup(input);
 }
+
+export function deriveIsSelf(input: {
+    conversation_type?: string | null;
+    isGroup?: boolean;
+    isSelf?: boolean;
+    otherUser?: unknown;
+}): boolean {
+    if (typeof input.isSelf === 'boolean') return input.isSelf;
+    return deriveIsDirect(input) && !input.otherUser;
+}

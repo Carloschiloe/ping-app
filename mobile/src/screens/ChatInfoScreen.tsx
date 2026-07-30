@@ -46,8 +46,8 @@ export default function ChatInfoScreen() {
     let initials = '?';
 
     if (isSelf) {
-        name = 'Mis Recordatorios';
-        initials = user?.email?.substring(0, 2).toUpperCase() || 'YO';
+        name = 'Para mí';
+        initials = 'PM';
     } else if (isGroup) {
         name = currentConv?.groupMetadata?.name || groupMetadata?.name || 'Grupo Empresarial';
         avatarUrlStr = currentConv?.groupMetadata?.avatar_url || groupMetadata?.avatar_url;

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { deriveIsGroup } from '../utils/conversationCompat';
+import { deriveIsGroup, deriveIsSelf } from '../utils/conversationCompat';
 import { resolveMessageMetadata } from '../utils/messageCompat';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
@@ -31,6 +31,7 @@ type ConversationRowProps = {
 
 export function ConversationRow({ item, userId, typingUsers, onPress, formatTime, isOnline, styles, theme }: ConversationRowProps) {
     const isGroup = deriveIsGroup(item);
+    const isSelf = deriveIsSelf(item);
     const otherUser = item.otherUser;
     const groupMeta = item.groupMetadata;
     const lastMsg = item.lastMessage;
@@ -49,7 +50,11 @@ export function ConversationRow({ item, userId, typingUsers, onPress, formatTime
     let avatarUrl: string | null = null;
     let online = false;
 
-    if (isGroup && groupMeta) {
+    if (isSelf) {
+        displayName = 'Para mí';
+        initials = 'PM';
+        colorStr = 'para-mi';
+    } else if (isGroup && groupMeta) {
         displayName = groupMeta.name;
         colorStr = groupMeta.name;
         avatarUrl = groupMeta.avatar_url;

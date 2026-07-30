@@ -13,7 +13,7 @@ import {
     verifyConversationInvitation,
 } from '../utils/conversationInvitation';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
-import { toLegacyIsGroup, toLegacyArchived } from '../utils/conversationCompat';
+import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
 
 // POST /conversations — create or find existing 1-on-1 conversation
@@ -213,6 +213,10 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         const conversations = conversationIds.map(id => {
             const conv = convMap[id];
             const isGroup = toLegacyIsGroup(conv?.conversation_type);
+            const isSelf = toLegacyIsSelf(
+                conv?.conversation_type,
+                participantMap[id]?.length || 0
+            );
             let otherUser = null;
             let groupMetadata = null;
 
@@ -231,6 +235,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             return {
                 id,
                 isGroup,
+                isSelf,
                 // mode/pinnedMessageId/activeCommitmentId: modulo Operacion,
                 // postergado — defaults seguros hasta esa fase de adaptacion.
                 mode: 'chat',
