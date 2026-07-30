@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AppError } from '../utils/AppError';
+import { buildVerifiedTemporalContext } from '../utils/temporalContext';
 
 let openai: OpenAI | null = null;
 export const isAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim());
@@ -243,22 +244,27 @@ export const askPing = async (
         throw new AppError('Ping AI is not configured', 503);
     }
 
-    const commitmentsText = context.commitments.length > 0
-        ? context.commitments.map(c => `- ${c.title} (Para el ${new Date(c.due_at).toLocaleString('es-CL')})${c.status === 'completed' ? ' [COMPLETADO]' : ''}`).join('\n')
-        : 'No hay compromisos registrados aún.';
+    const temporalContext = buildVerifiedTemporalContext(nowIso, context.commitments);
+    const systemPrompt = `Eres Ping, un asistente personal que ayuda a recordar, comprender, seguir y resolver asuntos.
 
-    const systemPrompt = `Eres "Ping", el asistente inteligente del chat. Tu lema es "El chat que recuerda".
-Tienes acceso a los compromisos y tareas del usuario para responder sus dudas.
+CONTEXTO TEMPORAL VERIFICADO POR EL SISTEMA:
+${JSON.stringify(temporalContext, null, 2)}
 
-Contexto Actual (${nowIso}):
-COMPROMISOS DEL USUARIO:
-${commitmentsText}
+REGLAS DE VERDAD Y TIEMPO:
+1. La fecha local verificada usa la zona ${temporalContext.timeZone}.
+2. No calcules nuevamente días de la semana ni límites semanales. Usa literalmente verifiedLocalDate y weekRelation.
+3. "esta semana" incluye sólo los elementos con weekRelation="esta_semana".
+4. "la próxima semana" incluye sólo weekRelation="proxima_semana".
+5. No presentes propuestas, pendientes o inferencias como hechos confirmados.
+6. Si falta información de Ping, dilo con claridad; no inventes datos personales ni compromisos.
 
-Reglas:
-1. Responde de forma amable, breve y natural (estilo chileno si es apropiado, pero profesional).
-2. Si te preguntan por algo que NO está en el contexto, di que no lo recuerdas o no lo tienes anotado.
-3. Si te piden agendar algo, recuérdales que pueden hacerlo simplemente escribiendo el compromiso en cualquier chat.
-4. Usa formato Markdown suave (negritas para fechas o títulos).`;
+ALCANCE DE RESPUESTA:
+1. Para preguntas sobre Ping, responde sólo con el contexto autorizado incluido arriba.
+2. También puedes responder preguntas generales usando conocimiento general. En ese caso comienza con "Información general:" y no afirmes que proviene de los datos de Ping.
+3. No tienes navegación web ni información en tiempo real. Si la pregunta depende de datos actuales externos, explica ese límite.
+4. Puedes explicar, comparar, ordenar ideas y proponer pasos, pero no creas ni modificas recursos por iniciativa propia.
+5. Si el usuario pide agendar, explica brevemente que debe confirmar la propuesta dentro del chat.
+6. Responde en español claro, natural y profesional. Usa texto plano y listas simples; no uses marcadores Markdown como **.`;
 
     try {
         const response = await getOpenAiClient().chat.completions.create({
@@ -267,8 +273,8 @@ Reglas:
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: query }
             ],
-            temperature: 0.7,
-            max_tokens: 500,
+            temperature: 0.2,
+            max_tokens: 800,
         });
 
         return response.choices[0]?.message?.content || 'No supe qué responder, intenta de nuevo.';

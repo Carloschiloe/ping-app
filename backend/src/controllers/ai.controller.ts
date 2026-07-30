@@ -43,11 +43,29 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
             }
         }
 
-        // 1. Fetch user context (Commitments)
+        // 1. Fetch every Commitment the user is authorized to participate in,
+        // not only the ones they created.
+        const { data: participations, error: participationError } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('user_id', userId);
+        if (participationError) throw participationError;
+
+        const conversationIds = Array.from(new Set(
+            (participations || []).map((row: any) => row.conversation_id).filter(Boolean)
+        ));
+        const visibilityFilters = [
+            `owner_user_id.eq.${userId}`,
+            `assigned_to_user_id.eq.${userId}`,
+        ];
+        if (conversationIds.length > 0) {
+            visibilityFilters.push(`conversation_id.in.(${conversationIds.join(',')})`);
+        }
+
         const { data: commitments, error: commError } = await supabaseAdmin
             .from('commitments')
-            .select('*')
-            .eq('owner_user_id', userId)
+            .select('id, title, status, due_at, owner_user_id, assigned_to_user_id, conversation_id')
+            .or(visibilityFilters.join(','))
             .order('due_at', { ascending: true });
 
         if (commError) throw commError;

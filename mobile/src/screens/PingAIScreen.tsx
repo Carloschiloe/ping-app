@@ -10,6 +10,7 @@ import { useAskPing, useAIHealth, useAIHistory, useClearAIHistory } from '../api
 import { Audio } from 'expo-av';
 import { uploadToSupabase } from '../lib/upload';
 import AudioPlayer from '../components/AudioPlayer';
+import { normalizeAssistantText } from '../utils/aiPresentation';
 
 export default function PingAIScreen({ navigation }: any) {
     const [text, setText] = useState('');
@@ -39,7 +40,11 @@ export default function PingAIScreen({ navigation }: any) {
 
             if (history.length === 0) {
                 setMessages([
-                    { id: 'welcome', text: '¡Hola! Soy Ping. 🤖\n\nPuedes preguntarme sobre tus compromisos, tareas pendientes o cualquier cosa que hayamos anotado.', isAi: true }
+                    {
+                        id: 'welcome',
+                        text: '¡Hola! Soy Ping.\n\nPuedo ayudarte con tus compromisos y también responder preguntas generales. Siempre distinguiré lo que está guardado en Ping de la información general.',
+                        isAi: true,
+                    }
                 ]);
             } else {
                 setMessages(history);
@@ -155,7 +160,7 @@ export default function PingAIScreen({ navigation }: any) {
                         <AudioPlayer url={audioUrl} isMe={!item.isAi} />
                     ) : (
                         <Text style={[styles.messageText, !item.isAi && { color: 'white' }]}>
-                            {item.text}
+                            {item.isAi ? normalizeAssistantText(item.text) : item.text}
                         </Text>
                     )}
                 </View>
