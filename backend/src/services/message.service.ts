@@ -10,7 +10,10 @@ import {
     assertConversationParticipantReference,
     assertMessageInConversation,
 } from '../utils/authz';
-import { buildDeterministicCommitmentSuggestion } from '../utils/deterministicCommitmentSuggestion';
+import {
+    buildDeterministicCommitmentSuggestion,
+    reconcileCommitmentSuggestion,
+} from '../utils/deterministicCommitmentSuggestion';
 import { validatePrivateFileUploadReference } from './privateFile.service';
 
 export const processUserMessage = async (
@@ -188,15 +191,10 @@ export const analyzeAndSuggestTask = async (
 
         const ai = await extractCommitment(text, timestamp, imageUrl);
 
-        const extractedSuggestion = ai.hasCommitment && ai.dueAt
-            ? {
-                title: ai.title,
-                dueAt: ai.dueAt,
-                assignedToUserId: null,
-                replyText: 'Agendar',
-                type: ai.type,
-            }
-            : deterministicSuggestion;
+        // Una fecha explícita escrita por el usuario es evidencia más fuerte
+        // que una fecha generada por IA. La IA puede mejorar el título o tipo,
+        // pero no reemplazar "próximo miércoles a las 13:00" por otro día.
+        const extractedSuggestion = reconcileCommitmentSuggestion(ai, deterministicSuggestion);
 
         if (extractedSuggestion?.title && extractedSuggestion.dueAt) {
             const dueDate = new Date(extractedSuggestion.dueAt);

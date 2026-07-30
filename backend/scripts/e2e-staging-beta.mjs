@@ -89,6 +89,21 @@ function check(name, condition, detail = undefined) {
   console.info(`[E2E] passed: ${name}`);
 }
 
+async function waitForSuggestedTask(messageId, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data, error } = await admin
+      .from('messages')
+      .select('metadata')
+      .eq('id', messageId)
+      .single();
+    if (error) throw error;
+    if (data?.metadata?.suggestedTask) return data.metadata.suggestedTask;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error('Timed out waiting for deterministic commitment suggestion');
+}
+
 async function createTemporaryUser(index) {
   console.info(`[E2E] creating temporary user ${index}`);
   const email = `${runMarker}-${index}@example.invalid`;
@@ -462,6 +477,34 @@ try {
     .eq('client_message_id', clientMessageId);
   if (messageCountError) throw messageCountError;
   check('idempotency unique row', messageCount === 1);
+
+  const weekdayMessage = await request(`/conversations/${conversationId}/messages`, {
+    token: first.token,
+    method: 'POST',
+    body: {
+      text: 'El próximo miércoles hacer supermercado a las 13:00',
+      client_message_id: randomUUID(),
+    },
+  });
+  check('explicit weekday message sent', weekdayMessage.response.status === 201);
+  const weekdayMessageId = weekdayMessage.payload.message.id;
+  resources.messages.add(weekdayMessageId);
+  const weekdaySuggestion = await waitForSuggestedTask(weekdayMessageId);
+  const weekdayParts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Santiago',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(new Date(weekdaySuggestion.dueAt))
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value]),
+  );
+  check('explicit Wednesday remains Wednesday', weekdayParts.weekday === 'Wednesday');
+  check('explicit 13:00 remains 13:00 in Santiago',
+    weekdayParts.hour === '13' && weekdayParts.minute === '00');
 
   const rejectedProposalResponse = await request('/commitment-proposals', {
     token: first.token,
