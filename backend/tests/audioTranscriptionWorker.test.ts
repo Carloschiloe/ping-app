@@ -20,6 +20,7 @@ vi.mock('../src/services/transcription.service', async (importOriginal) => ({
 }));
 
 import {
+    processNextAudioAnalysisJob,
     processNextAudioTranscriptionJob,
 } from '../src/services/audioTranscriptionWorker.service';
 import { TranscriptionProviderError } from '../src/services/transcription.service';
@@ -138,5 +139,42 @@ describe('Audio Transcription worker', () => {
             name: 'fail_audio_transcription_job',
             args: expect.objectContaining({ p_error_code: 'unsupported_mime', p_retryable: false }),
         });
+    });
+
+    it('conserva 16:00 del transcript al persistir la suggestion de audio', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-09-01T18:33:53.000Z'));
+        try {
+            const analysisJob = { ...job, status: 'completed' };
+            const db = createSupabaseAdminMock({
+                'rpc:claim_audio_transcription_analysis': [{ data: analysisJob, error: null }],
+                'rpc:get_audio_transcription_context': [{
+                    data: {
+                        ...activeContext,
+                        transcript_text: 'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
+                    },
+                    error: null,
+                }],
+                messages: [{
+                    data: { metadata: { clientTimeZone: 'America/Santiago' } },
+                    error: null,
+                }],
+                'rpc:complete_audio_transcription_analysis': [{ data: analysisJob, error: null }],
+            });
+            setSupabaseAdminMock(db);
+
+            await expect(processNextAudioAnalysisJob()).resolves.toBe(true);
+
+            expect(db.getRpcCalls().at(-1)).toEqual({
+                name: 'complete_audio_transcription_analysis',
+                args: expect.objectContaining({
+                    p_suggested_task: expect.objectContaining({
+                        dueAt: '2026-09-01T20:00:00.000Z',
+                    }),
+                }),
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

@@ -8,6 +8,25 @@ type QuotedMessageTheme = {
     };
 };
 
+type AudioMessageTheme = {
+    accent: string;
+    bubbleTextMe: string;
+    bubbleTextThem: string;
+};
+
+export function getAudioMessagePalette(
+    isOwnMessage: boolean,
+    colors: AudioMessageTheme
+) {
+    const foreground = isOwnMessage ? colors.bubbleTextMe : colors.bubbleTextThem;
+    return {
+        iconColor: isOwnMessage ? foreground : colors.accent,
+        waveColor: isOwnMessage ? foreground : colors.accent,
+        labelColor: foreground,
+        transcriptColor: foreground,
+    };
+}
+
 export function getQuotedMessagePalette(
     isOwnMessage: boolean,
     isDark: boolean,

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Audio } from 'expo-av';
 import { Alert } from 'react-native';
 import {
     PrivateMessageAttachment,
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
+import { resolveRecordingDurationMs } from '../utils/audioRecording';
 
 interface UseAudioRecorderProps {
     conversationId: string;
@@ -18,6 +19,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
     const [isRecording, setIsRecording] = useState(false);
     const [recordingUri, setRecordingUri] = useState<string | null>(null);
     const [recordingDurationMs, setRecordingDurationMs] = useState(0);
+    const recordingDurationRef = useRef(0);
 
     const startRecording = async () => {
         if (isRecording || recording) return;
@@ -35,10 +37,18 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             rec.setProgressUpdateInterval(250);
             rec.setOnRecordingStatusUpdate((recordingStatus) => {
                 if (recordingStatus.isRecording) {
-                    setRecordingDurationMs(recordingStatus.durationMillis);
+                    const observedDuration = resolveRecordingDurationMs(
+                        recordingStatus.durationMillis,
+                        recordingDurationRef.current,
+                    );
+                    if (observedDuration !== undefined) {
+                        recordingDurationRef.current = observedDuration;
+                        setRecordingDurationMs(observedDuration);
+                    }
                 }
             });
             setRecording(rec);
+            recordingDurationRef.current = 0;
             setRecordingDurationMs(0);
             setIsRecording(true);
             onRecordingStateChange?.(true);
@@ -57,7 +67,12 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
 
         try {
             const finalStatus = await recording.stopAndUnloadAsync();
-            setRecordingDurationMs(finalStatus.durationMillis);
+            const durationMs = resolveRecordingDurationMs(
+                finalStatus.durationMillis,
+                recordingDurationRef.current,
+            );
+            recordingDurationRef.current = durationMs ?? 0;
+            setRecordingDurationMs(durationMs ?? 0);
             const uri = recording.getURI();
             setRecording(null);
 
@@ -74,6 +89,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
 
     const cancelAudio = () => {
         setRecordingUri(null);
+        recordingDurationRef.current = 0;
         setRecordingDurationMs(0);
     };
 
@@ -81,15 +97,20 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
         if (!recordingUri) return;
         setSendingMedia(true);
         try {
+            const durationMs = resolveRecordingDurationMs(
+                recordingDurationRef.current,
+                recordingDurationMs,
+            );
             const attachment = await uploadPrivateMessageAttachment(
                 conversationId,
                 recordingUri,
                 'audio/m4a',
                 `audio-${Date.now()}.m4a`,
-                recordingDurationMs,
+                durationMs,
             );
             onAudioSent({ text: 'Audio', attachment });
             setRecordingUri(null);
+            recordingDurationRef.current = 0;
             setRecordingDurationMs(0);
         } catch (e) {
             console.warn('[Audio] Private upload failed', {

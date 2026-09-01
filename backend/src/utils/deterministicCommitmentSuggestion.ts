@@ -1,7 +1,7 @@
 import { parseDateFromText } from '../services/date-parser.service';
 
-const ACTION_PATTERN = /\b(agend(?:a|ar|emos?)|tarea|compromiso|record(?:ar|atorio)|reuni[oó]n|cita|llam(?:ar|emos?)|envi(?:ar|emos?)|pag(?:ar|aremos?)|compr(?:ar|aremos?)|llev(?:ar|aremos?)|busc(?:ar|aremos?)|reserv(?:ar|aremos?)|entreg(?:ar|aremos?)|present(?:ar|aremos?)|hacer|tengo que|tenemos que|hay que|debemos|quedamos|ver|veremos|vemos|junt(?:ar|amos|émonos)|ir a|iremos)\b/i;
-const MEETING_PATTERN = /\b(reuni[oó]n|cita|llamada|llamar|junta|junt(?:ar|amos|émonos)|ver|veremos|vemos|quedamos)\b/i;
+const ACTION_PATTERN = /\b(agend(?:a|ar|emos?)|tarea|compromiso|record(?:ar|atorio)|reuni[oó]n|cita|llam(?:ar|emos?)|envi(?:ar|emos?)|pag(?:ar|aremos?)|compr(?:ar|aremos?)|llev(?:ar|aremos?)|busc(?:ar|aremos?)|reserv(?:ar|aremos?)|entreg(?:ar|aremos?)|present(?:ar|aremos?)|hacer|tengo que|tenemos que|hay que|debemos|quedamos|ver|veremos|vemos|junt(?:ar(?:se|nos)?|amos|émonos)|ir a|iremos)\b/i;
+const MEETING_PATTERN = /\b(reuni[oó]n|cita|llamada|llamar|junta|junt(?:ar(?:se|nos)?|amos|émonos)|ver|veremos|vemos|quedamos)\b/i;
 
 export type DeterministicCommitmentSuggestion = {
     title: string;
@@ -33,12 +33,13 @@ function cleanTitle(text: string, dateReference: string) {
 
 export function buildDeterministicCommitmentSuggestion(
     text: string,
-    referenceDate: Date = new Date()
+    referenceDate: Date = new Date(),
+    timeZone?: string | null,
 ): DeterministicCommitmentSuggestion | null {
     const normalized = text.trim();
     if (!normalized || !ACTION_PATTERN.test(normalized)) return null;
 
-    const parsedDate = parseDateFromText(normalized, referenceDate);
+    const parsedDate = parseDateFromText(normalized, referenceDate, timeZone);
     if (!parsedDate) return null;
 
     return {

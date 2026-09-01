@@ -13,6 +13,7 @@ import { classifySendFailure, createClientMessageId, SyncResult } from '../utils
 import { apiClient, ApiError } from '../api/client';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
+import { getDeviceTimeZone } from '../utils/timeZone';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean) {
     const queryClient = useQueryClient();
@@ -109,7 +110,15 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     // Enhanced Send Message
     const sendMessage = useCallback((data: any) => {
         const clientMessageId = createClientMessageId();
-        mutateSend({ ...data, client_message_id: clientMessageId }, {
+        const dataWithTemporalContext = {
+            ...data,
+            client_message_id: clientMessageId,
+            meta: {
+                ...(data.meta || {}),
+                clientTimeZone: getDeviceTimeZone(),
+            },
+        };
+        mutateSend(dataWithTemporalContext, {
             onError: (err: any) => {
                 const errorMessage = err?.message || '';
                 const isNetworkError = 
@@ -124,7 +133,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         conversationId,
                         userId: user?.id,
                         text: data.text,
-                        meta: data.meta,
+                        meta: dataWithTemporalContext.meta,
                         replyToId: data.reply_to_id,
                         mentionedUserId: data.mentioned_user_id,
                         attachment: data.attachment,

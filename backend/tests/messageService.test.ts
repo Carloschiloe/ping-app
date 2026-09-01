@@ -97,6 +97,35 @@ describe('processUserMessage (mensaje humano)', () => {
         expect(rpcMetadata.suggestedTask.dueAt).toBeTruthy();
     });
 
+    it('persiste la hora explícita usando la zona IANA enviada por mobile', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-09-01T18:33:53.000Z'));
+        try {
+            const mock = createSupabaseAdminMock({
+                conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+                messages: [{ data: { id: 'm-zone', conversation_id: 'c1', sender_id: 'u1', content: 'Audio' }, error: null }],
+                'rpc:persist_message_with_attachment': [{ data: [{ message_id: 'm-zone', idempotent_replay: false }], error: null }],
+            });
+            setSupabaseAdminMock(mock);
+
+            const { processUserMessage } = await import('../src/services/message.service');
+            await processUserMessage(
+                'u1',
+                'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
+                'c1',
+                undefined,
+                undefined,
+                { clientTimeZone: 'America/Santiago' },
+            );
+
+            const metadata = mock.getRpcCalls()[0].args.p_metadata;
+            expect(metadata.clientTimeZone).toBe('America/Santiago');
+            expect(metadata.suggestedTask.dueAt).toBe('2026-09-01T20:00:00.000Z');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('rechaza una respuesta cuyo mensaje origen no pertenece a la conversación', async () => {
         const mock = createSupabaseAdminMock({
             conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],

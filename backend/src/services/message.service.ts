@@ -130,7 +130,8 @@ export const processUserMessage = async (
     // or type later, but never blocks the first useful UI response.
     const immediateSuggestion = buildDeterministicCommitmentSuggestion(
         processingText,
-        new Date()
+        new Date(),
+        meta.clientTimeZone,
     );
     if (immediateSuggestion && !meta.suggestedTask) {
         meta.suggestedTask = immediateSuggestion;
@@ -170,7 +171,14 @@ export const processUserMessage = async (
     }
 
     // 3. Trigger Background Analysis (Non-blocking)
-    analyzeAndSuggestTask(message.id, processingText, imageUrl, mentionedUserId, conversationId)
+    analyzeAndSuggestTask(
+        message.id,
+        processingText,
+        imageUrl,
+        mentionedUserId,
+        conversationId,
+        { timeZone: meta.clientTimeZone },
+    )
         .catch(err => console.error('[Background Analysis Error]', err));
 
     return persisted;
@@ -182,7 +190,7 @@ export const analyzeAndSuggestTask = async (
     imageUrl?: string,
     mentionedUserId?: string,
     conversationId?: string,
-    options: { persist?: boolean } = {},
+    options: { persist?: boolean; timeZone?: string | null } = {},
 ) => {
     const timestamp = new Date().toISOString();
     // Smart Triggers: detect natural language indicators for tasks or schedules
@@ -193,7 +201,11 @@ export const analyzeAndSuggestTask = async (
         'reunamos', 'vemos', 'juntamos', 'juntémonos'
     ];
     const hasKeywords = new RegExp(`\\b(${taskKeywords.join('|')})\\b`, 'i').test(text);
-    const deterministicSuggestion = buildDeterministicCommitmentSuggestion(text, new Date(timestamp));
+    const deterministicSuggestion = buildDeterministicCommitmentSuggestion(
+        text,
+        new Date(timestamp),
+        options.timeZone,
+    );
     const isTriggered = !!mentionedUserId || hasKeywords || !!deterministicSuggestion || (imageUrl && text.trim().length > 0);
 
     // If text is empty and no image, nothing to do
@@ -202,7 +214,7 @@ export const analyzeAndSuggestTask = async (
     try {
         if (!isTriggered) return null;
 
-        const ai = await extractCommitment(text, timestamp, imageUrl);
+        const ai = await extractCommitment(text, timestamp, imageUrl, options.timeZone);
 
         // Una fecha explícita escrita por el usuario es evidencia más fuerte
         // que una fecha generada por IA. La IA puede mejorar el título o tipo,

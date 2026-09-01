@@ -188,6 +188,16 @@ export async function processNextAudioAnalysisJob(): Promise<boolean> {
             return true;
         }
 
+        const { data: sourceMessage, error: sourceMessageError } = await supabaseAdmin
+            .from('messages')
+            .select('metadata')
+            .eq('id', context.message_id)
+            .maybeSingle();
+        if (sourceMessageError) throw sourceMessageError;
+        const clientTimeZone = typeof sourceMessage?.metadata?.clientTimeZone === 'string'
+            ? sourceMessage.metadata.clientTimeZone
+            : undefined;
+
         // Dynamic import avoids making the canonical message writer depend on
         // worker module initialization while retaining the same understanding.
         const { analyzeAndSuggestTask } = await import('./message.service');
@@ -197,7 +207,7 @@ export async function processNextAudioAnalysisJob(): Promise<boolean> {
             undefined,
             undefined,
             context.conversation_id,
-            { persist: false },
+            { persist: false, timeZone: clientTimeZone },
         );
 
         await rpc('complete_audio_transcription_analysis', {

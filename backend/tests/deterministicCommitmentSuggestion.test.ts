@@ -67,4 +67,21 @@ describe('deterministic commitment suggestion', () => {
             buildDeterministicCommitmentSuggestion('Tengo que comprar pan', REFERENCE_DATE)
         ).toBeNull();
     });
+
+    it('conserva 16:00 del transcript real aunque la IA proponga otra hora', () => {
+        const deterministic = buildDeterministicCommitmentSuggestion(
+            'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
+            new Date('2026-09-01T18:33:53.000Z'),
+            'America/Santiago',
+        );
+        const reconciled = reconcileCommitmentSuggestion({
+            hasCommitment: true,
+            title: 'Juntarse en el terreno',
+            dueAt: '2026-09-01T19:00:00-03:00',
+            type: 'meeting',
+        }, deterministic);
+
+        expect(deterministic?.dueAt).toBe('2026-09-01T20:00:00.000Z');
+        expect(reconciled?.dueAt).toBe('2026-09-01T20:00:00.000Z');
+    });
 });

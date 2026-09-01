@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseDateFromText } from '../src/services/date-parser.service';
 
 const THURSDAY_JULY_30_IN_CHILE = new Date('2026-07-30T15:12:00.000Z');
+const TUESDAY_SEPTEMBER_1 = new Date('2026-09-01T18:33:53.000Z');
 
 describe('parseDateFromText', () => {
     it('resuelve "próximo miércoles" al miércoles siguiente y conserva 13:00 en Chile', () => {
@@ -65,5 +66,32 @@ describe('parseDateFromText', () => {
 
     it('devuelve null cuando el texto no contiene ninguna fecha', () => {
         expect(parseDateFromText('comprar pan y leche', THURSDAY_JULY_30_IN_CHILE)).toBeNull();
+    });
+
+    it.each([
+        ['hoy a las 16:00 juntarnos en el terreno', '2026-09-01T20:00:00.000Z', '16:00'],
+        ['mañana a las 09:30 llamar a Ana', '2026-09-02T13:30:00.000Z', '09:30'],
+        ['el viernes a las 12:00 juntarse con el equipo', '2026-09-04T16:00:00.000Z', '12:00'],
+        ['el 10 de septiembre de 2026 a las 18:00 reunión', '2026-09-10T21:00:00.000Z', '18:00'],
+    ])('conserva la hora local explícita: %s', (text, expectedIso, expectedTime) => {
+        const result = parseDateFromText(text, TUESDAY_SEPTEMBER_1, 'America/Santiago');
+
+        expect(result?.date.toISOString()).toBe(expectedIso);
+        expect(new Intl.DateTimeFormat('es-CL', {
+            timeZone: 'America/Santiago',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(result!.date)).toBe(expectedTime);
+    });
+
+    it('usa la zona IANA del usuario en vez de fijar Chile', () => {
+        const result = parseDateFromText(
+            'hoy a las 16:00 reunión',
+            TUESDAY_SEPTEMBER_1,
+            'Europe/Madrid',
+        );
+
+        expect(result?.date.toISOString()).toBe('2026-09-01T14:00:00.000Z');
     });
 });

@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import { useContacts, useCreateContact } from '../api/queries';
+import { formatSuggestionDueAt } from '../utils/timeZone';
 
 interface AISuggestionModalProps {
     visible: boolean;
@@ -154,8 +153,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 : (currentAssignee?.full_name || 'Sin asignar');
 
     // Safe date parsing
-    const dateObj = new Date(suggestionData.dueAt);
-    const formattedDate = format(dateObj, "eeee, d 'de' MMM, HH:mm", { locale: es });
+    const formattedDate = formatSuggestionDueAt(suggestionData.dueAt);
 
     return (
         <Modal transparent visible={visible} animationType="slide">

@@ -20,6 +20,7 @@ import {
     getParticipantProposalIds,
 } from '../utils/commitmentVisibility';
 import { persistSystemMessage } from './messagingApplication.service';
+import { resolveTimeZone } from './date-parser.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -52,7 +53,8 @@ Extrae la siguiente información en JSON:
 - type (string): "meeting" si es una reunión, call, junta o evento con hora fija. "task" si es una acción a realizar, un favor o un pendiente.
 
 Reglas:
-- TIMEZONE: Usa America/Santiago y respeta automáticamente su horario de verano o invierno. Nunca asumas un offset UTC fijo.
+- TIMEZONE: Usa la zona horaria IANA indicada en el mensaje y respeta automáticamente su horario estacional. Nunca asumas un offset UTC fijo.
+- HORA EXPLÍCITA: Si el usuario dice 16:00, conserva 16:00 en su zona horaria. No la muevas aunque ya haya pasado.
 - DÍAS EXPLÍCITOS: "próximo miércoles" debe caer en miércoles; nunca cambies el día de la semana indicado por el usuario.
 - REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral. Si el mensaje dice "reunión" explícitamente, usa "meeting".
 - TAREA (task): Se refiere a ejecutar una acción técnica, enviar un documento, comprar algo, etc.
@@ -69,14 +71,19 @@ Responde SOLO con JSON válido.`;
 export const extractCommitment = async (
     text: string,
     nowIso: string,
-    imageUrl?: string
+    imageUrl?: string,
+    requestedTimeZone?: string | null,
 ): Promise<CommitmentExtraction> => {
     if (!process.env.OPENAI_API_KEY) {
         return { hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null, type: 'task' };
     }
 
     try {
-        const userContent: any[] = [{ type: 'text', text: `Fecha y hora actual: ${nowIso}\n\nMensaje: "${text}"` }];
+        const timeZone = resolveTimeZone(requestedTimeZone);
+        const userContent: any[] = [{
+            type: 'text',
+            text: `Fecha y hora actual: ${nowIso}\nZona horaria del usuario: ${timeZone}\n\nMensaje: "${text}"`,
+        }];
 
         if (imageUrl) {
             userContent.push({

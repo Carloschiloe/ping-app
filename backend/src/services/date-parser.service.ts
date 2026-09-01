@@ -1,6 +1,6 @@
 import * as chrono from 'chrono-node';
 
-const PING_TIME_ZONE = 'America/Santiago';
+const DEFAULT_TIME_ZONE = 'America/Santiago';
 
 export interface ParsedDateResult {
     date: Date;
@@ -33,9 +33,20 @@ function normalizeSpanish(value: string) {
         .toLowerCase();
 }
 
-function chileWallClockParts(date: Date): WallClockParts {
+export function resolveTimeZone(timeZone?: string | null): string {
+    const candidate = timeZone?.trim();
+    if (!candidate) return DEFAULT_TIME_ZONE;
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(0);
+        return candidate;
+    } catch {
+        return DEFAULT_TIME_ZONE;
+    }
+}
+
+function wallClockParts(date: Date, timeZone: string): WallClockParts {
     const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: PING_TIME_ZONE,
+        timeZone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -60,7 +71,7 @@ function chileWallClockParts(date: Date): WallClockParts {
     };
 }
 
-function wallClockToInstant(parts: WallClockParts): Date {
+function wallClockToInstant(parts: WallClockParts, timeZone: string): Date {
     const targetAsUtc = Date.UTC(
         parts.year,
         parts.month - 1,
@@ -71,11 +82,11 @@ function wallClockToInstant(parts: WallClockParts): Date {
     );
     let guess = targetAsUtc;
 
-    // Obtiene el offset efectivo de America/Santiago para la fecha exacta,
+    // Obtiene el offset efectivo de la zona IANA para la fecha exacta,
     // incluyendo cambios de horario de verano, sin depender de la zona del
     // servidor donde corre Ping.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-        const observed = chileWallClockParts(new Date(guess));
+        const observed = wallClockParts(new Date(guess), timeZone);
         const observedAsUtc = Date.UTC(
             observed.year,
             observed.month - 1,
@@ -109,13 +120,17 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
     return { hour, minute };
 }
 
-function parseExplicitWeekday(text: string, referenceDate: Date): ParsedDateResult | null {
+function parseExplicitWeekday(
+    text: string,
+    referenceDate: Date,
+    timeZone: string,
+): ParsedDateResult | null {
     const weekdayMatch = text.match(
         /\b(?:(el|este|pr[oó]ximo)\s+)?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i
     );
     if (!weekdayMatch) return null;
 
-    const reference = chileWallClockParts(referenceDate);
+    const reference = wallClockParts(referenceDate, timeZone);
     const referenceCalendar = new Date(Date.UTC(reference.year, reference.month - 1, reference.day));
     const targetWeekday = WEEKDAYS[normalizeSpanish(weekdayMatch[2])];
     const currentWeekday = referenceCalendar.getUTCDay();
@@ -140,22 +155,24 @@ function parseExplicitWeekday(text: string, referenceDate: Date): ParsedDateResu
             hour,
             minute,
             second: 0,
-        }),
+        }, timeZone),
         textRef: weekdayMatch[0],
     };
 }
 
 export const parseDateFromText = (
     text: string,
-    referenceDate: Date = new Date()
+    referenceDate: Date = new Date(),
+    requestedTimeZone?: string | null,
 ): ParsedDateResult | null => {
-    const explicitWeekday = parseExplicitWeekday(text, referenceDate);
+    const timeZone = resolveTimeZone(requestedTimeZone);
+    const explicitWeekday = parseExplicitWeekday(text, referenceDate, timeZone);
     if (explicitWeekday) return explicitWeekday;
 
-    const reference = chileWallClockParts(referenceDate);
+    const reference = wallClockParts(referenceDate, timeZone);
     // Chrono hace aritmética de calendario en la zona local del proceso. Esta
-    // fecha sintética le entrega los campos de reloj de Chile y luego el
-    // resultado se convierte a un instante real de America/Santiago.
+    // fecha sintética le entrega los campos de reloj del usuario y luego el
+    // resultado se convierte a un instante real de esa misma zona IANA.
     const chronoReference = new Date(
         reference.year,
         reference.month - 1,
@@ -170,15 +187,16 @@ export const parseDateFromText = (
     if (!result) return null;
 
     const parsed = result.start.date();
+    const explicitTime = explicitTimeFromText(text);
     return {
         date: wallClockToInstant({
             year: parsed.getFullYear(),
             month: parsed.getMonth() + 1,
             day: parsed.getDate(),
-            hour: parsed.getHours(),
-            minute: parsed.getMinutes(),
-            second: parsed.getSeconds(),
-        }),
+            hour: explicitTime?.hour ?? parsed.getHours(),
+            minute: explicitTime?.minute ?? parsed.getMinutes(),
+            second: explicitTime ? 0 : parsed.getSeconds(),
+        }, timeZone),
         textRef: result.text,
     };
 };
