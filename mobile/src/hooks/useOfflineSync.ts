@@ -17,10 +17,12 @@ export interface PendingMessage {
     mediaUri?: string | null;
     mediaType?: 'image' | 'audio' | 'video' | 'document';
     attachment?: {
-        bucket: 'chat-media';
-        objectPath: string;
+        attachmentId?: string;
+        bucket?: 'chat-media';
+        objectPath?: string;
         mimeType: string;
         fileName: string;
+        durationMs?: number;
     } | null;
     meta?: any;
     replyToId?: string | null;

@@ -1,175 +1,102 @@
 import { Request, Response } from 'express';
 import * as messageService from '../services/message.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { assertConversationParticipant, isConversationAdmin } from '../utils/authz';
 import { AppError } from '../utils/AppError';
+import { getOrCreateSelfConversationId } from '../services/conversation.service';
+import { markReceipt, tombstoneMessage } from '../services/messagingApplication.service';
 
+// Adapter legacy: /messages representa el self-chat y delega en el mismo
+// envio canonico que /conversations/:id/messages.
 export const createMessage = async (req: Request, res: Response): Promise<void> => {
     try {
-        if (!req.user || !req.user.id) {
+        if (!req.user?.id) {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const userId = req.user.id;
         const { text, reply_to_id } = req.body;
-
         if (!text) {
             res.status(400).json({ error: 'Message text is required' });
             return;
         }
 
-        const result = await messageService.processUserMessage(userId, text, undefined, reply_to_id);
+        const conversationId = await getOrCreateSelfConversationId(req.user.id);
+        const result = await messageService.processUserMessage(
+            req.user.id,
+            text,
+            conversationId,
+            reply_to_id,
+        );
         res.status(201).json(result);
     } catch (error: any) {
-        console.error('[createMessage Controller Error]:', error);
+        console.error('[createMessage Controller Error]');
         res.status(500).json({ error: error.message });
     }
 };
 
 export const getMessages = async (req: Request, res: Response): Promise<void> => {
     try {
-        if (!req.user || !req.user.id) {
+        if (!req.user?.id) {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const userId = req.user.id;
         const limit = parseInt(req.query.limit as string) || 50;
         const offset = parseInt(req.query.offset as string) || 0;
-
-        const result = await messageService.getMessages(userId, limit, offset);
+        const result = await messageService.getMessages(req.user.id, limit, offset);
         res.status(200).json(result);
     } catch (error: any) {
-        console.error('[getMessages Controller Error]:', error);
+        console.error('[getMessages Controller Error]');
         res.status(500).json({ error: error.message });
     }
 };
 
+// Adapter legacy: el status solicitado avanza unicamente el receipt del
+// actor. Nunca modifica directamente messages.status.
 export const updateMessageStatus = async (req: Request, res: Response): Promise<void> => {
     try {
-        console.log(`[updateMessageStatus] ${req.params.id} -> ${req.body.status}`);
-        if (!req.user || !req.user.id) {
-            console.log('[updateMessageStatus] Unauthorized');
+        if (!req.user?.id) {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const { id } = req.params;
         const { status } = req.body;
-
-        if (!status || !['delivered', 'read'].includes(status)) {
-            console.log(`[updateMessageStatus] Invalid status: ${status}`);
+        if (!['delivered', 'read'].includes(status)) {
             res.status(400).json({ error: 'Invalid status' });
             return;
         }
 
-        // --- Phase 23: Privacy - Read Receipts ---
-        // If the current user has privacy_read_receipts = false, skip 'read' updates.
-        // This means the original sender will never see blue ticks.
         if (status === 'read') {
             const { data: profile } = await supabaseAdmin
                 .from('profiles')
                 .select('privacy_read_receipts')
-                .eq('id', req.user!.id)
+                .eq('id', req.user.id)
                 .single();
-
-            if (profile && profile.privacy_read_receipts === false) {
-                console.log(`[updateMessageStatus] Skipped 'read' due to privacy preference for user ${req.user!.id}`);
+            if (profile?.privacy_read_receipts === false) {
                 res.json({ success: true, status: 'skipped' });
                 return;
             }
         }
-        // -----------------------------------------
 
-        const { data: message, error: fetchErr } = await supabaseAdmin
-            .from('messages')
-            .select('status, sender_id, conversation_id')
-            .eq('id', id)
-            .single();
-
-        if (fetchErr || !message) {
-            console.log(`[updateMessageStatus] fetchErr or not found:`, fetchErr);
-            res.status(404).json({ error: 'Message not found' });
-            return;
-        }
-
-        await assertConversationParticipant(req.user.id, message.conversation_id);
-        if (message.sender_id === req.user.id) {
-            res.status(403).json({ error: 'A message sender cannot confirm delivery or reading on behalf of a recipient' });
-            return;
-        }
-
-        const currentStatus = message.status || 'sent';
-        let shouldUpdate = false;
-
-        if (currentStatus === 'sent' && (status === 'delivered' || status === 'read')) shouldUpdate = true;
-        if (currentStatus === 'delivered' && status === 'read') shouldUpdate = true;
-
-        if (shouldUpdate) {
-            const { error: updateErr } = await supabaseAdmin
-                .from('messages')
-                .update({ status })
-                .eq('id', id);
-
-            if (updateErr) {
-                console.error('[updateMessageStatus] updateErr:', updateErr);
-                throw updateErr;
-            }
-            console.log(`[updateMessageStatus] Success for ${id}`);
-        } else {
-            console.log(`[updateMessageStatus] No update needed for ${id} (current: ${currentStatus}, requested: ${status})`);
-        }
-
-        res.json({ success: true, status });
+        const receipt = await markReceipt(req.user.id, req.params.id as string, status);
+        res.json({ success: true, status, receipt });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
-        console.error('[updateMessageStatus] Failed');
-        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to update message status' : error.message });
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to update message status' : error.message,
+        });
     }
 };
+
 export const deleteMessage = async (req: Request, res: Response): Promise<void> => {
     try {
-        if (!req.user || !req.user.id) {
+        if (!req.user?.id) {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const { id } = req.params;
-        const userId = req.user.id;
-
-        // Fetch message to check ownership or admin status
-        const { data: message, error: fetchErr } = await supabaseAdmin
-            .from('messages')
-            .select('sender_id, conversation_id')
-            .eq('id', id)
-            .single();
-
-        if (fetchErr || !message) {
-            res.status(404).json({ error: 'Message not found' });
-            return;
-        }
-
-        // Check if user is sender OR admin of the conversation.
-        // V2 fix: la autoridad de admin se lee de conversation_participants.role
-        // (antes intentaba leer conversations.group_metadata.admin_id, una
-        // columna que nunca existio realmente — ese chequeo nunca funcionaba).
-        let isAuthorized = message.sender_id === userId;
-
-        if (!isAuthorized) {
-            isAuthorized = await isConversationAdmin(userId, message.conversation_id);
-        }
-
-        if (!isAuthorized) {
-            res.status(403).json({ error: 'Action not allowed' });
-            return;
-        }
-
-        const { error: deleteErr } = await supabaseAdmin
-            .from('messages')
-            .delete()
-            .eq('id', id);
-
-        if (deleteErr) throw deleteErr;
-
-        res.json({ success: true });
+        const message = await tombstoneMessage(req.user.id, req.params.id as string);
+        res.json({ success: true, message });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to delete message' : error.message,
+        });
     }
 };

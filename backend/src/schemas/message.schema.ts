@@ -9,6 +9,7 @@ export const sendMessageSchema = z.object({
         reply_to_id: z.string().uuid().optional().nullable(),
         mentioned_user_id: z.string().uuid().optional().nullable(),
         client_message_id: z.string().uuid().optional(),
+        attachmentId: z.string().uuid().optional().nullable(),
         meta: z.record(z.string(), z.any()).optional().nullable(),
         attachment: z.object({
             bucket: z.literal('chat-media'),
@@ -16,5 +17,8 @@ export const sendMessageSchema = z.object({
             mimeType: z.string().min(1).max(100),
             fileName: z.string().min(1).max(200),
         }).optional().nullable(),
+    }).refine((body) => !(body.attachmentId && body.attachment), {
+        message: 'Use attachmentId or the legacy attachment payload, not both',
+        path: ['attachmentId'],
     })
 });

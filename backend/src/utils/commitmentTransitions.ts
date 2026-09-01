@@ -25,7 +25,7 @@ export type CommitmentTransitionAction =
 // Debe coincidir exactamente con commitment_events_type_check en el baseline
 // V2 (supabase/migrations/20260712000000_baseline_v2.sql).
 export type CommitmentEventType =
-    | 'created' | 'accepted' | 'rejected' | 'counter_proposed' | 'rescheduled'
+    | 'created' | 'edited' | 'archived' | 'accepted' | 'rejected' | 'counter_proposed' | 'rescheduled'
     | 'action_completed' | 'resolved' | 'reopened' | 'cancelled'
     | 'follow_up_scheduled' | 'reassigned';
 

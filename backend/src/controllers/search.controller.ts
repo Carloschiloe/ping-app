@@ -164,6 +164,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
                 sender:profiles!messages_sender_id_fkey(full_name, avatar_url, email)
             `)
             .in('conversation_id', convIds)
+            .is('deleted_at', null)
             .ilike('content', `%${searchTerm}%`)
             .order('created_at', { ascending: false })
             .limit(30);

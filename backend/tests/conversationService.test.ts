@@ -3,42 +3,39 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
 
-describe('getOrCreateSelfConversationId', () => {
-    it('self-chat se reconoce correctamente cuando ya existe (1 participante = el propio usuario)', async () => {
+describe('canonical conversation creation', () => {
+    it('self-chat delega en la transaccion canonica con un unico usuario real', async () => {
         const mock = createSupabaseAdminMock({
-            conversation_participants: [
-                { data: [{ conversation_id: 'c-self' }], error: null }, // lista de conversaciones del usuario
-                { count: 1, data: null, error: null },                  // conteo de participantes de c-self
-            ],
+            'rpc:create_conversation_with_participants': [{ data: 'c-self', error: null }],
         });
         setSupabaseAdminMock(mock);
 
         const { getOrCreateSelfConversationId } = await import('../src/services/conversation.service');
-        const result = await getOrCreateSelfConversationId('u1');
-
-        expect(result).toBe('c-self');
-        // No debe haber creado una conversacion nueva.
-        expect(mock.getInsertCalls('conversations')).toHaveLength(0);
+        await expect(getOrCreateSelfConversationId('u1')).resolves.toBe('c-self');
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'create_conversation_with_participants',
+            args: expect.objectContaining({
+                p_creator_user_id: 'u1',
+                p_conversation_type: 'direct',
+                p_participant_ids: ['u1'],
+                p_reuse_existing: true,
+            }),
+        }]);
     });
 
-    it('crea una conversacion direct nueva cuando el usuario no tiene ninguna todavia', async () => {
+    it('direct 1:1 envia ambos participantes en una sola operacion', async () => {
         const mock = createSupabaseAdminMock({
-            conversation_participants: [
-                { data: [], error: null },   // sin conversaciones previas
-                { data: null, error: null }, // resultado del insert de participante
-            ],
-            conversations: [
-                { data: { id: 'c-nueva' }, error: null },
-            ],
+            'rpc:create_conversation_with_participants': [{ data: 'c-direct', error: null }],
         });
         setSupabaseAdminMock(mock);
 
-        const { getOrCreateSelfConversationId } = await import('../src/services/conversation.service');
-        const result = await getOrCreateSelfConversationId('u1');
-
-        expect(result).toBe('c-nueva');
-        const insertPayload = mock.getInsertCalls('conversations')[0];
-        expect(insertPayload.conversation_type).toBe('direct');
-        expect(insertPayload).not.toHaveProperty('is_group');
+        const { getOrCreateDirectConversationId } = await import('../src/services/conversation.service');
+        await expect(getOrCreateDirectConversationId('u1', 'u2')).resolves.toBe('c-direct');
+        expect(mock.getRpcCalls()[0].args).toEqual(expect.objectContaining({
+            p_participant_ids: ['u1', 'u2'],
+            p_reuse_existing: true,
+        }));
+        expect(mock.getInsertCalls('conversations')).toHaveLength(0);
+        expect(mock.getInsertCalls('conversation_participants')).toHaveLength(0);
     });
 });

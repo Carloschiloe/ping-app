@@ -76,4 +76,54 @@ describe('basic message synchronization', () => {
         expect(sanitized).toHaveLength(OFFLINE_QUEUE_MAX_ITEMS);
         expect(sanitized.some((item) => item.id === 'offline-0')).toBe(false);
     });
+
+    it('conserva durationMs del audio en la cola offline', () => {
+        const now = Date.parse('2026-09-01T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-audio',
+            conversationId: 'conversation-1',
+            text: 'Audio',
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+            attachment: {
+                attachmentId: '88888888-8888-4888-8888-888888888888',
+                mimeType: 'audio/m4a',
+                fileName: 'voice.m4a',
+                durationMs: 4200,
+            },
+        }], now);
+
+        expect(JSON.parse(serialized)[0].attachment.durationMs).toBe(4200);
+    });
+
+    it('persiste attachmentId offline sin credenciales ni object path', () => {
+        const now = Date.parse('2026-08-31T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-attachment',
+            conversationId: 'conversation-1',
+            text: 'Documento',
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+            attachment: {
+                attachmentId: '66666666-6666-4666-8666-666666666666',
+                mimeType: 'application/pdf',
+                fileName: 'evidence.pdf',
+                signedUrl: 'must-not-persist',
+                token: 'must-not-persist',
+                objectPath: 'must-not-persist',
+            },
+        }], now);
+
+        const parsed = JSON.parse(serialized);
+        expect(parsed[0].attachment).toEqual({
+            attachmentId: '66666666-6666-4666-8666-666666666666',
+            mimeType: 'application/pdf',
+            fileName: 'evidence.pdf',
+        });
+        expect(serialized).not.toContain('must-not-persist');
+    });
 });

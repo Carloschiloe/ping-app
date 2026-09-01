@@ -24,10 +24,7 @@ describe('runMorningRoutine', () => {
                 }],
                 error: null,
             }],
-            conversation_participants: [
-                { data: [{ conversation_id: 'c-self' }], error: null }, // self-chat existente
-                { count: 1, data: null, error: null },                  // confirma que tiene 1 solo participante
-            ],
+            'rpc:create_conversation_with_participants': [{ data: 'c-self', error: null }],
             messages: [{ data: { id: 'm-resumen' }, error: null }],
         });
         setSupabaseAdminMock(mock);

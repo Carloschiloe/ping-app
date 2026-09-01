@@ -5,6 +5,19 @@ const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const VALID_UUID_2 = '22222222-2222-4222-8222-222222222222';
 
 describe('createCommitmentSchema', () => {
+    it('preserva la procedencia explicita de una sugerencia de IA', async () => {
+        const result = await createCommitmentSchema.safeParseAsync({
+            body: {
+                title: 'Enviar informe',
+                source_kind: 'ai_suggestion',
+            },
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.body.source_kind).toBe('ai_suggestion');
+        }
+    });
+
     it('acepta un compromiso válido con solo título', async () => {
         const result = await createCommitmentSchema.safeParseAsync({
             body: { title: 'Comprar pan' },

@@ -46,4 +46,29 @@ describe('message reconciliation', () => {
             { id: 'server-1', client_message_id: 'client-1' },
         ], 'client-1')).toBe(true);
     });
+
+    it('Realtime antes que HTTP conserva una sola confirmacion', () => {
+        const realtime = {
+            id: 'server-1', client_message_id: 'client-1', sender_id: 'user-1', text: 'Mensaje',
+        };
+        const http = { ...realtime, receipt_summary: { recipient_count: 1 } };
+        const afterRealtime = reconcileConfirmedMessage([], realtime);
+        const afterHttp = reconcileConfirmedMessage(afterRealtime, http);
+
+        expect(afterHttp).toHaveLength(1);
+        expect(afterHttp[0]).toEqual(http);
+    });
+
+    it('HTTP antes que Realtime conserva una sola confirmacion', () => {
+        const optimistic = {
+            id: 'temp-client-1', client_message_id: 'client-1', sender_id: 'user-1', text: 'Mensaje',
+        };
+        const http = {
+            id: 'server-1', client_message_id: 'client-1', sender_id: 'user-1', text: 'Mensaje',
+        };
+        const afterHttp = reconcileConfirmedMessage([optimistic], http);
+        const afterRealtime = reconcileConfirmedMessage(afterHttp, http);
+
+        expect(afterRealtime).toEqual([http]);
+    });
 });

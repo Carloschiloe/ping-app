@@ -85,7 +85,8 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
                 conversationId,
                 recordingUri,
                 'audio/m4a',
-                `audio-${Date.now()}.m4a`
+                `audio-${Date.now()}.m4a`,
+                recordingDurationMs,
             );
             onAudioSent({ text: 'Audio', attachment });
             setRecordingUri(null);

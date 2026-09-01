@@ -1,6 +1,7 @@
 import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
 import { startScheduledJobs } from './services/cronCoordinator';
+import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
 
 try {
     validateEnvironment();
@@ -12,6 +13,7 @@ try {
 const env = getEnvConfig();
 
 startScheduledJobs();
+startAudioTranscriptionWorker();
 
 app.listen(env.port, () => {
     console.log(`✅ PING Backend listening on port ${env.port} (${env.nodeEnv})`);

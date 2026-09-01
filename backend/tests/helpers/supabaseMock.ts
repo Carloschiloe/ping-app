@@ -16,6 +16,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const selectCalls: Record<string, any[]> = {};
     const orCalls: Record<string, string[]> = {};
     const rpcCalls: Array<{ name: string; args: any }> = [];
+    const rpcCursors: Record<string, number> = {};
 
     const from = vi.fn((table: string) => {
         const tableQueue = queue[table] || [];
@@ -67,7 +68,13 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
         rpc: vi.fn((name: string, args: any) => {
             rpcCalls.push({ name, args });
             const rpcQueue = queue[`rpc:${name}`] || [];
-            return Promise.resolve(rpcQueue[0] ?? { data: null, error: null });
+            const idx = rpcCursors[name] || 0;
+            rpcCursors[name] = idx + 1;
+            return Promise.resolve(
+                rpcQueue[idx]
+                ?? rpcQueue[rpcQueue.length - 1]
+                ?? { data: null, error: null }
+            );
         }),
         // Helpers de inspeccion para aserciones en los tests.
         getInsertCalls: (table: string) => inserts[table] || [],
@@ -85,7 +92,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
 // configuracion de respuestas. Se crea un mock "vacio" en el modulo y cada
 // test reemplaza `current` con una instancia fresca via setSupabaseAdminMock.
 let current = createSupabaseAdminMock({});
-let currentStorage = {
+let currentStorage: any = {
     from: vi.fn(() => ({
         createSignedUrl: vi.fn(),
         createSignedUploadUrl: vi.fn(),
@@ -96,7 +103,7 @@ export function setSupabaseAdminMock(mock: ReturnType<typeof createSupabaseAdmin
     current = mock;
 }
 
-export function setSupabaseStorageMock(mock: typeof currentStorage) {
+export function setSupabaseStorageMock(mock: any) {
     currentStorage = mock;
 }
 
@@ -104,6 +111,7 @@ export function createSupabaseStorageMock(options: {
     read?: { data: any; error: any };
     upload?: { data: any; error: any };
     list?: { data: any; error: any };
+    download?: { data: any; error: any };
 } = {}) {
     const createSignedUrl = vi.fn(() => Promise.resolve(
         options.read ?? { data: { signedUrl: 'https://signed.invalid/read' }, error: null }
@@ -123,8 +131,14 @@ export function createSupabaseStorageMock(options: {
             error: null,
         }
     ));
-    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl, list }));
-    return { from, createSignedUrl, createSignedUploadUrl, list };
+    const download = vi.fn(() => Promise.resolve(
+        options.download ?? {
+            data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/m4a' }),
+            error: null,
+        }
+    ));
+    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl, list, download }));
+    return { from, createSignedUrl, createSignedUploadUrl, list, download };
 }
 
 export function supabaseAdminMockModule() {

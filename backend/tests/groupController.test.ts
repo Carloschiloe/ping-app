@@ -15,12 +15,11 @@ function mockReqRes(body: any, userId = 'u1') {
 describe('createGroup', () => {
     it('la creacion de grupo usa conversation_type="group" (no is_group/admin_id)', async () => {
         const mock = createSupabaseAdminMock({
-            conversations: [{ data: { id: 'g1', name: 'Equipo' }, error: null }],
             conversation_participants: [
                 { data: [{ conversation_id: 'existing' }], error: null },
                 { data: [{ user_id: 'u2' }, { user_id: 'u3' }], error: null },
-                { data: null, error: null },
             ],
+            'rpc:create_conversation_with_participants': [{ data: 'g1', error: null }],
         });
         setSupabaseAdminMock(mock);
 
@@ -29,21 +28,25 @@ describe('createGroup', () => {
 
         await createGroup(req, res, next);
 
-        const insertPayload = mock.getInsertCalls('conversations')[0];
-        expect(insertPayload.conversation_type).toBe('group');
-        expect(insertPayload).not.toHaveProperty('is_group');
-        expect(insertPayload).not.toHaveProperty('admin_id');
+        expect(mock.getRpcCalls()[0]).toEqual({
+            name: 'create_conversation_with_participants',
+            args: expect.objectContaining({
+                p_conversation_type: 'group',
+                p_name: 'Equipo',
+                p_participant_ids: expect.arrayContaining(['u1', 'u2', 'u3']),
+            }),
+        });
+        expect(mock.getInsertCalls('conversations')).toHaveLength(0);
         expect(next).not.toHaveBeenCalled();
     });
 
     it('el creador del grupo queda con role="admin" en conversation_participants', async () => {
         const mock = createSupabaseAdminMock({
-            conversations: [{ data: { id: 'g1', name: 'Equipo' }, error: null }],
             conversation_participants: [
                 { data: [{ conversation_id: 'existing' }], error: null },
                 { data: [{ user_id: 'u2' }], error: null },
-                { data: null, error: null },
             ],
+            'rpc:create_conversation_with_participants': [{ data: 'g1', error: null }],
         });
         setSupabaseAdminMock(mock);
 
@@ -52,8 +55,8 @@ describe('createGroup', () => {
 
         await createGroup(req, res, next);
 
-        const participantsPayload = mock.getInsertCalls('conversation_participants')[0];
-        const creatorRow = participantsPayload.find((p: any) => p.user_id === 'u1');
-        expect(creatorRow.role).toBe('admin');
+        const participants = mock.getRpcCalls()[0].args.p_participant_ids;
+        expect(participants).toContain('u1');
+        expect(mock.getRpcCalls()[0].args.p_creator_user_id).toBe('u1');
     });
 });

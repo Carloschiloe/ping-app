@@ -15,6 +15,7 @@ import {
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
+import { markConversationRead } from '../services/messagingApplication.service';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -34,58 +35,8 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
 
         await assertCanReferenceProfiles(userId, [otherUserId]);
 
-        // Find conversations where BOTH users are participants (no RPC needed)
-        const { data: myConvs } = await supabaseAdmin
-            .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', userId);
-
-        const myConvIds = (myConvs || []).map(p => p.conversation_id);
-
-        if (myConvIds.length > 0) {
-            const { data: shared } = await supabaseAdmin
-                .from('conversation_participants')
-                .select('conversation_id')
-                .eq('user_id', otherUserId)
-                .in('conversation_id', myConvIds)
-                .limit(1);
-
-            const sharedIds = (shared || []).map((row) => row.conversation_id);
-            if (sharedIds.length > 0) {
-                const { data: directConversation } = await supabaseAdmin
-                    .from('conversations')
-                    .select('id')
-                    .in('id', sharedIds)
-                    .eq('conversation_type', 'direct')
-                    .limit(1)
-                    .maybeSingle();
-
-                if (directConversation) {
-                    res.json({ conversationId: directConversation.id });
-                    return;
-                }
-            }
-        }
-
-        // Create new conversation
-        const { data: conv, error: convError } = await supabaseAdmin
-            .from('conversations')
-            .insert({})
-            .select()
-            .single();
-
-        if (convError) throw convError;
-
-        const { error: partError } = await supabaseAdmin
-            .from('conversation_participants')
-            .insert([
-                { conversation_id: conv.id, user_id: userId },
-                { conversation_id: conv.id, user_id: otherUserId },
-            ]);
-
-        if (partError) throw partError;
-
-        res.status(201).json({ conversationId: conv.id });
+        const conversationId = await getOrCreateDirectConversationId(userId, otherUserId);
+        res.status(201).json({ conversationId });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to create conversation' : error.message });
@@ -138,17 +89,23 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // se devuelven con defaults seguros de compatibilidad.
         const { data: conversationsData, error: cErr } = await supabaseAdmin
             .from('conversations')
-            .select('id, conversation_type, name, avatar_url')
-            .in('id', conversationIds);
+            .select('id, conversation_type, name, avatar_url, deleted_at')
+            .in('id', conversationIds)
+            .is('deleted_at', null);
 
         if (cErr) throw cErr;
+        const activeConversationIds = (conversationsData || []).map((conversation) => conversation.id);
+        if (activeConversationIds.length === 0) {
+            res.json({ conversations: [] });
+            return;
+        }
 
         // Get all participants in these conversations (incluye al propio
         // usuario para poder derivar quien es admin del grupo).
         const { data: allParticipants, error: apErr } = await supabaseAdmin
             .from('conversation_participants')
             .select('conversation_id, user_id, role, profiles(id, email, full_name, avatar_url, last_seen)')
-            .in('conversation_id', conversationIds);
+            .in('conversation_id', activeConversationIds);
 
         if (apErr) throw apErr;
 
@@ -156,26 +113,26 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // V2: content/metadata reemplazan text/meta; sender_id unico (sin user_id).
         const { data: lastMessages, error: lmErr } = await supabaseAdmin
             .from('messages')
-            .select('conversation_id, content, created_at, metadata, status, sender_id')
-            .in('conversation_id', conversationIds)
+            .select('conversation_id, content, created_at, metadata, status, sender_id, deleted_at, message_receipts(*)')
+            .in('conversation_id', activeConversationIds)
             .order('created_at', { ascending: false });
 
         if (lmErr) throw lmErr;
 
-        // NEW: Get unread count for each conversation
+        // Unread es una propiedad del receipt del actor, no del status global.
         const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin
-            .from('messages')
-            .select('conversation_id, sender_id, metadata')
-            .in('conversation_id', conversationIds)
-            .neq('status', 'read');
+            .from('message_receipts')
+            .select('message_id, messages!inner(conversation_id, metadata, deleted_at)')
+            .eq('user_id', userId)
+            .is('read_at', null)
+            .in('messages.conversation_id', activeConversationIds);
 
         if (unreadErr) throw unreadErr;
 
-        const unreadCounts = unreadCountsData.reduce((acc: Record<string, number>, msg) => {
-            const isMe = msg.sender_id === userId;
-            const isSystem = msg.metadata && msg.metadata.isSystem;
-            if (!isMe && !isSystem) {
-                acc[msg.conversation_id] = (acc[msg.conversation_id] || 0) + 1;
+        const unreadCounts = (unreadCountsData || []).reduce((acc: Record<string, number>, receipt: any) => {
+            const message = Array.isArray(receipt.messages) ? receipt.messages[0] : receipt.messages;
+            if (message && !message.metadata?.isSystem && !message.deleted_at) {
+                acc[message.conversation_id] = (acc[message.conversation_id] || 0) + 1;
             }
             return acc;
         }, {});
@@ -184,7 +141,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         const lastMsgMap: Record<string, any> = {};
         lastMessages?.forEach(m => {
             if (!lastMsgMap[m.conversation_id]) {
-                lastMsgMap[m.conversation_id] = toLegacyMessageListShape([m])[0];
+                lastMsgMap[m.conversation_id] = toLegacyMessageListShape([m], userId)[0];
             }
         });
 
@@ -210,7 +167,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             convMap[c.id] = c;
         });
 
-        const conversations = conversationIds.map(id => {
+        const conversations = activeConversationIds.map(id => {
             const conv = convMap[id];
             const isGroup = toLegacyIsGroup(conv?.conversation_type);
             const isSelf = toLegacyIsSelf(
@@ -306,7 +263,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
 
         await assertConversationParticipant(userId, conversationId);
 
-        const selectQuery = '*, profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, content, profiles!sender_id(email, full_name, avatar_url))';
+        const selectQuery = '*, attachments!attachments_message_id_fkey(id, kind, mime_type, size_bytes, duration_ms, original_filename, lifecycle_status, created_at), profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, content, deleted_at, profiles!sender_id(email, full_name, avatar_url)), message_receipts(*)';
         let finalMessages: any[] = [];
         let hasMore = false;
 
@@ -379,7 +336,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             }
         }
 
-        res.json({ messages: toLegacyMessageListShape(finalMessages), hasMore });
+        res.json({ messages: toLegacyMessageListShape(finalMessages, userId), hasMore });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to load messages' : error.message });
@@ -391,7 +348,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     try {
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
-        const { text, reply_to_id, mentioned_user_id, client_message_id, meta, attachment } = req.body;
+        const { text, reply_to_id, mentioned_user_id, client_message_id, meta, attachment, attachmentId } = req.body;
         console.info(`[API] SendMessage conversation=${conversationId} hasReply=${!!reply_to_id} hasMention=${!!mentioned_user_id}`);
 
         if (!text) {
@@ -407,7 +364,8 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             mentioned_user_id,
             meta,
             client_message_id,
-            attachment
+            attachment,
+            attachmentId,
         );
 
         // --- Phase 21: Push Notifications ---
@@ -540,32 +498,23 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
         const userId = req.user!.id;
         const { id: conversationId } = req.params;
 
-        // Verify participation
-        const { data: part } = await supabaseAdmin
-            .from('conversation_participants')
-            .select('user_id')
-            .eq('conversation_id', conversationId)
-            .eq('user_id', userId)
+        const { data: profile } = await supabaseAdmin
+            .from('profiles')
+            .select('privacy_read_receipts')
+            .eq('id', userId)
             .single();
-
-        if (!part) {
-            res.status(403).json({ error: 'Not a participant' });
+        if (profile?.privacy_read_receipts === false) {
+            res.json({ success: true, status: 'skipped', updated: 0 });
             return;
         }
 
-        // Mark all messages from OTHER users in this conversation as 'read'
-        const { error: updateErr } = await supabaseAdmin
-            .from('messages')
-            .update({ status: 'read' })
-            .eq('conversation_id', conversationId)
-            .neq('sender_id', userId)
-            .neq('status', 'read');
-
-        if (updateErr) throw updateErr;
-
-        res.json({ success: true });
+        const updated = await markConversationRead(userId, conversationId as string);
+        res.json({ success: true, updated });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to mark conversation as read' : error.message,
+        });
     }
 };
 
@@ -629,6 +578,7 @@ export const getConversationMedia = async (req: Request, res: Response, next: Ne
             .from('messages')
             .select('id, content, created_at, sender_id, metadata')
             .eq('conversation_id', conversationId)
+            .is('deleted_at', null)
             .ilike('content', '%[%')
             .order('created_at', { ascending: false });
 

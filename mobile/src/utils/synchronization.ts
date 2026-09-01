@@ -24,10 +24,12 @@ type PersistablePendingMessage = {
     lastError?: string | null;
     nextAttemptAt?: string | null;
     attachment?: {
-        bucket: 'chat-media';
-        objectPath: string;
+        attachmentId?: string;
+        bucket?: 'chat-media';
+        objectPath?: string;
         mimeType: string;
         fileName: string;
+        durationMs?: number;
     } | null;
 };
 
@@ -82,19 +84,33 @@ export function sanitizePendingQueue(
                     ? item.nextAttemptAt
                     : null,
                 attachment: item.attachment
-                    && item.attachment.bucket === 'chat-media'
-                    && typeof item.attachment.objectPath === 'string'
-                    && item.attachment.objectPath.startsWith('conversations/')
-                    && !item.attachment.objectPath.includes('..')
                     && typeof item.attachment.mimeType === 'string'
                     && typeof item.attachment.fileName === 'string'
+                    && typeof item.attachment.attachmentId === 'string'
                     ? {
-                        bucket: 'chat-media' as const,
-                        objectPath: item.attachment.objectPath.slice(0, 500),
+                        attachmentId: item.attachment.attachmentId,
                         mimeType: item.attachment.mimeType.slice(0, 100),
                         fileName: item.attachment.fileName.slice(0, 200),
+                        durationMs: Number.isInteger(item.attachment.durationMs)
+                            && Number(item.attachment.durationMs) > 0
+                            && Number(item.attachment.durationMs) <= 14_400_000
+                            ? Number(item.attachment.durationMs)
+                            : undefined,
                     }
-                    : null,
+                    : item.attachment
+                        && item.attachment.bucket === 'chat-media'
+                        && typeof item.attachment.objectPath === 'string'
+                        && item.attachment.objectPath.startsWith('conversations/')
+                        && !item.attachment.objectPath.includes('..')
+                        && typeof item.attachment.mimeType === 'string'
+                        && typeof item.attachment.fileName === 'string'
+                        ? {
+                            bucket: 'chat-media' as const,
+                            objectPath: item.attachment.objectPath.slice(0, 500),
+                            mimeType: item.attachment.mimeType.slice(0, 100),
+                            fileName: item.attachment.fileName.slice(0, 200),
+                        }
+                        : null,
             };
         })
         .filter((item) =>

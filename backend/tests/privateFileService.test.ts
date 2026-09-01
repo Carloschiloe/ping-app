@@ -39,6 +39,8 @@ describe('private file authorization', () => {
                 error: null,
             }],
             conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+            conversations: [{ data: { id: conversationId, deleted_at: null }, error: null }],
+            attachments: [{ data: null, error: null }],
         });
         const storage = createSupabaseStorageMock();
         setSupabaseAdminMock(db);
@@ -92,6 +94,8 @@ describe('private file authorization', () => {
                 { data: { conversation_id: conversationId, role: 'member' }, error: null },
                 { data: null, error: null },
             ],
+            conversations: [{ data: { id: conversationId, deleted_at: null }, error: null }],
+            attachments: [{ data: null, error: null }],
         });
         const storage = createSupabaseStorageMock();
         setSupabaseAdminMock(db);

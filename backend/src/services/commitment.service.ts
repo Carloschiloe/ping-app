@@ -5,21 +5,21 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { assertCommitmentConversationParticipant, assertCommitmentOwner, assertCommitmentOwnerOrResponsible, assertConversationParticipant, assertOwnContact } from '../utils/authz';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
-import { isTitleMeeting } from '../utils/commitmentType';
 import { AppError } from '../utils/AppError';
 import {
     computeCommitmentTransition,
     CommitmentStateSnapshot,
     CommitmentTransitionAction,
 } from '../utils/commitmentTransitions';
-import { recordCommitmentEvent } from '../utils/commitmentEvents';
-import { readLegacyConversationId, readLegacyAssignedToUserId, readLegacyDueAt } from '../utils/commitmentCompat';
-export { createConfirmedCommitment as createCommitment } from './commitmentProposal.service';
-import { attachAgreementResponses } from './commitmentProposal.service';
+import {
+    attachAgreementResponses,
+    createConfirmedCommitment,
+} from './commitmentProposal.service';
 import {
     buildCommitmentVisibilityFilter,
     getParticipantProposalIds,
 } from '../utils/commitmentVisibility';
+import { persistSystemMessage } from './messagingApplication.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -112,160 +112,10 @@ export const extractCommitment = async (
     }
 };
 
-// V2: createCommitment acepta la entrada minima necesaria para IA-confirmada
-// y para el mobile actual (ver commitmentCompat.ts para los alias de
-// entrada). Escribe unicamente columnas reales V2: conversation_id (nunca
-// group_conversation_id), sin is_group_task (derivado en la respuesta, no
-// persistido), status siempre uno de los 6 valores canonicos.
-const createCommitmentLegacy = async (userId: string, data: any) => {
-    console.log('[Commitment Service] Creating commitment');
-
-    const title = data.title;
-    const due_at = readLegacyDueAt(data);
-    const message_id = data.message_id || data.messageId || null;
-    const assigned_to_user_id = readLegacyAssignedToUserId(data);
-    const counterparty_contact_id = data.counterparty_contact_id || data.counterpartyContactId || null;
-    const conversation_id = readLegacyConversationId(data);
-    const type = data.type || 'task';
-    const priority = data.priority || null;
-    const description = data.description || null;
-    const expected_result = data.expected_result || data.expectedResult || null;
-    const next_action = data.next_action || data.nextAction || null;
-    const meta = data.meta || {};
-
-    if (assigned_to_user_id && counterparty_contact_id) {
-        throw new AppError('assigned_to_user_id and counterparty_contact_id are mutually exclusive', 400);
-    }
-
-    if (counterparty_contact_id) {
-        await assertOwnContact(userId, counterparty_contact_id);
-    }
-
-    const isSelfAssigned = assigned_to_user_id === userId;
-    const initialStatus = (!assigned_to_user_id || !isSelfAssigned) ? 'proposed' : 'accepted';
-    const waitingOnUserId = initialStatus === 'proposed' ? assigned_to_user_id : null;
-    const waitingOnContactId = initialStatus === 'proposed' ? counterparty_contact_id : null;
-
-    const { data: commitment, error } = await supabaseAdmin
-        .from('commitments')
-        .insert({
-            title,
-            description,
-            due_at,
-            message_id,
-            owner_user_id: userId,
-            assigned_to_user_id,
-            counterparty_contact_id,
-            conversation_id,
-            type,
-            priority,
-            expected_result,
-            next_action,
-            status: initialStatus,
-            waiting_on_user_id: waitingOnUserId,
-            waiting_on_contact_id: waitingOnContactId,
-            meta,
-        })
-        .select('id, title, due_at, owner_user_id, assigned_to_user_id, counterparty_contact_id, conversation_id, type, status')
-        .single();
-
-    if (error) {
-        console.error('[Commitment Service] INSERT commitments failed:', error);
-        throw error;
-    }
-
-    await recordCommitmentEvent({
-        commitmentId: commitment.id,
-        actorUserId: userId,
-        eventType: 'created',
-        previousStatus: null,
-        newStatus: initialStatus,
-        payload: { conversationId: conversation_id, hasMessage: !!message_id, hasDueDate: !!due_at, assignedToUserId: assigned_to_user_id, counterpartyContactId: counterparty_contact_id },
-    });
-
-    // Notify to Chat if conversationId is present
-    if (conversation_id) {
-        try {
-            const { data: profile } = await supabaseAdmin
-                .from('profiles')
-                .select('full_name')
-                .eq('id', userId)
-                .single();
-
-            const senderName = profile?.full_name || 'Alguien';
-            const finalType = (type === 'meeting' || isTitleMeeting(title)) ? 'reunión' : 'tarea';
-
-            let sysText: string;
-            if (due_at) {
-                const dateObj = new Date(due_at);
-                const timeStr = dateObj.toLocaleString('es-CL', {
-                    timeZone: 'America/Santiago',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                sysText = `✨ ${senderName} agendó una ${finalType} para las ${timeStr}: ${title}`;
-                if (assigned_to_user_id && assigned_to_user_id !== userId) {
-                    sysText = `✨ ${senderName} propuso una nueva ${finalType} para las ${timeStr}: ${title}`;
-                }
-            } else {
-                sysText = `✨ ${senderName} agregó una ${finalType} sin fecha: ${title}`;
-            }
-
-            console.log('[Commitment Service] Inserting system message:', sysText);
-            // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
-            const { data: systemMessage, error: msgError } = await supabaseAdmin
-                .from('messages')
-                .insert({
-                    conversation_id,
-                    sender_id: userId,
-                    content: sysText,
-                    metadata: { isSystem: true },
-                    system_event_type: 'commitment_created',
-                    status: 'sent'
-                })
-                .select('id')
-                .single();
-
-            if (msgError) {
-                console.error('[Commitment Service] System message insert FAILED:', msgError);
-            } else {
-                console.log('[Commitment Service] System message inserted successfully');
-                if (!message_id && systemMessage?.id) {
-                    await supabaseAdmin
-                        .from('commitments')
-                        .update({ message_id: systemMessage.id })
-                        .eq('id', commitment.id);
-                }
-            }
-        } catch (innerErr) {
-            console.error('[Commitment Service] Error in notification logic:', innerErr);
-        }
-    }
-
-    if (assigned_to_user_id && assigned_to_user_id !== userId) {
-        const senderName = await getUserName(userId);
-        const when = due_at
-            ? new Date(due_at).toLocaleString('es-CL', {
-                timeZone: 'America/Santiago',
-                day: '2-digit',
-                month: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            })
-            : 'sin fecha';
-
-        await notifyUser(
-            assigned_to_user_id,
-            'Nueva tarea para ti',
-            `${senderName} te asigno "${title}" para ${when}`,
-            { type: 'commitment_assigned', commitmentId: commitment.id, conversationId: conversation_id }
-        );
-    }
-
-    return commitment;
-};
-
+// Public compatibility adapter for scripts/callers that still import
+// commitment.service.createCommitment. It no longer owns a direct INSERT:
+// every callable path persists a Proposal and then confirms it explicitly.
+export const createCommitment = createConfirmedCommitment;
 async function insertSystemMessage(userId: string, conversationId: string | null, text: string) {
     if (!conversationId) {
         console.warn(`[Commitment Service] insertSystemMessage: No conversationId provided for user ${userId}`);
@@ -274,17 +124,13 @@ async function insertSystemMessage(userId: string, conversationId: string | null
     try {
         console.info(`[Commitment Service] Inserting a system message into conversation ${conversationId}`);
         // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
-        const { error } = await supabaseAdmin.from('messages').insert({
-            conversation_id: conversationId,
-            sender_id: userId,
+        await persistSystemMessage({
+            conversationId,
+            senderUserId: userId,
             content: text,
             metadata: { isSystem: true },
-            system_event_type: 'commitment_notice',
-            status: 'sent'
+            systemEventType: 'commitment_notice',
         });
-        if (error) {
-            console.error('[Commitment Service] insertSystemMessage SQL error:', error);
-        }
     } catch (err) {
         console.error('[Commitment Service] insertSystemMessage exception:', err);
     }
@@ -516,126 +362,96 @@ export const scheduleFollowUp = async (
     });
 };
 
-// Traduce un status legacy/V2 recibido por el PATCH generico a una accion de
-// la maquina de estados. Devuelve null si el status pedido ya es el actual
-// (no-op, no dispara transicion). Nunca escribe un valor legacy a la
-// columna: siempre pasa por normalizeCommitmentStatus primero.
-function mapRequestedStatusToAction(requestedStatus: string, currentStatus: string): CommitmentTransitionAction | null {
-    const normalized = normalizeCommitmentStatus(requestedStatus);
-    if (normalized === currentStatus) return null;
-
-    switch (normalized) {
-        case 'accepted': return 'accept';
-        case 'rejected': return 'reject';
-        case 'resolved':
-            throw new AppError('Use POST /commitments/:id/resolve with a resolution result', 400);
-        case 'cancelled': return 'cancel';
-        default:
-            throw new AppError(
-                `Cannot set status to "${normalized}" via PATCH /commitments/:id. Use a dedicated endpoint (/counter-propose, /reopen).`,
-                400
-            );
-    }
+export interface CommitmentFieldEdit {
+    title?: string;
+    description?: string | null;
+    due_at?: string | null;
+    type?: 'task' | 'meeting';
+    priority?: 'low' | 'medium' | 'high' | null;
+    expected_result?: string | null;
 }
 
-// V2: PATCH generico. Compatibilidad temporal con mobile: mobile todavia
-// envia `status: 'completed'` (useMarkCommitmentDone, operation.ts) en vez
-// de llamar a un endpoint dedicado — se traduce aqui a la transicion real
-// `resolve`, nunca se escribe 'completed' a la base.
-export const updateCommitment = async (userId: string, id: string, updates: any) => {
+// Canonical field editor. Lifecycle and responsibility fields are not part of
+// this contract: those must use applyCommitmentTransition through an explicit
+// action. The database RPC commits the row, Event and Audit evidence together.
+export const editCommitment = async (
+    userId: string,
+    id: string,
+    updates: CommitmentFieldEdit
+) => {
     await assertCommitmentOwner(userId, id);
 
-    const safeFieldUpdates: Record<string, any> = {};
-    if (updates.title !== undefined) safeFieldUpdates.title = updates.title;
-    if (updates.description !== undefined) safeFieldUpdates.description = updates.description;
-    if (updates.due_at !== undefined) safeFieldUpdates.due_at = updates.due_at;
-    if (updates.type !== undefined) safeFieldUpdates.type = updates.type;
-    if (updates.priority !== undefined) safeFieldUpdates.priority = updates.priority;
-    if (updates.expected_result !== undefined) safeFieldUpdates.expected_result = updates.expected_result;
-
-    let statusAction: CommitmentTransitionAction | null = null;
-    let snapshot: CommitmentStateSnapshot | null = null;
-
-    if (updates.status !== undefined && updates.status !== null) {
-        snapshot = await fetchCommitmentSnapshot(id);
-        statusAction = mapRequestedStatusToAction(updates.status, snapshot.status);
-    }
-
-    let data: any;
-    let transitionEvent: ReturnType<typeof computeCommitmentTransition>['event'] | null = null;
-
-    if (statusAction) {
-        if (!snapshot) snapshot = await fetchCommitmentSnapshot(id);
-        const { patch, event } = computeCommitmentTransition({ action: statusAction, actorUserId: userId, commitment: snapshot });
-        transitionEvent = event;
-        Object.assign(safeFieldUpdates, patch);
-    }
-
-    const { data: oldCommitment } = await supabaseAdmin
-        .from('commitments')
-        .select('id, title, due_at, assigned_to_user_id, conversation_id, type')
-        .eq('id', id)
-        .single();
-
-    const result = await supabaseAdmin
-        .from('commitments')
-        .update(safeFieldUpdates)
-        .eq('id', id)
-        .select(SELECT_AFTER_TRANSITION)
-        .single();
-
-    if (result.error) throw result.error;
-    data = result.data;
-
-    if (transitionEvent) {
-        await recordCommitmentEvent({
-            commitmentId: id,
-            actorUserId: userId,
-            eventType: transitionEvent.event_type,
-            previousStatus: transitionEvent.previous_status,
-            newStatus: transitionEvent.new_status,
-            payload: transitionEvent.payload,
-        });
-    } else if (updates.due_at !== undefined && updates.due_at !== oldCommitment?.due_at) {
-        // Reprogramacion directa (no negociada) de un compromiso ya
-        // aceptado: distinto de counter_propose, se registra como
-        // 'rescheduled'.
-        await recordCommitmentEvent({
-            commitmentId: id,
-            actorUserId: userId,
-            eventType: 'rescheduled',
-            previousStatus: snapshot?.status ?? null,
-            newStatus: snapshot?.status ?? null,
-            payload: { previousDueAt: oldCommitment?.due_at ?? null, newDueAt: updates.due_at },
-        });
-    }
-
-    if (data && (updates.title !== undefined || updates.due_at !== undefined)) {
-        const titleChanged = updates.title !== undefined && updates.title !== oldCommitment?.title;
-        const dueAtChanged = updates.due_at !== undefined && updates.due_at !== oldCommitment?.due_at;
-        const notices: string[] = [];
-
-        if (titleChanged) {
-            notices.push(`Título actualizado: ${data.title}`);
+    const allowedFields: Array<keyof CommitmentFieldEdit> = [
+        'title',
+        'description',
+        'due_at',
+        'type',
+        'priority',
+        'expected_result',
+    ];
+    const patch: Record<string, unknown> = {};
+    for (const field of allowedFields) {
+        if (Object.prototype.hasOwnProperty.call(updates, field)) {
+            patch[field] = updates[field];
         }
-        if (dueAtChanged) {
-            const dateObj = new Date(data.due_at);
-            const dateStr = dateObj.toLocaleString('es-CL', {
+    }
+
+    if (Object.keys(patch).length === 0) {
+        throw new AppError('Commitment edit cannot be empty', 400);
+    }
+
+    const { data: before, error: beforeError } = await supabaseAdmin
+        .from('commitments')
+        .select('id, title, due_at, conversation_id')
+        .eq('id', id)
+        .single();
+    if (beforeError) throw beforeError;
+
+    const { data, error } = await supabaseAdmin.rpc('edit_commitment_with_evidence', {
+        p_commitment_id: id,
+        p_actor_user_id: userId,
+        p_patch: patch,
+    });
+    if (error) throw error;
+
+    const notices: string[] = [];
+    if (patch.title !== undefined && data.title !== before.title) {
+        notices.push(`Título actualizado: ${data.title}`);
+    }
+    if (patch.due_at !== undefined && data.due_at !== before.due_at) {
+        const dateStr = data.due_at
+            ? new Date(data.due_at).toLocaleString('es-CL', {
                 timeZone: 'America/Santiago',
                 day: 'numeric',
                 month: 'short',
                 hour: '2-digit',
                 minute: '2-digit',
-                hour12: false
-            });
-            notices.push(`Nuevo horario: ${dateStr}`);
-        }
-
-        if (notices.length > 0) {
-            await insertSystemMessage(userId, data.conversation_id, `✏️ ${notices.join(' · ')}`);
-        }
+                hour12: false,
+            })
+            : 'sin fecha';
+        notices.push(`Nuevo horario: ${dateStr}`);
+    }
+    if (notices.length > 0) {
+        await insertSystemMessage(
+            userId,
+            data.conversation_id || before.conversation_id,
+            `✏️ ${notices.join(' · ')}`
+        );
     }
 
+    return data;
+};
+
+// Read helper for the application compatibility adapter. It is authorized
+// before returning state and never mutates the aggregate.
+export const getCommitmentWriteView = async (userId: string, id: string) => {
+    await assertCommitmentConversationParticipant(userId, id);
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select(SELECT_AFTER_TRANSITION)
+        .eq('id', id)
+        .single();
+    if (error) throw error;
     return data;
 };
 
@@ -708,19 +524,20 @@ export const getCommitments = async (userId: string, status?: string, conversati
     return attachAgreementResponses(data || []);
 };
 
-export const deleteCommitment = async (userId: string, id: string) => {
+export const archiveCommitment = async (userId: string, id: string) => {
     await assertCommitmentOwner(userId, id);
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update({ archived_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('owner_user_id', userId)
-        .select()
-        .single();
+    const { data, error } = await supabaseAdmin.rpc('archive_commitment_with_evidence', {
+        p_commitment_id: id,
+        p_actor_user_id: userId,
+    });
 
     if (error) throw error;
     return data;
 };
+
+// DELETE /commitments/:id is retained as a compatibility adapter. The domain
+// operation remains a recoverable archive with atomic evidence.
+export const deleteCommitment = archiveCommitment;
 
 export const pingCommitment = async (userId: string, id: string) => {
     await assertCommitmentOwnerOrResponsible(userId, id);

@@ -39,6 +39,37 @@ export const useReactToMessage = (conversationId: string) => {
 };
 
 export const useCommitments = (status?: string) => {
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
+
+    useEffect(() => {
+        if (!user?.id) return;
+        const channel = supabase
+            .channel(`commitments-live-${user.id}-${status || 'all'}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'commitments',
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['commitments'] });
+                queryClient.invalidateQueries({ queryKey: ['insights'] });
+                queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'commitment_proposals',
+            }, () => {
+                queryClient.invalidateQueries({ queryKey: ['commitments'] });
+                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [queryClient, status, user?.id]);
+
     return useQuery({
         queryKey: ['commitments', status],
         queryFn: async () => {
@@ -50,7 +81,11 @@ export const useCommitments = (status?: string) => {
                     : apiClient.get('/commitment-proposals'),
             ]);
             return [...(commitments || []), ...(proposals || [])];
-        }
+        },
+        refetchOnMount: 'always',
+        refetchOnReconnect: 'always',
+        refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
     });
 };
 
@@ -227,11 +262,46 @@ export const useResolveCommitment = () => {
 };
 
 export const useCancelCommitment = () => {
+    const queryClient = useQueryClient();
     const invalidate = useCommitmentLifecycleInvalidation();
     return useMutation({
         mutationFn: async ({ id, reason }: { id: string; reason?: string }) =>
             apiClient.post(`/commitments/${id}/cancel`, { reason: reason?.trim() || null }),
-        onSuccess: invalidate,
+        onMutate: async ({ id }) => {
+            await queryClient.cancelQueries({ queryKey: ['commitments'] });
+            const previous = queryClient.getQueriesData<any[]>({ queryKey: ['commitments'] });
+            const source = previous
+                .flatMap(([, data]) => Array.isArray(data) ? data : [])
+                .find((item: any) => item.id === id);
+            const cancelled = source ? { ...source, status: 'cancelled' } : null;
+
+            previous.forEach(([key, data]) => {
+                if (!Array.isArray(data)) return;
+                const requestedStatus = Array.isArray(key) ? key[1] : undefined;
+                let next = data;
+                if (!requestedStatus) {
+                    next = data.map((item: any) =>
+                        item.id === id ? { ...item, status: 'cancelled' } : item
+                    );
+                } else if (requestedStatus === 'accepted') {
+                    next = data.filter((item: any) => item.id !== id);
+                } else if (requestedStatus === 'cancelled' && cancelled) {
+                    next = [
+                        cancelled,
+                        ...data.filter((item: any) => item.id !== id),
+                    ];
+                }
+                queryClient.setQueryData(key, next);
+            });
+
+            return { previous };
+        },
+        onError: (_error, _variables, context) => {
+            context?.previous.forEach(([key, data]) => {
+                queryClient.setQueryData(key, data);
+            });
+        },
+        onSettled: invalidate,
     });
 };
 

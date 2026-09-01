@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertCanReferenceProfiles, assertConversationAdmin } from '../utils/authz';
+import {
+    createConversationWithParticipants,
+    tombstoneConversation,
+} from '../services/conversationApplication.service';
 
 // POST /groups
 export const createGroup = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -18,34 +22,15 @@ export const createGroup = async (req: Request, res: Response, next: NextFunctio
         // V2: conversation_type reemplaza is_group; admin_id ya no existe en
         // conversations — la autoridad de admin vive solo en
         // conversation_participants.role (asignado abajo).
-        const { data: conv, error: convError } = await supabaseAdmin
-            .from('conversations')
-            .insert({
-                conversation_type: 'group',
-                name: name,
-                avatar_url: avatarUrl || null,
-                created_by: userId
-            })
-            .select()
-            .single();
+        const conversationId = await createConversationWithParticipants({
+            creatorUserId: userId,
+            type: 'group',
+            participantUserIds: allParticipantIds,
+            name,
+            avatarUrl,
+        });
 
-        if (convError) throw new AppError(convError.message, 500);
-
-        // Prepare participants rows
-        const participantsData = allParticipantIds.map((id: string) => ({
-            conversation_id: conv.id,
-            user_id: id,
-            role: id === userId ? 'admin' : 'member',
-        }));
-
-        // Insert all participants
-        const { error: partError } = await supabaseAdmin
-            .from('conversation_participants')
-            .insert(participantsData);
-
-        if (partError) throw new AppError(partError.message, 500);
-
-        res.status(201).json({ conversationId: conv.id, isGroup: true, name: conv.name });
+        res.status(201).json({ conversationId, isGroup: true, name });
     } catch (error) {
         next(error);
     }
@@ -113,13 +98,7 @@ export const deleteGroup = async (req: Request, res: Response, next: NextFunctio
 
         await assertConversationAdmin(userId, conversationId);
 
-        // Delete the group (cascade will handle participants and messages)
-        const { error: delError } = await supabaseAdmin
-            .from('conversations')
-            .delete()
-            .eq('id', conversationId);
-
-        if (delError) throw new AppError(delError.message, 500);
+        await tombstoneConversation(conversationId, userId);
 
         res.status(200).json({ success: true });
     } catch (error) {

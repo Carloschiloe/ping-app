@@ -39,3 +39,8 @@ export function normalizeCommitmentStatus(status?: string | null): CanonicalComm
     if (LEGACY_STATUS_READ_ALIASES[status]) return LEGACY_STATUS_READ_ALIASES[status];
     return 'proposed';
 }
+
+export function isAgendaVisibleStatus(status?: string | null): boolean {
+    const normalized = normalizeCommitmentStatus(status);
+    return normalized === 'accepted' || normalized === 'cancelled';
+}

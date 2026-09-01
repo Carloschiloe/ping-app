@@ -18,9 +18,12 @@ export async function createProposal(userId: string, input: any) {
     if (requestedResponsibleUserId && contactId) {
         throw new AppError('A proposal cannot reference both a responsible user and an external contact', 400);
     }
+    let sourceMessage: any = null;
     if (conversationId) {
         await assertConversationParticipant(userId, conversationId);
-        if (sourceMessageId) await assertMessageInConversation(sourceMessageId, conversationId);
+        if (sourceMessageId) {
+            sourceMessage = await assertMessageInConversation(sourceMessageId, conversationId);
+        }
         if (responsibleUserId && responsibleUserId !== userId) {
             await assertConversationParticipantReference(responsibleUserId, conversationId);
         }
@@ -33,7 +36,14 @@ export async function createProposal(userId: string, input: any) {
 
     const sourceKind = input.source_kind
         || input.sourceKind
-        || (sourceMessageId ? 'conversation_message' : 'manual');
+        || (sourceMessage?.metadata?.suggestedTask
+            ? 'ai_suggestion'
+            : sourceMessageId
+                ? 'conversation_message'
+                : 'manual');
+    if (!['manual', 'conversation_message', 'ai_suggestion'].includes(sourceKind)) {
+        throw new AppError('Invalid proposal source kind', 400);
+    }
 
     const proposalPayload = {
             proposed_by_user_id: userId,
@@ -67,9 +77,9 @@ export async function createSharedProposal(userId: string, input: any) {
 
     await assertConversationParticipant(userId, conversationId);
     const sourceMessageId = input.message_id || input.messageId || null;
-    if (sourceMessageId) {
-        await assertMessageInConversation(sourceMessageId, conversationId);
-    }
+    const sourceMessage = sourceMessageId
+        ? await assertMessageInConversation(sourceMessageId, conversationId)
+        : null;
 
     const requestedResponsibleUserId = readLegacyAssignedToUserId(input);
     const contactId = input.counterparty_contact_id || input.counterpartyContactId || null;
@@ -83,7 +93,14 @@ export async function createSharedProposal(userId: string, input: any) {
 
     const sourceKind = input.source_kind
         || input.sourceKind
-        || (sourceMessageId ? 'conversation_message' : 'manual');
+        || (sourceMessage?.metadata?.suggestedTask
+            ? 'ai_suggestion'
+            : sourceMessageId
+                ? 'conversation_message'
+                : 'manual');
+    if (!['manual', 'conversation_message', 'ai_suggestion'].includes(sourceKind)) {
+        throw new AppError('Invalid proposal source kind', 400);
+    }
     const proposalPayload = {
         proposed_by_user_id: userId,
         proposed_responsible_user_id: contactId

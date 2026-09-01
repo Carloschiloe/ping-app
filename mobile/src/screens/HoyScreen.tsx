@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, ScrollView, Alert, Linking, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCommitments, useMarkCommitmentDone, useDeleteCommitment } from '../api/queries';
@@ -11,13 +11,19 @@ import { apiClient } from '../api/client';
 import { format, addDays, startOfWeek, isSameDay, getYear, getMonth, startOfMonth, endOfMonth, isToday } from 'date-fns';
 import { es } from 'date-fns/locale/es';
 import { useQueryClient } from '@tanstack/react-query';
-import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
+import { isAgendaVisibleStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 type ViewMode = 'year' | 'month' | 'agenda';
 
 export default function HoyScreen() {
-    const { data: commitments, isLoading } = useCommitments('accepted');
+    const { data: allCommitments, isLoading } = useCommitments();
+    const commitments = useMemo(
+        () => (allCommitments || []).filter((commitment: any) =>
+            isAgendaVisibleStatus(commitment.status)
+        ),
+        [allCommitments]
+    );
     const { mutate: markDone } = useMarkCommitmentDone();
     const { mutate: deleteCommitment } = useDeleteCommitment();
     const navigation = useNavigation<any>();
@@ -376,6 +382,7 @@ export default function HoyScreen() {
         const timeString = item.due_at ? format(new Date(item.due_at), 'HH:mm') : '--:--';
         const isConflict = item.meta?.conflict_detected;
         const isSynced = !!item.meta?.synced_to;
+        const isCancelled = normalizeCommitmentStatus(item.status) === 'cancelled';
 
         return (
             <View style={styles.agendaRow}>
@@ -384,22 +391,37 @@ export default function HoyScreen() {
                     <View style={styles.timeLine} />
                 </View>
 
-                <View style={[styles.eventCard, isConflict && styles.eventCardConflict]}>
+                <View style={[
+                    styles.eventCard,
+                    isConflict && styles.eventCardConflict,
+                    isCancelled && styles.eventCardCancelled,
+                ]}>
                     <View style={styles.eventHeader}>
-                        <Text style={[styles.eventTitle, isConflict && { color: '#92400e' }]}>
+                        <Text style={[
+                            styles.eventTitle,
+                            isConflict && { color: '#92400e' },
+                            isCancelled && styles.eventTitleCancelled,
+                        ]}>
                             {item.title}
                         </Text>
-                        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                            <TouchableOpacity style={styles.actionBtn} onPress={() => handleDelete(item.id, item.title)}>
-                                <Ionicons name="trash-outline" size={24} color="#ef4444" />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarkDone(item.id)}>
-                                <Ionicons name="checkmark-circle-outline" size={26} color="#0a84ff" />
-                            </TouchableOpacity>
-                        </View>
+                        {isCancelled ? (
+                            <View style={styles.cancelledBadge}>
+                                <Ionicons name="close-circle" size={14} color="#b91c1c" />
+                                <Text style={styles.cancelledBadgeText}>Cancelado</Text>
+                            </View>
+                        ) : (
+                            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                                <TouchableOpacity style={styles.actionBtn} onPress={() => handleDelete(item.id, item.title)}>
+                                    <Ionicons name="trash-outline" size={24} color="#ef4444" />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarkDone(item.id)}>
+                                    <Ionicons name="checkmark-circle-outline" size={26} color="#0a84ff" />
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
 
-                    {isSynced ? (
+                    {!isCancelled && (isSynced ? (
                         item.meta.external_event_url ? (
                             <TouchableOpacity
                                 style={[styles.syncBtn, isConflict && styles.syncBtnConflict, { backgroundColor: '#0a84ff' }]}
@@ -428,7 +450,7 @@ export default function HoyScreen() {
                             <Ionicons name="calendar-outline" size={14} color="#6b7280" />
                             <Text style={styles.localSyncText}>Agendar en Calendario</Text>
                         </TouchableOpacity>
-                    )}
+                    ))}
 
                     {item.message_id && (
                         <TouchableOpacity
@@ -581,8 +603,20 @@ const styles = StyleSheet.create({
 
     eventCard: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 12, padding: 14 },
     eventCardConflict: { backgroundColor: '#fffbeb', borderColor: '#fef3c7', borderWidth: 1 },
+    eventCardCancelled: { backgroundColor: '#f8fafc', borderColor: '#fecaca', borderWidth: 1 },
     eventHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
     eventTitle: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1, marginRight: 12, lineHeight: 22 },
+    eventTitleCancelled: { color: '#64748b', textDecorationLine: 'line-through' },
+    cancelledBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: '#fee2e2',
+    },
+    cancelledBadgeText: { color: '#b91c1c', fontSize: 11, fontWeight: '800' },
     actionBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
 
     syncBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a84ff', paddingVertical: 10, borderRadius: 8, gap: 8, marginBottom: 10 },

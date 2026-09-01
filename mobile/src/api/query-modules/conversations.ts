@@ -5,6 +5,28 @@ import { apiClient } from '../client';
 import { useAuth } from '../../context/AuthContext';
 import { reconcileConfirmedMessage } from '../../utils/messageReconciliation';
 
+function normalizeRealtimeMessage(row: any) {
+    if (!row) return row;
+    if (row.deleted_at) {
+        return {
+            ...row,
+            content: null,
+            text: 'Mensaje eliminado',
+            metadata: { tombstone: true },
+            meta: { tombstone: true },
+            media_url: null,
+            media_bucket: null,
+            media_object_path: null,
+            message_reactions: [],
+        };
+    }
+    return {
+        ...row,
+        text: row.content ?? row.text ?? null,
+        meta: row.metadata ?? row.meta ?? {},
+    };
+}
+
 function reconcileMessagePages(oldData: any, confirmed: any) {
     if (!oldData?.pages) return oldData;
 
@@ -39,6 +61,9 @@ export const useConversations = () => {
             .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_receipts' }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
                     queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -52,7 +77,9 @@ export const useConversations = () => {
         queryFn: () => apiClient.get('/conversations'),
         refetchOnMount: 'always',
         refetchOnReconnect: 'always',
-        refetchInterval: 5_000,
+        // Realtime da inmediatez; este intervalo es solo reconciliacion de
+        // seguridad ante eventos perdidos. Mount/reconnect tambien refetchean.
+        refetchInterval: 30_000,
         refetchIntervalInBackground: false,
     });
 };
@@ -66,13 +93,13 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
         const channel = supabase
             .channel(`messages-${conversationId}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-                const newMsg = payload.new;
+                const newMsg = normalizeRealtimeMessage(payload.new);
                 queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
                     return reconcileMessagePages(oldData, newMsg);
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-                const updatedMsg = payload.new;
+                const updatedMsg = normalizeRealtimeMessage(payload.new);
                 queryClient.setQueriesData({ queryKey: ['conversation-messages', conversationId] }, (oldData: any) => {
                     if (!oldData) return oldData;
                     return {
@@ -99,6 +126,10 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => {
                 queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_receipts' }, () => {
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
@@ -128,7 +159,7 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
         enabled: !!conversationId,
         refetchOnMount: 'always',
         refetchOnReconnect: 'always',
-        refetchInterval: 4_000,
+        refetchInterval: 30_000,
         refetchIntervalInBackground: false,
     });
 };
@@ -155,14 +186,22 @@ export const useSendConversationMessage = (conversationId: string) => {
             mentioned_user_id?: string;
             client_message_id?: string;
             meta?: any;
+            attachmentId?: string;
             attachment?: {
-                bucket: 'chat-media';
-                objectPath: string;
+                attachmentId?: string;
+                bucket?: 'chat-media';
+                objectPath?: string;
                 mimeType: string;
                 fileName: string;
+                durationMs?: number;
             };
         }) => {
-            return apiClient.post(`/conversations/${conversationId}/messages`, data);
+            const { attachment, ...message } = data;
+            return apiClient.post(`/conversations/${conversationId}/messages`, {
+                ...message,
+                attachmentId: data.attachmentId || attachment?.attachmentId,
+                ...(attachment?.attachmentId ? {} : attachment ? { attachment } : {}),
+            });
         },
         onMutate: async (data) => {
             await queryClient.cancelQueries({ queryKey: ['conversation-messages', conversationId] });
@@ -181,11 +220,20 @@ export const useSendConversationMessage = (conversationId: string) => {
                     ...(data.attachment ? {
                         media_bucket: data.attachment.bucket,
                         media_object_path: data.attachment.objectPath,
+                        attachment: data.attachment.attachmentId ? {
+                            id: data.attachment.attachmentId,
+                            mimeType: data.attachment.mimeType,
+                            originalFilename: data.attachment.fileName,
+                            durationMs: data.attachment.durationMs,
+                            lifecycleStatus: 'uploaded',
+                        } : null,
                         metadata: {
                             ...(data.meta || {}),
                             attachment: {
+                                id: data.attachment.attachmentId,
                                 mimeType: data.attachment.mimeType,
                                 fileName: data.attachment.fileName,
+                                durationMs: data.attachment.durationMs,
                             },
                         },
                     } : {}),

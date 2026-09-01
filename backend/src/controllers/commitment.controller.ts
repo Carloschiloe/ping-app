@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import * as commitmentService from '../services/commitment.service';
+import * as commitmentService from '../services/commitmentApplication.service';
 import * as calendarSyncService from '../services/calendar_sync.service';
 import { toLegacyCommitmentShape, toLegacyCommitmentListShape } from '../utils/commitmentCompat';
-import * as proposalService from '../services/commitmentProposal.service';
 
 function handleError(res: Response, label: string, error: any) {
     const postgresStatus: Record<string, number> = {
@@ -31,7 +30,7 @@ export const createCommitment = async (req: Request, res: Response): Promise<voi
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const data = await proposalService.createConfirmedCommitment(req.user.id, req.body);
+        const data = await commitmentService.createConfirmedCommitment(req.user.id, req.body);
         res.status(201).json(toLegacyCommitmentShape(data));
     } catch (error: any) {
         handleError(res, 'createCommitment', error);
@@ -74,7 +73,7 @@ export const rejectCommitment = async (req: Request, res: Response): Promise<voi
 
 export const createProposal = async (req: Request, res: Response): Promise<void> => {
     try {
-        const data = await proposalService.createProposal(req.user!.id, req.body);
+        const data = await commitmentService.createProposal(req.user!.id, req.body);
         res.status(201).json(data);
     } catch (error: any) {
         handleError(res, 'createProposal', error);
@@ -83,7 +82,7 @@ export const createProposal = async (req: Request, res: Response): Promise<void>
 
 export const createSharedProposal = async (req: Request, res: Response): Promise<void> => {
     try {
-        const data = await proposalService.createSharedProposal(req.user!.id, req.body);
+        const data = await commitmentService.createSharedProposal(req.user!.id, req.body);
         res.status(201).json(data);
     } catch (error: any) {
         handleError(res, 'createSharedProposal', error);
@@ -93,7 +92,7 @@ export const createSharedProposal = async (req: Request, res: Response): Promise
 export const getAgreementProposals = async (req: Request, res: Response): Promise<void> => {
     try {
         const conversationId = req.query.conversationId as string | undefined;
-        const data = await proposalService.getAgreementProposals(
+        const data = await commitmentService.getAgreementProposals(
             req.user!.id,
             conversationId
         );
@@ -105,7 +104,7 @@ export const getAgreementProposals = async (req: Request, res: Response): Promis
 
 export const respondToSharedProposal = async (req: Request, res: Response): Promise<void> => {
     try {
-        const data = await proposalService.respondToSharedProposal(
+        const data = await commitmentService.respondToSharedProposal(
             req.user!.id,
             req.params.id as string,
             req.body.decision,
@@ -122,7 +121,7 @@ export const respondToSharedProposal = async (req: Request, res: Response): Prom
 
 export const confirmProposal = async (req: Request, res: Response): Promise<void> => {
     try {
-        const data = await proposalService.confirmProposal(req.user!.id, req.params.id as string);
+        const data = await commitmentService.confirmProposal(req.user!.id, req.params.id as string);
         res.status(201).json(toLegacyCommitmentShape(data));
     } catch (error: any) {
         handleError(res, 'confirmProposal', error);
@@ -131,7 +130,7 @@ export const confirmProposal = async (req: Request, res: Response): Promise<void
 
 export const rejectProposal = async (req: Request, res: Response): Promise<void> => {
     try {
-        const data = await proposalService.rejectProposal(
+        const data = await commitmentService.rejectProposal(
             req.user!.id,
             req.params.id as string,
             req.body.reason

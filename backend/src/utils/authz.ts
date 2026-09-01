@@ -18,13 +18,13 @@ export async function assertConversationParticipant(userId: string, conversation
 export async function assertMessageInConversation(messageId: string, conversationId: string) {
     const { data: message, error } = await supabaseAdmin
         .from('messages')
-        .select('id, conversation_id, sender_id')
+        .select('id, conversation_id, sender_id, metadata, deleted_at')
         .eq('id', messageId)
         .eq('conversation_id', conversationId)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
-    if (!message) throw new AppError('Message not found in this conversation', 404);
+    if (!message || message.deleted_at) throw new AppError('Message not found in this conversation', 404);
 
     return message;
 }

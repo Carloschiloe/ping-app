@@ -12,6 +12,7 @@ import { useOfflineSync, PendingMessage } from './useOfflineSync';
 import { classifySendFailure, createClientMessageId, SyncResult } from '../utils/synchronization';
 import { apiClient, ApiError } from '../api/client';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
+import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean) {
     const queryClient = useQueryClient();
@@ -25,7 +26,8 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 reply_to_id: msg.replyToId,
                 mentioned_user_id: msg.mentionedUserId,
                 client_message_id: msg.clientMessageId,
-                attachment: msg.attachment,
+                attachmentId: msg.attachment?.attachmentId,
+                attachment: msg.attachment?.attachmentId ? undefined : msg.attachment,
             });
             return { state: 'confirmed' } as SyncResult;
         } catch (error) {
@@ -75,8 +77,24 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         : 'pending_offline',
                 meta: q.meta,
                 ...(q.attachment ? {
+                    attachment: q.attachment.attachmentId ? {
+                        id: q.attachment.attachmentId,
+                        mimeType: q.attachment.mimeType,
+                        originalFilename: q.attachment.fileName,
+                        durationMs: q.attachment.durationMs,
+                        lifecycleStatus: 'uploaded',
+                    } : null,
                     media_bucket: q.attachment.bucket,
                     media_object_path: q.attachment.objectPath,
+                    metadata: {
+                        ...(q.meta || {}),
+                        attachment: {
+                            id: q.attachment.attachmentId,
+                            mimeType: q.attachment.mimeType,
+                            fileName: q.attachment.fileName,
+                            durationMs: q.attachment.durationMs,
+                        },
+                    },
                 } : {}),
                 profiles: {
                     full_name: user?.user_metadata?.full_name,
@@ -250,9 +268,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         if (!messages || messages.length === 0 || !user || !isFocused) return;
 
         const hasUnread = messages.some((msg: any) => {
-            const isSystem = (msg.metadata ?? msg.meta)?.isSystem;
-            const isMe = msg.sender_id === user.id;
-            return !isMe && !isSystem && msg.status !== 'read';
+            return needsReadReceipt(msg, user.id);
         });
 
         if (hasUnread) {
@@ -265,10 +281,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         if (!messages || messages.length === 0 || !user) return;
 
         messages.forEach((msg: any) => {
-            const isSystem = (msg.metadata ?? msg.meta)?.isSystem;
-            const isMe = msg.sender_id === user.id;
-            if (isMe || isSystem) return;
-            if (msg.status !== 'sent') return;
+            if (!needsDeliveryReceipt(msg, user.id)) return;
             if (deliveredTracker.current.has(msg.id)) return;
 
             deliveredTracker.current.add(msg.id);

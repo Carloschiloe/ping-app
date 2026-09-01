@@ -1,9 +1,10 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { extractCommitment, transcribeAudio } from './ai.service';
 import { isValid } from 'date-fns';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import os from 'os';
-import { toLegacyMessageShape, toLegacyMessageListShape } from '../utils/messageCompat';
+import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
 import {
     assertConversationParticipant,
@@ -15,6 +16,11 @@ import {
     reconcileCommitmentSuggestion,
 } from '../utils/deterministicCommitmentSuggestion';
 import { validatePrivateFileUploadReference } from './privateFile.service';
+import { registerLegacyMessageAttachment } from './attachmentApplication.service';
+import {
+    persistSystemMessage,
+    persistUserMessage,
+} from './messagingApplication.service';
 
 export const processUserMessage = async (
     userId: string,
@@ -29,7 +35,8 @@ export const processUserMessage = async (
         objectPath: string;
         mimeType: string;
         fileName: string;
-    }
+    },
+    attachmentId?: string,
 ) => {
     if (conversationId) {
         await assertConversationParticipant(userId, conversationId);
@@ -47,6 +54,11 @@ export const processUserMessage = async (
     let meta: any = incomingMeta ? { ...incomingMeta } : {};
     let imageUrl: string | undefined;
 
+    if (attachment && attachmentId) {
+        throw new Error('Use attachmentId or the legacy attachment payload, not both');
+    }
+
+    let canonicalAttachmentId = attachmentId;
     if (attachment) {
         if (!conversationId) throw new Error('Attachments require a conversation');
         const verified = await validatePrivateFileUploadReference(
@@ -62,24 +74,22 @@ export const processUserMessage = async (
             fileName: safeFileName,
             size: verified.size,
         };
-    }
-
-    if (clientMessageId) {
-        const { data: existing, error: existingError } = await supabaseAdmin
-            .from('messages')
-            .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
-            .eq('sender_id', userId)
-            .eq('conversation_id', conversationId)
-            .eq('client_message_id', clientMessageId)
-            .maybeSingle();
-        if (existingError) throw existingError;
-        if (existing) {
-            return { message: toLegacyMessageShape(existing), idempotentReplay: true };
-        }
+        const registered = await registerLegacyMessageAttachment({
+            actorUserId: userId,
+            conversationId,
+            bucket: attachment.bucket,
+            objectPath: attachment.objectPath,
+            mimeType: verified.mimeType,
+            sizeBytes: verified.size,
+            originalFilename: safeFileName,
+            clientUploadId: clientMessageId || randomUUID(),
+            metadata: { compatibility: 'legacy_bucket_path' },
+        });
+        canonicalAttachmentId = registered.id;
     }
 
     // 1. Handle Multimedia (Audio/Image/Video/Document)
-    if (text.startsWith('[audio]')) {
+    if (text.startsWith('[audio]') && !canonicalAttachmentId) {
         const audioUrl = text.slice(7);
         let tempFile: string | undefined;
         try {
@@ -115,53 +125,55 @@ export const processUserMessage = async (
         }
     }
 
-    // 2. Insert message immediately
-    // V2: messages usa content/metadata (no text/meta) y sender_id unicamente
-    // (no user_id, columna eliminada en el esquema V2).
-    const { data: message, error: messageError } = await supabaseAdmin
-        .from('messages')
-        .insert({
-            sender_id: userId,
-            ...(conversationId ? { conversation_id: conversationId } : {}),
-            ...(replyToId ? { reply_to_id: replyToId } : {}),
-            ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
-            content: text,
-            metadata: meta,
-            ...(attachment ? {
-                media_bucket: attachment.bucket,
-                media_object_path: attachment.objectPath,
-            } : {}),
-        })
-        .select()
-        .single();
+    // Publish a high-confidence local suggestion with the original message.
+    // This makes the "Agendar" action immediate; OpenAI may refine the title
+    // or type later, but never blocks the first useful UI response.
+    const immediateSuggestion = buildDeterministicCommitmentSuggestion(
+        processingText,
+        new Date()
+    );
+    if (immediateSuggestion && !meta.suggestedTask) {
+        meta.suggestedTask = immediateSuggestion;
+    }
 
-    if (messageError) {
-        if (clientMessageId && messageError.code === '23505') {
-            const { data: existing, error: replayError } = await supabaseAdmin
-                .from('messages')
-                .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
-                .eq('sender_id', userId)
-                .eq('conversation_id', conversationId)
-                .eq('client_message_id', clientMessageId)
-                .single();
-            if (replayError) throw replayError;
-            return { message: toLegacyMessageShape(existing), idempotentReplay: true };
-        }
-        throw messageError;
+    if (!conversationId) {
+        throw new Error('A canonical message requires a conversation');
+    }
+
+    // El insert del mensaje y el snapshot de receptores quedan en la misma
+    // transaccion mediante el trigger canonico de PostgreSQL.
+    const persisted = await persistUserMessage({
+        actorUserId: userId,
+        conversationId,
+        content: text,
+        replyToId,
+        clientMessageId,
+        metadata: meta,
+        attachmentId: canonicalAttachmentId,
+    });
+    const message = persisted.message;
+
+    if (persisted.idempotentReplay) return persisted;
+
+    const isCanonicalAudio = Boolean(
+        canonicalAttachmentId
+        && (
+            message?.attachment?.kind === 'audio'
+            || String(message?.attachment?.mimeType || '').startsWith('audio/')
+        )
+    );
+    if (isCanonicalAudio) {
+        import('./audioTranscriptionWorker.service')
+            .then(({ wakeAudioTranscriptionWorker }) => wakeAudioTranscriptionWorker())
+            .catch(() => console.error('[AudioWorker] Unable to schedule sweep'));
+        return persisted;
     }
 
     // 3. Trigger Background Analysis (Non-blocking)
     analyzeAndSuggestTask(message.id, processingText, imageUrl, mentionedUserId, conversationId)
         .catch(err => console.error('[Background Analysis Error]', err));
 
-    // Fetch message with joins for response
-    const { data: fullMessage } = await supabaseAdmin
-        .from('messages')
-        .select('*, profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, profiles!sender_id(email)), message_reactions(*, profiles:user_id(id, email))')
-        .eq('id', message.id)
-        .single();
-
-    return { message: toLegacyMessageShape(fullMessage) || toLegacyMessageShape(message) };
+    return persisted;
 };
 
 export const analyzeAndSuggestTask = async (
@@ -169,7 +181,8 @@ export const analyzeAndSuggestTask = async (
     text: string,
     imageUrl?: string,
     mentionedUserId?: string,
-    conversationId?: string
+    conversationId?: string,
+    options: { persist?: boolean } = {},
 ) => {
     const timestamp = new Date().toISOString();
     // Smart Triggers: detect natural language indicators for tasks or schedules
@@ -233,26 +246,15 @@ export const analyzeAndSuggestTask = async (
                 type: extractedSuggestion.type,
             };
 
+            if (options.persist === false) return suggestedTask;
+
             console.info(`[AI] Saving a suggestion for message ${messageId}`);
 
-            // Fetch current metadata to avoid overwriting (e.g. transcript or image info)
-            const { data: currentMsg } = await supabaseAdmin
-                .from('messages')
-                .select('metadata')
-                .eq('id', messageId)
-                .single();
-
-            const updatedMetadata = {
-                ...(currentMsg?.metadata || {}),
-                suggestedTask
-            };
-
-            const { data: updated } = await supabaseAdmin
-                .from('messages')
-                .update({ metadata: updatedMetadata })
-                .eq('id', messageId)
-                .select()
-                .single();
+            const { error: mergeError } = await supabaseAdmin.rpc('merge_message_suggested_task', {
+                p_message_id: messageId,
+                p_suggested_task: suggestedTask,
+            });
+            if (mergeError) throw mergeError;
 
             return suggestedTask;
         }
@@ -265,13 +267,13 @@ export const analyzeAndSuggestTask = async (
 export const getMessages = async (userId: string, limit = 50, offset = 0) => {
     const { data, error, count } = await supabaseAdmin
         .from('messages')
-        .select('*', { count: 'exact' })
+        .select('*, message_receipts(*)', { count: 'exact' })
         .eq('sender_id', userId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
     if (error) throw error;
-    return { messages: toLegacyMessageListShape(data), count };
+    return { messages: toLegacyMessageListShape(data, userId), count };
 };
 
 // V2: mensajes sin remitente humano deben etiquetarse con system_event_type
@@ -285,22 +287,16 @@ export const insertSystemMessage = async (
     extraMeta: any = {},
     systemEventType: string = 'system_notice'
 ) => {
-    const { data, error } = await supabaseAdmin
-        .from('messages')
-        .insert({
-            conversation_id: conversationId,
-            sender_id: userId || null,
+    try {
+        return await persistSystemMessage({
+            conversationId,
             content: text,
-            metadata: { isSystem: true, ...extraMeta },
-            system_event_type: systemEventType,
-            status: 'sent'
-        })
-        .select()
-        .single();
-
-    if (error) {
-        console.error('[System Message] Error inserting:', error);
+            senderUserId: userId,
+            metadata: extraMeta,
+            systemEventType,
+        });
+    } catch (error) {
+        console.error('[System Message] Error inserting');
         return null;
     }
-    return toLegacyMessageShape(data);
 };

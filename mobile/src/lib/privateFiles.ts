@@ -1,5 +1,6 @@
 import { apiClient } from '../api/client';
 import { supabase } from './supabase';
+import { createClientMessageId } from '../utils/synchronization';
 
 export type PrivateFileResourceType = 'message' | 'profile' | 'conversation';
 export type PrivateFileUploadPurpose =
@@ -20,17 +21,83 @@ export type PrivateFileUploadAccess = {
 };
 
 export type PrivateMessageAttachment = {
-    bucket: 'chat-media';
-    objectPath: string;
+    attachmentId: string;
     mimeType: string;
     fileName: string;
+    durationMs?: number;
 };
+
+type MessageAttachmentUploadIntent = {
+    attachmentId: string;
+    upload: PrivateFileUploadAccess;
+    expiresAt: string;
+};
+
+type PrivateFileReadCacheEntry = {
+    access: PrivateFileReadAccess;
+    expiresAt: number;
+};
+
+const privateFileReadCache = new Map<string, PrivateFileReadCacheEntry>();
+const PRIVATE_FILE_REFRESH_BUFFER_SECONDS = 10;
+
+export function getPrivateFileRefreshDelay(expiresIn: number): number {
+    return Math.max(5_000, (Math.max(0, expiresIn) - PRIVATE_FILE_REFRESH_BUFFER_SECONDS) * 1_000);
+}
+
+export function clearPrivateFileReadCache() {
+    privateFileReadCache.clear();
+}
 
 export async function resolvePrivateFileUrl(
     resourceType: PrivateFileResourceType,
-    resourceId: string
+    resourceId: string,
+    options: { forceRefresh?: boolean } = {}
 ): Promise<PrivateFileReadAccess> {
-    return apiClient.post('/files/read-url', { resourceType, resourceId });
+    const cacheKey = `${resourceType}:${resourceId}`;
+    const cached = privateFileReadCache.get(cacheKey);
+    if (
+        !options.forceRefresh
+        && cached
+        && cached.expiresAt > Date.now() + PRIVATE_FILE_REFRESH_BUFFER_SECONDS * 1_000
+    ) {
+        return cached.access;
+    }
+
+    const access: PrivateFileReadAccess = await apiClient.post(
+        '/files/read-url',
+        { resourceType, resourceId }
+    );
+    privateFileReadCache.set(cacheKey, {
+        access,
+        expiresAt: Date.now() + access.expiresIn * 1_000,
+    });
+    return access;
+}
+
+export async function resolveAttachmentUrl(
+    attachmentId: string,
+    options: { forceRefresh?: boolean } = {}
+): Promise<PrivateFileReadAccess> {
+    const cacheKey = `attachment:${attachmentId}`;
+    const cached = privateFileReadCache.get(cacheKey);
+    if (
+        !options.forceRefresh
+        && cached
+        && cached.expiresAt > Date.now() + PRIVATE_FILE_REFRESH_BUFFER_SECONDS * 1_000
+    ) {
+        return cached.access;
+    }
+
+    const access: PrivateFileReadAccess = await apiClient.post(
+        `/attachments/${attachmentId}/read-url`,
+        {}
+    );
+    privateFileReadCache.set(cacheKey, {
+        access,
+        expiresAt: Date.now() + access.expiresIn * 1_000,
+    });
+    return access;
 }
 
 // Deliberately closed in mobile. Preparing the backend contract does not
@@ -80,24 +147,32 @@ export async function uploadPrivateProfileAvatar(
         bucket: access.bucket,
         objectPath: access.objectPath,
     });
-    return resolvePrivateFileUrl('profile', userId);
+    return resolvePrivateFileUrl('profile', userId, { forceRefresh: true });
 }
 
 export async function uploadPrivateMessageAttachment(
     conversationId: string,
     uri: string,
     mimeType: string,
-    fileName: string
+    fileName: string,
+    durationMs?: number,
 ): Promise<PrivateMessageAttachment> {
-    const access: PrivateFileUploadAccess = await apiClient.post(
-        '/files/message-attachment/upload-url',
-        { conversationId, mimeType }
+    const intent: MessageAttachmentUploadIntent = await apiClient.post(
+        '/attachments/upload-intents',
+        {
+            conversationId,
+            mimeType,
+            originalFilename: fileName,
+            clientUploadId: createClientMessageId(),
+            durationMs,
+        }
     );
-    await uploadToSignedPrivatePath(uri, mimeType, access);
+    await uploadToSignedPrivatePath(uri, mimeType, intent.upload);
+    await apiClient.post(`/attachments/${intent.attachmentId}/complete`, {});
     return {
-        bucket: access.bucket,
-        objectPath: access.objectPath,
+        attachmentId: intent.attachmentId,
         mimeType,
         fileName,
+        durationMs,
     };
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeCommitmentStatus, isCanonicalCommitmentStatus } from '../src/utils/commitmentStatus';
+import {
+    isAgendaVisibleStatus,
+    normalizeCommitmentStatus,
+    isCanonicalCommitmentStatus,
+} from '../src/utils/commitmentStatus';
 
 describe('normalizeCommitmentStatus', () => {
     it('reconoce "resolved" como estado canonico V2 (se muestra como Resuelto)', () => {
@@ -31,5 +35,12 @@ describe('normalizeCommitmentStatus', () => {
     it('null/undefined se interpreta como "proposed"', () => {
         expect(normalizeCommitmentStatus(null)).toBe('proposed');
         expect(normalizeCommitmentStatus(undefined)).toBe('proposed');
+    });
+
+    it('mantiene en Agenda los compromisos aceptados y cancelados', () => {
+        expect(isAgendaVisibleStatus('accepted')).toBe(true);
+        expect(isAgendaVisibleStatus('cancelled')).toBe(true);
+        expect(isAgendaVisibleStatus('proposed')).toBe(false);
+        expect(isAgendaVisibleStatus('resolved')).toBe(false);
     });
 });

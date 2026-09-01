@@ -14,6 +14,7 @@ import * as agoraController from '../controllers/agora.controller';
 import * as operationController from '../controllers/operation.controller';
 import * as contactController from '../controllers/contact.controller';
 import * as privateFileController from '../controllers/privateFile.controller';
+import * as attachmentController from '../controllers/attachment.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import * as groupSchema from '../schemas/group.schema';
@@ -22,6 +23,7 @@ import * as messageSchema from '../schemas/message.schema';
 import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
 import * as privateFileSchema from '../schemas/privateFile.schema';
+import * as attachmentSchema from '../schemas/attachment.schema';
 import * as conversationInvitationSchema from '../schemas/conversationInvitation.schema';
 import * as contactDiscoverySchema from '../schemas/contactDiscovery.schema';
 import {
@@ -193,6 +195,27 @@ router.post(
     privateMessageUploadsEnabled,
     validateRequest(privateFileSchema.createMessageAttachmentUploadUrlSchema),
     privateFileController.createMessageAttachmentUploadUrl
+);
+router.post(
+    '/attachments/upload-intents',
+    requireAuth,
+    privateMessageUploadsEnabled,
+    validateRequest(attachmentSchema.createUploadIntentSchema),
+    attachmentController.createUploadIntent
+);
+router.post(
+    '/attachments/:id/complete',
+    requireAuth,
+    privateMessageUploadsEnabled,
+    validateRequest(attachmentSchema.attachmentIdSchema),
+    attachmentController.completeUpload
+);
+router.post(
+    '/attachments/:id/read-url',
+    requireAuth,
+    privateFileReadsEnabled,
+    validateRequest(attachmentSchema.attachmentIdSchema),
+    attachmentController.createReadUrl
 );
 
 // AI

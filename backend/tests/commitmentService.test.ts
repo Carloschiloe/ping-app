@@ -141,21 +141,26 @@ describe('atomic Commitment evidence', () => {
     });
 });
 
-describe('updateCommitment: compatibilidad temporal de status legacy', () => {
+describe('canonical application update boundary', () => {
     it('un cambio sólo de título no se anuncia como cambio de fecha u hora', async () => {
         const mock = createSupabaseAdminMock({
             commitments: [
                 { data: { id: 'c1', owner_user_id: OWNER, assigned_to_user_id: null, conversation_id: 'conv-1' }, error: null },
                 { data: { id: 'c1', title: 'Título anterior', due_at: '2026-07-31T16:00:00.000Z', assigned_to_user_id: null, conversation_id: 'conv-1', type: 'meeting' }, error: null },
-                { data: { id: 'c1', title: 'Spiderman el viernes', due_at: '2026-07-31T16:00:00.000Z', assigned_to_user_id: null, conversation_id: 'conv-1', type: 'meeting', status: 'accepted' }, error: null },
             ],
+            'rpc:edit_commitment_with_evidence': [{
+                data: { id: 'c1', title: 'Spiderman el viernes', due_at: '2026-07-31T16:00:00.000Z', assigned_to_user_id: null, conversation_id: 'conv-1', type: 'meeting', status: 'accepted' },
+                error: null,
+            }],
             messages: [{ data: { id: 'system-1' }, error: null }],
         });
         setSupabaseAdminMock(mock);
 
-        const { updateCommitment } = await import('../src/services/commitment.service');
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
         await updateCommitment(OWNER, 'c1', { title: 'Spiderman el viernes' });
 
+        expect(mock.getRpcCalls()[0].name).toBe('edit_commitment_with_evidence');
+        expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
         const notice = mock.getInsertCalls('messages')[0].content;
         expect(notice).toContain('Título actualizado: Spiderman el viernes');
         expect(notice).not.toContain('fecha');
@@ -171,7 +176,7 @@ describe('updateCommitment: compatibilidad temporal de status legacy', () => {
         });
         setSupabaseAdminMock(mock);
 
-        const { updateCommitment } = await import('../src/services/commitment.service');
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
         await expect(updateCommitment(OWNER, 'c1', { status: 'completed' }))
             .rejects.toThrow('resolution result');
         expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
@@ -189,7 +194,7 @@ describe('updateCommitment: compatibilidad temporal de status legacy', () => {
         });
         setSupabaseAdminMock(mock);
 
-        const { updateCommitment } = await import('../src/services/commitment.service');
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
         await updateCommitment(OWNER, 'c1', { status: 'accepted' });
 
         expect(mock.getInsertCalls('commitment_events')).toHaveLength(0);
@@ -204,8 +209,85 @@ describe('updateCommitment: compatibilidad temporal de status legacy', () => {
         });
         setSupabaseAdminMock(mock);
 
-        const { updateCommitment } = await import('../src/services/commitment.service');
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
         await expect(updateCommitment(OWNER, 'c1', { status: 'estado_invalido_xyz' })).rejects.toThrow();
+    });
+
+    it('traduce status legacy aceptable a una transicion explicita y atomica', async () => {
+        const proposed = {
+            id: 'c1',
+            status: 'proposed',
+            owner_user_id: OWNER,
+            assigned_to_user_id: OWNER,
+            counterparty_contact_id: null,
+            conversation_id: null,
+            due_at: null,
+            proposed_due_at: null,
+        };
+        const mock = createSupabaseAdminMock({
+            commitments: [
+                { data: proposed, error: null },
+                { data: proposed, error: null },
+                { data: proposed, error: null },
+                { data: proposed, error: null },
+            ],
+            'rpc:apply_commitment_transition_with_evidence': [{
+                data: { ...proposed, title: 'X', status: 'accepted', meta: {} },
+                error: null,
+            }],
+            profiles: [{ data: { full_name: 'Carlos' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
+        const result = await updateCommitment(OWNER, 'c1', { status: 'accepted' });
+
+        expect(result.status).toBe('accepted');
+        expect(mock.getRpcCalls()[0]).toEqual(expect.objectContaining({
+            name: 'apply_commitment_transition_with_evidence',
+            args: expect.objectContaining({ p_event_type: 'accepted' }),
+        }));
+        expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
+    });
+
+    it('rechaza mezclar lifecycle y edicion en el PATCH generico', async () => {
+        const mock = createSupabaseAdminMock({});
+        setSupabaseAdminMock(mock);
+
+        const { updateCommitment } = await import('../src/services/commitmentApplication.service');
+        await expect(updateCommitment(OWNER, 'c1', {
+            title: 'No debe aplicarse',
+            status: 'accepted',
+        })).rejects.toThrow('cannot be combined');
+
+        expect(mock.getRpcCalls()).toHaveLength(0);
+        expect(mock.getCalledTables()).toHaveLength(0);
+    });
+});
+
+describe('archive compatibility adapter', () => {
+    it('delega delete a archive con evento/auditoria atomicos', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:archive_commitment_with_evidence': [{
+                data: { id: 'c1', owner_user_id: OWNER, archived_at: '2026-08-28T20:00:00.000Z' },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { deleteCommitment } = await import('../src/services/commitmentApplication.service');
+        const result = await deleteCommitment(OWNER, 'c1');
+
+        expect(result.archived_at).toBeTruthy();
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'archive_commitment_with_evidence',
+            args: { p_commitment_id: 'c1', p_actor_user_id: OWNER },
+        }]);
+        expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
     });
 });
 

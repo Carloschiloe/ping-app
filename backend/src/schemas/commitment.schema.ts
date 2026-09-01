@@ -2,16 +2,11 @@ import { z } from 'zod';
 
 const isoDate = () => z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date format' });
 
-// V2: status es de solo-lectura en la practica para el cliente (la
-// transicion real ocurre via los endpoints dedicados /accept, /reject,
-// /counter-propose, /resolve, /cancel, /reopen, /action-completed,
-// /reassign, que pasan por commitmentTransitions.ts). Se acepta aqui como
-// string libre unicamente para no romper al mobile actual, que todavia
-// envia `status: 'completed'` en el PATCH generico
-// (ver utils/commitmentCompat.ts + commitment.service.ts:updateCommitment,
-// que traduce ese valor legacy a la transicion `resolve` real). Nunca se
-// escribe a la columna sin pasar por normalizeCommitmentStatus +
-// computeCommitmentTransition.
+// Lifecycle status is accepted only at the compatibility boundary. The
+// application service translates supported legacy values into explicit
+// transition operations; PATCH never writes status directly. In particular,
+// completed/resolved is rejected here at runtime because resolution requires
+// the dedicated endpoint and a result.
 export const createCommitmentSchema = z.object({
     body: z.object({
         title: z.string().min(3).max(255),
@@ -29,6 +24,8 @@ export const createCommitmentSchema = z.object({
         is_group_task: z.boolean().optional(),
         priority: z.enum(['low', 'medium', 'high']).optional().nullable(),
         expected_result: z.string().max(2000).optional().nullable(),
+        source_kind: z.enum(['manual', 'conversation_message', 'ai_suggestion']).optional(),
+        sourceKind: z.enum(['manual', 'conversation_message', 'ai_suggestion']).optional(),
         next_action: z.string().max(500).optional().nullable(),
         status: z.string().optional().nullable(),
         meta: z.record(z.string(), z.any()).optional().nullable(),

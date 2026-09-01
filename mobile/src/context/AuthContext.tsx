@@ -5,6 +5,7 @@ import * as Localization from 'expo-localization';
 import * as Linking from 'expo-linking';
 import { clearOfflineMessageQueue } from '../utils/offlineQueueStorage';
 import { parseAuthRedirectUrl } from '../utils/authRedirect';
+import { clearPrivateFileReadCache } from '../lib/privateFiles';
 
 type AuthConfig = {
     session: Session | null;
@@ -147,8 +148,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         };
 
         let interval: NodeJS.Timeout;
+        let activeUserId: string | null = null;
 
         supabase.auth.getSession().then(async ({ data: { session } }) => {
+            activeUserId = session?.user?.id || null;
             setSession(session);
             setUser(session?.user ?? null);
             if (session?.user) {
@@ -163,6 +166,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            const nextUserId = session?.user?.id || null;
+            if (event === 'SIGNED_OUT' || activeUserId !== nextUserId) {
+                clearPrivateFileReadCache();
+            }
+            activeUserId = nextUserId;
             setSession(session);
             setUser(session?.user ?? null);
             if (event === 'SIGNED_OUT') {

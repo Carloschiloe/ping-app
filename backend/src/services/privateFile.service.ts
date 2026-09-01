@@ -63,14 +63,34 @@ function assertStoredReference(bucket: unknown, objectPath: unknown): StoredRefe
 async function getMessageReference(userId: string, resourceId: string): Promise<StoredReference> {
     const { data, error } = await supabaseAdmin
         .from('messages')
-        .select('id, conversation_id, media_bucket, media_object_path')
+        .select('id, conversation_id, media_bucket, media_object_path, deleted_at')
         .eq('id', resourceId)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
-    if (!data) throw new AppError('Message not found', 404);
+    if (!data || data.deleted_at) throw new AppError('Message not found', 404);
 
     await assertConversationParticipant(userId, data.conversation_id);
+    const { data: conversation, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id, deleted_at')
+        .eq('id', data.conversation_id)
+        .maybeSingle();
+    if (conversationError) throw new AppError(conversationError.message, 500);
+    if (!conversation || conversation.deleted_at) throw new AppError('Conversation is unavailable', 404);
+
+    const { data: attachment, error: attachmentError } = await supabaseAdmin
+        .from('attachments')
+        .select('bucket, object_path, lifecycle_status')
+        .eq('message_id', resourceId)
+        .maybeSingle();
+    if (attachmentError) throw new AppError(attachmentError.message, 500);
+    if (attachment) {
+        if (attachment.lifecycle_status !== 'attached') {
+            throw new AppError('Private file reference is not available', 404);
+        }
+        return assertStoredReference(attachment.bucket, attachment.object_path);
+    }
     return assertStoredReference(data.media_bucket, data.media_object_path);
 }
 
@@ -79,12 +99,12 @@ async function getConversationReference(userId: string, resourceId: string): Pro
 
     const { data, error } = await supabaseAdmin
         .from('conversations')
-        .select('id, avatar_bucket, avatar_object_path')
+        .select('id, avatar_bucket, avatar_object_path, deleted_at')
         .eq('id', resourceId)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
-    if (!data) throw new AppError('Conversation not found', 404);
+    if (!data || data.deleted_at) throw new AppError('Conversation not found', 404);
     return assertStoredReference(data.avatar_bucket, data.avatar_object_path);
 }
 

@@ -22,7 +22,10 @@ ningún cambio manual posterior.
 
 ## A qué proyecto se aplica
 
-**Solo a un proyecto Supabase nuevo ("Ping Staging V2"), todavía no creado.**
+La cadena completa de migraciones canónicas se valida primero localmente y
+después exclusivamente contra `Ping Staging V2`, project ref
+`oonijgmddgyymhrlnvuu`. El procedimiento actualizado está en
+`docs/25-COMMITMENT-CORE-VALIDATION.md`.
 
 **NO aplicar sobre el proyecto Supabase antiguo.** El proyecto antiguo tiene
 datos reales, tablas con historia (`conversations`/`conversation_participants`
@@ -33,41 +36,57 @@ chocar contra objetos ya existentes con una forma distinta.
 
 ## Compatibilidad con el backend y mobile actuales
 
-**El baseline V2 NO es compatible directamente con el backend ni el mobile
-actuales.** Aplicarlo y luego simplemente apuntar las variables de entorno
-existentes (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, etc.) al proyecto
-nuevo **romperá la aplicación**, porque V2 renombra y reestructura columnas
-que el código de hoy usa tal cual (entre otros: `messages.user_id` ya no
-existe, `commitments.group_conversation_id` pasa a llamarse
-`conversation_id`, `commitments.is_group_task` se elimina,
-`conversations.admin_id` se elimina en favor de
-`conversation_participants.role`, los estados de `commitments.status` pasan
-de `completed` a `resolved`/`cancelled`). El detalle campo por campo está en
-la matriz de compatibilidad de la auditoría de baseline.
+El warning original de incompatibilidad describía el momento en que nació el
+baseline. Backend y mobile ya incorporan compatibilidad V2; su contrato actual
+debe demostrarse con typecheck, suite completa y los E2E del Commitment Core.
+No se cambia ninguna variable de producción como consecuencia de una
+validación local o de staging.
 
-**No cambiar ninguna variable de entorno de producción ni de desarrollo
-inmediatamente después de aplicar este baseline.** El baseline se aplica
-primero en un proyecto de staging aislado, sin que ninguna app apunte todavía
-ahí; solo después de adaptar el código se conecta algo a él.
+### C-3 Messaging Core
+
+`20260830010000_messaging_core_canonical.sql` agrega receipts normalizados por
+receptor, deriva el `messages.status` legacy sin usarlo como fuente de verdad,
+crea tombstones/eventos de borrado y bloquea el delete físico de mensajes.
+También incorpora la creación transaccional de conversación + participantes y
+el tombstone de grupos. El backfill sólo traslada estados históricos a receipts
+cuando existe un único receptor real; no inventa lecturas individuales en
+grupos. No elimina columnas ni rutas legacy.
+
+### C-4B Message Attachment Core
+
+`20260831010000_message_attachment_core.sql` agrega el registro persistente
+`attachments` y su lifecycle `pending -> uploaded -> attached -> tombstoned`.
+La asociación de un attachment a un mensaje ocurre dentro de la misma
+transacción PostgreSQL que crea o resuelve idempotentemente el mensaje. La
+migración conserva las columnas multimedia legacy, no hace backfill ni purga
+física, y sólo identifica pendientes expirados para una limpieza futura.
+
+### C-5B Audio Attachment Transcription Pipeline
+
+`20260901010000_audio_attachment_transcription_pipeline.sql` agrega la duración
+declarada por el recorder a `attachments` y una fila durable e idempotente de
+`audio_transcriptions` por attachment de audio. PostgreSQL administra leases,
+reintentos, recuperación de jobs abandonados, claim separado del análisis y el
+merge atómico de `suggestedTask`. Los tombstones cancelan el trabajo derivado y
+descartan resultados tardíos; el contenido original `Audio` no se reemplaza.
+No incluye backfill ni aplica cambios remotos por sí misma.
 
 ## Secuencia de migración V2
 
 Este orden es obligatorio y no debe alterarse ni saltarse pasos:
 
-1. **Crear proyecto staging** — "Ping Staging V2", vacío, sin ninguna app
-   apuntando todavía a él.
-2. **Aplicar baseline** — `20260712000000_baseline_v2.sql` sobre ese proyecto
-   vacío, y solo ese proyecto.
+1. **Reconstruir localmente** — aplicar todos los SQL con timestamp, en orden,
+   sobre Supabase local vacío.
+2. **Verificar staging** — confirmar por project ref que el enlace es
+   `oonijgmddgyymhrlnvuu` y ejecutar primero un dry-run.
 3. **Verificar tablas, constraints y RLS** — confirmar que el esquema
    resultante coincide con lo documentado (ver "Cómo verificar que el
    baseline reconstruye correctamente" más abajo) antes de tocar una sola
    línea de código de aplicación.
-4. **Adaptar backend** — actualizar `backend/src` para usar los nombres y
-   columnas de V2 (ver matriz de compatibilidad backend de la auditoría),
-   apuntando `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` de un entorno de
-   desarrollo del backend al proyecto de staging, nunca a producción.
-5. **Adaptar mobile** — actualizar `mobile/src` para los mismos cambios de
-   nombres/columnas (ver matriz de compatibilidad mobile de la auditoría).
+4. **Validar backend** — ejecutar TypeScript, suite completa y E2E del Core
+   contra Supabase local antes de apuntar un proceso a staging.
+5. **Validar mobile** — ejecutar TypeScript y tests de contrato relevantes;
+   no cambiar la app para compensar drift remoto.
 6. **Ejecutar pruebas** — la suite de tests del backend, typecheck y lint de
    ambos proyectos, y pruebas manuales del flujo completo de compromisos y
    chat contra el proyecto de staging ya adaptado.
@@ -82,12 +101,10 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
    explícita separada; no es automático ni implícito en haber completado los
    pasos anteriores.
 
-## Cómo crear "Ping Staging V2"
+## Cómo vincular "Ping Staging V2"
 
-1. En el dashboard de Supabase, crear un proyecto nuevo (nombre sugerido:
-   `ping-staging-v2`). Anotar el project ref y guardar la contraseña de la
-   base de datos en un gestor de secretos local (nunca en el repositorio ni
-   en texto plano).
+1. Confirmar mediante `supabase projects list` que `Ping Staging V2` tiene el
+   project ref `oonijgmddgyymhrlnvuu`. No usar el proyecto histórico `Ping`.
 2. Instalar Supabase CLI de forma oficial (binario firmado desde
    `github.com/supabase/cli/releases`, o el método oficial para tu SO).
 3. Autenticarse: `supabase login` (interactivo) o exportar
@@ -98,15 +115,17 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
 
 ## Cómo aplicar el baseline
 
-Con el proyecto ya vinculado:
+Con el proyecto de staging verificado y vinculado:
 
 ```bash
 supabase db push
 ```
 
-Esto aplica, en orden, todos los archivos `.sql` de `supabase/migrations/`
-que el proyecto remoto todavía no tenga registrados — hoy, solo
-`20260712000000_baseline_v2.sql`.
+Esto aplica, en orden, todos los archivos `.sql` con timestamp de
+`supabase/migrations/` que el proyecto remoto todavía no tenga registrados.
+Antes debe ejecutarse el mismo conjunto desde cero contra Supabase local y
+`supabase db push --linked --dry-run` debe mostrar únicamente migraciones
+aprobadas.
 
 Alternativa manual (si se prefiere revisar el SQL antes de ejecutarlo): copiar
 el contenido del archivo y pegarlo en el SQL Editor del proyecto **nuevo**,

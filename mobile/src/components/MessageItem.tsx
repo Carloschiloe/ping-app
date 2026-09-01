@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform, Alert
+    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform, Alert,
+    ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
@@ -10,7 +11,7 @@ import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
-import { resolvePrivateFileUrl } from '../lib/privateFiles';
+import { getPrivateFileRefreshDelay, resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
 import {
     getFreshProfileAvatarUrl,
@@ -58,6 +59,9 @@ const MessageItemComponent = ({
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
+    const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying'>('idle');
+    const privateMediaUrlRef = React.useRef<string | null>(null);
+    const canonicalAttachmentId = item?.attachment?.id ?? item?.metadata?.attachment?.id ?? item?.meta?.attachment?.id ?? null;
     const senderProfile = Array.isArray(item?.profiles) ? item.profiles[0] : item?.profiles;
     const resolvedSenderAvatarUrl = useProfileAvatarUrl(
         item?.sender_id !== user?.id ? senderProfile?.id : null,
@@ -66,20 +70,51 @@ const MessageItemComponent = ({
 
     React.useEffect(() => {
         let active = true;
-        if (!item?.id || !item?.media_bucket || !item?.media_object_path) {
+        let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const hasLegacyReference = !!item?.id && !!item?.media_bucket && !!item?.media_object_path;
+        if (!canonicalAttachmentId && !hasLegacyReference) {
+            privateMediaUrlRef.current = null;
             setPrivateMediaUrl(null);
+            setPrivateMediaState('idle');
             return () => { active = false; };
         }
 
-        resolvePrivateFileUrl('message', item.id)
-            .then(({ signedUrl }) => {
-                if (active) setPrivateMediaUrl(signedUrl);
-            })
-            .catch(() => {
-                if (active) setPrivateMediaUrl(null);
-            });
-        return () => { active = false; };
-    }, [item?.id, item?.media_bucket, item?.media_object_path]);
+        privateMediaUrlRef.current = null;
+        setPrivateMediaUrl(null);
+        setPrivateMediaState('loading');
+
+        const loadSignedUrl = async (forceRefresh = false) => {
+            try {
+                const access = canonicalAttachmentId
+                    ? await resolveAttachmentUrl(canonicalAttachmentId, { forceRefresh })
+                    : await resolvePrivateFileUrl('message', item.id, { forceRefresh });
+                if (!active) return;
+
+                privateMediaUrlRef.current = access.signedUrl;
+                setPrivateMediaUrl(access.signedUrl);
+                setPrivateMediaState('ready');
+                refreshTimer = setTimeout(
+                    () => loadSignedUrl(true),
+                    getPrivateFileRefreshDelay(access.expiresIn)
+                );
+            } catch {
+                if (!active) return;
+                // Keep the last usable URL on a transient signing failure and
+                // retry. The persisted source of truth remains bucket + path.
+                setPrivateMediaState(privateMediaUrlRef.current ? 'ready' : 'retrying');
+                retryTimer = setTimeout(() => loadSignedUrl(true), 3_000);
+            }
+        };
+
+        loadSignedUrl();
+        return () => {
+            active = false;
+            if (refreshTimer) clearTimeout(refreshTimer);
+            if (retryTimer) clearTimeout(retryTimer);
+        };
+    }, [canonicalAttachmentId, item?.id, item?.media_bucket, item?.media_object_path]);
 
     if (item.type === 'divider') {
         return (
@@ -151,8 +186,8 @@ const MessageItemComponent = ({
     }
 
     const trimmedText = msgText.trim();
-    const privateMimeType = String(meta?.attachment?.mimeType || '');
-    const hasPrivateAttachment = !!item.media_bucket && !!item.media_object_path;
+    const privateMimeType = String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
+    const hasPrivateAttachment = !!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path);
     let isImage = privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]');
     const isAudio = privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]');
     let isVideo = privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]');
@@ -165,7 +200,9 @@ const MessageItemComponent = ({
     const isLocationShare = meta?.messageType === 'location_share';
 
     let mediaUrl: string | null = hasPrivateAttachment ? privateMediaUrl : null;
-    let documentName = hasPrivateAttachment ? (meta?.attachment?.fileName || 'Archivo') : '';
+    let documentName = hasPrivateAttachment
+        ? (item?.attachment?.originalFilename || meta?.attachment?.fileName || 'Archivo')
+        : '';
 
     let description = '';
     const extractUrlAndDescription = (text: string, prefixLength: number) => {
@@ -358,7 +395,23 @@ const MessageItemComponent = ({
                             </Text>
                         )}
 
-                        {isImage && mediaUrl ? (
+                        {hasPrivateAttachment && !mediaUrl ? (
+                            <View style={styles.privateMediaLoading}>
+                                <ActivityIndicator size="small" color={theme.colors.accent} />
+                                <Ionicons
+                                    name={isAudio ? 'mic-outline' : isImage ? 'image-outline' : 'document-outline'}
+                                    size={18}
+                                    color={theme.colors.text.secondary}
+                                />
+                                <Text style={styles.privateMediaLoadingText}>
+                                    {privateMediaState === 'retrying'
+                                        ? 'Recuperando archivo...'
+                                        : isAudio
+                                            ? 'Cargando audio...'
+                                            : 'Cargando archivo...'}
+                                </Text>
+                            </View>
+                        ) : isImage && mediaUrl ? (
                             <View>
                                 <Image
                                     source={{ uri: mediaUrl as string }}
@@ -537,9 +590,14 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.isMultiSelecting === next.isMultiSelecting &&
         prev.highlightedMsgId === next.highlightedMsgId &&
         prev.item.status === next.item.status &&
+        prev.item.content === next.item.content &&
+        prev.item.text === next.item.text &&
+        prev.item.media_bucket === next.item.media_bucket &&
+        prev.item.media_object_path === next.item.media_object_path &&
         JSON.stringify(prev.item.message_reactions) === JSON.stringify(next.item.message_reactions) &&
         // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
         JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
+        JSON.stringify(prev.item.metadata) === JSON.stringify(next.item.metadata) &&
         prev.conversationMode === next.conversationMode &&
         prev.activeCommitmentId === next.activeCommitmentId &&
         prev.groupTasks === next.groupTasks &&
@@ -581,6 +639,20 @@ const createStyles = (theme: any) => StyleSheet.create({
     senderAvatar: { width: 32, height: 32, borderRadius: 16 },
     senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
+    privateMediaLoading: {
+        minWidth: 190,
+        minHeight: 54,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
+    },
+    privateMediaLoadingText: {
+        color: theme.colors.text.secondary,
+        fontSize: 12,
+        fontWeight: '600',
+    },
     senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.success, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
     msgText: { fontSize: 15, lineHeight: 24 },
     msgTextMe: { color: theme.colors.bubbleTextMe },
