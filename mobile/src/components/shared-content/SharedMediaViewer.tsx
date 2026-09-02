@@ -10,7 +10,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import { ResizeMode, Video } from 'expo-av';
@@ -68,6 +68,7 @@ export function SharedMediaViewer({
 }) {
     const { theme } = useAppTheme();
     const { width } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const listRef = useRef<FlatList<SharedContentItem>>(null);
     const [activeIndex, setActiveIndex] = useState(initialIndex);
 
@@ -86,9 +87,11 @@ export function SharedMediaViewer({
 
     return (
         <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
-            <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.black }]}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={onClose} accessibilityLabel="Cerrar visor"><Ionicons name="close" size={30} color={theme.colors.white} /></TouchableOpacity>
+            <View style={[styles.container, { backgroundColor: theme.colors.black, paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
+                <View style={[styles.header, { zIndex: 10 }]}>
+                    <TouchableOpacity onPress={onClose} accessibilityLabel="Cerrar visor" style={styles.closeButton} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}>
+                        <Ionicons name="close" size={30} color={theme.colors.white} />
+                    </TouchableOpacity>
                     <View style={styles.headerText}>
                         <Text style={[styles.sender, { color: theme.colors.white }]} numberOfLines={1}>{activeItem?.sender.name}</Text>
                         <Text style={[styles.date, { color: theme.colors.text.muted }]}>{activeItem ? new Date(activeItem.createdAt).toLocaleString() : ''}</Text>
@@ -111,14 +114,15 @@ export function SharedMediaViewer({
                     {activeItem && <TouchableOpacity style={[styles.messageButton, { backgroundColor: theme.colors.accent }]} onPress={() => onGoToMessage(activeItem)}><Ionicons name="chatbubble-outline" size={18} color={theme.colors.white} /><Text style={[styles.messageButtonText, { color: theme.colors.white }]}>Ir al mensaje</Text></TouchableOpacity>}
                     <TouchableOpacity disabled={activeIndex >= items.length - 1} onPress={() => move(1)} style={{ opacity: activeIndex >= items.length - 1 ? 0.35 : 1 }}><Ionicons name="chevron-forward" size={30} color={theme.colors.white} /></TouchableOpacity>
                 </View>
-            </SafeAreaView>
+            </View>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12 },
+    header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12, paddingBottom: 8 },
+    closeButton: { padding: 4 },
     headerText: { flex: 1 },
     sender: { fontWeight: '700', fontSize: 15 },
     date: { fontSize: 12, marginTop: 2 },

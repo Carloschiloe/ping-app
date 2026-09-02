@@ -99,7 +99,7 @@ const ConversationsStack = () => {
             options={{
                 headerShown: true,
                 title: 'Contenido compartido',
-                headerBackTitle: 'AtrÃ¡s',
+                headerBackTitle: 'Atrás',
                 headerStyle: stackHeaderStyle,
                 headerTintColor: stackTintColor,
             }}
@@ -110,7 +110,7 @@ const ConversationsStack = () => {
             options={{
                 headerShown: true,
                 title: 'Fotos y videos',
-                headerBackTitle: 'AtrÃ¡s',
+                headerBackTitle: 'Atrás',
                 headerStyle: stackHeaderStyle,
                 headerTintColor: stackTintColor,
             }}
