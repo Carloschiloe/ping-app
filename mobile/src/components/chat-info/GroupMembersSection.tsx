@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { useAppTheme } from '../../theme/ThemeContext';
 
 interface GroupMembersSectionProps {
     members: any[];
@@ -16,6 +17,8 @@ export function GroupMembersSection({
     isUpdatingParticipantRole,
     onToggleAdmin,
 }: GroupMembersSectionProps) {
+    const { theme } = useAppTheme();
+    const styles = React.useMemo(() => createStyles(theme), [theme]);
     if (!members.length) return null;
 
     return (
@@ -27,7 +30,7 @@ export function GroupMembersSection({
                         {member.avatar_url ? (
                             <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
                         ) : (
-                            <Text style={styles.memberInitials}>{member.email.substring(0, 2).toUpperCase()}</Text>
+                            <Text style={styles.memberInitials}>{(member.full_name || member.email || '?').substring(0, 2).toUpperCase()}</Text>
                         )}
                     </View>
                     <View style={styles.memberInfo}>
@@ -50,31 +53,31 @@ export function GroupMembersSection({
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
     section: {
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.surface,
         marginTop: 8,
         padding: 16,
         borderTopWidth: 1,
         borderBottomWidth: 1,
-        borderColor: '#e5e7eb',
+        borderColor: theme.colors.border,
     },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 12 },
+    sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.colors.text.primary, marginBottom: 12 },
     memberRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
     memberAvatar: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: '#9ca3af',
+        width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.text.muted,
         alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 12,
     },
-    memberInitials: { fontSize: 16, fontWeight: '700', color: 'white' },
+    memberInitials: { fontSize: 16, fontWeight: '700', color: theme.colors.white },
     memberInfo: { flex: 1 },
-    memberEmail: { fontSize: 16, fontWeight: '500', color: '#111827' },
-    memberSubline: { fontSize: 12, color: '#6b7280', marginTop: 2 },
-    adminBadge: { fontSize: 12, color: '#10b981', fontWeight: 'bold', marginTop: 2 },
+    memberEmail: { fontSize: 16, fontWeight: '500', color: theme.colors.text.primary },
+    memberSubline: { fontSize: 12, color: theme.colors.text.secondary, marginTop: 2 },
+    adminBadge: { fontSize: 12, color: theme.colors.success, fontWeight: 'bold', marginTop: 2 },
     memberRoleBtn: {
         paddingHorizontal: 10,
         paddingVertical: 8,
         borderRadius: 10,
-        backgroundColor: '#eff6ff',
+        backgroundColor: theme.colors.accentSoft,
     },
-    memberRoleBtnText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
+    memberRoleBtnText: { fontSize: 12, fontWeight: '700', color: theme.colors.accent },
 });

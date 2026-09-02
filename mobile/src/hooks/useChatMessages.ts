@@ -15,7 +15,7 @@ import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
 import { getDeviceTimeZone } from '../utils/timeZone';
 
-export function useChatMessages(conversationId: string, user: any, isFocused: boolean) {
+export function useChatMessages(conversationId: string, user: any, isFocused: boolean, scrollToMessageId?: string) {
     const queryClient = useQueryClient();
 
     // Sync Sender: tries to send a queued message via API
@@ -47,7 +47,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage
-    } = useConversationMessages(conversationId);
+    } = useConversationMessages(conversationId, scrollToMessageId);
 
     const { mutate: mutateSend, isPending: isSendingMutation } = useSendConversationMessage(conversationId);
     const { mutate: reactToMessage } = useReactToMessage(conversationId);
@@ -306,6 +306,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage,
+        targetFound: infiniteData?.pages[0]?.targetFound as boolean | undefined,
         sendMessage,
         reactToMessage,
         markAsRead

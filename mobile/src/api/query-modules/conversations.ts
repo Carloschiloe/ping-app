@@ -4,6 +4,11 @@ import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
 import { useAuth } from '../../context/AuthContext';
 import { reconcileConfirmedMessage } from '../../utils/messageReconciliation';
+import type {
+    SharedContentCategory,
+    SharedContentResponse,
+    SharedVisualKind,
+} from '../../types/sharedContent';
 
 function normalizeRealtimeMessage(row: any) {
     if (!row) return row;
@@ -174,6 +179,29 @@ export const useConversationMedia = (conversationId: string) => {
         enabled: !!conversationId,
     });
 };
+
+export const useSharedContentSummary = (conversationId: string) => useQuery({
+    queryKey: ['shared-content', conversationId, 'summary'],
+    queryFn: () => apiClient.get(`/conversations/${conversationId}/shared-content?category=summary`) as Promise<SharedContentResponse>,
+    enabled: !!conversationId,
+});
+
+export const useSharedContent = (
+    conversationId: string,
+    category: Exclude<SharedContentCategory, 'summary'>,
+    kind?: SharedVisualKind,
+) => useInfiniteQuery({
+    queryKey: ['shared-content', conversationId, category, kind || 'all'],
+    queryFn: ({ pageParam }) => {
+        const params = new URLSearchParams({ category, limit: '30' });
+        if (kind) params.set('kind', kind);
+        if (pageParam) params.set('cursor', pageParam);
+        return apiClient.get(`/conversations/${conversationId}/shared-content?${params}`) as Promise<SharedContentResponse>;
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+    enabled: !!conversationId,
+});
 
 export const useSendConversationMessage = (conversationId: string) => {
     const queryClient = useQueryClient();

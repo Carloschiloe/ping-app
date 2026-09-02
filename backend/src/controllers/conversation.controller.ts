@@ -16,6 +16,7 @@ import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
 import { markConversationRead } from '../services/messagingApplication.service';
+import { getLegacyConversationMedia, getSharedContent } from '../services/sharedContent.service';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -266,6 +267,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
         const selectQuery = '*, attachments!attachments_message_id_fkey(id, kind, mime_type, size_bytes, duration_ms, original_filename, lifecycle_status, created_at), profiles!sender_id(id, email, full_name, avatar_url), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), reply_to:reply_to_id(id, content, deleted_at, profiles!sender_id(email, full_name, avatar_url)), message_receipts(*)';
         let finalMessages: any[] = [];
         let hasMore = false;
+        let targetFound: boolean | undefined;
 
         if (scrollToMessageId) {
             // Find the target message date
@@ -274,9 +276,11 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
                 .select('created_at')
                 .eq('id', scrollToMessageId)
                 .eq('conversation_id', conversationId)
-                .single();
+                .is('deleted_at', null)
+                .maybeSingle();
 
             if (targetMsg) {
+                targetFound = true;
                 // Fetch 30 older messages (including the target)
                 const { data: older } = await supabaseAdmin
                     .from('messages')
@@ -298,6 +302,17 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
                 // Combine: newer reversed (so newest is first, matching order desc) + older
                 finalMessages = [...(newer || []).reverse(), ...(older || [])];
                 hasMore = true; // For scrollTo, we assume there might be more in both directions but simple pagination usually only goes back
+            } else {
+                targetFound = false;
+                const { data: messages, error } = await supabaseAdmin
+                    .from('messages')
+                    .select(selectQuery)
+                    .eq('conversation_id', conversationId)
+                    .order('created_at', { ascending: false })
+                    .limit(limit + 1);
+                if (error) throw error;
+                hasMore = Boolean(messages && messages.length > limit);
+                finalMessages = hasMore ? (messages || []).slice(0, limit) : messages || [];
             }
         } else if (before) {
             // Fetch messages older than the 'before' timestamp
@@ -336,7 +351,7 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             }
         }
 
-        res.json({ messages: toLegacyMessageListShape(finalMessages, userId), hasMore });
+        res.json({ messages: toLegacyMessageListShape(finalMessages, userId), hasMore, ...(targetFound !== undefined ? { targetFound } : {}) });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to load messages' : error.message });
@@ -571,26 +586,24 @@ export const getConversationMedia = async (req: Request, res: Response, next: Ne
     try {
         const userId = req.user!.id;
         const conversationId = req.params.id as string;
-        await assertConversationParticipant(userId, conversationId);
-        
-        // Buscamos mensajes que empiecen con los prefijos de media conocidos
-        const { data, error } = await supabaseAdmin
-            .from('messages')
-            .select('id, content, created_at, sender_id, metadata')
-            .eq('conversation_id', conversationId)
-            .is('deleted_at', null)
-            .ilike('content', '%[%')
-            .order('created_at', { ascending: false });
-
-        if (error) throw new AppError(error.message, 500);
-
-        // Filtro adicional para asegurar que tengan el formato correcto
-        const mediaMessages = (data || []).filter(m => {
-            const t = m.content || '';
-            return t.startsWith('[imagen]') || t.startsWith('[audio]') || t.startsWith('[video]') || t.startsWith('[document=');
-        });
-
+        const mediaMessages = await getLegacyConversationMedia(userId, conversationId);
         res.status(200).json({ messages: toLegacyMessageListShape(mediaMessages) });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getConversationSharedContent = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const category = typeof req.query.category === 'string' ? req.query.category : 'summary';
+        const rawLimit = Number(req.query.limit || 30);
+        const result = await getSharedContent(req.user!.id, req.params.id as string, {
+            category: category as any,
+            kind: req.query.kind as any,
+            cursor: req.query.cursor as string | undefined,
+            limit: Number.isFinite(rawLimit) ? Math.max(1, Math.min(100, Math.trunc(rawLimit))) : 30,
+        });
+        res.status(200).json(result);
     } catch (error) {
         next(error);
     }

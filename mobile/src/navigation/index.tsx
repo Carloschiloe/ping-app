@@ -17,6 +17,8 @@ import TaskHistoryScreen from '../screens/TaskHistoryScreen';
 import NewChatScreen from '../screens/NewChatScreen';
 import NewGroupScreen from '../screens/NewGroupScreen';
 import ChatInfoScreen from '../screens/ChatInfoScreen';
+import SharedContentScreen from '../screens/SharedContentScreen';
+import SharedVisualContentScreen from '../screens/SharedVisualContentScreen';
 import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -87,6 +89,28 @@ const ConversationsStack = () => {
                 headerShown: true,
                 title: 'Info del Chat',
                 headerBackTitle: 'Atrás',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
+            }}
+        />
+        <ConversationsStackNav.Screen
+            name="SharedContent"
+            component={SharedContentScreen}
+            options={{
+                headerShown: true,
+                title: 'Contenido compartido',
+                headerBackTitle: 'AtrÃ¡s',
+                headerStyle: stackHeaderStyle,
+                headerTintColor: stackTintColor,
+            }}
+        />
+        <ConversationsStackNav.Screen
+            name="SharedVisualContent"
+            component={SharedVisualContentScreen}
+            options={{
+                headerShown: true,
+                title: 'Fotos y videos',
+                headerBackTitle: 'AtrÃ¡s',
                 headerStyle: stackHeaderStyle,
                 headerTintColor: stackTintColor,
             }}

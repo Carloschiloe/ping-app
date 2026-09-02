@@ -1,62 +1,58 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert, Modal, Linking, TextInput, ActivityIndicator, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext';
-import { useConversations, useDeleteGroup, useUpdateGroup, useConversationMedia, useConversationOperationState, useUpdateConversationMode, useGroupParticipants, useSaveOperationChecklist, useUpdateGroupParticipantRole, useArchiveOperationChecklist, useDuplicateOperationChecklist, useRestoreOperationChecklist, useDeleteMessage } from '../api/queries';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadToSupabase } from '../lib/upload';
-import { Video, ResizeMode } from 'expo-av';
-import AudioPlayer from '../components/AudioPlayer';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
 import type { ChatInfoScreenProps } from '../navigation/types';
+import { useAuth } from '../context/AuthContext';
+import {
+    useConversations,
+    useDeleteGroup,
+    useGroupParticipants,
+    useSharedContentSummary,
+    useUpdateGroup,
+    useUpdateGroupParticipantRole,
+} from '../api/queries';
+import { uploadToSupabase } from '../lib/upload';
 import { GroupMembersSection } from '../components/chat-info/GroupMembersSection';
-import { ChecklistEditorModal } from '../components/chat-info/ChecklistEditorModal';
-import { ChecklistManagementSection } from '../components/chat-info/ChecklistManagementSection';
+import { SharedContentThumbnail } from '../components/shared-content/SharedContentThumbnail';
+import { useAppTheme } from '../theme/ThemeContext';
+import { EMPTY_SHARED_CONTENT_SUMMARY, sharedContentCount } from '../utils/sharedContent';
 
-export default function ChatInfoScreen() {
-    const route = useRoute<ChatInfoScreenProps['route']>();
-    const navigation = useNavigation<ChatInfoScreenProps['navigation']>();
+export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProps) {
+    const { theme } = useAppTheme();
+    const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
-
-    const conversationId = route.params?.conversationId;
-    const groupMetadata = route.params?.groupMetadata;
-    const otherUser = route.params?.otherUser;
-    const isGroup = route.params?.isGroup;
-    const isSelf = route.params?.isSelf;
-
+    const { conversationId, groupMetadata, otherUser, isGroup, isSelf } = route.params;
     const { data: convData } = useConversations();
-    const currentConv = convData?.conversations?.find((c: any) => c.id === conversationId);
-    const { data: operationState } = useConversationOperationState(conversationId);
+    const currentConv = convData?.conversations?.find((conversation: any) => conversation.id === conversationId);
     const { data: participantsData = [] } = useGroupParticipants(isGroup ? conversationId : null);
-    const { mutate: updateConversationMode, isPending: isUpdatingMode } = useUpdateConversationMode(conversationId);
-    const { mutateAsync: saveChecklistTemplate, isPending: isSavingChecklist } = useSaveOperationChecklist(conversationId);
+    const summaryQuery = useSharedContentSummary(conversationId);
     const { mutate: updateParticipantRole, isPending: isUpdatingParticipantRole } = useUpdateGroupParticipantRole(conversationId);
-    const { mutate: archiveChecklist } = useArchiveOperationChecklist(conversationId);
-    const { mutate: duplicateChecklist } = useDuplicateOperationChecklist(conversationId);
-    const { mutate: restoreChecklist } = useRestoreOperationChecklist(conversationId);
-    const conversationMode = operationState?.conversation?.mode || currentConv?.mode || 'chat';
+    const { mutate: updateGroup } = useUpdateGroup(conversationId);
+    const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [tempName, setTempName] = useState('');
+    const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
 
-    // Dynamic Header Info
-    let name = 'Chat';
-    let avatarUrlStr: string | undefined = undefined;
-    let initials = '?';
-
-    if (isSelf) {
-        name = 'Para mí';
-        initials = 'PM';
-    } else if (isGroup) {
-        name = currentConv?.groupMetadata?.name || groupMetadata?.name || 'Grupo Empresarial';
-        avatarUrlStr = currentConv?.groupMetadata?.avatar_url || groupMetadata?.avatar_url;
-        initials = name.substring(0, 2).toUpperCase();
-    } else if (otherUser) {
-        name = otherUser.email;
-        avatarUrlStr = otherUser.avatar_url;
-        initials = otherUser.email.substring(0, 2).toUpperCase();
-    }
+    const name = isSelf
+        ? 'Para mÃ­'
+        : isGroup
+            ? currentConv?.groupMetadata?.name || groupMetadata?.name || 'Grupo'
+            : otherUser?.full_name || otherUser?.email?.split('@')[0] || 'Chat';
+    const avatarUrl = isGroup
+        ? currentConv?.groupMetadata?.avatar_url || groupMetadata?.avatar_url
+        : otherUser?.avatar_url;
+    const initials = isSelf ? 'PM' : name.slice(0, 2).toUpperCase();
 
     const members = useMemo(() => {
         if (!isGroup) return [];
@@ -65,1136 +61,176 @@ export default function ChatInfoScreen() {
             role: entry.role || 'member',
             ...(Array.isArray(entry.profiles) ? entry.profiles[0] : entry.profiles),
         }));
-    }, [participantsData, isGroup]);
-
+    }, [isGroup, participantsData]);
     const currentMembership = members.find((member: any) => member.id === user?.id);
-    const isAdmin = isGroup && currentMembership?.role === 'admin';
+    const isAdmin = Boolean(isGroup && currentMembership?.role === 'admin');
+    const subtitle = isSelf
+        ? 'Tu espacio personal'
+        : isGroup
+            ? `${members.length} participantes`
+            : otherUser?.email || otherUser?.phone || '';
 
-    const [infoTab, setInfoTab] = useState<'files' | 'checklists'>('files');
-    const [checklistModalVisible, setChecklistModalVisible] = useState(false);
-    const [editingChecklist, setEditingChecklist] = useState<any>(null);
-    const [checklistTitle, setChecklistTitle] = useState('');
-    const [checklistCategory, setChecklistCategory] = useState('');
-    const [checklistRole, setChecklistRole] = useState('');
-    const [checklistFrequency, setChecklistFrequency] = useState<'manual' | 'daily' | 'shift'>('manual');
-    const [checklistItems, setChecklistItems] = useState<{ label: string; responseType: 'condition' | 'severity' | 'yes_no' | 'text' }[]>([]);
-    const [draftChecklistItem, setDraftChecklistItem] = useState('');
-    const [draftChecklistItemType, setDraftChecklistItemType] = useState<'condition' | 'severity' | 'yes_no' | 'text'>('condition');
-    const [checklistsFilter, setChecklistsFilter] = useState<'active' | 'archived'>('active');
+    const summary = summaryQuery.data?.summary || EMPTY_SHARED_CONTENT_SUMMARY;
+    const recentVisuals = summaryQuery.data?.items || [];
+    const commonRoute = { conversationId, title: name, otherUser, isSelf, isGroup, groupMetadata };
+    const categories = [
+        { key: 'visual' as const, title: 'Fotos y videos', icon: 'images-outline' as const },
+        { key: 'audio' as const, title: 'Audios', icon: 'mic-outline' as const },
+        { key: 'document' as const, title: 'Documentos', icon: 'document-outline' as const },
+        { key: 'link' as const, title: 'Enlaces', icon: 'link-outline' as const },
+    ];
 
-    // Get media from messages
-    const { data: mediaMessages, isLoading: isMediaLoading } = useConversationMedia(conversationId);
-
-    const mediaFiles = useMemo(() => {
-        const images: any[] = [];
-        const docs: any[] = [];
-        const audios: any[] = [];
-
-        if (!mediaMessages) return { images, docs, audios };
-
-        const robustExtract = (text: string, prefixLength: number) => {
-            const full = text.slice(prefixLength).trim();
-            const match = full.match(/^([^\s\n]+)[\s\n]*([\s\S]*)$/);
-            if (!match) return { url: full };
-            return { url: match[1] };
-        };
-
-        mediaMessages.forEach((m: any) => {
-            if (!m.text) return;
-            const text = m.text.trim();
-            if (text.startsWith('[imagen]') || text.startsWith('[video]')) {
-                const prefix = text.startsWith('[imagen]') ? 8 : 7;
-                const { url } = robustExtract(text, prefix);
-                images.push({ ...m, parsedUrl: url });
-            } else if (text.startsWith('[document=')) {
-                docs.push(m);
-            } else if (text.startsWith('[audio]')) {
-                const { url } = robustExtract(text, 7);
-                audios.push({ ...m, parsedUrl: url });
-            }
-        });
-        return { images, docs, audios };
-    }, [mediaMessages]);
-
-    const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' | 'doc', message?: any } | null>(null);
-    const { mutate: deleteGroup, isPending: isDeleting } = useDeleteGroup();
-    const { mutate: updateGroup } = useUpdateGroup(conversationId);
-
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [tempName, setTempName] = useState('');
-    const [isUpdating, setIsUpdating] = useState(false);
-
-    const { mutate: deleteMessage } = useDeleteMessage(conversationId);
+    const openCategory = (category: typeof categories[number]['key']) => {
+        if (category === 'visual') navigation.navigate('SharedVisualContent', commonRoute);
+        else navigation.navigate('SharedContent', { ...commonRoute, category });
+    };
 
     const handlePickGroupImage = async () => {
         if (!isAdmin) return;
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.5,
-        });
-
-        if (!result.canceled && result.assets[0].uri) {
-            try {
-                setIsUpdating(true);
-                const publicUrl = await uploadToSupabase(result.assets[0].uri, 'chat-media', 'image/jpeg');
-                if (publicUrl) {
-                    updateGroup({ avatar_url: publicUrl });
-                    Alert.alert('✅ Foto actualizada', 'La imagen del grupo ha sido actualizada.');
-                }
-            } catch (error) {
-                console.error('[ChatInfo] Failed to update group image', error);
-                Alert.alert('Error', 'No se pudo actualizar la imagen del grupo.');
-            } finally {
-                setIsUpdating(false);
-            }
-        }
-    };
-
-    const handleSaveName = () => {
-        if (!tempName.trim() || tempName === name) {
-            setIsEditingName(false);
-            return;
-        }
-        updateGroup({ name: tempName.trim() }, {
-            onSuccess: () => {
-                setIsEditingName(false);
-                Alert.alert('✅ Nombre actualizado', 'El nombre del grupo ha sido actualizado.');
-            }
-        });
-    };
-
-    const openChecklistEditor = (checklist?: any) => {
-        setEditingChecklist(checklist || null);
-        setChecklistTitle(checklist?.title || '');
-        setChecklistCategory(checklist?.category_label || '');
-        setChecklistRole(checklist?.responsible_role_label || '');
-        setChecklistFrequency(checklist?.frequency || 'manual');
-        setChecklistItems((checklist?.run?.items || []).map((item: any) => ({
-            label: item.label,
-            responseType: item.response_type || 'condition',
-        })));
-        setDraftChecklistItem('');
-        setDraftChecklistItemType('condition');
-        setChecklistModalVisible(true);
-    };
-
-    const handleSaveChecklistTemplate = async () => {
-        const items = checklistItems
-            .map((item) => ({ label: item.label.trim(), responseType: item.responseType }))
-            .filter((item) => item.label);
-
-        if (!checklistTitle.trim() || items.length === 0) {
-            Alert.alert('Checklist incompleto', 'Agrega un nombre y al menos un item.');
-            return;
-        }
-
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 });
+        if (result.canceled || !result.assets[0]?.uri) return;
         try {
-            await saveChecklistTemplate({
-                checklistId: editingChecklist?.id || null,
-                title: checklistTitle.trim(),
-                categoryLabel: checklistCategory.trim() || null,
-                responsibleRoleLabel: checklistRole.trim() || null,
-                frequency: checklistFrequency,
-                items,
-            });
-            setChecklistModalVisible(false);
-            setEditingChecklist(null);
-            setChecklistTitle('');
-            setChecklistCategory('');
-            setChecklistRole('');
-            setChecklistItems([]);
-            setDraftChecklistItem('');
-            setDraftChecklistItemType('condition');
-        } catch (error: any) {
-            console.error('[ChatInfo] Failed to save checklist', error);
-            Alert.alert('Error', error?.response?.data?.error || 'No se pudo guardar el checklist');
+            setIsUpdatingAvatar(true);
+            const publicUrl = await uploadToSupabase(result.assets[0].uri, 'chat-media', 'image/jpeg');
+            if (!publicUrl) throw new Error('Upload failed');
+            updateGroup({ avatar_url: publicUrl });
+        } catch {
+            Alert.alert('Error', 'No se pudo actualizar la imagen del grupo.');
+        } finally {
+            setIsUpdatingAvatar(false);
         }
     };
 
-    const addChecklistItem = () => {
-        const label = draftChecklistItem.trim();
-        if (!label) return;
-        setChecklistItems((prev) => [...prev, { label, responseType: draftChecklistItemType }]);
-        setDraftChecklistItem('');
-        setDraftChecklistItemType('condition');
+    const saveName = () => {
+        const nextName = tempName.trim();
+        if (!nextName || nextName === name) return setIsEditingName(false);
+        updateGroup({ name: nextName }, { onSuccess: () => setIsEditingName(false) });
     };
 
-    const removeChecklistItem = (index: number) => {
-        setChecklistItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    const toggleAdmin = (member: any) => {
+        const role = member.role === 'admin' ? 'member' : 'admin';
+        Alert.alert('Administradores', `Â¿Confirmas cambiar el rol de ${member.full_name || member.email}?`, [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Confirmar', onPress: () => updateParticipantRole({ userId: member.id, role }) },
+        ]);
     };
 
-    const handleToggleAdmin = (member: any) => {
-        const nextRole = member.role === 'admin' ? 'member' : 'admin';
-        const actionLabel = nextRole === 'admin' ? 'nombrar administrador' : 'quitar permisos de administrador';
-        Alert.alert(
-            'Administradores',
-            `¿Quieres ${actionLabel} a ${member.full_name || member.email}?`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Confirmar',
-                    onPress: () => updateParticipantRole({ userId: member.id, role: nextRole }),
-                },
-            ]
-        );
-    };
-
-    const handleChecklistAction = (list: any) => {
-        if (!isAdmin) return;
-
-        if (list.is_active === false) {
-            Alert.alert(
-                list.title,
-                'Esta plantilla está archivada.',
-                [
-                    { text: 'Cancelar', style: 'cancel' },
-                    { text: 'Restaurar', onPress: () => restoreChecklist(list.id) },
-                    { text: 'Duplicar', onPress: () => duplicateChecklist(list.id) },
-                ]
-            );
-            return;
-        }
-
-        Alert.alert(
-            list.title,
-            'Elige una acción para esta plantilla.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Editar', onPress: () => openChecklistEditor(list) },
-                {
-                    text: 'Duplicar',
-                    onPress: () => duplicateChecklist(list.id),
-                },
-                {
-                    text: 'Archivar',
-                    style: 'destructive',
-                    onPress: () => archiveChecklist(list.id),
-                },
-            ]
-        );
-    };
-
-    const handleDeleteGroup = () => {
-        Alert.alert(
-            'Eliminar Grupo',
-            '¿Estás seguro de que deseas eliminar este grupo para todos? Esta acción no se puede deshacer.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: () => {
-                        deleteGroup(conversationId, {
-                            onSuccess: () => {
-                                navigation.navigate('ConversationsList');
-                            },
-                            onError: (err: any) => {
-                                Alert.alert('Error', err.response?.data?.error || 'No se pudo eliminar el grupo');
-                            }
-                        });
-                    }
-                }
-            ]
-        );
-    };
-
-    const handleShareMedia = async () => {
-        const media = viewerMedia?.message;
-        if (!media) return;
-        const url = media.parsedUrl || media.text.match(/\](http.*)$/)?.[1];
-        if (!url) return;
-
-        try {
-            const fileUri = (FileSystem.cacheDirectory || FileSystem.documentDirectory || '') + (url.split('/').pop() || 'file');
-            const download = await FileSystem.downloadAsync(url, fileUri);
-            if (await Sharing.isAvailableAsync()) {
-                await Sharing.shareAsync(download.uri);
-            }
-        } catch (error) {
-            console.error('[ChatInfo] Failed to share media', error);
-            Alert.alert('Error', 'No se pudo compartir el archivo.');
-        }
-    };
-
-    const handleDownloadMedia = async () => {
-        const media = viewerMedia?.message;
-        const url = media?.parsedUrl || (media?.text.startsWith('[document=') ? media.text.match(/\](.*?)$/)?.[1].trim() : null);
-        if (!url) return;
-
-        try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería para guardar el archivo.');
-                return;
-            }
-
-            const fileUri = (FileSystem.cacheDirectory || FileSystem.documentDirectory || '') + (url.split('/').pop() || 'file');
-            const download = await FileSystem.downloadAsync(url, fileUri);
-            await MediaLibrary.saveToLibraryAsync(download.uri);
-            Alert.alert('✅ Guardado', 'El archivo se guardó en tu galería.');
-        } catch (error) {
-            console.error('[ChatInfo] Failed to download media', error);
-            Alert.alert('Error', 'No se pudo descargar el archivo.');
-        }
-    };
-
-    const handleDeleteMedia = () => {
-        const media = viewerMedia?.message;
-        if (!media) return;
-        
-        Alert.alert(
-            'Eliminar archivo',
-            '¿Estás seguro de que quieres eliminar este archivo para todos?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                { 
-                    text: 'Eliminar', 
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            deleteMessage(media.id);
-                            setViewerMedia(null);
-                        } catch (err) {
-                            console.error('[ChatInfo] Failed to delete media', err);
-                            Alert.alert('Error', 'No se pudo eliminar el archivo.');
-                        }
-                    }
-                }
-            ]
-        );
-    };
-
-    const handleForwardMedia = () => {
-        const media = viewerMedia?.message;
-        if (!media) return;
-        setViewerMedia(null);
-        (navigation as any).navigate('ForwardMessage', { 
-            message: {
-                ...media,
-                text: `[media]${media.parsedUrl || media.text}`
-            } 
-        });
-    };
-
-    const checklistCategorySuggestions = ['Mantención', 'Prevención', 'Seguridad', 'Patrón'];
-    const checklistRoleSuggestions = ['Maquinista', 'Patrón', 'Jefe de plataforma', 'Todos'];
-    const checklistItemSuggestions = [
-        'Revisar estado general motor',
-        'Revisar correas',
-        'Revisar nivel de aceite',
-        'Registrar observaciones',
-    ];
-    const checklistTypeOptions = [
-        { key: 'condition', label: 'Bueno/Regular/Malo' },
-        { key: 'severity', label: 'Alto/Medio/Bajo' },
-        { key: 'yes_no', label: 'Si/No' },
-        { key: 'text', label: 'Texto' },
-    ] as const;
-    const displayedChecklists = checklistsFilter === 'active'
-        ? (operationState?.checklists || [])
-        : (operationState?.archivedChecklists || []);
+    const confirmDeleteGroup = () => Alert.alert(
+        'Eliminar grupo',
+        'Â¿EstÃ¡s seguro? Esta acciÃ³n no se puede deshacer.',
+        [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+                text: 'Eliminar', style: 'destructive', onPress: () => deleteGroup(conversationId, {
+                    onSuccess: () => navigation.navigate('ConversationsList'),
+                    onError: () => Alert.alert('Error', 'No se pudo eliminar el grupo.'),
+                }),
+            },
+        ],
+    );
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            {/* Header / Avatar */}
+        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.header}>
-                <TouchableOpacity
-                    onPress={handlePickGroupImage}
-                    disabled={!isAdmin || isUpdating}
-                    style={[styles.avatarLarge, !avatarUrlStr && isSelf && { backgroundColor: '#10b981' }]}
-                >
-                    {isUpdating ? (
-                        <ActivityIndicator color="white" />
-                    ) : avatarUrlStr ? (
-                        <Image source={{ uri: avatarUrlStr }} style={{ width: '100%', height: '100%' }} />
-                    ) : (
-                        <Text style={styles.avatarInitialsLarge}>{initials}</Text>
-                    )}
-                    {isAdmin && (
-                        <View style={styles.cameraIconOverlay}>
-                            <Ionicons name="camera" size={20} color="white" />
-                        </View>
-                    )}
+                <TouchableOpacity onPress={handlePickGroupImage} disabled={!isAdmin || isUpdatingAvatar} style={styles.avatar} accessibilityLabel={isAdmin ? 'Cambiar imagen del grupo' : undefined}>
+                    {isUpdatingAvatar ? <ActivityIndicator color={theme.colors.white} /> : avatarUrl
+                        ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                        : <Text style={styles.initials}>{initials}</Text>}
+                    {isAdmin && <View style={styles.camera}><Ionicons name="camera" size={16} color={theme.colors.white} /></View>}
                 </TouchableOpacity>
-
                 {isEditingName ? (
-                    <View style={styles.nameEditRow}>
-                        <TextInput
-                            style={styles.nameInput}
-                            value={tempName}
-                            onChangeText={setTempName}
-                            autoFocus
-                            onSubmitEditing={handleSaveName}
-                        />
-                        <TouchableOpacity onPress={handleSaveName}>
-                            <Ionicons name="checkmark-circle" size={28} color="#10b981" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => setIsEditingName(false)}>
-                            <Ionicons name="close-circle" size={28} color="#ef4444" />
-                        </TouchableOpacity>
+                    <View style={styles.editRow}>
+                        <TextInput value={tempName} onChangeText={setTempName} onSubmitEditing={saveName} autoFocus style={styles.nameInput} />
+                        <TouchableOpacity onPress={saveName}><Ionicons name="checkmark-circle" size={28} color={theme.colors.success} /></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsEditingName(false)}><Ionicons name="close-circle" size={28} color={theme.colors.danger} /></TouchableOpacity>
                     </View>
                 ) : (
                     <View style={styles.nameRow}>
-                        <Text style={styles.groupName}>{name}</Text>
-                        {isAdmin && (
-                            <TouchableOpacity onPress={() => { setTempName(name); setIsEditingName(true); }}>
-                                <Ionicons name="pencil" size={16} color="#6b7280" style={{ marginLeft: 8 }} />
-                            </TouchableOpacity>
-                        )}
+                        <Text style={styles.name}>{name}</Text>
+                        {isAdmin && <TouchableOpacity onPress={() => { setTempName(name); setIsEditingName(true); }}><Ionicons name="pencil" size={17} color={theme.colors.text.secondary} /></TouchableOpacity>}
                     </View>
                 )}
-                {isGroup && <Text style={styles.memberCount}>{members.length} participantes</Text>}
-            </View>
-
-            {/* Actions for Admin */}
-            {isAdmin && (
-                <View style={styles.adminActions}>
-                    <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={() => navigation.navigate('AddParticipants', { conversationId })}
-                    >
-                        <Ionicons name="person-add" size={24} color="#1e3a5f" />
-                        <Text style={styles.actionText}>Añadir</Text>
+                <Text style={styles.subtitle}>{subtitle}</Text>
+                {isAdmin && (
+                    <TouchableOpacity style={styles.compactAction} onPress={() => navigation.navigate('AddParticipants', { conversationId })}>
+                        <Ionicons name="person-add-outline" size={20} color={theme.colors.accent} />
+                        <Text style={styles.compactActionText}>AÃ±adir participante</Text>
                     </TouchableOpacity>
-                </View>
-            )}
+                )}
+            </View>
 
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Modo de conversación</Text>
-                <View style={styles.modeToggle}>
-                    <TouchableOpacity
-                        style={[styles.modeBtn, conversationMode === 'chat' && styles.modeBtnActive]}
-                        disabled={isUpdatingMode}
-                        onPress={() => updateConversationMode('chat')}
-                    >
-                        <Text style={[styles.modeBtnText, conversationMode === 'chat' && styles.modeBtnTextActive]}>Chat</Text>
+                <Text style={styles.sectionTitle}>Archivos y contenido</Text>
+                {summaryQuery.isError && (
+                    <TouchableOpacity style={styles.errorRow} onPress={() => summaryQuery.refetch()}>
+                        <Text style={styles.errorText}>No se pudo cargar. Toca para reintentar.</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.modeBtn, conversationMode === 'operation' && styles.modeBtnActive, { opacity: 0.5 }]}
-                        disabled
-                        onPress={() => { }}
-                    >
-                        <Text style={[styles.modeBtnText, conversationMode === 'operation' && styles.modeBtnTextActive]}>Operación (Próximamente)</Text>
+                )}
+                {categories.map((category) => (
+                    <TouchableOpacity key={category.key} style={styles.contentRow} onPress={() => openCategory(category.key)}>
+                        <View style={styles.contentIcon}><Ionicons name={category.icon} size={23} color={theme.colors.accent} /></View>
+                        <View style={styles.contentInfo}>
+                            <Text style={styles.contentTitle}>{category.title}</Text>
+                            {category.key === 'visual' && recentVisuals.length > 0 ? (
+                                <View style={styles.previewRow}>{recentVisuals.slice(0, 3).map((item) => <SharedContentThumbnail key={item.id} item={item} size={48} />)}</View>
+                            ) : (
+                                <Text style={styles.contentEmpty}>{summaryQuery.isLoading ? 'Cargandoâ€¦' : sharedContentCount(summary, category.key) === 0 ? 'Sin contenido' : 'Ver contenido compartido'}</Text>
+                            )}
+                        </View>
+                        {summaryQuery.isLoading
+                            ? <ActivityIndicator size="small" />
+                            : <Text style={styles.count}>{sharedContentCount(summary, category.key)}</Text>}
+                        <Ionicons name="chevron-forward" size={21} color={theme.colors.text.muted} />
                     </TouchableOpacity>
-                </View>
-                <Text style={styles.modeHelpText}>
-                    {/* V2: el modulo Operacion todavia no fue adaptado al esquema V2
-                        (operation.service.ts referencia una columna que ya no existe).
-                        Se oculta la posibilidad de activarlo desde esta fase para
-                        evitar que la prueba en Expo Go entre a pantallas rotas —
-                        ver informe de esta fase, Parte 17. */}
-                    {conversationMode === 'operation'
-                        ? 'Este chat ya estaba en modo Operación. Esa capa todavía no está adaptada al nuevo esquema — evita usar checklist/ubicación/resumen de turno por ahora.'
-                        : 'Mantiene el chat limpio, sin capa operativa extra. El modo Operación está temporalmente deshabilitado mientras se adapta al nuevo esquema.'}
-                </Text>
+                ))}
             </View>
 
-            {isGroup && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Recursos del grupo</Text>
-                    <View style={styles.resourceTabs}>
-                        <TouchableOpacity
-                            style={[styles.resourceTab, infoTab === 'files' && styles.resourceTabActive]}
-                            onPress={() => setInfoTab('files')}
-                        >
-                            <Text style={[styles.resourceTabText, infoTab === 'files' && styles.resourceTabTextActive]}>Archivos</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.resourceTab, infoTab === 'checklists' && styles.resourceTabActive]}
-                            onPress={() => setInfoTab('checklists')}
-                        >
-                            <Text style={[styles.resourceTabText, infoTab === 'checklists' && styles.resourceTabTextActive]}>Checklists</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-
-            {/* Visual Media Section (Images & Videos) */}
-            {infoTab === 'files' && mediaFiles.images.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Fotos y Videos</Text>
-                    <FlatList
-                        horizontal
-                        data={mediaFiles.images}
-                        keyExtractor={(item) => item.id}
-                        ListEmptyComponent={isMediaLoading ? <ActivityIndicator style={{ margin: 20 }} /> : null}
-                        showsHorizontalScrollIndicator={false}
-                        renderItem={({ item }) => {
-                            const isImage = item.text.startsWith('[imagen]');
-                            const url = item.parsedUrl;
-                            return (
-                                <TouchableOpacity
-                                    style={styles.mediaItem}
-                                    onPress={() => {
-                                        setViewerMedia({ 
-                                            url, 
-                                            type: isImage ? 'image' : 'video',
-                                            message: item
-                                        });
-                                    }}
-                                >
-                                    {isImage || url.toLowerCase().includes('.mp4') ? (
-                                        <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} />
-                                    ) : (
-                                        <View style={styles.audioPlaceholder}>
-                                            <Ionicons name="videocam" size={24} color="gray" />
-                                        </View>
-                                    )}
-                                    {!isImage && (
-                                        <View style={styles.playIconOverlay}>
-                                            <Ionicons name="play-circle" size={24} color="white" />
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
-                            );
-                        }}
-                    />
-                </View>
-            )}
-
-            {/* Documents Section */}
-            {infoTab === 'files' && mediaFiles.docs.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Documentos</Text>
-                    {mediaFiles.docs.map(docMsg => {
-                        const match = docMsg.text.match(/^\[document=([^\]]+)\](.*)$/);
-                        if (!match) return null;
-                        const [, filename, docUrl] = match;
-                        return (
-                            <TouchableOpacity 
-                                key={docMsg.id} 
-                                style={styles.docRow} 
-                                onPress={() => {
-                                    setViewerMedia({
-                                        url: docUrl,
-                                        type: 'doc',
-                                        message: { ...docMsg, parsedUrl: docUrl }
-                                    });
-                                }}
-                            >
-                                <View style={styles.docIcon}>
-                                    <Ionicons name="document-text" size={24} color="white" />
-                                </View>
-                                <Text style={styles.docName} numberOfLines={1}>{filename}</Text>
-                                <Ionicons name="download-outline" size={20} color="#6b7280" />
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            )}
-
-            {/* Audios Section */}
-            {infoTab === 'files' && mediaFiles.audios.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Notas de Voz</Text>
-                    {mediaFiles.audios.map((audioMsg: any) => {
-                        const url = audioMsg.parsedUrl;
-                        if (!url) return null;
-                        const dateText = new Date(audioMsg.created_at).toLocaleDateString('es-CL', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                        return (
-                            <View key={audioMsg.id} style={styles.audioRowItem}>
-                                <AudioPlayer url={url} isMe={false} style={{ width: 220, backgroundColor: '#f3f4f6', borderRadius: 8 }} />
-                                <Text style={styles.audioDate}>{dateText}</Text>
-                            </View>
-                        );
-                    })}
-                </View>
-            )}
-
-            {/* Empty Media State */}
-            {infoTab === 'files' && !isMediaLoading && mediaFiles.images.length === 0 && mediaFiles.docs.length === 0 && mediaFiles.audios.length === 0 && (
-                <View style={styles.emptyMedia}>
-                    <Ionicons name="images-outline" size={48} color="#9ca3af" />
-                    <Text style={styles.emptyMediaText}>No hay archivos compartidos aún</Text>
-                    <View style={styles.emptyMediaActions}>
-                        <TouchableOpacity style={styles.emptyMediaBtn} onPress={() => navigation.goBack()}>
-                            <Text style={styles.emptyMediaBtnText}>Ir al chat</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-
-            {isGroup && infoTab === 'checklists' && (
-                <ChecklistManagementSection
-                    isAdmin={!!isAdmin}
-                    checklistsFilter={checklistsFilter}
-                    displayedChecklists={displayedChecklists}
-                    onChangeFilter={setChecklistsFilter}
-                    onCreate={() => openChecklistEditor()}
-                    onOpenChecklist={(list) => isAdmin ? handleChecklistAction(list) : undefined}
-                />
-            )}
-
-            {/* Participants (Only for Groups) */}
             {isGroup && (
                 <GroupMembersSection
                     members={members}
-                    isAdmin={!!isAdmin}
+                    isAdmin={isAdmin}
                     currentUserId={user?.id}
                     isUpdatingParticipantRole={isUpdatingParticipantRole}
-                    onToggleAdmin={handleToggleAdmin}
+                    onToggleAdmin={toggleAdmin}
                 />
             )}
 
-            {/* Delete button */}
             {isAdmin && (
-                <TouchableOpacity
-                    style={styles.deleteBtn}
-                    onPress={handleDeleteGroup}
-                    disabled={isDeleting}
-                >
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                    <Text style={styles.deleteBtnText}>
-                        {isDeleting ? 'Eliminando...' : 'Eliminar Grupo'}
-                    </Text>
+                <TouchableOpacity style={styles.deleteButton} onPress={confirmDeleteGroup} disabled={isDeleting}>
+                    <Ionicons name="trash-outline" size={19} color={theme.colors.danger} />
+                    <Text style={styles.deleteText}>{isDeleting ? 'Eliminandoâ€¦' : 'Eliminar grupo'}</Text>
                 </TouchableOpacity>
             )}
-
-            <ChecklistEditorModal
-                visible={checklistModalVisible}
-                editingChecklist={editingChecklist}
-                checklistTitle={checklistTitle}
-                checklistCategory={checklistCategory}
-                checklistRole={checklistRole}
-                checklistFrequency={checklistFrequency}
-                checklistItems={checklistItems}
-                draftChecklistItem={draftChecklistItem}
-                draftChecklistItemType={draftChecklistItemType}
-                checklistCategorySuggestions={checklistCategorySuggestions}
-                checklistRoleSuggestions={checklistRoleSuggestions}
-                checklistItemSuggestions={checklistItemSuggestions}
-                checklistTypeOptions={checklistTypeOptions}
-                isSavingChecklist={isSavingChecklist}
-                onClose={() => setChecklistModalVisible(false)}
-                onSave={handleSaveChecklistTemplate}
-                onChangeTitle={setChecklistTitle}
-                onChangeCategory={setChecklistCategory}
-                onChangeRole={setChecklistRole}
-                onChangeFrequency={setChecklistFrequency}
-                onChangeDraftItem={setDraftChecklistItem}
-                onChangeDraftItemType={setDraftChecklistItemType}
-                onAddChecklistItem={addChecklistItem}
-                onRemoveChecklistItem={removeChecklistItem}
-            />
-
-            {/* Fullscreen Media Viewer */}
-            <Modal visible={!!viewerMedia} transparent={true} animationType="fade">
-                <View style={styles.viewerContainer}>
-                    <SafeAreaView style={{ flex: 1 }}>
-                        <View style={styles.viewerHeader}>
-                            <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
-                                <Ionicons name="arrow-back" size={28} color="white" />
-                            </TouchableOpacity>
-                            <View style={styles.viewerHeaderText}>
-                                <Text style={styles.viewerSender}>{viewerMedia?.message?.profiles?.full_name || (viewerMedia?.message?.sender_id === user?.id ? 'Tú' : 'Usuario')}</Text>
-                                <Text style={styles.viewerDate}>
-                                    {viewerMedia?.message?.created_at ? new Date(viewerMedia.message.created_at).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
-                                </Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.viewerContent}>
-                            {viewerMedia?.type === 'image' && (
-                                <Image source={{ uri: viewerMedia.url }} style={styles.viewerImage} resizeMode="contain" />
-                            )}
-                            {viewerMedia?.type === 'video' && (
-                                <Video
-                                    source={{ uri: viewerMedia.url }}
-                                    style={styles.viewerImage}
-                                    useNativeControls
-                                    resizeMode={ResizeMode.CONTAIN}
-                                    shouldPlay
-                                />
-                            )}
-                            {viewerMedia?.type === 'doc' && (
-                                <View style={styles.docViewerContent}>
-                                    <Ionicons name="document-text" size={80} color="white" />
-                                    <Text style={styles.docViewerName}>
-                                        {viewerMedia.message?.text.match(/\[document=([^\]]+)\]/)?.[1] || 'Documento'}
-                                    </Text>
-                                    <TouchableOpacity 
-                                        style={styles.openDocBtn} 
-                                        onPress={() => Linking.openURL(viewerMedia.url)}
-                                    >
-                                        <Text style={styles.openDocBtnText}>Abrir documento</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Viewer Toolbar */}
-                        <View style={styles.viewerToolbar}>
-                            <TouchableOpacity style={styles.toolbarItem} onPress={handleShareMedia}>
-                                <Ionicons name="share-outline" size={26} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.toolbarItem} onPress={handleForwardMedia}>
-                                <Ionicons name="arrow-redo-outline" size={26} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.toolbarItem} onPress={handleDownloadMedia}>
-                                <Ionicons name="download-outline" size={26} color="white" />
-                            </TouchableOpacity>
-                            {(viewerMedia?.message?.sender_id === user?.id || isAdmin) && (
-                                <TouchableOpacity style={styles.toolbarItem} onPress={handleDeleteMedia}>
-                                    <Ionicons name="trash-outline" size={26} color="#ef4444" />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </SafeAreaView>
-                </View>
-            </Modal>
-
         </ScrollView>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f3f4f6' },
-    contentContainer: { paddingBottom: 40 },
-    header: {
-        alignItems: 'center',
-        backgroundColor: 'white',
-        paddingVertical: 24,
-        borderBottomWidth: 1,
-        borderBottomColor: '#e5e7eb',
-    },
-    avatarLarge: {
-        width: 100, height: 100, borderRadius: 50,
-        backgroundColor: '#1e3a5f',
-        alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden', marginBottom: 16,
-    },
-    avatarInitialsLarge: { fontSize: 36, fontWeight: '700', color: 'white' },
-    cameraIconOverlay: {
-        position: 'absolute', bottom: 0, right: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)', width: 32, height: 32,
-        borderRadius: 16, alignItems: 'center', justifyContent: 'center'
-    },
-    nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    nameEditRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8, paddingHorizontal: 20 },
-    nameInput: {
-        flex: 1, fontSize: 20, fontWeight: '700', color: '#111827',
-        borderBottomWidth: 1, borderBottomColor: '#3b82f6', paddingVertical: 4
-    },
-    groupName: { fontSize: 24, fontWeight: '700', color: '#111827' },
-    memberCount: { fontSize: 14, color: '#6b7280' },
-
-    adminActions: {
-        flexDirection: 'row', justifyContent: 'center',
-        backgroundColor: 'white', paddingVertical: 12,
-        marginBottom: 8,
-    },
-    actionBtn: { alignItems: 'center', marginHorizontal: 20 },
-    actionText: { marginTop: 4, color: '#1e3a5f', fontWeight: '500', fontSize: 12 },
-
-    section: {
-        backgroundColor: 'white',
-        marginTop: 8, padding: 16,
-        borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#e5e7eb',
-    },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 12 },
-    modeToggle: {
-        flexDirection: 'row',
-        backgroundColor: '#e2e8f0',
-        borderRadius: 12,
-        padding: 4,
-        gap: 4,
-    },
-    modeBtn: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 10,
-        alignItems: 'center',
-    },
-    modeBtnActive: {
-        backgroundColor: '#2563eb',
-    },
-    modeBtnText: {
-        color: '#475569',
-        fontWeight: '700',
-    },
-    modeBtnTextActive: {
-        color: 'white',
-    },
-    modeHelpText: {
-        marginTop: 10,
-        fontSize: 13,
-        lineHeight: 18,
-        color: '#64748b',
-    },
-    resourceTabs: {
-        flexDirection: 'row',
-        backgroundColor: '#e2e8f0',
-        borderRadius: 12,
-        padding: 4,
-        gap: 4,
-    },
-    resourceTab: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 10,
-        alignItems: 'center',
-    },
-    resourceTabActive: {
-        backgroundColor: '#2563eb',
-    },
-    resourceTabText: {
-        fontWeight: '700',
-        color: '#475569',
-    },
-    resourceTabTextActive: {
-        color: 'white',
-    },
-    checklistHeaderRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    newChecklistBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#2563eb',
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 10,
-    },
-    newChecklistBtnText: {
-        color: 'white',
-        fontWeight: '700',
-        fontSize: 12,
-    },
-    checklistsFilterRow: {
-        flexDirection: 'row',
-        gap: 8,
-        marginBottom: 12,
-    },
-    checklistsFilterChip: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: '#f3f4f6',
-    },
-    checklistsFilterChipActive: {
-        backgroundColor: '#dbeafe',
-    },
-    checklistsFilterChipText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
-    },
-    checklistsFilterChipTextActive: {
-        color: '#2563eb',
-    },
-    checklistCard: {
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 10,
-        backgroundColor: '#f8fafc',
-    },
-    checklistCardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 10,
-    },
-    checklistCardTitle: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    checklistCardCount: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#2563eb',
-    },
-    checklistCardMeta: {
-        marginTop: 6,
-        fontSize: 12,
-        color: '#64748b',
-    },
-    checklistCardSubtext: {
-        marginTop: 8,
-        fontSize: 12,
-        color: '#475569',
-        lineHeight: 18,
-    },
-    mediaItem: {
-        width: 70, height: 70, borderRadius: 8, backgroundColor: '#f3f4f6',
-        marginRight: 8, overflow: 'hidden', justifyContent: 'center', alignItems: 'center'
-    },
-    audioPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    playIconOverlay: {
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center'
-    },
-
-    docRow: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb',
-        padding: 12, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: '#e5e7eb'
-    },
-    docIcon: {
-        width: 40, height: 40, borderRadius: 8, backgroundColor: '#ef4444',
-        alignItems: 'center', justifyContent: 'center', marginRight: 12
-    },
-    docName: { flex: 1, fontSize: 14, color: '#374151', fontWeight: '500' },
-
-    viewerContainer: { flex: 1, backgroundColor: 'black' },
-    viewerHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-    },
-    viewerHeaderText: {
-        marginLeft: 16,
-    },
-    viewerSender: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    viewerDate: {
-        color: '#9ca3af',
-        fontSize: 12,
-    },
-    viewerClose: {
-        padding: 4,
-    },
-    viewerContent: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    viewerImage: { width: '100%', height: '100%' },
-    viewerToolbar: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        paddingVertical: 20,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        borderTopWidth: 0.5,
-        borderTopColor: '#374151',
-    },
-    toolbarItem: {
-        padding: 10,
-    },
-    docViewerContent: {
-        alignItems: 'center',
-        padding: 40,
-    },
-    docViewerName: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: '500',
-        marginTop: 20,
-        textAlign: 'center',
-    },
-    openDocBtn: {
-        marginTop: 30,
-        backgroundColor: '#1e3a5f',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 25,
-    },
-    openDocBtnText: {
-        color: 'white',
-        fontWeight: '600',
-    },
-
-    audioRowItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-    audioDate: { fontSize: 12, color: '#9ca3af', marginLeft: 8 },
-
-    memberRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    memberAvatar: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: '#9ca3af',
-        alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 12,
-    },
-    memberInitials: { fontSize: 16, fontWeight: '700', color: 'white' },
-    memberInfo: { flex: 1 },
-    memberEmail: { fontSize: 16, fontWeight: '500', color: '#111827' },
-    memberSubline: { fontSize: 12, color: '#6b7280', marginTop: 2 },
-    adminBadge: { fontSize: 12, color: '#10b981', fontWeight: 'bold', marginTop: 2 },
-    memberRoleBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 10,
-        backgroundColor: '#eff6ff',
-    },
-    memberRoleBtnText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
-
-    deleteBtn: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        backgroundColor: 'white', padding: 16, marginTop: 8, marginBottom: 32, gap: 8,
-    },
-    deleteBtnText: { color: '#ef4444', fontWeight: '600', fontSize: 16 },
-    emptyMedia: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-    emptyMediaText: { marginTop: 12, color: '#6b7280', fontSize: 14, fontWeight: '500' },
-    emptyMediaActions: { marginTop: 14 },
-    emptyMediaBtn: { backgroundColor: '#2563eb', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
-    emptyMediaBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.35)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    modalKeyboardHost: {
-        width: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    checklistModalCard: {
-        backgroundColor: 'white',
-        borderRadius: 20,
-        padding: 20,
-        width: '100%',
-        maxWidth: 440,
-        maxHeight: '82%',
-    },
-    modalScrollContent: {
-        paddingBottom: 40,
-    },
-    modalHeaderRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    modalTitleText: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    modalInput: {
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        fontSize: 15,
-        marginBottom: 10,
-        color: '#111827',
-    },
-    modalTextArea: {
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        fontSize: 15,
-        minHeight: 140,
-        color: '#111827',
-        marginBottom: 14,
-    },
-    frequencyRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        marginBottom: 12,
-    },
-    frequencyChip: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: '#f3f4f6',
-    },
-    frequencyChipActive: {
-        backgroundColor: '#dbeafe',
-    },
-    frequencyChipText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
-    },
-    frequencyChipTextActive: {
-        color: '#2563eb',
-    },
-    saveChecklistBtn: {
-        backgroundColor: '#2563eb',
-        borderRadius: 14,
-        paddingVertical: 14,
-        alignItems: 'center',
-    },
-    saveChecklistBtnText: {
-        color: 'white',
-        fontWeight: '700',
-        fontSize: 15,
-    },
-    addChecklistItemBtn: {
-        backgroundColor: '#eff6ff',
-        borderRadius: 12,
-        paddingVertical: 12,
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    addChecklistItemBtnText: {
-        color: '#2563eb',
-        fontWeight: '700',
-        fontSize: 14,
-    },
-    modalHelperText: {
-        fontSize: 12,
-        color: '#64748b',
-        marginBottom: 8,
-        fontWeight: '600',
-    },
-    suggestionRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        marginBottom: 12,
-    },
-    suggestionChip: {
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: '#eff6ff',
-    },
-    suggestionChipText: {
-        color: '#2563eb',
-        fontSize: 12,
-        fontWeight: '700',
-    },
-    createdItemsWrap: {
-        gap: 8,
-        marginBottom: 14,
-    },
-    createdItemCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        padding: 12,
-        borderRadius: 12,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-    },
-    createdItemTitle: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    createdItemMeta: {
-        fontSize: 12,
-        color: '#64748b',
-        marginTop: 2,
-    },
-
-    menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    menuContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
-    menuHeader: { alignItems: 'center', paddingVertical: 12 },
-    menuIndicator: { width: 40, height: 4, backgroundColor: '#e5e7eb', borderRadius: 2 },
-    menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-    menuItemText: { marginLeft: 16, fontSize: 16, color: '#374151', fontWeight: '500' },
-    menuCancel: { marginTop: 8, padding: 16, alignItems: 'center' },
-    menuCancelText: { fontSize: 16, color: '#6b7280', fontWeight: 'bold' },
+const createStyles = (theme: any) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    content: { paddingBottom: theme.spacing.xl },
+    header: { alignItems: 'center', backgroundColor: theme.colors.surface, padding: theme.spacing.lg, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 12 },
+    avatarImage: { width: '100%', height: '100%' },
+    initials: { color: theme.colors.white, fontSize: 32, fontWeight: '800' },
+    camera: { position: 'absolute', right: 5, bottom: 5, width: 27, height: 27, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.overlay },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    name: { color: theme.colors.text.primary, fontSize: 23, fontWeight: '800' },
+    subtitle: { color: theme.colors.text.secondary, marginTop: 5 },
+    editRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' },
+    nameInput: { flex: 1, color: theme.colors.text.primary, fontSize: 19, fontWeight: '700', borderBottomWidth: 1, borderBottomColor: theme.colors.accent, paddingVertical: 5 },
+    compactAction: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 16, paddingHorizontal: 13, paddingVertical: 9, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.accentSoft },
+    compactActionText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
+    section: { marginTop: 9, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.border },
+    sectionTitle: { color: theme.colors.text.primary, fontSize: 16, fontWeight: '800', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+    contentRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.colors.separator, gap: 12 },
+    contentIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentSoft },
+    contentInfo: { flex: 1 },
+    contentTitle: { color: theme.colors.text.primary, fontSize: 15, fontWeight: '700' },
+    contentEmpty: { color: theme.colors.text.muted, fontSize: 12, marginTop: 4 },
+    previewRow: { flexDirection: 'row', gap: 5, marginTop: 8 },
+    count: { color: theme.colors.text.secondary, fontWeight: '700', minWidth: 24, textAlign: 'right' },
+    errorRow: { marginHorizontal: 16, marginBottom: 8, padding: 10, borderRadius: theme.borderRadius.md, backgroundColor: theme.colors.surfaceMuted },
+    errorText: { color: theme.colors.danger, fontSize: 12 },
+    deleteButton: { marginTop: 9, backgroundColor: theme.colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16 },
+    deleteText: { color: theme.colors.danger, fontWeight: '700' },
 });

@@ -24,6 +24,7 @@ import * as operationSchema from '../schemas/operation.schema';
 import * as contactSchema from '../schemas/contact.schema';
 import * as privateFileSchema from '../schemas/privateFile.schema';
 import * as attachmentSchema from '../schemas/attachment.schema';
+import * as sharedContentSchema from '../schemas/sharedContent.schema';
 import * as conversationInvitationSchema from '../schemas/conversationInvitation.schema';
 import * as contactDiscoverySchema from '../schemas/contactDiscovery.schema';
 import {
@@ -95,6 +96,12 @@ router.post(
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
+router.get(
+    '/conversations/:id/shared-content',
+    requireAuth,
+    validateRequest(sharedContentSchema.getSharedContentSchema),
+    conversationController.getConversationSharedContent,
+);
 router.get('/conversations/:id/media', requireAuth, conversationController.getConversationMedia);
 router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);

@@ -53,6 +53,7 @@ import {
 import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { formatRecordingDuration } from '../utils/audioRecording';
+import { getMessageFocusDecision } from '../utils/messageFocus';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const { theme: appTheme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(appTheme), [appTheme]);
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
+    const [messageWindowTarget, setMessageWindowTarget] = useState(route.params.scrollToMessageId);
+    const handledScrollTargetRef = useRef<string | null>(null);
     const { user, profile } = useAuth();
     const isFocused = useIsFocused();
     const queryClient = useQueryClient();
@@ -124,9 +127,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage,
+        targetFound,
         sendMessage,
         reactToMessage
-    } = useChatMessages(conversationId, user, isFocused);
+    } = useChatMessages(conversationId, user, isFocused, messageWindowTarget);
+
+    useEffect(() => {
+        if (route.params.scrollToMessageId) setMessageWindowTarget(route.params.scrollToMessageId);
+    }, [route.params.scrollToMessageId]);
 
     const { activeTypers, handleTyping, broadcastRecording } = useChatPresence(conversationId, user);
     const [activityClock, setActivityClock] = useState(Date.now());
@@ -232,6 +240,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
                     profileId={!isGroup && !isSelf ? otherUser?.id : undefined}
                     isGroup={!!isGroup}
+                    isSelf={!!isSelf}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
                     onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
@@ -294,7 +303,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             setHighlightedMsgId(messageId);
             setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 100);
             setTimeout(() => setHighlightedMsgId(null), 3000);
+            return true;
         }
+        return false;
     }, [messages]);
 
     const { pickMediaSource } = useMediaPicker({
@@ -320,13 +331,28 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     // ─── Scroll to Message logic ─────────────────────────────────────────────
     useEffect(() => {
-        if (messages.length === 0) return;
-
-        if (route.params?.scrollToMessageId) {
-            scrollToMessage(route.params.scrollToMessageId);
+        const requestedMessageId = route.params?.scrollToMessageId;
+        const focusDecision = getMessageFocusDecision({
+            requestedMessageId,
+            handledMessageId: handledScrollTargetRef.current,
+            targetFound,
+            loadedMessageIds: messages.map((message) => message.id),
+        });
+        if (requestedMessageId && focusDecision !== 'idle' && focusDecision !== 'already_handled') {
+            if (focusDecision === 'unavailable') {
+                handledScrollTargetRef.current = requestedMessageId;
+                Alert.alert('Mensaje no disponible', 'El mensaje fue eliminado o ya no estÃ¡ disponible.');
+                navigation.setParams({ scrollToMessageId: undefined });
+                return;
+            }
+            if (focusDecision === 'ready' && scrollToMessage(requestedMessageId)) {
+                handledScrollTargetRef.current = requestedMessageId;
+                navigation.setParams({ scrollToMessageId: undefined });
+            }
             return;
         }
 
+        if (messages.length === 0) return;
         if (route.params?.commitmentTitle) {
             const title = route.params.commitmentTitle.toLowerCase();
             const systemMatch = messages.find(m => m?.meta?.isSystem && m.text?.toLowerCase().includes(title));
@@ -336,7 +362,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 scrollToMessage(target.id);
             }
         }
-    }, [route.params?.scrollToMessageId, route.params?.commitmentTitle, messages, scrollToMessage]);
+    }, [route.params?.scrollToMessageId, route.params?.commitmentTitle, messages, navigation, scrollToMessage, targetFound]);
 
     // ─── Multi-select Logic ───
     const toggleSelect = (id: string) => {

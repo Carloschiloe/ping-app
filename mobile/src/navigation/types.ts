@@ -14,6 +14,15 @@ export type ChatRouteParams = {
     commitmentTitle?: string;
 };
 
+export type SharedContentRouteParams = {
+    conversationId: string;
+    title: string;
+    otherUser?: any | null;
+    isSelf?: boolean;
+    isGroup?: boolean;
+    groupMetadata?: any | null;
+};
+
 export type ConversationsStackParamList = {
     ConversationsList: undefined;
     Chat: ChatRouteParams;
@@ -31,6 +40,10 @@ export type ConversationsStackParamList = {
         groupMetadata?: any | null;
         mode?: 'chat' | 'operation';
     };
+    SharedContent: SharedContentRouteParams & {
+        category: 'audio' | 'document' | 'link';
+    };
+    SharedVisualContent: SharedContentRouteParams;
     AddParticipants: {
         conversationId: string;
     };
@@ -62,6 +75,8 @@ export type ChatsTabNavigationProp = BottomTabNavigationProp<MainTabParamList, '
 export type ConversationsStackNavigationProp = NativeStackNavigationProp<ConversationsStackParamList>;
 export type ChatScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'Chat'>;
 export type ChatInfoScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ChatInfo'>;
+export type SharedContentScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'SharedContent'>;
+export type SharedVisualContentScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'SharedVisualContent'>;
 export type TaskHistoryScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'TaskHistory'>;
 export type AddParticipantsScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AddParticipants'>;
 export type ConversationsListScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ConversationsList'>;
