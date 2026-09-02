@@ -1,33 +1,63 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, RefreshControl } from 'react-native';
+import {
+    View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
+    Modal, RefreshControl, LayoutAnimation, Platform, UIManager,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { format, addDays, isSameDay, startOfDay } from 'date-fns';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { format, addDays, isSameDay, startOfDay, isPast, isToday as dateFnsIsToday, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
-import GroupTaskCard from '../components/GroupTaskCard';
 import { useAuth } from '../context/AuthContext';
 import { isRedDay } from '../utils/holidays';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { useAppTheme } from '../theme/ThemeContext';
+import {
+    useAcceptCommitment, useResolveCommitment, useRespondToCommitmentProposal,
+} from '../api/queries';
 
-type FilterType = 'todo' | 'delegated';
+import { TodaySummaryBar } from '../components/hoy/TodaySummaryBar';
+import { OverdueAlert } from '../components/hoy/OverdueAlert';
+import { TodayItemRow } from '../components/hoy/TodayItemRow';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'resolved';
+type TypeFilter = 'all' | 'tasks' | 'meetings';
+type OwnerFilter = 'mine' | 'delegated' | 'all';
+
+const MEETING_RE = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i;
+function classifyMeeting(c: any) {
+    return c.type === 'meeting' || MEETING_RE.test(c.title || '');
+}
 
 export default function TaskDashboardScreen() {
     const { theme } = useAppTheme();
     const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
-    const [filterType, setFilterType] = useState<FilterType>('todo');
+    const queryClient = useQueryClient();
+    const navigation = useNavigation<any>();
+
+    // ─── Date state ──────────────────────────────────────────────────────────
     const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-    const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [isCalendarVisible, setIsCalendarVisible] = useState(false);
-    const [timelineFilter, setTimelineFilter] = useState<'all' | 'tasks' | 'meetings'>('all');
+
+    // ─── Filter state (secondary, hidden behind Filtrar) ────────────────────
+    const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+    const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all');
+    const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [assigneePickerVisible, setAssigneePickerVisible] = useState(false);
 
+    // ─── Encargadas section collapse ─────────────────────────────────────────
+    const [delegatedExpanded, setDelegatedExpanded] = useState(false);
+
+    // ─── Data ─────────────────────────────────────────────────────────────────
     const { data: commitments = [], isLoading, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
         queryFn: async () => {
@@ -39,1065 +69,789 @@ export default function TaskDashboardScreen() {
         }
     });
 
-    useFocusEffect(
-        useCallback(() => {
-            refetch();
-        }, [refetch])
-    );
+    useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
 
-    // Generate 21 days for the scroller (2 days ago to 18 days ahead)
-    const dates = useMemo(() => {
-        return Array.from({ length: 21 }).map((_, i) => addDays(startOfDay(new Date()), i - 2));
-    }, []);
+    // ─── Mutations ────────────────────────────────────────────────────────────
+    const { mutate: acceptCommitment } = useAcceptCommitment();
+    const { mutate: resolveCommitment } = useResolveCommitment();
+    const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
 
-    // Calculate which days have tasks for the indicators
-    const daysWithTasks = useMemo(() => {
-        const set = new Set();
-        commitments.forEach((c: any) => {
-            if (c.due_at) {
-                set.add(format(new Date(c.due_at), 'yyyy-MM-dd'));
-            }
-        });
-        return set;
-    }, [commitments]);
+    const handleMarkDone = useCallback((id: string) => {
+        resolveCommitment({ id, result: 'Resuelto desde Hoy.' });
+    }, [resolveCommitment]);
 
-    // Get unique team members from commitments
+    const handleConfirm = useCallback((id: string) => {
+        acceptCommitment(id);
+    }, [acceptCommitment]);
+
+    // ─── Team members for assignee picker ────────────────────────────────────
     const teamMembers = useMemo(() => {
-        const membersMap = new Map();
+        const map = new Map<string, any>();
         commitments.forEach((c: any) => {
-            if (c.assignee && c.assignee.id !== user?.id) {
-                membersMap.set(c.assignee.id, c.assignee);
-            }
-            if (c.owner && c.owner.id !== user?.id) {
-                membersMap.set(c.owner.id, c.owner);
-            }
-            (c.agreement_responses || []).forEach((response: any) => {
-                const participant = response.participant;
-                if (participant?.id && participant.id !== user?.id) {
-                    membersMap.set(participant.id, participant);
-                }
-            });
+            if (c.assignee && c.assignee.id !== user?.id) map.set(c.assignee.id, c.assignee);
+            if (c.owner && c.owner.id !== user?.id) map.set(c.owner.id, c.owner);
         });
-        return Array.from(membersMap.values());
+        return Array.from(map.values());
     }, [commitments, user?.id]);
 
-    const groupedData = useMemo(() => {
-        const filtered = commitments.filter((c: any) => {
-            const normalizedStatus = normalizeCommitmentStatus(c.status);
-            const taskDate = c.due_at ? startOfDay(new Date(c.due_at)) : null;
-            if (!taskDate || !isSameDay(taskDate, selectedDate)) return false;
+    // ─── Calendar dates for dot indicators ───────────────────────────────────
+    const daysWithTasks = useMemo(() => {
+        const s = new Set<string>();
+        commitments.forEach((c: any) => { if (c.due_at) s.add(format(new Date(c.due_at), 'yyyy-MM-dd')); });
+        return s;
+    }, [commitments]);
 
-            if (filterType === 'todo') {
-                const isAgreementParticipant = c._isAgreementProposal
-                    && (c.agreement_responses || []).some((response: any) => response.participant_user_id === user?.id);
-                if (c.assigned_to_user_id !== user?.id && !isAgreementParticipant) return false;
-                if (selectedUserId && c.owner_user_id !== selectedUserId) return false;
-            } else {
-                const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
-                if (!isDelegatedByMe) return false;
-                if (selectedUserId && c.assigned_to_user_id !== selectedUserId) return false;
+    const isSelectedToday = useMemo(() => dateFnsIsToday(selectedDate), [selectedDate]);
+
+    // ─── Overdue (relative to now, not selectedDate) ─────────────────────────
+    const overdueItems = useMemo(() => {
+        const now = new Date();
+        return commitments.filter((c: any) => {
+            if (!c.due_at) return false;
+            const status = normalizeCommitmentStatus(c.status);
+            if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
+            return new Date(c.due_at) < now && !isSameDay(new Date(c.due_at), selectedDate);
+        }).sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
+    }, [commitments, selectedDate]);
+
+    // ─── Today items (matching selectedDate) ─────────────────────────────────
+    const todayItems = useMemo(() => {
+        return commitments.filter((c: any) => {
+            if (!c.due_at) return false;
+            if (!isSameDay(new Date(c.due_at), selectedDate)) return false;
+            const status = normalizeCommitmentStatus(c.status);
+
+            // Rejected: excluded unless statusFilter is explicitly 'rejected'
+            if (status === 'rejected' && statusFilter !== 'rejected') return false;
+
+            // Resolved / cancelled: excluded unless statusFilter is 'all' or matches
+            if (['resolved', 'cancelled'].includes(status) && statusFilter !== 'all' && statusFilter !== status) return false;
+
+            // Secondary filters
+            if (statusFilter !== 'all' && status !== statusFilter) return false;
+            if (typeFilter === 'tasks' && classifyMeeting(c)) return false;
+            if (typeFilter === 'meetings' && !classifyMeeting(c)) return false;
+            if (ownerFilter === 'mine' && c.assigned_to_user_id !== user?.id) return false;
+            if (ownerFilter === 'delegated') {
+                const isDelegated = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
+                if (!isDelegated) return false;
             }
-
-            if (statusFilter !== 'all') {
-                if (statusFilter === 'proposed' && normalizedStatus !== 'proposed') return false;
-                if (statusFilter === 'accepted' && normalizedStatus !== 'accepted') return false;
-                if (statusFilter === 'rejected' && normalizedStatus !== 'rejected') return false;
-                if (statusFilter === 'resolved' && normalizedStatus !== 'resolved') return false;
+            if (selectedUserId) {
+                if (ownerFilter === 'delegated' && c.assigned_to_user_id !== selectedUserId) return false;
+                if (ownerFilter !== 'delegated' && c.owner_user_id !== selectedUserId) return false;
             }
             return true;
+        }).sort((a: any, b: any) => {
+            const statusA = normalizeCommitmentStatus(a.status);
+            const statusB = normalizeCommitmentStatus(b.status);
+            const isFinishedA = ['resolved', 'cancelled'].includes(statusA);
+            const isFinishedB = ['resolved', 'cancelled'].includes(statusB);
+
+            if (isFinishedA !== isFinishedB) return isFinishedA ? 1 : -1;
+            return new Date(a.due_at).getTime() - new Date(b.due_at).getTime();
         });
+    }, [commitments, selectedDate, statusFilter, typeFilter, ownerFilter, selectedUserId, user?.id]);
 
-        // Sort by time
-        const sorted = filtered.sort((a: any, b: any) => {
-            const dateA = a.due_at ? new Date(a.due_at).getTime() : 0;
-            const dateB = b.due_at ? new Date(b.due_at).getTime() : 0;
-            return dateA - dateB;
-        });
+    // My tasks (mine) vs delegated by me
+    const myItems = useMemo(() =>
+        todayItems.filter((c: any) => {
+            const isAssigned = c.assigned_to_user_id === user?.id || !c.assigned_to_user_id;
+            const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
+            return isAssigned && !isDelegatedByMe;
+        }), [todayItems, user?.id]);
 
-        const meetings: any[] = [];
-        const tasks: any[] = [];
+    const delegatedItems = useMemo(() =>
+        todayItems.filter((c: any) => {
+            return c.owner_user_id === user?.id && c.assigned_to_user_id && c.assigned_to_user_id !== user?.id;
+        }), [todayItems, user?.id]);
 
-        sorted.forEach((item: any) => {
-            const isMeeting = item.type === 'meeting' || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(item.title || '');
-            if (isMeeting) {
-                meetings.push(item);
-            } else {
-                tasks.push(item);
-            }
-        });
-
-        return { meetings, tasks };
-    }, [commitments, selectedDate, filterType, statusFilter, selectedUserId, user?.id]);
-
-    const timelineItems = useMemo(() => {
-        const items = [
-            ...groupedData.meetings.map(item => ({ ...item, _kind: 'meeting' })),
-            ...groupedData.tasks.map(item => ({ ...item, _kind: 'task' })),
-        ];
-        const filtered = items.filter(item => {
-            if (timelineFilter === 'all') return true;
-            if (timelineFilter === 'meetings') return item._kind === 'meeting';
-            return item._kind === 'task';
-        });
-        return filtered.sort((a: any, b: any) => {
-            const dateA = a.due_at ? new Date(a.due_at).getTime() : 0;
-            const dateB = b.due_at ? new Date(b.due_at).getTime() : 0;
-            return dateA - dateB;
-        });
-    }, [groupedData.meetings, groupedData.tasks, timelineFilter]);
-
-    const kpiSummary = useMemo(() => {
+    // Próximo item (closest future due_at >= now strictly)
+    const nextItem = useMemo(() => {
+        if (!isSelectedToday) return null;
         const now = new Date();
-        let pending = 0;
-        let inProgress = 0;
-        let overdue = 0;
-
-        groupedData.tasks.forEach((item: any) => {
-            const normalizedStatus = normalizeCommitmentStatus(item.status);
-            if (normalizedStatus === 'proposed') pending += 1;
-            if (normalizedStatus === 'accepted') inProgress += 1;
-            if (item.due_at && new Date(item.due_at) < now && !['resolved', 'rejected', 'cancelled'].includes(normalizedStatus)) {
-                overdue += 1;
-            }
+        const upcoming = myItems.filter((c: any) => {
+            const status = normalizeCommitmentStatus(c.status);
+            return !['resolved', 'cancelled', 'rejected'].includes(status) && new Date(c.due_at) >= now;
         });
+        return upcoming.length > 0 ? upcoming[0] : null;
+    }, [myItems, isSelectedToday]);
 
-        let insight = 'Día despejado. Puedes planificar sin urgencias.';
-        let cta = { label: 'Ver hoy', action: () => setSelectedDate(startOfDay(new Date())) };
+    const hasFiltersActive = statusFilter !== 'all' || typeFilter !== 'all' || ownerFilter !== 'all' || !!selectedUserId;
 
-        if (overdue > 0) {
-            insight = `Tienes ${overdue} vencida${overdue > 1 ? 's' : ''}. Prioriza estas tareas.`;
-            cta = { label: 'Ver en curso', action: () => { setStatusFilter('accepted'); setSelectedDate(startOfDay(new Date())); } };
-        } else if (pending > 0) {
-            insight = `Hay ${pending} propuesta${pending > 1 ? 's' : ''} pendiente${pending > 1 ? 's' : ''} de confirmar.`;
-            cta = { label: 'Ir a pendientes', action: () => { setStatusFilter('proposed'); setSelectedDate(startOfDay(new Date())); } };
-        }
+    // ─── Computed for summary bar ─────────────────────────────────────────────
+    const nextItemTime = nextItem?.due_at ?? null;
 
-        return { pending, inProgress, overdue, insight, cta };
-    }, [groupedData.tasks]);
+    // ─── Calendar modal dates ─────────────────────────────────────────────────
+    const [calendarViewDate, setCalendarViewDate] = useState(new Date(selectedDate));
 
-    const hasUrgency = kpiSummary.overdue > 0 || kpiSummary.pending > 0;
-    const selectedAssigneeName = useMemo(() => {
-        if (!selectedUserId) return 'Todos';
-        const match = teamMembers.find((member: any) => member.id === selectedUserId);
-        return match?.full_name?.split(' ')[0] || 'Usuario';
-    }, [selectedUserId, teamMembers]);
+    const calendarDays = useMemo(() => {
+        const monthStart = startOfDay(new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth(), 1));
+        return Array.from({ length: 31 }).map((_, i) => addDays(monthStart, i))
+            .filter(d => d.getMonth() === calendarViewDate.getMonth());
+    }, [calendarViewDate]);
 
+    // ─── Renderers ─────────────────────────────────────────────────────────────
 
-    const renderDateItem = (date: Date) => {
-        const isSelected = isSameDay(date, selectedDate);
-        const dayName = format(date, 'EEE', { locale: es }).replace('.', '');
-        const dayNum = format(date, 'dd');
-        const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
-        const redDay = isRedDay(date);
+    const renderNextUpCard = () => {
+        if (!nextItem) return null;
+        const timeStr = format(new Date(nextItem.due_at), 'HH:mm');
+        const isMeeting = classifyMeeting(nextItem);
 
         return (
-            <TouchableOpacity
-                key={date.toISOString()}
-                style={[styles.dateItem, isSelected && styles.dateItemActive]}
-                onPress={() => setSelectedDate(date)}
-            >
-                <Text style={[
-                    styles.dateDay,
-                    isSelected && styles.dateTextActive,
-                    redDay && !isSelected && { color: theme.colors.danger }
-                ]}>{dayName}</Text>
-                <Text style={[
-                    styles.dateNum,
-                    isSelected && styles.dateTextActive,
-                    redDay && !isSelected && { color: theme.colors.danger }
-                ]}>{dayNum}</Text>
-                {hasTask && <View style={[styles.dateDot, isSelected ? styles.dateDotActive : styles.dateDotInactive]} />}
-            </TouchableOpacity>
+            <View style={[styles.nextUpCard, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.accent}40` }]}>
+                <View style={styles.nextUpHeader}>
+                    <View style={[styles.nextUpBadge, { backgroundColor: theme.colors.accentSoft }]}>
+                        <Ionicons name={isMeeting ? 'people-outline' : 'flash-outline'} size={11} color={theme.colors.accent} />
+                        <Text style={[styles.nextUpBadgeText, { color: theme.colors.accent }]}>
+                            Próximo
+                        </Text>
+                    </View>
+                    <Text style={[styles.nextUpTime, { color: theme.colors.text.secondary }]}>{timeStr}</Text>
+                </View>
+                <Text style={[styles.nextUpTitle, { color: theme.colors.text.primary }]} numberOfLines={2}>
+                    {nextItem.title}
+                </Text>
+            </View>
         );
     };
 
-    const StatusChip = ({ label, value, icon }: { label: string, value: StatusFilter, icon: any }) => (
-        <TouchableOpacity
-            style={[styles.chip, statusFilter === value && styles.chipActive]}
-            onPress={() => setStatusFilter(value)}
-        >
-            <Ionicons
-                name={icon}
-                size={14}
-                color={statusFilter === value ? theme.colors.white : (theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted)}
-            />
-            <Text style={[styles.chipText, statusFilter === value && styles.chipTextActive]}>{label}</Text>
-        </TouchableOpacity>
-    );
+    const renderSection = (items: any[], title?: string, isCollapsible = false) => {
+        if (items.length === 0) return null;
 
-    const MonthPickerModal = () => {
-        const [viewDate, setViewDate] = useState(new Date(selectedDate));
-        const monthStart = startOfDay(new Date(viewDate.getFullYear(), viewDate.getMonth(), 1));
-        const daysInMonth = Array.from({ length: 31 }).map((_, i) => addDays(monthStart, i))
-            .filter(d => d.getMonth() === viewDate.getMonth());
+        if (isCollapsible) {
+            return (
+                <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
+                    <TouchableOpacity
+                        style={styles.collapsibleHeader}
+                        onPress={() => {
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setDelegatedExpanded(e => !e);
+                        }}
+                    >
+                        <Text style={[styles.sectionTitle, { color: theme.colors.text.secondary }]}>
+                            {title} ({items.length})
+                        </Text>
+                        <Ionicons
+                            name={delegatedExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={14}
+                            color={theme.colors.text.muted}
+                        />
+                    </TouchableOpacity>
+                    {delegatedExpanded && items.map(c => (
+                        <TodayItemRow
+                            key={c.id}
+                            commitment={c}
+                            currentUserId={user?.id}
+                            onMarkDone={handleMarkDone}
+                            onConfirm={handleConfirm}
+                        />
+                    ))}
+                </View>
+            );
+        }
 
         return (
-            <Modal visible={isCalendarVisible} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.calendarModal}>
-                        <View style={styles.modalHeader}>
-                            <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, -1))}>
-                                <Ionicons name="chevron-back" size={24} color={theme.colors.accent} />
+            <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
+                {title && <Text style={[styles.sectionTitle, { color: theme.colors.text.secondary }]}>{title}</Text>}
+                {items.map(c => (
+                    <TodayItemRow
+                        key={c.id}
+                        commitment={c}
+                        currentUserId={user?.id}
+                        onMarkDone={handleMarkDone}
+                        onConfirm={handleConfirm}
+                    />
+                ))}
+            </View>
+        );
+    };
+
+    const renderEmpty = () => {
+        let title = 'Día libre';
+        let subtitle = 'No tienes compromisos para hoy.';
+
+        if (isSelectedToday) {
+            if (overdueItems.length > 0) {
+                title = 'No tienes compromisos programados para hoy';
+                subtitle = `Tienes ${overdueItems.length} pendiente${overdueItems.length > 1 ? 's' : ''} vencido${overdueItems.length > 1 ? 's' : ''} que requiere${overdueItems.length > 1 ? 'n' : ''} atención.`;
+            } else {
+                title = 'Día libre';
+                subtitle = 'No tienes compromisos para hoy.';
+            }
+        } else {
+            title = 'Sin compromisos';
+            subtitle = `No tienes compromisos programados para el ${format(selectedDate, 'd MMM', { locale: es })}.`;
+        }
+
+        return (
+            <View style={styles.emptyContainer}>
+                <Ionicons name="calendar-clear-outline" size={48} color={theme.colors.text.muted} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.text.primary }]}>{title}</Text>
+                <Text style={[styles.emptySubtext, { color: theme.colors.text.secondary }]}>{subtitle}</Text>
+                {hasFiltersActive && (
+                    <TouchableOpacity
+                        style={[styles.clearFiltersBtn, { borderColor: theme.colors.border }]}
+                        onPress={() => { setStatusFilter('all'); setTypeFilter('all'); setOwnerFilter('all'); setSelectedUserId(null); }}
+                    >
+                        <Text style={[styles.clearFiltersText, { color: theme.colors.accent }]}>Limpiar filtros</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        );
+    };
+
+    // ─── Calendar Modal ────────────────────────────────────────────────────────
+    const CalendarModal = () => {
+        const monthStart = startOfDay(new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth(), 1));
+        const firstDayOfWeek = monthStart.getDay();
+        const prefixCount = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+
+        return (
+            <Modal visible={isCalendarVisible} transparent animationType="fade" onRequestClose={() => setIsCalendarVisible(false)}>
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsCalendarVisible(false)}>
+                    <TouchableOpacity activeOpacity={1} style={[styles.calendarCard, { backgroundColor: theme.colors.surface }]}>
+                        <View style={styles.calendarHeader}>
+                            <TouchableOpacity onPress={() => setCalendarViewDate(d => subDays(startOfDay(new Date(d.getFullYear(), d.getMonth(), 1)), 1))}>
+                                <Ionicons name="chevron-back" size={22} color={theme.colors.accent} />
                             </TouchableOpacity>
-                            <Text style={styles.modalHeaderTitle}>
-                                {format(viewDate, 'MMMM yyyy', { locale: es })}
+                            <Text style={[styles.calendarHeaderTitle, { color: theme.colors.text.primary }]}>
+                                {format(calendarViewDate, 'MMMM yyyy', { locale: es }).replace(/^\w/, c => c.toUpperCase())}
                             </Text>
-                            <TouchableOpacity onPress={() => setViewDate(addDays(monthStart, 32))}>
-                                <Ionicons name="chevron-forward" size={24} color={theme.colors.accent} />
+                            <TouchableOpacity onPress={() => setCalendarViewDate(d => addDays(startOfDay(new Date(d.getFullYear(), d.getMonth() + 1, 1)), 0))}>
+                                <Ionicons name="chevron-forward" size={22} color={theme.colors.accent} />
                             </TouchableOpacity>
                         </View>
-                        <View style={styles.monthGrid}>
+
+                        <View style={styles.weekdayRow}>
                             {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map(d => (
-                                <View key={d} style={styles.gridDayHeader}>
-                                    <Text style={styles.gridDayHeaderText}>{d}</Text>
-                                </View>
+                                <Text key={d} style={[styles.weekdayText, { color: theme.colors.text.muted }]}>{d}</Text>
                             ))}
-                            {(() => {
-                                // Pad beginning of month to start on Monday
-                                // getDay(): 0 is Sunday, 1 is Monday...
-                                const firstDay = monthStart.getDay();
-                                const prefixCount = firstDay === 0 ? 6 : firstDay - 1;
-                                return Array.from({ length: prefixCount }).map((_, i) => (
-                                    <View key={`prefix-${i}`} style={styles.gridDayEmpty} />
-                                ));
-                            })()}
-                            {daysInMonth.map((date) => {
-                                const isSelected = isSameDay(date, selectedDate);
-                                const hasTask = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
-                                const redDay = isRedDay(date);
+                        </View>
+
+                        <View style={styles.calendarGrid}>
+                            {Array.from({ length: prefixCount }).map((_, i) => <View key={`px-${i}`} style={styles.calendarDayEmpty} />)}
+                            {calendarDays.map(date => {
+                                const isSel = isSameDay(date, selectedDate);
+                                const isT = dateFnsIsToday(date);
+                                const hasTasks = daysWithTasks.has(format(date, 'yyyy-MM-dd'));
+                                const isRed = isRedDay(date);
                                 return (
                                     <TouchableOpacity
                                         key={date.toISOString()}
-                                        style={styles.gridDay}
+                                        style={styles.calendarDay}
                                         onPress={() => {
-                                            setSelectedDate(date);
+                                            setSelectedDate(startOfDay(date));
+                                            setCalendarViewDate(date);
                                             setIsCalendarVisible(false);
                                         }}
                                     >
-                                        <View style={[styles.gridDayInner, isSelected && styles.gridDayActive]}>
+                                        <View style={[
+                                            styles.calendarDayInner,
+                                            isSel && { backgroundColor: theme.colors.accent },
+                                            isT && !isSel && { borderWidth: 1.5, borderColor: theme.colors.accent },
+                                        ]}>
                                             <Text style={[
-                                                styles.gridDayText,
-                                                isSelected && styles.gridDayTextActive,
-                                                redDay && !isSelected && { color: theme.colors.danger, fontWeight: 'bold' }
+                                                styles.calendarDayText,
+                                                { color: theme.colors.text.primary },
+                                                isSel && { color: theme.colors.white },
+                                                isRed && !isSel && { color: theme.colors.danger },
                                             ]}>
                                                 {format(date, 'd')}
                                             </Text>
-                                            {hasTask && <View style={[styles.gridDot, isSelected && { backgroundColor: 'white' }]} />}
                                         </View>
+                                        {hasTasks && <View style={[styles.calendarDot, isSel && { backgroundColor: theme.colors.white }]} />}
                                     </TouchableOpacity>
                                 );
                             })}
                         </View>
+
                         <TouchableOpacity
-                            style={styles.closeModalBtn}
-                            onPress={() => setIsCalendarVisible(false)}
+                            style={[styles.todayBtn, { borderColor: theme.colors.border }]}
+                            onPress={() => {
+                                const today = startOfDay(new Date());
+                                setSelectedDate(today);
+                                setCalendarViewDate(today);
+                                setIsCalendarVisible(false);
+                            }}
                         >
-                            <Text style={styles.closeModalBtnText}>Cerrar</Text>
+                            <Text style={[styles.todayBtnText, { color: theme.colors.accent }]}>Ir a hoy</Text>
                         </TouchableOpacity>
-                    </View>
-                </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
             </Modal>
         );
     };
 
-    return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
-            <MonthPickerModal />
-
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <View style={styles.headerTitleRow}>
-                        <Text style={styles.headerTitle}>Tu día</Text>
-                        <View style={styles.headerDatePill}>
-                            <Ionicons name="calendar" size={14} color={theme.colors.accent} />
-                            <Text style={styles.headerDateText}>{format(selectedDate, 'EEE d MMM', { locale: es })}</Text>
-                        </View>
-                    </View>
-                    <TouchableOpacity style={styles.calendarBtn} onPress={() => setIsCalendarVisible(true)}>
-                        <Ionicons name="calendar-outline" size={24} color={theme.colors.accent} />
-                    </TouchableOpacity>
-                </View>
-
-                {hasUrgency ? (
-                    <View style={styles.kpiCard}>
-                        <View style={styles.kpiRow}>
-                            <View style={styles.kpiItem}>
-                                <Text style={styles.kpiValue}>{kpiSummary.pending}</Text>
-                                <Text style={styles.kpiLabel}>Pendientes</Text>
-                            </View>
-                            <View style={styles.kpiDivider} />
-                            <View style={styles.kpiItem}>
-                                <Text style={styles.kpiValue}>{kpiSummary.inProgress}</Text>
-                                <Text style={styles.kpiLabel}>En curso</Text>
-                            </View>
-                            <View style={styles.kpiDivider} />
-                            <View style={styles.kpiItem}>
-                                <Text style={styles.kpiValue}>{kpiSummary.overdue}</Text>
-                                <Text style={styles.kpiLabel}>Vencidas</Text>
-                            </View>
-                        </View>
-                        <View style={styles.kpiInsightRow}>
-                            <Text style={styles.kpiInsightText}>{kpiSummary.insight}</Text>
-                            <TouchableOpacity style={styles.kpiCta} onPress={kpiSummary.cta.action}>
-                                <Text style={styles.kpiCtaText}>{kpiSummary.cta.label}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                ) : (
-                    <View style={styles.kpiHintRow}>
-                        <Text style={styles.kpiHintText}>{kpiSummary.insight}</Text>
-                        <TouchableOpacity style={styles.kpiCta} onPress={kpiSummary.cta.action}>
-                            <Text style={styles.kpiCtaText}>Ver hoy</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-
-                <View style={styles.toggleContainer}>
-                    <TouchableOpacity
-                        style={[styles.toggleBtn, filterType === 'todo' && styles.toggleBtnActive]}
-                        onPress={() => { setFilterType('todo'); setSelectedUserId(null); }}
-                    >
-                        <Text style={[styles.toggleText, filterType === 'todo' && styles.toggleTextActive]}>Por Hacer</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.toggleBtn, filterType === 'delegated' && styles.toggleBtnActive]}
-                        onPress={() => { setFilterType('delegated'); setSelectedUserId(null); }}
-                    >
-                        <Text style={[styles.toggleText, filterType === 'delegated' && styles.toggleTextActive]}>Encargadas</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            <View style={styles.scrollerContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroller}>
-                    {dates.map(renderDateItem)}
-                </ScrollView>
-            </View>
-
-            <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>Estado</Text>
-            </View>
-            <View style={styles.filtersContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-                    <StatusChip label="Todas" value="all" icon="layers-outline" />
-                    <StatusChip label="Nuevas" value="proposed" icon="mail-unread-outline" />
-                    <StatusChip label="Activas" value="accepted" icon="flash-outline" />
-                    <StatusChip label="Resueltas" value="resolved" icon="checkmark-circle-outline" />
-                    <StatusChip label="Rechazadas" value="rejected" icon="close-circle-outline" />
-                </ScrollView>
-            </View>
-
-            {teamMembers.length > 0 && (
-                <View style={styles.assigneeRowCompact}>
-                    <Text style={styles.sectionLabel}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
-                    <TouchableOpacity style={styles.assigneeSelector} onPress={() => setAssigneePickerVisible(true)}>
-                        <Ionicons name="person" size={14} color={theme.colors.text.secondary} />
-                        <Text style={styles.assigneeSelectorText}>{selectedAssigneeName}</Text>
-                        <Ionicons name="chevron-down" size={14} color={theme.colors.text.muted} />
-                    </TouchableOpacity>
-                </View>
-            )}
-
-            <ScrollView 
-                style={{ flex: 1 }}
-                contentContainerStyle={styles.listContent}
-                refreshControl={
-                    <RefreshControl refreshing={isLoading} onRefresh={refetch} />
-                }
+    // ─── Filter Drawer ─────────────────────────────────────────────────────────
+    const FilterDrawer = () => {
+        const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => (
+            <TouchableOpacity
+                style={[styles.filterChip, active && { backgroundColor: theme.colors.accent }]}
+                onPress={onPress}
             >
-                <View style={styles.sectionContainer}>
-                    <View style={styles.sectionHeader}>
-                        <View style={styles.sectionTitleRow}>
-                            <Ionicons name="time" size={18} color={theme.colors.accent} />
-                            <Text style={styles.sectionTitleText}>Agenda del Día</Text>
-                        </View>
-                        <View style={styles.sectionHeaderRight}>
-                            <View style={styles.sectionBadge}>
-                                <Text style={styles.sectionBadgeText}>{timelineItems.length}</Text>
-                            </View>
-                        </View>
-                    </View>
-                    <View style={styles.timelineFilterRow}>
-                        <TouchableOpacity
-                            style={[styles.timelineChip, timelineFilter === 'all' && styles.timelineChipActive]}
-                            onPress={() => setTimelineFilter('all')}
-                        >
-                            <Text style={[styles.timelineChipText, timelineFilter === 'all' && styles.timelineChipTextActive]}>Todo</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.timelineChip, timelineFilter === 'tasks' && styles.timelineChipActive]}
-                            onPress={() => setTimelineFilter('tasks')}
-                        >
-                            <Text style={[styles.timelineChipText, timelineFilter === 'tasks' && styles.timelineChipTextActive]}>Tareas</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.timelineChip, timelineFilter === 'meetings' && styles.timelineChipActive]}
-                            onPress={() => setTimelineFilter('meetings')}
-                        >
-                            <Text style={[styles.timelineChipText, timelineFilter === 'meetings' && styles.timelineChipTextActive]}>Reuniones</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {timelineItems.length === 0 ? (
-                        <View style={styles.emptyContainer}>
-                            <Ionicons name="calendar-clear-outline" size={56} color={theme.colors.separator} />
-                            <Text style={styles.emptyText}>No hay items para este filtro</Text>
-                            <Text style={styles.emptySubtext}>Prueba cambiando el filtro o el día</Text>
-                        </View>
-                    ) : (
-                        timelineItems.map(item => (
-                            <GroupTaskCard key={item.id} commitment={item} groupParticipants={teamMembers} hideActions />
-                        ))
-                    )}
-                </View>
+                <Text style={[styles.filterChipText, { color: active ? theme.colors.white : theme.colors.text.secondary }]}>
+                    {label}
+                </Text>
+            </TouchableOpacity>
+        );
 
-                {groupedData.meetings.length === 0 && groupedData.tasks.length === 0 && (
-                    <View style={styles.emptyContainer}>
-                        <Ionicons name="folder-open-outline" size={64} color={theme.colors.separator} />
-                        <Text style={styles.emptyText}>No hay tareas para este filtro</Text>
-                        <Text style={styles.emptySubtext}>Cambia de día o filtro para ver más</Text>
-                        <View style={styles.emptyActions}>
-                            <TouchableOpacity
-                                style={styles.emptyPrimaryBtn}
-                                onPress={() => {
-                                    setSelectedDate(startOfDay(new Date()));
-                                    setStatusFilter('all');
-                                    setSelectedUserId(null);
-                                }}
-                            >
-                                <Text style={styles.emptyPrimaryText}>Ver hoy</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.emptySecondaryBtn}
-                                onPress={() => {
-                                    setStatusFilter('all');
-                                    setSelectedUserId(null);
-                                }}
-                            >
-                                <Text style={styles.emptySecondaryText}>Limpiar filtros</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                )}
-            </ScrollView>
+        return (
+            <Modal visible={filterDrawerVisible} transparent animationType="slide" onRequestClose={() => setFilterDrawerVisible(false)}>
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterDrawerVisible(false)}>
+                    <TouchableOpacity activeOpacity={1} style={[styles.filterSheet, { backgroundColor: theme.colors.surface }]}>
+                        <View style={styles.filterSheetHandle} />
+                        <Text style={[styles.filterSheetTitle, { color: theme.colors.text.primary }]}>Filtrar</Text>
 
-            <Modal visible={assigneePickerVisible} transparent animationType="fade" onRequestClose={() => setAssigneePickerVisible(false)}>
-                <TouchableOpacity style={styles.assigneeModalOverlay} activeOpacity={1} onPress={() => setAssigneePickerVisible(false)}>
-                    <View style={styles.assigneeModalCard}>
-                        <Text style={styles.assigneeModalTitle}>{filterType === 'todo' ? 'Asignado por' : 'Responsable'}</Text>
-                        <ScrollView contentContainerStyle={styles.assigneeList}>
-                            <TouchableOpacity
-                                style={[styles.assigneeListItem, !selectedUserId && styles.assigneeListItemActive]}
-                                onPress={() => {
-                                    setSelectedUserId(null);
-                                    setAssigneePickerVisible(false);
-                                }}
-                            >
-                                <Text style={[styles.assigneeListText, !selectedUserId && styles.assigneeListTextActive]}>Todos</Text>
-                            </TouchableOpacity>
-                            {teamMembers.map((member: any) => (
-                                <TouchableOpacity
-                                    key={member.id}
-                                    style={[styles.assigneeListItem, selectedUserId === member.id && styles.assigneeListItemActive]}
-                                    onPress={() => {
-                                        setSelectedUserId(member.id);
-                                        setAssigneePickerVisible(false);
-                                    }}
-                                >
-                                    <Text style={[styles.assigneeListText, selectedUserId === member.id && styles.assigneeListTextActive]}>
-                                        {member.full_name || 'Usuario'}
-                                    </Text>
-                                </TouchableOpacity>
+                        <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>ESTADO</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
+                            {([['all','Todos'],['proposed','Nuevos'],['accepted','Activos'],['resolved','Resueltos'],['rejected','Rechazados']] as const).map(([v, l]) => (
+                                <FilterChip key={v} label={l} active={statusFilter === v} onPress={() => setStatusFilter(v)} />
                             ))}
                         </ScrollView>
-                    </View>
+
+                        <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>TIPO</Text>
+                        <View style={styles.filterChipsRow}>
+                            {([['all','Todo'],['tasks','Tareas'],['meetings','Reuniones']] as const).map(([v, l]) => (
+                                <FilterChip key={v} label={l} active={typeFilter === v} onPress={() => setTypeFilter(v as TypeFilter)} />
+                            ))}
+                        </View>
+
+                        <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>ASIGNACIÓN</Text>
+                        <View style={styles.filterChipsRow}>
+                            {([['all','Todos'],['mine','Míos'],['delegated','Encargados']] as const).map(([v, l]) => (
+                                <FilterChip key={v} label={l} active={ownerFilter === v} onPress={() => setOwnerFilter(v as OwnerFilter)} />
+                            ))}
+                        </View>
+
+                        {teamMembers.length > 0 && (
+                            <>
+                                <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>PERSONA</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
+                                    <FilterChip label="Todos" active={!selectedUserId} onPress={() => setSelectedUserId(null)} />
+                                    {teamMembers.map((m: any) => (
+                                        <FilterChip
+                                            key={m.id}
+                                            label={m.full_name?.split(' ')[0] || 'Usuario'}
+                                            active={selectedUserId === m.id}
+                                            onPress={() => setSelectedUserId(m.id)}
+                                        />
+                                    ))}
+                                </ScrollView>
+                            </>
+                        )}
+
+                        {hasFiltersActive && (
+                            <TouchableOpacity
+                                style={[styles.clearAllBtn, { borderColor: theme.colors.border }]}
+                                onPress={() => { setStatusFilter('all'); setTypeFilter('all'); setOwnerFilter('all'); setSelectedUserId(null); setFilterDrawerVisible(false); }}
+                            >
+                                <Text style={[styles.clearAllText, { color: theme.colors.danger }]}>Limpiar todos los filtros</Text>
+                            </TouchableOpacity>
+                        )}
+                    </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
+        );
+    };
+
+    const dateTitle = isSelectedToday
+        ? 'Hoy'
+        : format(selectedDate, "EEE d MMM", { locale: es }).replace(/^\w/, c => c.toUpperCase());
+
+    return (
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+            <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
+            <CalendarModal />
+            <FilterDrawer />
+
+            {/* ── HEADER ── */}
+            <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+                <TouchableOpacity
+                    onPress={() => { setSelectedDate(d => subDays(d, 1)); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+                >
+                    <Ionicons name="chevron-back" size={22} color={theme.colors.accent} />
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setIsCalendarVisible(true)} style={styles.headerDatePill}>
+                    <Text style={[styles.headerDateText, { color: theme.colors.text.primary }]}>{dateTitle}</Text>
+                    <Ionicons name="chevron-down" size={14} color={theme.colors.text.muted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    onPress={() => { setSelectedDate(d => addDays(d, 1)); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+                >
+                    <Ionicons name="chevron-forward" size={22} color={theme.colors.accent} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    onPress={() => setFilterDrawerVisible(true)}
+                    style={[styles.filterBtn, hasFiltersActive && { backgroundColor: theme.colors.accentSoft }]}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                    <Ionicons name="options-outline" size={18} color={hasFiltersActive ? theme.colors.accent : theme.colors.text.secondary} />
+                    {hasFiltersActive && <View style={[styles.filterActiveDot, { backgroundColor: theme.colors.accent }]} />}
+                </TouchableOpacity>
+            </View>
+
+            <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={styles.scrollContent}
+                refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} />}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* ── RESUMEN ── */}
+                <TodaySummaryBar
+                    totalToday={todayItems.length}
+                    overdueCount={overdueItems.length}
+                    nextItemTime={nextItemTime}
+                    selectedDate={selectedDate}
+                    isToday={isSelectedToday}
+                />
+
+                {/* ── NECESITA ATENCIÓN ── */}
+                {isSelectedToday && overdueItems.length > 0 && (
+                    <View style={styles.blockPad}>
+                        <OverdueAlert
+                            items={overdueItems}
+                            maxVisible={3}
+                            onViewAll={() => navigation.navigate('Insights')}
+                        />
+                    </View>
+                )}
+
+                {/* ── AHORA / PRÓXIMO ── */}
+                {isSelectedToday && nextItem && (
+                    <View style={styles.blockPad}>
+                        {renderNextUpCard()}
+                    </View>
+                )}
+
+                {/* ── AGENDA ── */}
+                {todayItems.length === 0 ? (
+                    renderEmpty()
+                ) : (
+                    <View style={[styles.agendaBlock, { backgroundColor: theme.colors.surface }]}>
+                        <Text style={[styles.agendaBlockTitle, { color: theme.colors.text.secondary }]}>
+                            {isSelectedToday ? 'Agenda de hoy' : `Agenda · ${format(selectedDate, 'd MMM', { locale: es })}`}
+                        </Text>
+                        {myItems.map(c => (
+                            <TodayItemRow
+                                key={c.id}
+                                commitment={c}
+                                currentUserId={user?.id}
+                                onMarkDone={handleMarkDone}
+                                onConfirm={handleConfirm}
+                            />
+                        ))}
+                    </View>
+                )}
+
+                {/* ── ENCARGADAS ── */}
+                {delegatedItems.length > 0 && (
+                    <View style={styles.blockPad}>
+                        {renderSection(delegatedItems, 'Esperando de otros', true)}
+                    </View>
+                )}
+
+                <View style={{ height: 80 }} />
+            </ScrollView>
         </SafeAreaView>
     );
 }
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
+
 const createStyles = (theme: any) => StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-    },
+    container: { flex: 1 },
+
+    // Header
     header: {
-        paddingHorizontal: 20,
-        paddingTop: 8,
-        backgroundColor: theme.colors.surface,
-    },
-    headerTop: {
         flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    headerTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 10,
-    },
-    headerTitle: {
-        fontSize: 24,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
-        letterSpacing: -0.3,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth,
     },
     headerDatePill: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        gap: 4,
+        flex: 1,
+        justifyContent: 'center',
     },
     headerDateText: {
-        fontSize: 12,
+        fontSize: 17,
         fontWeight: '700',
-        color: theme.colors.text.secondary,
-        textTransform: 'capitalize',
     },
-    calendarBtn: {
-        padding: 8,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderRadius: 12,
-    },
-    kpiCard: {
-        marginTop: 12,
-        padding: 14,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-        gap: 10,
-    },
-    kpiHintRow: {
-        marginTop: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 10,
-    },
-    kpiHintText: {
-        flex: 1,
-        fontSize: 12,
-        color: theme.colors.text.secondary,
-    },
-    kpiRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    kpiItem: {
-        flex: 1,
-        alignItems: 'center',
-        gap: 2,
-    },
-    kpiDivider: {
-        width: 1,
-        height: 26,
-        backgroundColor: theme.colors.separator,
-    },
-    kpiValue: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
-    },
-    kpiLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    kpiInsightRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-    },
-    kpiInsightText: {
-        flex: 1,
-        fontSize: 12,
-        color: theme.colors.text.secondary,
-        lineHeight: 16,
-    },
-    kpiCta: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    kpiCtaText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: theme.colors.accent,
-    },
-    toggleContainer: {
-        flexDirection: 'row',
-        backgroundColor: theme.colors.surfaceMuted,
-        borderRadius: 12,
-        padding: 3,
-        marginBottom: 12,
-    },
-    toggleBtn: {
-        flex: 1,
-        paddingVertical: 10,
-        alignItems: 'center',
-        borderRadius: 11,
-    },
-    toggleBtnActive: {
-        backgroundColor: theme.isDark ? theme.colors.surfaceElevated : theme.colors.surface,
-    },
-    toggleText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-    },
-    toggleTextActive: {
-        color: theme.colors.accent,
-    },
-    scrollerContainer: {
-        backgroundColor: theme.colors.surface,
-        paddingVertical: 6,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.colors.separator,
-    },
-    dateScroller: {
-        paddingHorizontal: 15,
-        gap: 10,
-    },
-    dateItem: {
-        width: 42,
-        height: 56,
+    filterBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 16,
-        backgroundColor: theme.colors.surfaceMuted,
+    },
+    filterActiveDot: {
+        position: 'absolute',
+        top: 4,
+        right: 4,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+
+    // Scroll
+    scrollContent: {
+        paddingTop: 12,
+        gap: 8,
+    },
+    blockPad: {
+        paddingHorizontal: 16,
+    },
+
+    // Next-up card
+    nextUpCard: {
+        borderRadius: 12,
         borderWidth: 1,
-        borderColor: theme.colors.separator,
+        padding: 14,
+        gap: 6,
     },
-    dateItemActive: {
-        backgroundColor: theme.colors.accent,
-        borderColor: theme.colors.accent,
+    nextUpHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
     },
-    dateDay: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-        textTransform: 'uppercase',
+    nextUpBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
     },
-    dateNum: {
-        fontSize: 15,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
-        marginTop: 2,
-    },
-    dateTextActive: {
-        color: theme.colors.white,
-        fontWeight: '800',
-    },
-    dateDot: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        marginTop: 4,
-    },
-    dateDotActive: {
-        backgroundColor: theme.colors.white,
-    },
-    dateDotInactive: {
-        backgroundColor: theme.colors.accent,
-    },
-    filtersContainer: {
-        paddingTop: 10,
-        paddingBottom: 4,
-    },
-    sectionLabelRow: {
-        paddingHorizontal: 20,
-        marginTop: 8,
-        marginBottom: 6,
-    },
-    sectionLabel: {
+    nextUpBadgeText: {
         fontSize: 11,
         fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    nextUpTime: {
+        fontSize: 13,
+        fontWeight: '600',
+        fontVariant: ['tabular-nums'],
+    },
+    nextUpTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        lineHeight: 22,
+    },
+
+    // Agenda block
+    agendaBlock: {
+        marginHorizontal: 16,
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingBottom: 6,
+        overflow: 'hidden',
+    },
+    agendaBlockTitle: {
+        fontSize: 11,
+        fontWeight: '700',
         textTransform: 'uppercase',
         letterSpacing: 0.6,
+        paddingTop: 14,
+        paddingBottom: 6,
     },
-    chipsRow: {
-        paddingHorizontal: 20,
-        gap: 6,
-    },
-    chip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        backgroundColor: theme.isDark ? theme.colors.surfaceMuted : theme.colors.surface,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-        gap: 6,
-    },
-    chipActive: {
-        backgroundColor: theme.colors.accent,
-        borderColor: theme.colors.accent,
-    },
-    chipText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-    },
-    chipTextActive: {
-        color: theme.colors.white,
-    },
-    teamContainer: {
-        paddingBottom: 12,
-    },
-    assigneeRowCompact: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        marginTop: 4,
-        marginBottom: 6,
-    },
-    assigneeSelector: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
+
+    // Section (collapsible, e.g. Encargadas)
+    section: {
         borderRadius: 12,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    assigneeSelectorText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text.secondary,
-    },
-    assigneeModalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.25)',
-        justifyContent: 'center',
-        padding: 24,
-    },
-    assigneeModalCard: {
-        backgroundColor: theme.colors.surface,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-        padding: 16,
-        maxHeight: '70%'
-    },
-    assigneeModalTitle: {
-        fontSize: 14,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
-        marginBottom: 10,
-    },
-    assigneeList: {
-        gap: 8,
-    },
-    assigneeListItem: {
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    assigneeListItemActive: {
-        backgroundColor: theme.colors.accentSoft,
-        borderColor: theme.colors.accent,
-    },
-    assigneeListText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: theme.colors.text.secondary,
-    },
-    assigneeListTextActive: {
-        color: theme.colors.accent,
-    },
-    teamRow: {
-        paddingHorizontal: 20,
-        gap: 15,
-    },
-    memberAvatar: {
-        alignItems: 'center',
-        gap: 6,
-    },
-    memberAvatarActive: {
-        // ...
-    },
-    allMembersCircle: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderWidth: 2,
-        borderColor: theme.colors.accent,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    avatarImg: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        borderWidth: 2,
-        borderColor: 'transparent',
-    },
-    avatarFallback: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: theme.colors.separator,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    avatarLetter: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-    },
-    memberName: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
-    },
-    sectionContainer: {
-        marginBottom: 20,
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginHorizontal: 16,
         paddingHorizontal: 14,
-        paddingVertical: 10,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        paddingBottom: 6,
+        overflow: 'hidden',
     },
-    sectionHeaderRight: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    timelineFilterRow: {
-        flexDirection: 'row',
-        gap: 8,
-        paddingHorizontal: 16,
-        marginTop: 8,
-        marginBottom: 6,
-    },
-    timelineChip: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-        backgroundColor: theme.isDark ? theme.colors.surfaceMuted : theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    timelineChipActive: {
-        backgroundColor: theme.colors.accent,
-        borderColor: theme.colors.accent,
-    },
-    timelineChipText: {
+    sectionTitle: {
         fontSize: 11,
         fontWeight: '700',
-        color: theme.isDark ? theme.colors.text.secondary : theme.colors.text.muted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+        paddingTop: 14,
+        paddingBottom: 6,
     },
-    timelineChipTextActive: {
-        color: theme.colors.white,
-    },
-    sectionTitleRow: {
+    collapsibleHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-    },
-    sectionTitleText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: theme.colors.text.muted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    sectionBadge: {
-        backgroundColor: theme.colors.surfaceMuted,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    sectionBadgeText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: theme.colors.text.muted,
-    },
-    sectionHint: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text.muted,
-        textTransform: 'uppercase',
-    },
-    listContent: {
-        paddingBottom: 40,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: theme.colors.overlay,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    calendarModal: {
-        width: '100%',
-        backgroundColor: theme.colors.surface,
-        borderRadius: 20,
-        padding: 18,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-    },
-    modalHeader: {
-        flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    modalHeaderTitle: {
-        fontSize: 16,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
-        textTransform: 'capitalize',
-    },
-    monthGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'flex-start',
-    },
-    gridDay: {
-        width: '14.28%',
-        height: 45,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    gridDayInner: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.surfaceMuted,
-    },
-    gridDayActive: {
-        backgroundColor: theme.colors.accent,
-    },
-    gridDayText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: theme.colors.text.secondary,
-    },
-    gridDayTextActive: {
-        color: theme.colors.white,
-    },
-    gridDot: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: theme.colors.accent,
-        position: 'absolute',
-        bottom: 5,
-    },
-    closeModalBtn: {
-        marginTop: 20,
-        backgroundColor: theme.colors.surfaceMuted,
         paddingVertical: 12,
-        borderRadius: 12,
-        alignItems: 'center',
     },
-    closeModalBtnText: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: theme.colors.accent,
-    },
+
+    // Empty state
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 60,
-        paddingHorizontal: 40,
+        paddingVertical: 60,
+        paddingHorizontal: 32,
+        gap: 8,
     },
-    emptyText: {
-        marginTop: 16,
-        fontSize: 16,
-        color: theme.colors.text.secondary,
+    emptyTitle: {
+        fontSize: 18,
         fontWeight: '700',
+        marginTop: 8,
     },
     emptySubtext: {
-        marginTop: 6,
-        fontSize: 13,
-        color: theme.colors.text.muted,
+        fontSize: 14,
         textAlign: 'center',
+        lineHeight: 20,
     },
-    emptyActions: {
-        flexDirection: 'row',
-        gap: 10,
-        marginTop: 14,
-    },
-    emptyPrimaryBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 12,
-        backgroundColor: theme.colors.primary,
-    },
-    emptyPrimaryText: {
-        color: theme.colors.white,
-        fontWeight: '700',
-        fontSize: 13,
-    },
-    emptySecondaryBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surfaceMuted,
+    clearFiltersBtn: {
+        marginTop: 12,
+        paddingHorizontal: 20,
+        paddingVertical: 9,
+        borderRadius: 8,
         borderWidth: 1,
-        borderColor: theme.colors.separator,
     },
-    emptySecondaryText: {
-        color: theme.colors.text.secondary,
+    clearFiltersText: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
+
+    // Calendar Modal
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    calendarCard: {
+        width: '88%',
+        borderRadius: 18,
+        padding: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    calendarHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 14,
+    },
+    calendarHeaderTitle: {
+        fontSize: 16,
         fontWeight: '700',
-        fontSize: 13,
     },
-    gridDayHeader: {
+    weekdayRow: {
+        flexDirection: 'row',
+        marginBottom: 8,
+    },
+    weekdayText: {
+        flex: 1,
+        textAlign: 'center',
+        fontSize: 11,
+        fontWeight: '600',
+    },
+    calendarGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    calendarDay: {
         width: '14.28%',
         alignItems: 'center',
-        paddingVertical: 10,
+        paddingVertical: 2,
     },
-    gridDayHeaderText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text.muted,
+    calendarDayInner: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    gridDayEmpty: {
+    calendarDayText: {
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    calendarDayEmpty: {
         width: '14.28%',
-        height: 45,
+    },
+    calendarDot: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#6366f1',
+        marginTop: 2,
+    },
+    todayBtn: {
+        marginTop: 14,
+        paddingVertical: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        alignItems: 'center',
+    },
+    todayBtnText: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
+
+    // Filter Drawer
+    filterSheet: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        paddingTop: 12,
+    },
+    filterSheetHandle: {
+        alignSelf: 'center',
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#d1d5db',
+        marginBottom: 16,
+    },
+    filterSheetTitle: {
+        fontSize: 17,
+        fontWeight: '700',
+        marginBottom: 20,
+    },
+    filterGroupLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 0.6,
+        marginBottom: 8,
+        marginTop: 14,
+    },
+    filterChipsRow: {
+        flexDirection: 'row',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    filterChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        backgroundColor: theme.colors.surfaceMuted,
+    },
+    filterChipText: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    clearAllBtn: {
+        marginTop: 20,
+        paddingVertical: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        alignItems: 'center',
+    },
+    clearAllText: {
+        fontSize: 14,
+        fontWeight: '600',
     },
 });
