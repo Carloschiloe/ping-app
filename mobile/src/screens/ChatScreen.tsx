@@ -43,6 +43,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
 import { useChatOperation } from '../hooks/useChatOperation';
+import LocationConfirmModal from '../components/LocationConfirmModal';
 import { useAppTheme } from '../theme/ThemeContext';
 import { createClientMessageId } from '../utils/synchronization';
 import {
@@ -168,7 +169,12 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         pendingOperationAction,
         operationFeedback,
         locationFeedback,
+        pendingLocation,
+        locationLoading,
+        locationError,
         handleShareLocation,
+        confirmShareLocation,
+        cancelShareLocation,
         handleOperationAction,
         handleClearActiveCommitment,
         handleClearPinnedMessage,
@@ -727,6 +733,16 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             listRef.current?.scrollToOffset({ offset: 0, animated: true });
                         }, 120);
                     }}
+                />
+
+
+                <LocationConfirmModal
+                    visible={!!(pendingLocation || locationLoading || locationError)}
+                    location={pendingLocation}
+                    loading={locationLoading}
+                    error={locationError}
+                    onConfirm={confirmShareLocation}
+                    onCancel={cancelShareLocation}
                 />
 
                 <Modal visible={headerMenuVisible} transparent animationType="fade" onRequestClose={() => setHeaderMenuVisible(false)}>

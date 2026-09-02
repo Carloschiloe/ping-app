@@ -35,6 +35,14 @@ export function useChatOperation({
     const [pendingOperationAction, setPendingOperationAction] = useState<'acknowledged' | 'arrived' | 'completed' | null>(null);
     const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
     const [locationFeedback, setLocationFeedback] = useState<string | null>(null);
+    const [pendingLocation, setPendingLocation] = useState<{
+        latitude: number;
+        longitude: number;
+        label: string;
+        address?: string;
+    } | null>(null);
+    const [locationLoading, setLocationLoading] = useState(false);
+    const [locationError, setLocationError] = useState<string | null>(null);
 
     const conversationMode = operationState?.conversation?.mode || routeMode || 'chat';
     const pinnedMessageId = operationState?.conversation?.pinned_message_id || null;
@@ -49,38 +57,62 @@ export function useChatOperation({
         [groupTasks]
     );
 
+    /**
+     * Step 1: request permission, acquire GPS, reverse-geocode, and store in pendingLocation.
+     * The UI should show LocationConfirmModal when pendingLocation is set.
+     */
     const handleShareLocation = async () => {
+        setLocationLoading(true);
+        setLocationError(null);
+        setPendingLocation(null);
         try {
             const permission = await Location.requestForegroundPermissionsAsync();
             if (permission.status !== 'granted') {
-                Alert.alert('Permiso requerido', 'Activa la ubicacion para compartirla en este chat.');
+                setLocationError('Activa la ubicación en Ajustes para compartirla en este chat.');
                 return;
             }
-
             const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
             const reverse = await Location.reverseGeocodeAsync(position.coords);
-            const address = reverse[0];
-            const label = [address?.street, address?.district || address?.city].filter(Boolean).join(', ') || 'Ubicacion actual';
-
-            sendMessage({
-                text: `[location] ${label}`,
-                meta: {
-                    messageType: 'location_share',
-                    location: {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        label,
-                    },
-                },
+            const addr = reverse[0];
+            const label =
+                [addr?.name, addr?.street].filter(Boolean).join(', ') ||
+                [addr?.district, addr?.city].filter(Boolean).join(', ') ||
+                'Ubicación actual';
+            const address = [addr?.city, addr?.region].filter(Boolean).join(', ') || undefined;
+            setPendingLocation({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                label,
+                address,
             });
-
-            setLocationFeedback('Ubicacion enviada');
-            setTimeout(() => setLocationFeedback(null), 1800);
-            invalidateOperationState();
         } catch (err) {
-            console.error('[Location] Failed to share location', err);
-            Alert.alert('Error', 'No se pudo compartir la ubicacion.');
+            console.error('[Location] Failed to get location', err);
+            setLocationError('No se pudo obtener la ubicación. Intenta de nuevo.');
+        } finally {
+            setLocationLoading(false);
         }
+    };
+
+    /** Step 2: called when user taps 'Enviar ubicación' in the confirm modal. */
+    const confirmShareLocation = () => {
+        if (!pendingLocation) return;
+        const { latitude, longitude, label } = pendingLocation;
+        sendMessage({
+            text: `[location] ${label}`,
+            meta: {
+                messageType: 'location_share',
+                location: { latitude, longitude, label },
+            },
+        });
+        setPendingLocation(null);
+        setLocationFeedback('Ubicación enviada');
+        setTimeout(() => setLocationFeedback(null), 1800);
+        invalidateOperationState();
+    };
+
+    const cancelShareLocation = () => {
+        setPendingLocation(null);
+        setLocationError(null);
     };
 
     const handleOperationAction = async ({ action, completionNote, completionOutcome }: OperationActionPayload) => {
@@ -133,7 +165,13 @@ export function useChatOperation({
         pendingOperationAction,
         operationFeedback,
         locationFeedback,
+        // Location modal state
+        pendingLocation,
+        locationLoading,
+        locationError,
         handleShareLocation,
+        confirmShareLocation,
+        cancelShareLocation,
         handleOperationAction,
         handleClearActiveCommitment: () => setActiveCommitment(null),
         handleClearPinnedMessage: () => setPinnedMessage(null),

@@ -13,18 +13,53 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { resolveReactionEmoji } from '../utils/messageCompat';
 import { getPrivateFileRefreshDelay, resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
+import { latLngToOsmTile } from '../utils/mapTiles';
 import {
     getFreshProfileAvatarUrl,
     useProfileAvatarUrl,
 } from '../hooks/useProfileAvatarUrl';
 
-function buildMapUrl(latitude: number, longitude: number) {
-    const query = `${latitude},${longitude}`;
-    if (Platform.OS === 'ios') {
-        return `http://maps.apple.com/?ll=${query}`;
-    }
+function buildMapUrl(lat: number, lng: number) {
+    if (Platform.OS === 'ios') return `http://maps.apple.com/?ll=${lat},${lng}&q=Ubicaci%C3%B3n`;
+    return `geo:${lat},${lng}?q=${lat},${lng}`;
+}
 
-    return `geo:${query}?q=${query}`;
+function buildDirectionsUrl(lat: number, lng: number) {
+    if (Platform.OS === 'ios') return `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`;
+    return `google.navigation:q=${lat},${lng}`;
+}
+
+/** Regex matching http/https URLs within text (same pattern as backend link extractor). */
+const URL_REGEX = /(https?:\/\/[^\s<>"'()]+)/g;
+
+/** Renders plain text with embedded URLs as tappable links. */
+function InlineLinkText({
+    text,
+    textStyle,
+    linkColor,
+}: {
+    text: string;
+    textStyle: object | object[];
+    linkColor: string;
+}) {
+    const parts = text.split(URL_REGEX);
+    return (
+        <Text style={textStyle}>
+            {parts.map((part, i) =>
+                URL_REGEX.test(part) ? (
+                    <Text
+                        key={i}
+                        style={{ color: linkColor, textDecorationLine: 'underline' }}
+                        onPress={() => void Linking.openURL(part)}
+                    >
+                        {part}
+                    </Text>
+                ) : (
+                    <Text key={i}>{part}</Text>
+                ),
+            )}
+        </Text>
+    );
 }
 
 interface MessageItemProps {
@@ -101,8 +136,6 @@ const MessageItemComponent = ({
                 );
             } catch {
                 if (!active) return;
-                // Keep the last usable URL on a transient signing failure and
-                // retry. The persisted source of truth remains bucket + path.
                 setPrivateMediaState(privateMediaUrlRef.current ? 'ready' : 'retrying');
                 retryTimer = setTimeout(() => loadSignedUrl(true), 3_000);
             }
@@ -124,10 +157,6 @@ const MessageItemComponent = ({
         );
     }
 
-    // V2: preferir content/metadata (columnas reales); text/meta se
-    // conservan como fallback del alias temporal del backend (ver
-    // backend/src/utils/messageCompat.ts). Retirar el fallback cuando el
-    // backend deje de exponer text/meta.
     const meta = item.metadata ?? item.meta ?? {};
     const isSystem = meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
@@ -207,7 +236,6 @@ const MessageItemComponent = ({
     let description = '';
     const extractUrlAndDescription = (text: string, prefixLength: number) => {
         const full = text.slice(prefixLength).trim();
-        // Buscamos el primer espacio o el primer salto de línea
         const match = full.match(/^([^\s\n]+)[\s\n]*([\s\S]*)$/);
         if (!match) return { url: full, desc: '' };
         return { url: match[1], desc: match[2].trim() };
@@ -282,7 +310,7 @@ const MessageItemComponent = ({
             }}
         >
             <View>
-                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 6 : 2 }]}> 
+                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 6 : 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -365,7 +393,6 @@ const MessageItemComponent = ({
                             </View>
                         )}
 
-                        {/* ─── Quoted Message (Reply) ─── */}
                         {item.reply_to && !Array.isArray(item.reply_to) && (
                             <View style={[
                                 styles.quotedContainer,
@@ -456,32 +483,73 @@ const MessageItemComponent = ({
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { paddingHorizontal: 8, paddingBottom: 4, fontSize: 14 }]}>{description}</Text> : null}
                             </View>
                         ) : isLocationShare ? (
-                            <TouchableOpacity
-                                style={styles.locationCard}
-                                onPress={async () => {
-                                    const location = meta?.location;
-                                    if (!location?.latitude || !location?.longitude) return;
-                                    const nativeUrl = buildMapUrl(location.latitude, location.longitude);
-                                    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
-                                    const targetUrl = await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl;
-                                    Linking.openURL(targetUrl);
-                                }}
-                                activeOpacity={0.8}
-                            >
-                                <View style={[styles.locationIconWrap, isMe ? styles.locationIconWrapMe : styles.locationIconWrapThem]}>
-                                    <Ionicons name="location" size={18} color={isMe ? theme.colors.white : '#2563eb'} />
-                                </View>
-                                <View style={{ flex: 1 }}>
+                            <View style={styles.locationCard}>
+                                <TouchableOpacity
+                                    activeOpacity={0.9}
+                                    style={styles.locationMapWrapper}
+                                    onPress={async () => {
+                                        const location = meta?.location;
+                                        if (!location?.latitude || !location?.longitude) return;
+                                        const nativeUrl = buildMapUrl(location.latitude, location.longitude);
+                                        const googleUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+                                        const targetUrl = await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl;
+                                        Linking.openURL(targetUrl);
+                                    }}
+                                >
+                                    <Image
+                                        source={{ uri: latLngToOsmTile(meta.location.latitude, meta.location.longitude, 15) }}
+                                        style={styles.locationMapImage}
+                                        resizeMode="cover"
+                                    />
+                                    <View style={styles.locationMapMarker}>
+                                        <View style={styles.locationMapMarkerShadow} />
+                                        <Ionicons name="location-sharp" size={32} color="#ef4444" style={styles.locationMapMarkerIcon} />
+                                    </View>
+                                </TouchableOpacity>
+
+                                <View style={styles.locationCardBody}>
                                     <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '700' }]} numberOfLines={1}>
-                                        {meta?.location?.label || 'Ubicacion compartida'}
+                                        {meta?.location?.label || 'Ubicación'}
                                     </Text>
-                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2 }]}>Abrir en mapa</Text>
+                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2, marginBottom: 8 }]} numberOfLines={1}>
+                                        {meta?.location?.address || 'Ver en mapa'}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                        <TouchableOpacity
+                                            onPress={async () => {
+                                                const location = meta?.location;
+                                                if (!location?.latitude || !location?.longitude) return;
+                                                const nativeUrl = buildMapUrl(location.latitude, location.longitude);
+                                                const googleUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+                                                Linking.openURL(await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl);
+                                            }}
+                                        >
+                                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontWeight: '600' }]}>Ver mapa</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={async () => {
+                                                const location = meta?.location;
+                                                if (!location?.latitude || !location?.longitude) return;
+                                                const nativeUrl = buildDirectionsUrl(location.latitude, location.longitude);
+                                                const googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${location.latitude},${location.longitude}`;
+                                                Linking.openURL(await Linking.canOpenURL(nativeUrl) ? nativeUrl : googleUrl);
+                                            }}
+                                        >
+                                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { fontWeight: '600' }]}>Cómo llegar</Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
-                            </TouchableOpacity>
+                            </View>
                         ) : (
-                            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, isOperationMode && styles.msgTextOperation]}>
-                                {msgText}
-                            </Text>
+                            <InlineLinkText
+                                text={msgText}
+                                textStyle={[
+                                    styles.msgText,
+                                    isMe ? styles.msgTextMe : styles.msgTextThem,
+                                    isOperationMode && styles.msgTextOperation,
+                                ]}
+                                linkColor={isMe ? 'rgba(255,255,255,0.9)' : '#2563eb'}
+                            />
                         )}
                         <View style={styles.metaRow}>
                             {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : theme.colors.text.muted, marginRight: 4 }}>R</Text>}
@@ -516,7 +584,6 @@ const MessageItemComponent = ({
                         </View>
                     </TouchableOpacity>
 
-                    {/* ─── Reactions ─── */}
                     {item.message_reactions && item.message_reactions.length > 0 && (
                         <View style={[styles.reactionsContainer, isMe ? styles.reactionsMe : styles.reactionsThem]}>
                             {(() => {
@@ -538,7 +605,6 @@ const MessageItemComponent = ({
                             })()}
                         </View>
                     )}
-                    {/* ─── AI Suggestion Chip ─── */}
                     {meta?.suggestedTask && (
                         <TouchableOpacity
                             style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
@@ -565,12 +631,12 @@ const MessageItemComponent = ({
                 const displayTask = myTask || tasks[0];
 
                 return (
-                    <GroupTaskCard 
-                        key={displayTask.id} 
-                        commitment={{ 
-                            ...displayTask, 
-                            _isEveryoneSummary: !myTask && tasks.length > 1 
-                        }} 
+                    <GroupTaskCard
+                        key={displayTask.id}
+                        commitment={{
+                            ...displayTask,
+                            _isEveryoneSummary: !myTask && tasks.length > 1
+                        }}
                         conversationId={item.conversation_id}
                         groupParticipants={groupParticipants}
                         conversationMode={conversationMode}
@@ -595,7 +661,6 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.item.media_bucket === next.item.media_bucket &&
         prev.item.media_object_path === next.item.media_object_path &&
         JSON.stringify(prev.item.message_reactions) === JSON.stringify(next.item.message_reactions) &&
-        // EXTREMELY CRITICAL: Deep check for changes in Meta or Tasks
         JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
         JSON.stringify(prev.item.metadata) === JSON.stringify(next.item.metadata) &&
         prev.conversationMode === next.conversationMode &&
@@ -673,10 +738,47 @@ const createStyles = (theme: any) => StyleSheet.create({
         justifyContent: 'center', alignItems: 'center',
     },
     documentBubble: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, paddingVertical: 4, paddingRight: 8 },
-    locationCard: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, gap: 10 },
-    locationIconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    locationIconWrapMe: { backgroundColor: 'rgba(255,255,255,0.2)' },
-    locationIconWrapThem: { backgroundColor: theme.colors.accentSoft },
+    locationCard: {
+        overflow: 'hidden',
+        width: 240,
+    },
+    locationMapWrapper: {
+        height: 120,
+        backgroundColor: '#e5e7eb',
+        position: 'relative',
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    locationMapImage: {
+        width: '100%',
+        height: '100%',
+    },
+    locationMapMarker: {
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        marginLeft: -16,
+        marginTop: -28,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    locationMapMarkerShadow: {
+        position: 'absolute',
+        bottom: 4,
+        width: 10,
+        height: 5,
+        borderRadius: 5,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        transform: [{ scaleX: 2 }],
+    },
+    locationMapMarkerIcon: {
+        textShadowColor: 'rgba(0,0,0,0.2)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+    },
+    locationCardBody: {
+        paddingTop: 8,
+    },
     docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
     systemWrap: { alignItems: 'center', marginVertical: 6 },
     systemBubble: {

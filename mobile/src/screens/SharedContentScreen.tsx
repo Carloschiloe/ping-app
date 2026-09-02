@@ -6,14 +6,14 @@ import type { SharedContentScreenProps } from '../navigation/types';
 import type { SharedContentItem } from '../types/sharedContent';
 import { useSharedContentUrl } from '../hooks/useSharedContentUrl';
 import { useAppTheme } from '../theme/ThemeContext';
-import { documentIconName, formatSharedDuration, formatSharedFileSize } from '../utils/sharedContent';
+import { documentIconName, formatSharedDuration, formatSharedDateTime, formatSharedFileSize } from '../utils/sharedContent';
 import AudioPlayer from '../components/AudioPlayer';
 
 const CONTENT_TITLES = { audio: 'Audios', document: 'Documentos', link: 'Enlaces' } as const;
 
 function Meta({ item }: { item: SharedContentItem }) {
     const { theme } = useAppTheme();
-    return <Text style={{ color: theme.colors.text.secondary, fontSize: 12, marginTop: 4 }}>{item.sender.name} Â· {new Date(item.createdAt).toLocaleString()}</Text>;
+    return <Text style={{ color: theme.colors.text.secondary, fontSize: 12, marginTop: 4 }}>{item.sender.name} · {formatSharedDateTime(item.createdAt)}</Text>;
 }
 
 function GoToMessage({ onPress }: { onPress: () => void }) {
@@ -29,8 +29,10 @@ function AudioRow({ item, onMessage }: { item: SharedContentItem; onMessage: () 
             <Text style={[styles.title, { color: theme.colors.text.primary }]}>{item.sender.name}</Text>
             {state === 'loading' && <ActivityIndicator style={styles.audioLoading} />}
             {state === 'available' && url && <AudioPlayer url={url} style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceMuted }]} />}
-            {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={{ color: theme.colors.danger }}>Audio no disponible Â· Reintentar</Text></TouchableOpacity>}
-            <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{formatSharedDuration(item.file?.durationMs)} Â· {new Date(item.createdAt).toLocaleString()}</Text>
+            {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={{ color: theme.colors.danger }}>Audio no disponible · Reintentar</Text></TouchableOpacity>}
+            <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+                {[formatSharedDateTime(item.createdAt), formatSharedDuration(item.file?.durationMs)].filter(Boolean).join(' · ')}
+            </Text>
             <GoToMessage onPress={onMessage} />
         </View>
     );
@@ -57,7 +59,7 @@ function DocumentRow({ item, onMessage }: { item: SharedContentItem; onMessage: 
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{formatSharedFileSize(item.file?.sizeBytes)}</Text>
                 <Meta item={item} />
                 <View style={styles.inlineActions}>
-                    <TouchableOpacity onPress={open}><Text style={{ color: theme.colors.accent, fontWeight: '700' }}>{state === 'loading' ? 'Abriendoâ€¦' : 'Abrir'}</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={open}><Text style={{ color: theme.colors.accent, fontWeight: '700' }}>{state === 'loading' ? 'Abriendo…' : 'Abrir'}</Text></TouchableOpacity>
                     {state === 'unavailable' && <Text style={{ color: theme.colors.danger, fontSize: 12 }}>No disponible</Text>}
                     <GoToMessage onPress={onMessage} />
                 </View>

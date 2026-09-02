@@ -9,16 +9,37 @@ export const EMPTY_SHARED_CONTENT_SUMMARY: SharedContentSummary = {
 };
 
 export function formatSharedFileSize(bytes: number | null | undefined) {
-    if (!bytes || bytes <= 0) return 'TamaÃ±o no disponible';
+    if (!bytes || bytes <= 0) return 'Tamaño no disponible';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
-export function formatSharedDuration(durationMs: number | null | undefined) {
-    if (!durationMs || durationMs <= 0) return '--:--';
-    const seconds = Math.round(durationMs / 1000);
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+/**
+ * Formats duration from milliseconds. Returns empty string if no duration (so callers
+ * can omit the bullet separator gracefully).
+ */
+export function formatSharedDuration(durationMs: number | null | undefined): string {
+    if (!durationMs || durationMs <= 0) return '';
+    const totalSec = Math.round(durationMs / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Returns a clean 'DD MMM YYYY · HH:MM' string respecting device locale.
+ * Uses 24h where possible via Intl options.
+ */
+export function formatSharedDateTime(isoString: string): string {
+    try {
+        const d = new Date(isoString);
+        const datePart = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        const timePart = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        return `${datePart} · ${timePart}`;
+    } catch {
+        return isoString;
+    }
 }
 
 export function visualFilters(summary: SharedContentSummary): ('all' | SharedVisualKind)[] {
