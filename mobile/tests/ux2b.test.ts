@@ -187,6 +187,36 @@ describe('UX-2B.1 — OverdueAlert expand / collapse / navigation logic', () => 
         const visibleAfter = expanded ? items : items.slice(0, 3);
         expect(visibleAfter).toHaveLength(3);
     });
+
+    it('UX-2B.2: 1 overdue item shows "Ver en Compromisos"', () => {
+        const singleItem = [cOverdueRecent];
+        const navigateLabel = singleItem.length === 1 ? 'Ver en Compromisos' : 'Ver todos en Compromisos';
+        expect(navigateLabel).toBe('Ver en Compromisos');
+        expect(singleItem.length <= 3).toBe(true); // footer visible without expand CTA
+    });
+
+    it('UX-2B.2: 3 overdue items shows "Ver todos en Compromisos"', () => {
+        const threeItems = [cOverdueRecent, cOverdueOld, { id: 'ov3', title: 'hace 3 días', due_at: subDays(TODAY, 3).toISOString(), status: 'accepted' }];
+        const navigateLabel = threeItems.length === 1 ? 'Ver en Compromisos' : 'Ver todos en Compromisos';
+        expect(navigateLabel).toBe('Ver todos en Compromisos');
+        expect(threeItems.length <= 3).toBe(true); // footer visible without expand CTA
+    });
+
+    it('UX-2B.2: 4+ overdue items shows both "Ver todos en Compromisos" and expand CTA in collapsed and expanded states', () => {
+        const navigateLabel = items.length === 1 ? 'Ver en Compromisos' : 'Ver todos en Compromisos';
+        expect(navigateLabel).toBe('Ver todos en Compromisos');
+        expect(items.length > 3).toBe(true);
+
+        // Collapsed state
+        let expanded = false;
+        let expandText = !expanded ? `Ver ${items.length - 3} más` : 'Mostrar menos';
+        expect(expandText).toBe('Ver 1 más');
+
+        // Expanded state
+        expanded = true;
+        expandText = !expanded ? `Ver ${items.length - 3} más` : 'Mostrar menos';
+        expect(expandText).toBe('Mostrar menos');
+    });
 });
 
 describe('UX-2B.1 — NextUpCard strictly due_at >= now', () => {

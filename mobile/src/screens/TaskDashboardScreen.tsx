@@ -516,7 +516,7 @@ export default function TaskDashboardScreen() {
                         <OverdueAlert
                             items={overdueItems}
                             maxVisible={3}
-                            onViewAll={() => navigation.navigate('Insights')}
+                            onViewAll={() => navigation.navigate('Insights', { initialSegment: 'pendientes' })}
                         />
                     </View>
                 )}

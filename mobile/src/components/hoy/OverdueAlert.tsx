@@ -45,6 +45,8 @@ export function OverdueAlert({ items, maxVisible = 3, onViewAll }: OverdueAlertP
         return `hace ${diffDays} días`;
     };
 
+    const navigateLabel = items.length === 1 ? 'Ver en Compromisos' : 'Ver todos en Compromisos';
+
     return (
         <View style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.warning}40` }]}>
             <View style={styles.header}>
@@ -85,10 +87,14 @@ export function OverdueAlert({ items, maxVisible = 3, onViewAll }: OverdueAlertP
                 </View>
             ))}
 
-            {/* In-place expand/collapse CTA */}
-            {items.length > maxVisible && (
-                <View style={[styles.footer, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }]}>
-                    {!expanded ? (
+            {/* Footer with Expand/Collapse & Always Visible Compromisos CTA */}
+            <View style={[
+                styles.footer,
+                { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+                items.length <= maxVisible && { justifyContent: 'flex-end' },
+            ]}>
+                {items.length > maxVisible && (
+                    !expanded ? (
                         <TouchableOpacity style={styles.expandBtn} onPress={toggleExpand}>
                             <Text style={[styles.expandText, { color: theme.colors.accent }]}>
                                 Ver {hiddenCount} más
@@ -102,18 +108,18 @@ export function OverdueAlert({ items, maxVisible = 3, onViewAll }: OverdueAlertP
                             </Text>
                             <Ionicons name="chevron-up" size={13} color={theme.colors.text.secondary} />
                         </TouchableOpacity>
-                    )}
+                    )
+                )}
 
-                    {onViewAll && (
-                        <TouchableOpacity style={styles.navigateBtn} onPress={onViewAll}>
-                            <Text style={[styles.navigateText, { color: theme.colors.accent }]}>
-                                Ver todos en Compromisos
-                            </Text>
-                            <Ionicons name="arrow-forward" size={12} color={theme.colors.accent} />
-                        </TouchableOpacity>
-                    )}
-                </View>
-            )}
+                {onViewAll && (
+                    <TouchableOpacity style={styles.navigateBtn} onPress={onViewAll}>
+                        <Text style={[styles.navigateText, { color: theme.colors.accent }]}>
+                            {navigateLabel}
+                        </Text>
+                        <Ionicons name="arrow-forward" size={12} color={theme.colors.accent} />
+                    </TouchableOpacity>
+                )}
+            </View>
         </View>
     );
 }
