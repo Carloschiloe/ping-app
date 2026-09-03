@@ -180,6 +180,16 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     // (real confirmation), instead of vanishing mid-drag.
     const swipeableRefs = React.useRef<Record<string, Swipeable | null>>({});
 
+    // Neither useMarkConversationAsRead nor useMarkConversationAsUnread had an
+    // onError handler, so a failed tap (e.g. the backend route not existing
+    // yet) previously failed completely silently — the row just... didn't
+    // change, with no signal to the user at all. This is a real, pre-existing
+    // gap (not a workaround for the backend issue, which is now fixed and
+    // certified); it stays useful for genuine future failures (network blips).
+    const handleUnreadMutationError = React.useCallback(() => {
+        Alert.alert('Error', 'No se pudo actualizar la conversación.');
+    }, []);
+
     // Swipe right (renderLeftActions): always has an action now — contextual
     // on the conversation's current unread state. Unread -> "Leído" (mark
     // read, canonical flow); already read -> "No leído" (manual marker,
@@ -195,8 +205,8 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 style={[styles.leftAction, { width: SWIPE_ACTION_WIDTH, backgroundColor: unread ? theme.colors.info : '#64748b' }]}
                 onPress={() => {
                     swipeableRefs.current[item.id]?.close();
-                    if (unread) markAsRead(item.id);
-                    else markAsUnread(item.id);
+                    if (unread) markAsRead(item.id, { onError: handleUnreadMutationError });
+                    else markAsUnread(item.id, { onError: handleUnreadMutationError });
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={unread ? 'Marcar como leído' : 'Marcar como no leído'}
@@ -207,7 +217,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 </Animated.View>
             </TouchableOpacity>
         );
-    }, [markAsRead, markAsUnread, styles, theme]);
+    }, [markAsRead, markAsUnread, handleUnreadMutationError, styles, theme]);
 
     const renderRightActions = React.useCallback((progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
         const trans = dragX.interpolate({

@@ -206,3 +206,53 @@ describe('C-6: Abrir una conversación limpia manuallyUnread vía el flujo canó
         expect(shouldMarkReadOnOpen(true, false)).toBe(true);
     });
 });
+
+// ─── C-6C: swipe-right mutation failures no longer fail silently ───────────
+// Diagnosed on staging: useMarkConversationAsRead/Unread had no onError, so a
+// failed tap (missing route, network blip) changed nothing with zero signal.
+// Not a workaround for the (now-fixed, certified) backend gap — a real,
+// pre-existing resilience gap for genuine future failures.
+
+function handleSwipeRightWithFeedback(
+    item: { unreadCount?: number; manuallyUnread?: boolean },
+    close: () => void,
+    markAsRead: (id: string, opts: { onError: () => void }) => void,
+    markAsUnread: (id: string, opts: { onError: () => void }) => void,
+    id: string,
+    onError: () => void,
+) {
+    close();
+    if (isConversationUnread(item)) markAsRead(id, { onError });
+    else markAsUnread(id, { onError });
+}
+
+describe('C-6C: feedback de error en swipe derecho', () => {
+    it('markAsRead se llama con un onError que informa al usuario', () => {
+        const close = jest.fn();
+        const onError = jest.fn();
+        const markAsRead = jest.fn((_id, opts) => opts.onError());
+        const markAsUnread = jest.fn();
+        handleSwipeRightWithFeedback({ unreadCount: 2 }, close, markAsRead, markAsUnread, 'c1', onError);
+        expect(markAsRead).toHaveBeenCalledWith('c1', { onError });
+        expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it('markAsUnread se llama con un onError que informa al usuario', () => {
+        const close = jest.fn();
+        const onError = jest.fn();
+        const markAsRead = jest.fn();
+        const markAsUnread = jest.fn((_id, opts) => opts.onError());
+        handleSwipeRightWithFeedback({ unreadCount: 0 }, close, markAsRead, markAsUnread, 'c1', onError);
+        expect(markAsUnread).toHaveBeenCalledWith('c1', { onError });
+        expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it('el éxito no dispara ningún feedback (sólo se usa en onError)', () => {
+        const close = jest.fn();
+        const onError = jest.fn();
+        const markAsRead = jest.fn(); // never invokes opts.onError — simulates success
+        const markAsUnread = jest.fn();
+        handleSwipeRightWithFeedback({ unreadCount: 1 }, close, markAsRead, markAsUnread, 'c1', onError);
+        expect(onError).not.toHaveBeenCalled();
+    });
+});
