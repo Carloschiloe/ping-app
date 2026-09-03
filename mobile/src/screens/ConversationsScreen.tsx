@@ -2,22 +2,39 @@ import React from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, StyleSheet,
     ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated,
-    Modal, Image
+    Modal, Image, ActionSheetIOS, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useToggleArchive, useCreateConversation } from '../api/queries';
+import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useMarkConversationAsUnread, useToggleArchive, useCreateConversation } from '../api/queries';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { useQuery } from '@tanstack/react-query';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import type { ConversationsListScreenProps } from '../navigation/types';
 import { useAppTheme } from '../theme/ThemeContext';
 import { apiClient } from '../api/client';
 import { ConversationRow } from '../components/ConversationRow';
 import { GlobalSearchSection } from '../components/GlobalSearchSection';
+import { deriveIsSelf } from '../utils/conversationCompat';
+
+// Fixed reveal width for swipe actions — the row must stay mostly visible
+// while dragging (a lateral button, not a full-width wipe). On a typical
+// ~390-428px wide phone this leaves ~74-77% of the row on screen.
+const SWIPE_ACTION_WIDTH = 100;
+
+// isUnread combines the real, server-computed unreadCount with the private
+// per-user "manuallyUnread" preference (conversation_participants.marked_unread_at)
+// — either one is enough to treat the conversation as unread for filtering,
+// visual weight, and which swipe-right action to offer. The numeric badge
+// stays keyed to unreadCount alone (see ConversationRow) so a manually-flagged,
+// fully-read conversation never shows a fabricated count.
+function isConversationUnread(c: { unreadCount?: number; manuallyUnread?: boolean }) {
+    return (c.unreadCount || 0) > 0 || !!c.manuallyUnread;
+}
 
 function formatTime(iso: string) {
     const d = new Date(iso);
@@ -27,23 +44,48 @@ function formatTime(iso: string) {
     return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
 }
 
+const EMPTY_STATE_COPY: Record<'all' | 'unread' | 'groups' | 'private' | 'archived', string> = {
+    all: 'No tienes conversaciones todavía.',
+    unread: 'No tienes conversaciones sin leer.',
+    groups: 'No tienes grupos todavía.',
+    private: 'No tienes conversaciones todavía.',
+    archived: 'No tienes conversaciones archivadas.',
+};
+
+const SELF_CHAT_PLACEHOLDER_SUBTITLE = 'Notas, audios y recordatorios personales';
+
+// "Para mí" has no real conversation row yet for a brand-new user. This
+// synthetic item lets the pinned row render through the same ConversationRow
+// component with a neutral subtitle; it's never inserted into the real list
+// and no network call happens until the user actually taps it.
+const SELF_CHAT_PLACEHOLDER = {
+    id: '__self_chat_placeholder__',
+    isSelf: true,
+    isGroup: false,
+    otherUser: null,
+    groupMetadata: null,
+    lastMessage: null,
+    unreadCount: 0,
+    archived: false,
+    isPlaceholder: true,
+} as const;
+
 export default function ConversationsScreen({ navigation }: ConversationsListScreenProps) {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
+    const insets = useSafeAreaInsets();
     const { data, isLoading } = useConversations();
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
     const [typingUsers, setTypingUsers] = React.useState<Record<string, { name: string, isRecording: boolean }[]>>({});
-    const [showQuickActions, setShowQuickActions] = React.useState(true);
     const [profileViewerUrl, setProfileViewerUrl] = React.useState<string | null>(null);
     const debouncedSearchQuery = useDebouncedValue(searchQuery, 220);
 
-    const scrollY = React.useRef(new Animated.Value(0)).current;
-
     const rawConversations = React.useMemo(() => data?.conversations || [], [data?.conversations]);
-    const { mutate: openSelf, isPending: selfPending } = useGetOrCreateSelfConversation();
+    const { mutate: openSelf } = useGetOrCreateSelfConversation();
     const { mutate: markAsRead } = useMarkConversationAsRead('');
+    const { mutate: markAsUnread } = useMarkConversationAsUnread();
     const { mutate: toggleArchive } = useToggleArchive();
     const { mutateAsync: createConversation } = useCreateConversation();
 
@@ -99,24 +141,30 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
             if (filter === 'archived') return c.archived;
             if (c.archived) return false; // Hide archived from other filters
 
-            if (filter === 'unread') return (c.unreadCount || 0) > 0;
+            if (filter === 'unread') return isConversationUnread(c);
             if (filter === 'groups') return c.isGroup;
             if (filter === 'private') return !c.isGroup;
             return true;
         });
     }, [rawConversations, debouncedSearchQuery, filter]);
 
-    const headerHeight = scrollY.interpolate({
-        inputRange: [0, 100],
-        outputRange: [Platform.OS === 'ios' ? 140 : 110, Platform.OS === 'ios' ? 92 : 70],
-        extrapolate: 'clamp',
-    });
+    const archivedCount = React.useMemo(
+        () => rawConversations.filter((c: any) => c.archived).length,
+        [rawConversations]
+    );
 
-    const searchScale = scrollY.interpolate({
-        inputRange: [0, 50],
-        outputRange: [1, 0.95],
-        extrapolate: 'clamp',
-    });
+    // "Para mí" is always pinned to the top of the default view, client-side —
+    // whether or not the conversation exists yet. It never appears twice, and
+    // archived self-chats fall out of `filteredConversations` already, so
+    // they're excluded here for free.
+    const { pinnedSelf, restConversations } = React.useMemo(() => {
+        if (filter !== 'all') return { pinnedSelf: null as any, restConversations: filteredConversations };
+        const selfIndex = filteredConversations.findIndex((c: any) => deriveIsSelf(c));
+        if (selfIndex === -1) return { pinnedSelf: SELF_CHAT_PLACEHOLDER as any, restConversations: filteredConversations };
+        const self = filteredConversations[selfIndex];
+        const rest = filteredConversations.filter((_: any, i: number) => i !== selfIndex);
+        return { pinnedSelf: self, restConversations: rest };
+    }, [filteredConversations, filter]);
 
     const isOnline = (lastSeen?: string) => {
         if (!lastSeen) return false;
@@ -126,23 +174,40 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         return (now - last) < 1000 * 60 * 5;
     };
 
+    // One Swipeable ref per row so an action can close its own row before the
+    // underlying mutation lands — the row snaps back closed immediately, and
+    // only disappears from the list once the query actually invalidates
+    // (real confirmation), instead of vanishing mid-drag.
+    const swipeableRefs = React.useRef<Record<string, Swipeable | null>>({});
+
+    // Swipe right (renderLeftActions): always has an action now — contextual
+    // on the conversation's current unread state. Unread -> "Leído" (mark
+    // read, canonical flow); already read -> "No leído" (manual marker,
+    // canonical RPC, never touches message_receipts). Never a dead gesture.
     const renderLeftActions = React.useCallback((progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
-        const isUnread = (item.unreadCount || 0) > 0;
+        const unread = isConversationUnread(item);
         const trans = dragX.interpolate({
             inputRange: [0, 50, 100],
             outputRange: [-20, 0, 0],
         });
         return (
             <TouchableOpacity
-                style={[styles.leftAction, { backgroundColor: isUnread ? '#3b82f6' : '#64748b' }]}
-                onPress={() => { if (isUnread) markAsRead(item.id); }}
+                style={[styles.leftAction, { width: SWIPE_ACTION_WIDTH, backgroundColor: unread ? theme.colors.info : '#64748b' }]}
+                onPress={() => {
+                    swipeableRefs.current[item.id]?.close();
+                    if (unread) markAsRead(item.id);
+                    else markAsUnread(item.id);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={unread ? 'Marcar como leído' : 'Marcar como no leído'}
             >
-                <Animated.View style={{ transform: [{ translateX: trans }] }}>
-                    <Ionicons name={isUnread ? "mail-open-outline" : "mail-outline"} size={28} color="white" />
+                <Animated.View style={{ alignItems: 'center', transform: [{ translateX: trans }] }}>
+                    <Ionicons name={unread ? 'mail-open-outline' : 'mail-unread-outline'} size={24} color="white" />
+                    <Text style={styles.swipeActionLabel}>{unread ? 'Leído' : 'No leído'}</Text>
                 </Animated.View>
             </TouchableOpacity>
         );
-    }, [markAsRead, styles]);
+    }, [markAsRead, markAsUnread, styles, theme]);
 
     const renderRightActions = React.useCallback((progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>, item: any) => {
         const trans = dragX.interpolate({
@@ -152,18 +217,22 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         const isArchived = item.archived;
         return (
             <TouchableOpacity
-                style={[styles.rightAction, { backgroundColor: isArchived ? '#10b981' : '#64748b' }]}
+                style={[styles.rightAction, { width: SWIPE_ACTION_WIDTH, backgroundColor: isArchived ? theme.colors.success : '#64748b' }]}
                 onPress={() => {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    swipeableRefs.current[item.id]?.close();
                     toggleArchive(item.id);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={isArchived ? 'Desarchivar conversación' : 'Archivar conversación'}
             >
-                <Animated.View style={{ transform: [{ translateX: trans }] }}>
-                    <Ionicons name={isArchived ? "archive" : "archive-outline"} size={28} color="white" />
+                <Animated.View style={{ alignItems: 'center', transform: [{ translateX: trans }] }}>
+                    <Ionicons name={isArchived ? "archive" : "archive-outline"} size={24} color="white" />
+                    <Text style={styles.swipeActionLabel}>{isArchived ? 'Desarchivar' : 'Archivar'}</Text>
                 </Animated.View>
             </TouchableOpacity>
         );
-    }, [toggleArchive, styles]);
+    }, [toggleArchive, styles, theme]);
 
     const globalSections = React.useMemo(() => {
         if (!searchData) return [];
@@ -211,8 +280,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         />
     ), [handleGlobalResultPress, searchQuery, styles]);
 
-    const renderItem = React.useCallback(({ item }: { item: any }) => (
+    const renderItem = React.useCallback(({ item }: { item: any }) => {
+        return (
         <Swipeable
+            ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
             renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
             renderRightActions={(progress, dragX) => renderRightActions(progress, dragX, item)}
             friction={2}
@@ -227,31 +298,80 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 isOnline={isOnline}
                 styles={styles}
                 theme={theme}
+                pinned={deriveIsSelf(item)}
                 onAvatarPress={setProfileViewerUrl}
                 onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, isSelf: item.isSelf, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
             />
         </Swipeable>
-    ), [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
+        );
+    }, [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
+
+    const handleOpenCreateSheet = React.useCallback(() => {
+        // "Para mí" is a first-class pinned row now, not a hidden option here —
+        // this sheet only ever offers Nuevo chat / Nuevo grupo.
+        const items: { label: string; onPress: () => void }[] = [
+            { label: 'Nuevo chat', onPress: () => navigation.navigate('NewChat') },
+            { label: 'Nuevo grupo', onPress: () => navigation.navigate('NewGroup') },
+        ];
+
+        if (Platform.OS === 'ios') {
+            ActionSheetIOS.showActionSheetWithOptions(
+                { options: ['Cancelar', ...items.map(i => i.label)], cancelButtonIndex: 0 },
+                (index) => {
+                    if (index === 0) return;
+                    items[index - 1]?.onPress();
+                }
+            );
+        } else {
+            Alert.alert('Nueva conversación', undefined, [
+                ...items.map(i => ({ text: i.label, onPress: i.onPress })),
+                { text: 'Cancelar', style: 'cancel' as const },
+            ]);
+        }
+    }, [navigation]);
+
+    // Case B of "Para mí": the self conversation doesn't exist yet. Tapping the
+    // pinned placeholder runs the exact same canonical flow the old quick
+    // action used (`POST /conversations/self`, idempotent), then navigates
+    // straight into it. `useGetOrCreateSelfConversation`'s onSuccess already
+    // invalidates ['conversations'], so the next render replaces the
+    // placeholder with the real row — no duplicate, no manual refetch needed.
+    const handleOpenSelfChat = React.useCallback(() => {
+        openSelf(undefined, {
+            onSuccess: ({ conversationId }: any) => {
+                navigation.navigate('Chat', {
+                    conversationId,
+                    otherUser: null,
+                    isGroup: false,
+                    isSelf: true,
+                    groupMetadata: null,
+                    mode: 'chat',
+                });
+            },
+        });
+    }, [openSelf, navigation]);
+
+    const contentPaddingTop = Math.max(insets.top, 16) + 12;
+    const listPaddingBottom = Math.max(insets.bottom, 20) + 80;
+
+    const emptyStateCopy = EMPTY_STATE_COPY[filter];
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-                <Animated.View style={[styles.headerSection, { height: headerHeight }]}> 
-                        <LinearGradient colors={theme.colors.headerGradient as any} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+                <View style={[styles.headerSection, { paddingTop: contentPaddingTop }]}>
+                    <LinearGradient colors={theme.colors.headerGradient as any} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
                     <View style={styles.headerTop}>
-                        <View>
-                            <Text style={styles.title}>Ping</Text>
-                            <Text style={styles.headerSubtitle}>Tus conversaciones y tareas en un solo lugar</Text>
-                        </View>
+                        <Text style={styles.title}>Ping</Text>
                         <View style={styles.headerActions}>
                             <TouchableOpacity
                                 style={styles.headerIconBtn}
-                                onPress={() => navigation.navigate('NewChat')}
+                                onPress={handleOpenCreateSheet}
                                 accessibilityRole="button"
-                                accessibilityLabel="Iniciar un nuevo chat"
+                                accessibilityLabel="Crear nuevo chat o grupo"
                             >
-                                <Ionicons name="chatbubble-ellipses" size={22} color="white" />
+                                <Ionicons name="add" size={24} color="white" />
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.headerIconBtn}
@@ -263,18 +383,27 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             </TouchableOpacity>
                         </View>
                     </View>
-                    <Animated.View style={[styles.searchContainer, { transform: [{ scale: searchScale }] }]}>
-                        <View style={styles.searchBar}>
-                            <Ionicons name="search" size={18} color="#94a3b8" />
-                            <TextInput style={styles.searchInput} placeholder="Buscar en tus hilos..." placeholderTextColor="#64748b" value={searchQuery} onChangeText={setSearchQuery} />
-                            {searchQuery.length > 0 && (
-                                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                                    <Ionicons name="close-circle" size={18} color="#94a3b8" />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </Animated.View>
-                </Animated.View>
+                    <View style={styles.searchBar}>
+                        <Ionicons name="search" size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Buscar conversaciones"
+                            placeholderTextColor="#64748b"
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            accessibilityLabel="Buscar conversaciones"
+                        />
+                        {searchQuery.length > 0 && (
+                            <TouchableOpacity
+                                onPress={() => setSearchQuery('')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Limpiar búsqueda"
+                            >
+                                <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
 
                 {isLoading ? (
                     <View style={styles.loadingContainer}>
@@ -288,7 +417,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         initialNumToRender={6}
                         maxToRenderPerBatch={8}
                         windowSize={8}
-                        contentContainerStyle={styles.listContent}
+                        contentContainerStyle={[styles.listContent, { paddingBottom: listPaddingBottom }]}
                         ListHeaderComponent={() => (
                             <View style={styles.searchHeaderLabel}>
                                 <Text style={styles.searchHeaderLabelText}>BÚSQUEDA GLOBAL</Text>
@@ -306,66 +435,90 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         )}
                     />
                 ) : (
-                    <Animated.FlatList
-                        data={filteredConversations}
+                    <FlatList
+                        data={restConversations}
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
                         initialNumToRender={10}
                         maxToRenderPerBatch={10}
                         windowSize={8}
                         removeClippedSubviews={Platform.OS === 'android'}
-                        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-                        scrollEventThrottle={16}
                         showsVerticalScrollIndicator={false}
-                        contentContainerStyle={styles.listContent}
+                        contentContainerStyle={[styles.listContent, { paddingBottom: listPaddingBottom }]}
                         ListHeaderComponent={() => (
-                                <View style={styles.listHeader}>
-                                    <View style={styles.sectionHintRow}>
-                                        <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
-                                        {filter !== 'all' ? <Text style={styles.sectionHintText}>Filtro: {filter}</Text> : null}
-                                    </View>
-                                    <TouchableOpacity style={styles.quickActionsToggle} onPress={() => setShowQuickActions(prev => !prev)} activeOpacity={0.7}>
-                                        <View style={styles.quickActionsToggleLeft}>
-                                            <Ionicons name="flash" size={16} color={theme.colors.secondary} />
-                                            <Text style={styles.quickActionsToggleText}>Acciones rápidas</Text>
-                                        </View>
-                                        <Ionicons name={showQuickActions ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
-                                    </TouchableOpacity>
-                                    {showQuickActions && (
-                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsContent}>
-                                            <QuickAction styles={styles} label="Para mí" emoji="📌" bg={theme.isDark ? '#12354a' : '#e0f2fe'} onPress={() => openSelf(undefined, { onSuccess: ({ conversationId }) => navigation.navigate('Chat', { conversationId, otherUser: null, isSelf: true }) })} disabled={selfPending} />
-                                            <QuickAction styles={styles} label="AI" emoji="🤖" bg={theme.isDark ? '#173320' : '#f0fdf4'} onPress={() => navigation.navigate('PingAI')} />
-                                            <QuickAction styles={styles} label="Grupo" icon="people" color="#ef4444" bg={theme.isDark ? '#3a1f24' : '#fef2f2'} onPress={() => navigation.navigate('NewGroup')} />
-                                            <QuickAction styles={styles} label="Chat" icon="chatbubble-ellipses" color="#8b5cf6" bg={theme.isDark ? '#27213d' : '#faf5ff'} onPress={() => navigation.navigate('NewChat')} />
-                                        </ScrollView>
-                                    )}
-                                    <ScrollView
-                                        horizontal
-                                        showsHorizontalScrollIndicator={false}
+                            <View style={styles.listHeader}>
+                                <View style={styles.sectionHintRow}>
+                                    <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
+                                </View>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
                                     style={styles.filterBarContainer}
                                     contentContainerStyle={styles.filterBar}
                                 >
                                     <FilterChip styles={styles} label="Todos" active={filter === 'all'} onPress={() => setFilter('all')} />
-                                    <FilterChip styles={styles} label="Sin Leer" active={filter === 'unread'} onPress={() => setFilter('unread')} />
+                                    <FilterChip styles={styles} label="No leídos" active={filter === 'unread'} onPress={() => setFilter('unread')} />
                                     <FilterChip styles={styles} label="Grupos" active={filter === 'groups'} onPress={() => setFilter('groups')} />
-                                    <FilterChip styles={styles} label="Privados" active={filter === 'private'} onPress={() => setFilter('private')} />
-                                    <FilterChip styles={styles} label="Archivados" active={filter === 'archived'} onPress={() => setFilter('archived')} />
+                                    {archivedCount > 0 && (
+                                        <FilterChip styles={styles} label={`Archivados ${archivedCount}`} active={filter === 'archived'} onPress={() => setFilter('archived')} />
+                                    )}
                                 </ScrollView>
+                                {pinnedSelf && (
+                                    <View style={styles.pinnedWrap}>
+                                        {(pinnedSelf as any).isPlaceholder ? (
+                                            <ConversationRow
+                                                item={pinnedSelf}
+                                                userId={user?.id}
+                                                typingUsers={typingUsers}
+                                                formatTime={formatTime}
+                                                isOnline={isOnline}
+                                                styles={styles}
+                                                theme={theme}
+                                                pinned
+                                                previewOverride={SELF_CHAT_PLACEHOLDER_SUBTITLE}
+                                                onPress={handleOpenSelfChat}
+                                            />
+                                        ) : (
+                                            renderItem({ item: pinnedSelf })
+                                        )}
+                                    </View>
+                                )}
                             </View>
                         )}
                         ListEmptyComponent={() => (
                             <View style={styles.empty}>
-                                <Ionicons name="chatbubbles-outline" size={80} color={theme.colors.separator} />
-                                <Text style={styles.emptyTitle}>Nada por aquí</Text>
-                                <Text style={styles.emptyText}>Inicia un hilo o cambia el filtro</Text>
-                                <View style={styles.emptyActions}>
-                                    <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => navigation.navigate('NewChat')}>
-                                        <Text style={styles.emptyPrimaryText}>Nuevo chat</Text>
+                                <Ionicons name={filter === 'archived' ? 'archive-outline' : 'chatbubbles-outline'} size={80} color={theme.colors.separator} />
+                                <Text style={styles.emptyTitle}>{emptyStateCopy}</Text>
+                                {filter === 'all' && (
+                                    <View style={styles.emptyActions}>
+                                        <TouchableOpacity
+                                            style={styles.emptyPrimaryBtn}
+                                            onPress={() => navigation.navigate('NewChat')}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Nuevo chat"
+                                        >
+                                            <Text style={styles.emptyPrimaryText}>Nuevo chat</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.emptySecondaryBtn}
+                                            onPress={() => navigation.navigate('NewGroup')}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Nuevo grupo"
+                                        >
+                                            <Text style={styles.emptySecondaryText}>Nuevo grupo</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                                {filter === 'archived' && (
+                                    <TouchableOpacity
+                                        style={styles.emptySecondaryBtn}
+                                        onPress={() => setFilter('all')}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Volver a Todos"
+                                    >
+                                        <Text style={styles.emptySecondaryText}>Volver a Todos</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.emptySecondaryBtn} onPress={() => navigation.navigate('NewGroup')}>
-                                        <Text style={styles.emptySecondaryText}>Nuevo grupo</Text>
-                                    </TouchableOpacity>
-                                </View>
+                                )}
                             </View>
                         )}
                     />
@@ -398,18 +551,16 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     );
 }
 
-function QuickAction({ styles, label, emoji, icon, color, bg, onPress, disabled }: any) {
-    return (
-        <TouchableOpacity style={styles.qaCard} onPress={onPress} disabled={disabled} activeOpacity={0.7}>
-            <View style={[styles.qaIconWrap, { backgroundColor: bg }]}>{emoji ? <Text style={{ fontSize: 24 }}>{emoji}</Text> : <Ionicons name={icon} size={24} color={color} />}</View>
-            <Text style={styles.qaLabel}>{label}</Text>
-        </TouchableOpacity>
-    );
-}
-
 function FilterChip({ styles, label, active, onPress }: any) {
     return (
-        <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress} activeOpacity={0.8}>
+        <TouchableOpacity
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={onPress}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: active }}
+        >
             <Text style={[styles.filterChipText, active && styles.filterChipActiveText]}>{label}</Text>
         </TouchableOpacity>
     );
@@ -450,45 +601,34 @@ const createStyles = (theme: any) => StyleSheet.create({
     skeletonAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.surfaceMuted, marginRight: 16 },
     skeletonInfo: { flex: 1 },
     skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.surfaceMuted },
-    headerSection: { paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, zIndex: 10 },
-    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    headerSection: { paddingHorizontal: 20, paddingBottom: 14, zIndex: 10 },
+    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    title: { fontSize: 24, fontWeight: '800', color: theme.colors.white, letterSpacing: -0.3 },
-    headerSubtitle: { marginTop: 2, fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: '600' },
+    title: { fontSize: 22, fontWeight: '800', color: theme.colors.white, letterSpacing: -0.3 },
     headerIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.headerCard, alignItems: 'center', justifyContent: 'center' },
-    searchContainer: { width: '100%' },
-    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 16, paddingHorizontal: 14, height: 46, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
+    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 16, paddingHorizontal: 14, height: 44, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
     searchInput: { flex: 1, marginLeft: 10, color: theme.colors.white, fontSize: 15, fontWeight: '500' },
-    listHeader: { backgroundColor: theme.colors.screen, borderTopLeftRadius: 16, borderTopRightRadius: 16, marginTop: -12 },
-    quickActionsToggle: { marginHorizontal: 20, marginBottom: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    quickActionsToggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    quickActionsToggleText: { fontSize: 13, fontWeight: '700', color: theme.colors.text.secondary },
-    quickActionsContent: { paddingHorizontal: 20, paddingVertical: 12, gap: 16 },
-    qaCard: { alignItems: 'center', width: 64 },
-    qaIconWrap: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: theme.isDark ? 0.12 : 0.04, shadowRadius: 10, elevation: 3 },
-    qaLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text.primary },
-    sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 14 },
+    listHeader: { backgroundColor: theme.colors.screen, paddingTop: 12 },
+    sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 10 },
     sectionHintText: { fontSize: 11, color: theme.colors.text.muted, fontWeight: '700', letterSpacing: 0.3 },
-    filterBarContainer: { marginBottom: 12 },
+    filterBarContainer: { marginBottom: 4 },
     filterBar: { flexDirection: 'row', paddingHorizontal: 20, gap: 6 },
     filterChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
     filterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     filterChipText: { fontSize: 12, fontWeight: '700', color: theme.colors.text.secondary },
     filterChipActiveText: { color: theme.colors.white },
+    pinnedWrap: { backgroundColor: theme.colors.surfaceMuted, marginTop: 8 },
     listContent: { paddingBottom: 100 },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
         backgroundColor: theme.colors.surface,
-        marginHorizontal: 16,
-        marginBottom: 8,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.separator,
     },
-    rowUnread: { borderColor: theme.colors.accentSoft },
+    rowUnread: {},
     avatarContainer: { position: 'relative' },
     avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginRight: 16, overflow: 'hidden' },
     avatarOperationWrap: {
@@ -522,7 +662,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     onlineDot: { position: 'absolute', bottom: -1, right: 14, width: 15, height: 15, borderRadius: 7.5, backgroundColor: theme.colors.online, borderWidth: 2, borderColor: theme.colors.surface, zIndex: 10 },
     info: { flex: 1 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-    name: { fontSize: 17, fontWeight: '600', color: theme.colors.text.secondary },
+    nameRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+    pinnedIcon: { fontSize: 12, marginRight: 4 },
+    name: { fontSize: 17, fontWeight: '600', color: theme.colors.text.secondary, flexShrink: 1 },
     nameUnread: { color: theme.colors.text.primary, fontWeight: '800' },
     time: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '500' },
     timeUnread: { color: theme.colors.unread, fontWeight: '700' },
@@ -534,15 +676,16 @@ const createStyles = (theme: any) => StyleSheet.create({
     unreadBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, minWidth: 24, alignItems: 'center', justifyContent: 'center' },
     unreadText: { color: theme.colors.white, fontSize: 11, fontWeight: '800' },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
-    emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12 },
+    emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12, textAlign: 'center', paddingHorizontal: 32 },
     emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },
     emptyActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
     emptyPrimaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
     emptyPrimaryText: { color: theme.colors.white, fontWeight: '700', fontSize: 13 },
-    emptySecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },
+    emptySecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator, marginTop: 14 },
     emptySecondaryText: { color: theme.colors.text.secondary, fontWeight: '700', fontSize: 13 },
-    leftAction: { flex: 1, backgroundColor: theme.colors.info, justifyContent: 'center', alignItems: 'flex-start', paddingLeft: 20 },
-    rightAction: { flex: 1, backgroundColor: theme.colors.text.secondary, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 20 },
+    leftAction: { justifyContent: 'center', alignItems: 'center', height: '100%' },
+    rightAction: { justifyContent: 'center', alignItems: 'center', height: '100%' },
+    swipeActionLabel: { color: theme.colors.white, fontSize: 11, fontWeight: '700', marginTop: 2 },
     // Search 2.0 Fusion Styles
     searchHeaderLabel: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: theme.colors.surfaceMuted },
     searchHeaderLabelText: { fontSize: 11, fontWeight: '900', color: theme.colors.text.muted, letterSpacing: 1 },

@@ -1,5 +1,13 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, Image } from 'react-native';
+// `Pressable` from react-native-gesture-handler (not core react-native) — this row lives
+// inside a `Swipeable`, whose pan/tap recognition runs entirely on RNGH's native gesture
+// manager. Core RN's `TouchableOpacity` uses the legacy JS responder system (RCTTouchHandler),
+// a separate, uncoordinated touch pipeline; nesting it inside Swipeable's gesture tree is a
+// documented source of the exact symptom reproduced here (swipe gesture intermittently not
+// activating). RNGH's own Pressable wraps its touch handling in `Gesture.Native()`, so it's
+// accounted for by the same manager Swipeable uses, removing the dual-system race entirely.
+import { Pressable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { deriveIsGroup, deriveIsSelf } from '../utils/conversationCompat';
@@ -32,9 +40,11 @@ type ConversationRowProps = {
     isOnline: (lastSeen?: string) => boolean;
     styles: any;
     theme: any;
+    pinned?: boolean;
+    previewOverride?: string;
 };
 
-export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme }: ConversationRowProps) {
+export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme, pinned = false, previewOverride }: ConversationRowProps) {
     const isGroup = deriveIsGroup(item);
     const isSelf = deriveIsSelf(item);
     const otherUser = item.otherUser;
@@ -43,7 +53,11 @@ export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPr
     const isSystem = resolveMessageMetadata(lastMsg)?.isSystem;
     const isByMe = lastMsg && lastMsg.sender_id === userId;
     const unreadCount = item.unreadCount || 0;
-    const isUnread = unreadCount > 0;
+    // isUnread drives visual weight (bold name, dot, checkmarks) and includes
+    // the manual "unmarked as read" preference; the numeric badge below stays
+    // keyed to unreadCount alone so a manually-flagged, fully-read conversation
+    // never shows a fabricated count.
+    const isUnread = unreadCount > 0 || !!item.manuallyUnread;
     const typers = typingUsers[item.id] || [];
     const isTyping = typers.length > 0;
     const isOperation = item.mode === 'operation';
@@ -85,18 +99,19 @@ export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPr
         avatarUrl
     );
     const color = avatarColor(colorStr);
-    const preview = isTyping
+    const preview = previewOverride ?? (isTyping
         ? (typers[0].isRecording ? 'Grabando audio…' : 'Escribiendo…')
-        : (lastMsg ? (isSystem ? `Sistema · ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún');
+        : (lastMsg ? (isSystem ? `Sistema · ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún'));
 
     return (
-        <TouchableOpacity
-            style={[styles.row, isUnread && styles.rowUnread]}
-            activeOpacity={0.6}
+        <Pressable
+            style={({ pressed }) => [styles.row, isUnread && styles.rowUnread, pressed && { opacity: 0.6 }]}
             onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={pinned ? `Para mí, conversación fijada` : `Abrir conversación con ${displayName}`}
         >
-            <TouchableOpacity
-                style={styles.avatarContainer}
+            <Pressable
+                style={({ pressed }) => [styles.avatarContainer, pressed && resolvedAvatarUrl ? { opacity: 0.2 } : null]}
                 onPress={async () => {
                     const freshUrl = await getFreshProfileAvatarUrl(
                         !isSelf && !isGroup ? otherUser?.id : null,
@@ -128,10 +143,13 @@ export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPr
                 {online && <View style={[styles.onlineDot, { right: indicatorOffset }]} />}
                 {isUnread && !online && <View style={[styles.unreadIndicator, { right: indicatorOffset }]} />}
                 {isUnread && online && <View style={[styles.unreadIndicator, { right: indicatorOffset + 14 }]} />}
-            </TouchableOpacity>
+            </Pressable>
             <View style={styles.info}>
                 <View style={styles.topRow}>
-                    <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
+                    <View style={styles.nameRow}>
+                        {pinned && <Text style={styles.pinnedIcon}>📌</Text>}
+                        <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
+                    </View>
                     {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
                 </View>
                 <View style={styles.bottomRow}>
@@ -154,13 +172,13 @@ export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPr
                         })()}
                         <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
                     </View>
-                    {isUnread && (
+                    {unreadCount > 0 && (
                         <LinearGradient colors={['#6366f1', '#8b5cf6']} style={styles.unreadBadge} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                             <Text style={styles.unreadText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                         </LinearGradient>
                     )}
                 </View>
             </View>
-        </TouchableOpacity>
+        </Pressable>
     );
 }

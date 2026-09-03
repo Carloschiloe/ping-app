@@ -331,6 +331,16 @@ export const useMarkConversationAsRead = (conversationId: string) => {
     });
 };
 
+export const useMarkConversationAsUnread = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (conversationId: string) => apiClient.patch(`/conversations/${conversationId}/unread`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        }
+    });
+};
+
 export const usePingConversation = () => {
     return useMutation({
         mutationFn: async (id: string) => apiClient.post(`/conversations/${id}/ping`, {}),

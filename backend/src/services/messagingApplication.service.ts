@@ -117,6 +117,18 @@ export async function markConversationRead(actorUserId: string, conversationId: 
     return Number(data || 0);
 }
 
+export async function markConversationUnread(actorUserId: string, conversationId: string) {
+    const { data, error } = await supabaseAdmin.rpc('mark_conversation_unread', {
+        p_conversation_id: conversationId,
+        p_actor_user_id: actorUserId,
+    });
+    if (error) {
+        const status = error.code === '42501' ? 403 : 500;
+        throw new AppError(status === 500 ? 'Unable to mark conversation as unread' : error.message, status);
+    }
+    return Boolean(data);
+}
+
 export async function tombstoneMessage(actorUserId: string, messageId: string) {
     const { error } = await supabaseAdmin.rpc('tombstone_message', {
         p_message_id: messageId,

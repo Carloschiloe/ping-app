@@ -115,6 +115,7 @@ router.patch('/conversations/:id/checklists/:checklistId/archive', requireAuth, 
 router.patch('/conversations/:id/checklists/:checklistId/restore', requireAuth, operationEnabled, validateRequest(operationSchema.checklistActionSchema), operationController.restoreChecklistTemplate);
 router.post('/conversations/:id/shift-reports', requireAuth, operationEnabled, validateRequest(operationSchema.createShiftReportSchema), operationController.createShiftReport);
 router.patch('/conversations/:id/read', requireAuth, conversationController.markAsRead);
+router.patch('/conversations/:id/unread', requireAuth, conversationController.markAsUnread);
 router.patch('/conversations/:id/archive', requireAuth, conversationController.toggleArchive);
 router.post('/conversations/:id/ping', requireAuth, conversationController.pingConversation);
 

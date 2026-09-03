@@ -15,7 +15,7 @@ import {
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
-import { markConversationRead } from '../services/messagingApplication.service';
+import { markConversationRead, markConversationUnread } from '../services/messagingApplication.service';
 import { getLegacyConversationMedia, getSharedContent } from '../services/sharedContent.service';
 
 // POST /conversations — create or find existing 1-on-1 conversation
@@ -66,15 +66,17 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // deriva el alias booleano "archived" para el mobile actual.
         const { data: participations, error: pErr } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id, archived_at')
+            .select('conversation_id, archived_at, marked_unread_at')
             .eq('user_id', userId);
 
         if (pErr) throw pErr;
 
         const conversationIds = participations?.map(p => p.conversation_id) || [];
         const archivedMap: Record<string, boolean> = {};
+        const manuallyUnreadMap: Record<string, boolean> = {};
         participations?.forEach(p => {
             archivedMap[p.conversation_id] = toLegacyArchived(p.archived_at);
+            manuallyUnreadMap[p.conversation_id] = !!p.marked_unread_at;
         });
 
         if (conversationIds.length === 0) {
@@ -203,6 +205,7 @@ export const list = async (req: Request, res: Response): Promise<void> => {
                 groupMetadata,
                 lastMessage: lastMsgMap[id] || null,
                 unreadCount: unreadCounts[id] || 0,
+                manuallyUnread: manuallyUnreadMap[id] || false,
                 archived: archivedMap[id] || false,
             };
         }).sort((a, b) => {
@@ -519,6 +522,15 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
             .eq('id', userId)
             .single();
         if (profile?.privacy_read_receipts === false) {
+            // Read receipts are disabled for this user: message_receipts stays
+            // untouched (real read history is never faked), but the manual
+            // "unread" marker is a private UI preference, not a receipt —
+            // opening/reading the conversation still resolves it.
+            await supabaseAdmin
+                .from('conversation_participants')
+                .update({ marked_unread_at: null })
+                .eq('conversation_id', conversationId)
+                .eq('user_id', userId);
             res.json({ success: true, status: 'skipped', updated: 0 });
             return;
         }
@@ -529,6 +541,22 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({
             error: statusCode === 500 ? 'Unable to mark conversation as read' : error.message,
+        });
+    }
+};
+
+// PATCH /conversations/:id/unread
+export const markAsUnread = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = req.user!.id;
+        const { id: conversationId } = req.params;
+
+        const updated = await markConversationUnread(userId, conversationId as string);
+        res.json({ success: true, updated });
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to mark conversation as unread' : error.message,
         });
     }
 };

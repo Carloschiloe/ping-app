@@ -285,6 +285,24 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         }
     }, [messages, user, isFocused, markAsRead]);
 
+    // Opening a conversation must also resolve a manual "no leído" marker
+    // (conversation_participants.marked_unread_at), even when there happen to
+    // be zero real unread receipts — the effect above only fires when there's
+    // something for needsReadReceipt to catch, which a purely-manual unread
+    // conversation has none of. mark_conversation_read already clears the
+    // marker atomically server-side, so one canonical call per focused visit
+    // covers both cases; it's a safe no-op on receipts when nothing is unread.
+    const hasMarkedOnOpenRef = useRef(false);
+    useEffect(() => {
+        hasMarkedOnOpenRef.current = false;
+    }, [conversationId]);
+
+    useEffect(() => {
+        if (!isFocused || !user || hasMarkedOnOpenRef.current) return;
+        hasMarkedOnOpenRef.current = true;
+        markAsRead(undefined);
+    }, [isFocused, user, conversationId, markAsRead]);
+
     // Mark as delivered when received by recipient
     useEffect(() => {
         if (!messages || messages.length === 0 || !user) return;
