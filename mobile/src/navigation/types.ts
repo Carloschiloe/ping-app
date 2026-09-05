@@ -48,6 +48,10 @@ export type ConversationsStackParamList = {
         conversationId: string;
     };
     PingAI: undefined;
+    // M-1G — preview interna del nuevo Agent read-only. `conversationId`
+    // opcional: ausente = Agent global (sin scope), presente = Agent
+    // scoped a esa conversación (sección 8 del ticket).
+    AgentPreview: { conversationId?: string } | undefined;
     QuickCapture: undefined;
 };
 
@@ -80,6 +84,7 @@ export type SharedVisualContentScreenProps = NativeStackScreenProps<Conversation
 export type TaskHistoryScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'TaskHistory'>;
 export type AddParticipantsScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AddParticipants'>;
 export type ConversationsListScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ConversationsList'>;
+export type AgentPreviewScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AgentPreview'>;
 export type ChatCompositeNavigationProp = CompositeNavigationProp<
     NativeStackNavigationProp<ConversationsStackParamList, 'Chat'>,
     NativeStackNavigationProp<RootStackParamList>

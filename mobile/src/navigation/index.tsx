@@ -23,6 +23,7 @@ import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PingAIScreen from '../screens/PingAIScreen';
+import AgentPreviewScreen from '../screens/AgentPreviewScreen';
 import QuickCaptureScreen from '../screens/QuickCaptureScreen';
 import TaskDashboardScreen from '../screens/TaskDashboardScreen';
 import CallScreen from '../screens/CallScreen';
@@ -129,6 +130,11 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="PingAI"
             component={PingAIScreen}
+            options={{ headerShown: false }}
+        />
+        <ConversationsStackNav.Screen
+            name="AgentPreview"
+            component={AgentPreviewScreen}
             options={{ headerShown: false }}
         />
         <ConversationsStackNav.Screen

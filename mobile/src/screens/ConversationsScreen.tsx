@@ -316,6 +316,32 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         );
     }, [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
 
+    // M-1G — entrada discreta al preview del nuevo Agent (read-only): NO
+    // reemplaza el botón ✨ (Ping AI legacy sigue en el tap normal), sólo se
+    // ofrece detrás de un long-press, mismo patrón de ActionSheetIOS/Alert
+    // ya usado para "Nuevo chat/Nuevo grupo" arriba.
+    const handleOpenAgentMenu = React.useCallback(() => {
+        const items: { label: string; onPress: () => void }[] = [
+            { label: 'Ping AI (actual)', onPress: () => navigation.navigate('PingAI') },
+            { label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') },
+        ];
+
+        if (Platform.OS === 'ios') {
+            ActionSheetIOS.showActionSheetWithOptions(
+                { options: ['Cancelar', ...items.map(i => i.label)], cancelButtonIndex: 0 },
+                (index) => {
+                    if (index === 0) return;
+                    items[index - 1]?.onPress();
+                }
+            );
+        } else {
+            Alert.alert('Asistente', undefined, [
+                ...items.map(i => ({ text: i.label, onPress: i.onPress })),
+                { text: 'Cancelar', style: 'cancel' as const },
+            ]);
+        }
+    }, [navigation]);
+
     const handleOpenCreateSheet = React.useCallback(() => {
         // "Para mí" is a first-class pinned row now, not a hidden option here —
         // this sheet only ever offers Nuevo chat / Nuevo grupo.
@@ -386,8 +412,9 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             <TouchableOpacity
                                 style={styles.headerIconBtn}
                                 onPress={() => navigation.navigate('PingAI')}
+                                onLongPress={handleOpenAgentMenu}
                                 accessibilityRole="button"
-                                accessibilityLabel="Abrir Ping AI"
+                                accessibilityLabel="Abrir Ping AI. Mantén presionado para el preview del nuevo Agent"
                             >
                                 <Ionicons name="sparkles" size={22} color="white" />
                             </TouchableOpacity>
