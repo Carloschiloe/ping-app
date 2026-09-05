@@ -31,6 +31,9 @@ import type {
     RetrievalPlanStep,
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalTimeRange } from '../types/retrieval';
+// [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
+import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
+import { isOpenCommitmentStatus } from '../utils/commitmentStatus';
 
 // ─── Context budget (sección 16) — mismo orden de magnitud que los defaults
 // de M-1B/M-1C; M-1D no inventa un techo distinto, sólo lo hace explícito a
@@ -185,6 +188,22 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const interpretation = await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
     const timeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
 
+    // [PING_OVERDUE_TRACE] TEMPORARY — sólo emite si la consulta interpretada
+    // resulta overdue-focused, para no ensuciar logs de requests normales.
+    if (interpretation.wantsOverdueFocus) {
+        traceOverdue(input.traceId, 'INTERPRETATION', {
+            intent: interpretation.intent,
+            textQuery: interpretation.textQuery,
+            topicHints: interpretation.topicHints,
+            personHints: interpretation.personHints,
+            statusHints: interpretation.statusHints,
+            wantsOverdueFocus: interpretation.wantsOverdueFocus,
+            timeExpression: interpretation.timeExpression,
+            wantsCommitments: interpretation.wantsCommitments,
+            source: interpretation.source,
+        });
+    }
+
     const retrievalPlan: RetrievalPlanStep[] = [];
     const sourcesConsulted: string[] = [];
     const sourceCounts: Record<string, number> = {};
@@ -251,6 +270,22 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
+            if (interpretation.wantsOverdueFocus) {
+                traceOverdue(input.traceId, 'RETRIEVAL_INPUT', {
+                    actorPresent: !!input.actorUserId,
+                    statuses: interpretation.statusHints,
+                    query: interpretation.textQuery,
+                    ftsWillRun: !!interpretation.textQuery,
+                    timeRange: timeRange ?? null,
+                    orderByOverdueFirst: interpretation.wantsOverdueFocus,
+                    orderColumn: interpretation.wantsOverdueFocus ? 'due_at' : 'created_at',
+                    ascending: interpretation.wantsOverdueFocus,
+                    limit: budget.commitments,
+                    conversationScope: !!conversationId,
+                    personScope: !!resolvedPersonId,
+                });
+            }
             return retrieveCommitments({
                 actorUserId: input.actorUserId,
                 conversationId,
@@ -325,6 +360,19 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const [commitments, messages, transcriptions, attachments] = await Promise.all([
         commitmentsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
     ]);
+    // [PING_OVERDUE_TRACE] TEMPORARY — retrieved commitments trace (máx 20).
+    if (interpretation.wantsOverdueFocus) {
+        traceOverdue(input.traceId, 'RETRIEVED_COMMITMENTS', {
+            count: commitments.length,
+            items: commitments.slice(0, 20).map((c) => ({
+                safeTitle: traceSafeTitle(c.title),
+                status: c.status,
+                dueAt: c.dueAt,
+                createdAt: c.createdAt,
+                sourceRef: c.provenance?.sourceId ?? null,
+            })),
+        });
+    }
     if (commitments.length > 0) sourcesConsulted.push('retrieveCommitments');
     if (messages.length > 0 || interpretation.wantsMessages) sourcesConsulted.push('retrieveMessages');
     if (transcriptions.length > 0 || (interpretation.wantsTranscriptions && conversationId)) sourcesConsulted.push('retrieveTranscriptions');
@@ -381,6 +429,25 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             needsClarification = true;
             clarification = { reason: 'topic_too_broad' };
         }
+    }
+
+    // [PING_OVERDUE_TRACE] TEMPORARY — AgentContext trace. isOverdue aquí es
+    // SÓLO para el log (misma fórmula que agentResponseSynthesizer.service.ts
+    // #isCommitmentOverdue) -- nunca se agrega al AgentContext real.
+    if (interpretation.wantsOverdueFocus) {
+        const nowIso = now.toISOString();
+        traceOverdue(input.traceId, 'AGENT_CONTEXT', {
+            commitmentCount: commitments.length,
+            commitments: commitments.map((c) => ({
+                safeTitle: traceSafeTitle(c.title),
+                status: c.status,
+                dueAt: c.dueAt,
+                isOverdue: !!c.dueAt && isOpenCommitmentStatus(c.status) && new Date(c.dueAt).getTime() < new Date(nowIso).getTime(),
+            })),
+            wantsOverdueFocus: interpretation.wantsOverdueFocus,
+            textQuery: interpretation.textQuery,
+            evidenceFound,
+        });
     }
 
     return {

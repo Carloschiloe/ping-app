@@ -41,6 +41,8 @@ export async function runAgent(input: AgentOrchestratorInput, options: RunAgentO
         locale: input.locale,
         timezone: input.timezone,
         now: input.now,
+        // [PING_OVERDUE_TRACE] TEMPORARY
+        traceId: input.traceId,
     };
 
     const contextStart = Date.now();
@@ -51,7 +53,8 @@ export async function runAgent(input: AgentOrchestratorInput, options: RunAgentO
 
     const synthesisStart = Date.now();
     const response = await synthesizeAgentResponse(
-        { input: input.input, context, locale: input.locale, channel: input.channel },
+        // [PING_OVERDUE_TRACE] TEMPORARY — traceId agregado
+        { input: input.input, context, locale: input.locale, channel: input.channel, traceId: input.traceId },
         { synthesizer: options.synthesizer },
     );
     const synthesisMs = Date.now() - synthesisStart;

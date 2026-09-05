@@ -37,6 +37,8 @@ import type {
 } from '../types/agentResponse';
 import type { AgentContext } from '../types/agentContext';
 import { isOpenCommitmentStatus } from '../utils/commitmentStatus';
+// [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
+import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 
 // ─── Status (sección 6) ──────────────────────────────────────────────────────
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
@@ -508,6 +510,20 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         const language = detectTemplateLanguage(input.input, input.locale);
         const sourceCount = context.commitments.length + context.events.length + context.messages.length + context.transcriptions.length + context.attachments.length;
 
+        // [PING_OVERDUE_TRACE] TEMPORARY — status derivado ANTES de cualquier
+        // rama determinística. Si status !== 'answered' aquí, el modelo NUNCA
+        // se invoca y ninguna prosa libre pudo haber salido de él -- esto
+        // por sí solo acota drásticamente dónde puede estar el bug real.
+        if (context.wantsOverdueFocus) {
+            traceOverdue(input.traceId, 'SYNTHESIS_STATUS', {
+                status,
+                evidenceFound: context.evidenceFound,
+                needsClarification: context.needsClarification,
+                capabilityGapsCount: context.capabilityGaps.length,
+                commitmentCount: context.commitments.length,
+            });
+        }
+
         // Secciones 15-17: 3 de los 4 caminos NUNCA llaman al modelo — cero
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
         if (status === 'needs_clarification') {
@@ -527,6 +543,18 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         const evidence = serializeContextForSynthesis(context, this.maxContextChars);
         const prompt = buildSynthesisPrompt(input, evidence.payload);
 
+        // [PING_OVERDUE_TRACE] TEMPORARY — evidencia enviada al modelo, ANTES de invocarlo.
+        if (context.wantsOverdueFocus) {
+            const overdueInEvidence = evidence.payload.commitments.filter((c) => c.isOverdue);
+            traceOverdue(input.traceId, 'SYNTHESIS_PRE_MODEL', {
+                overdueCount: overdueInEvidence.length,
+                overdueSafeTitles: overdueInEvidence.map((c) => traceSafeTitle(c.title)),
+                allowedSourceRefsCount: evidence.allowedSourceRefs.length,
+                serializedSourceCount: evidence.serializedSourceCount,
+                droppedByBudgetCount: evidence.droppedByBudgetCount,
+            });
+        }
+
         let attempt = await this.attemptLlmSynthesis(prompt, evidence, language, context);
         let retried = false;
         if (!attempt.ok) {
@@ -537,6 +565,27 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         const diagExtra = { retried, model: this.model.modelName, serializedSourceCount: evidence.serializedSourceCount, droppedByBudgetCount: evidence.droppedByBudgetCount };
 
         if (attempt.ok) {
+            // [PING_OVERDUE_TRACE] TEMPORARY — post-modelo + source trace.
+            if (context.wantsOverdueFocus) {
+                const overdueInEvidence = evidence.payload.commitments.filter((c) => c.isOverdue);
+                traceOverdue(input.traceId, 'SYNTHESIS_POST_MODEL', {
+                    modelAnswer: attempt.response.answer.slice(0, 200),
+                    modelClaimedNoOverdue: /no\s+(tienes|hay)\s+.*vencid|no\s+.*overdue/i.test(attempt.response.answer),
+                    finalClaimsCount: attempt.response.claims.length,
+                    finalOverdueMentionCount: attempt.response.answer.toLowerCase().split('vencid').length - 1
+                        + (attempt.response.answer.toLowerCase().match(/overdue/g)?.length ?? 0),
+                    enforceOverdueDisclosureHadWorkToDo: overdueInEvidence.length > 0,
+                });
+                traceOverdue(input.traceId, 'SOURCE_TRACE', {
+                    citations: attempt.response.citations.map((ref) => ({
+                        sourceType: ref.sourceType,
+                        sourceId: ref.sourceId,
+                        safeTitle: ref.sourceType === 'commitment'
+                            ? traceSafeTitle(context.commitments.find((c) => c.id === ref.sourceId)?.title)
+                            : null,
+                    })),
+                });
+            }
             return this.withDiagnostics(attempt.response, 'llm', startedAt, sourceCount, { ...diagExtra, schemaValid: true, claimValidationPassed: true });
         }
 

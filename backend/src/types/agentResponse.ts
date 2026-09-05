@@ -14,6 +14,8 @@ export interface AgentSynthesisInput {
     context: AgentContext;
     locale?: string;
     channel?: AgentChannel;
+    // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
+    traceId?: string;
 }
 
 // ─── Status (sección 6) — SIEMPRE calculado determinísticamente por el

@@ -7,6 +7,8 @@ import { Request, Response } from 'express';
 import { runAgent } from '../services/agentOrchestrator.service';
 import { toPublicAgentResponse } from '../types/agent';
 import { AppError } from '../utils/AppError';
+// [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
+import { generateTraceId } from '../utils/overdueTrace';
 
 export const respond = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -17,7 +19,12 @@ export const respond = async (req: Request, res: Response): Promise<void> => {
         const actorUserId = req.user!.id;
         const { input, conversationId, channel, locale, timezone } = req.body;
 
-        const response = await runAgent({ actorUserId, input, conversationId, channel, locale, timezone });
+        // [PING_OVERDUE_TRACE] TEMPORARY — sólo genera un id corto por
+        // request; el trace real sólo se emite más abajo del pipeline si la
+        // consulta interpretada resulta ser overdue-focused (ver
+        // overdueTrace.ts). Cero costo/ruido para requests normales.
+        const traceId = generateTraceId();
+        const response = await runAgent({ actorUserId, input, conversationId, channel, locale, timezone, traceId });
 
         // Secciones 16-17: no_evidence/capability_gap/needs_clarification son
         // respuestas VÁLIDAS del agente, no errores — siempre HTTP 200 junto

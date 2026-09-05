@@ -31,6 +31,8 @@ export interface AgentContextInput {
     now?: string; // ISO timestamp; defaults to server "now" if absent
     locale?: string;
     timezone?: string; // IANA name; validated, never trusted blindly
+    // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
+    traceId?: string;
 }
 
 // ─── Intent (sección 7) ──────────────────────────────────────────────────────

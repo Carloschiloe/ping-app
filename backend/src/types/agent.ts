@@ -18,6 +18,8 @@ export interface AgentOrchestratorInput {
     locale?: string;
     timezone?: string;
     now?: string;
+    // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
+    traceId?: string;
 }
 
 // Diagnostics del orquestador — envuelve (no reemplaza) los de M-1E, agrega
