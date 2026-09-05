@@ -5,6 +5,7 @@
  * Run: npx jest tests/ux1f.test.ts (from mobile/)
  */
 
+import { describe, expect, it } from 'vitest';
 import { formatSharedDuration, formatSharedDateTime } from '../src/utils/sharedContent';
 
 // ─── Audio Metadata ───────────────────────────────────────────────────────────

@@ -8,9 +8,15 @@
  * screen makes, so the intent can be verified without a renderer.
  */
 /// <reference types="jest" />
+import { describe, expect, it, vi } from 'vitest';
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Compat shim: este archivo fue escrito para Jest (jest.fn globals); el
+// proyecto corre en Vitest. vi.fn() es la misma API — sólo se alias el
+// identificador, sin tocar ningún mock/assertion existente.
+const jest = { fn: vi.fn };
 
 // ─── Root cause fix: ConversationRow must not nest core-RN Touchables ───────
 // inside Swipeable's gesture tree. Root-cause audit (see delivery report):

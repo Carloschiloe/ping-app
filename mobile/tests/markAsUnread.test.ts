@@ -11,6 +11,12 @@
  * exception.
  */
 /// <reference types="jest" />
+import { describe, expect, it, vi } from 'vitest';
+
+// Compat shim: este archivo fue escrito para Jest (jest.fn globals); el
+// proyecto corre en Vitest. vi.fn() es la misma API — sólo se alias el
+// identificador, sin tocar ningún mock/assertion existente.
+const jest = { fn: vi.fn };
 
 // ─── isConversationUnread — combines real count + manual marker ────────────
 

@@ -3,6 +3,7 @@
  * Pure unit tests — no React Native renderer needed.
  */
 /// <reference types="jest" />
+import { describe, expect, it } from 'vitest';
 
 import { normalizeCommitmentStatus } from '../src/utils/commitmentStatus';
 import { canViewOriginConversation, resolveConversationId } from '../src/utils/commitmentDisplay';
