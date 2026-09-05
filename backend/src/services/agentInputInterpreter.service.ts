@@ -264,8 +264,9 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
             : 'No specific conversation is known for this request.',
         '"textQuery" is OPTIONAL — set it to null whenever the structured fields (intent, commitmentFilterHints, requestedSources) already fully express the request and there is no independent topic left to filter by. Only set textQuery when the user mentions a substantive topic, subject, project, name, or event to search for. Never set it to a generic word about status or intent itself (e.g. "pending", "commitments", "tasks", "promised"), even if that exact word appears in the text — those already belong in intent/commitmentFilterHints, not textQuery.',
         'Example: "what are my pending commitments this week?" has no independent topic -> textQuery=null. "pending commitments about Project Aurora" has a real topic -> textQuery="Project Aurora".',
+        '"commitmentFilterHints.status" is a SEPARATE, OPTIONAL filter — do NOT set it just because intent is "commitment_query" (intent is the entity TYPE, status is an additional filter on top of it, never implied by the other). Only set a status when you can also set "statusBasis" to justify it: "explicit" if the user used a real state word (pending/open/completed/cancelled/rejected/etc, in any language), or "implied" if the phrasing clearly points to unmet obligations ("what do I still owe", "what\'s left to do") or clearly points to a finished/closed state ("what did I finish", "what did I cancel") WITHOUT naming it. A neutral question about a specific commitment or topic ("what happened with X", "tell me about my commitment with Y", "what did I promise Laura") has NO status signal — leave both "status" and "statusBasis" null. When the closed/past framing points to a SPECIFIC real outcome, use "resolved", "cancelled", or "rejected" instead of the generic "closed".',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[] for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"closed"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[]}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[]}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -304,11 +305,36 @@ export class OpenAiAgentInputModel implements AgentInputModel {
 // ─── Mapping: payload validado → Interpretation (sección 15: Context Builder
 // valida contra intent/contrato — aquí se aplica esa validación mínima antes
 // de que el resultado salga del intérprete). ─────────────────────────────────
+// M-1D.4 — mapeo de `status` a los estados reales del Commitment Core.
+// `closed` es el fallback genérico (equivalente al comportamiento previo a
+// M-1D.4) para cuando el usuario dice "cerrado"/"closed" sin especificar
+// cuál; `resolved`/`cancelled`/`rejected` son precisión adicional cuando el
+// modelo puede distinguir el estado real — nunca se asume que son
+// equivalentes (sección 4 del ticket).
+const STATUS_HINT_MAP: Record<string, CanonicalCommitmentStatus[]> = {
+    open: ['proposed', 'accepted', 'counter_proposal'],
+    resolved: ['resolved'],
+    cancelled: ['cancelled'],
+    rejected: ['rejected'],
+    closed: ['resolved', 'cancelled', 'rejected'],
+};
+
 function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelName: string): Interpretation {
+    // M-1D.4 — opt-in explícito (sección 1/9 del ticket): `commitment_query`
+    // describe el TIPO de entidad, `status` es un filtro adicional separado
+    // que NUNCA debe asumirse por defecto. El modelo debe declarar POR QUÉ
+    // está filtrando (`statusBasis`); si no lo hace, el status se descarta
+    // enteramente aunque el modelo haya puesto un valor — nunca se aplica un
+    // filtro que el propio modelo no pueda justificar. Esto reemplaza el
+    // intento de M-1F.1 de detectar esto con keyword-matching determinístico
+    // EXTERNO al juicio del modelo (revertido: rompía casos de estado
+    // implícito legítimos, ej. "Did I promise Daniel anything this week?").
+    // Aquí la distinción explicit/implied vive DENTRO del mismo razonamiento
+    // del modelo que ya interpretó la frase completa — no es un segundo
+    // verificador ni una segunda llamada.
     const statusHints: CanonicalCommitmentStatus[] | null =
-        payload.commitmentFilterHints.status === 'open' ? ['proposed', 'accepted', 'counter_proposal']
-            : payload.commitmentFilterHints.status === 'closed' ? ['resolved', 'cancelled', 'rejected']
-                : null;
+        payload.commitmentFilterHints.statusBasis == null ? null
+            : STATUS_HINT_MAP[payload.commitmentFilterHints.status ?? ''] ?? null;
     const requested = new Set(payload.requestedSources);
     // M-1D.3 — normalización determinística post-LLM (sección 6 del ticket):
     // el prompt ya instruye al modelo a no repetir lenguaje de control como

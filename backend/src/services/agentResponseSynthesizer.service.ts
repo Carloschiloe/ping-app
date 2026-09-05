@@ -203,6 +203,77 @@ export function validateClaimsAgainstAllowedRefs(rawClaims: AgentSynthesisPayloa
     return validated;
 }
 
+// ─── Canonical dominance guard (M-1F.1, secciones 6-10) ─────────────────────
+// Hallazgo real de staging (docs/M-1F-S, Caso K): un claim basado
+// ÚNICAMENTE en un mensaje histórico ("se entregó el regalo el viernes")
+// omitió por completo que el commitment canónico relacionado estaba
+// `cancelled`. El prompt YA instruye esta prioridad ("commitments... siempre
+// pesan más" — ver buildSynthesisPrompt), pero una instrucción de prompt no
+// es una garantía estructural. Este guard es DETERMINÍSTICO y
+// deliberadamente angosto (nunca fact-checking semántico general — la
+// "Semantic validation limitation" de M-1E.1 sigue vigente): si un claim
+// habla de un tema que solapa léxicamente con el título de un commitment
+// canónico relevante pero NO lo cita, se AGREGA (nunca se reemplaza ni se
+// contradice el histórico) un claim adicional 100% determinístico con el
+// estado vigente real, citando ese commitment directamente.
+const STATUS_LABELS: Record<string, { es: string; en: string }> = {
+    proposed: { es: 'propuesto', en: 'proposed' },
+    accepted: { es: 'aceptado y pendiente', en: 'accepted and pending' },
+    counter_proposal: { es: 'en contrapropuesta', en: 'under counter-proposal' },
+    resolved: { es: 'resuelto', en: 'resolved' },
+    cancelled: { es: 'cancelado', en: 'cancelled' },
+    rejected: { es: 'rechazado', en: 'rejected' },
+};
+
+// NFD + strip combining diacritical marks (U+0300-U+036F) via explicit hex
+// escape, no literal Unicode chars in source — mismo motivo ya documentado
+// en agentInputInterpreter.service.ts para `WB_START`/`WB_END`.
+function significantWords(text: string): Set<string> {
+    return new Set(
+        text.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+            .split(/[^a-z0-9]+/).filter((w) => w.length >= 4),
+    );
+}
+
+function buildCanonicalStatusClaim(commitment: AgentContext['commitments'][number], ref: AgentCitation, language: 'es' | 'en'): AgentClaim {
+    const label = STATUS_LABELS[commitment.status]?.[language] ?? commitment.status;
+    const text = language === 'es'
+        ? `El compromiso "${commitment.title}" está actualmente ${label}.`
+        : `The commitment "${commitment.title}" is currently ${label}.`;
+    return { text, sourceRefs: [ref] };
+}
+
+export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentContext, allowedSourceRefs: AgentCitation[], language: 'es' | 'en'): AgentClaim[] {
+    if (context.commitments.length === 0 || claims.length === 0) return claims;
+
+    const citedCommitmentIds = new Set(
+        claims.flatMap((c) => c.sourceRefs.filter((r) => r.sourceType === 'commitment').map((r) => r.sourceId)),
+    );
+
+    const additions: AgentClaim[] = [];
+    for (const commitment of context.commitments) {
+        if (citedCommitmentIds.has(commitment.id)) continue; // ya citado por algún claim -- el modelo ya lo trajo a colación
+        const titleWords = significantWords(commitment.title);
+        if (titleWords.size === 0) continue;
+
+        const topicalMatch = claims.some((claim) => {
+            if (claim.sourceRefs.some((r) => r.sourceType === 'commitment')) return false; // ya cita ALGÚN commitment -- no es el patrón "sólo histórico" que se busca cerrar
+            const claimWords = significantWords(claim.text);
+            for (const w of titleWords) if (claimWords.has(w)) return true;
+            return false;
+        });
+        if (!topicalMatch) continue;
+
+        // Nunca citar algo fuera del boundary de evidencia ya serializado (M-1E.1).
+        const ref = allowedSourceRefs.find((r) => r.sourceType === 'commitment' && r.sourceId === commitment.id);
+        if (!ref) continue;
+
+        additions.push(buildCanonicalStatusClaim(commitment, ref, language));
+    }
+
+    return additions.length > 0 ? [...claims, ...additions] : claims;
+}
+
 function assembleAnswerFromClaims(claims: AgentClaim[], language: 'es' | 'en'): string {
     if (claims.length === 0) {
         return language === 'es'
@@ -391,11 +462,11 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         const evidence = serializeContextForSynthesis(context, this.maxContextChars);
         const prompt = buildSynthesisPrompt(input, evidence.payload);
 
-        let attempt = await this.attemptLlmSynthesis(prompt, evidence.allowedSourceRefs, language);
+        let attempt = await this.attemptLlmSynthesis(prompt, evidence.allowedSourceRefs, language, context);
         let retried = false;
         if (!attempt.ok) {
             retried = true; // sección 36: como máximo 1 retry, nunca más
-            attempt = await this.attemptLlmSynthesis(prompt, evidence.allowedSourceRefs, language);
+            attempt = await this.attemptLlmSynthesis(prompt, evidence.allowedSourceRefs, language, context);
         }
 
         const diagExtra = { retried, model: this.model.modelName, serializedSourceCount: evidence.serializedSourceCount, droppedByBudgetCount: evidence.droppedByBudgetCount };
@@ -414,7 +485,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         return this.withDiagnostics(fallback, 'fallback', startedAt, sourceCount, { ...diagExtra, schemaValid: false, claimValidationPassed: false, fallbackReason: attempt.reason });
     }
 
-    private async attemptLlmSynthesis(prompt: string, allowedSourceRefs: AgentCitation[], language: 'es' | 'en'): Promise<{ ok: true; response: AgentResponse } | { ok: false; reason: string }> {
+    private async attemptLlmSynthesis(prompt: string, allowedSourceRefs: AgentCitation[], language: 'es' | 'en', context: AgentContext): Promise<{ ok: true; response: AgentResponse } | { ok: false; reason: string }> {
         let raw: string;
         try {
             raw = await withTimeout(this.model.synthesize({ prompt }), this.timeoutMs);
@@ -442,10 +513,16 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             return { ok: false, reason: 'no_supported_claims' };
         }
 
-        const answer = assembleAnswerFromClaims(validClaims, language);
+        // M-1F.1: refuerza prioridad canónica ANTES de ensamblar el answer —
+        // nunca reemplaza/quita un claim histórico válido, sólo garantiza que
+        // el estado vigente real esté presente cuando hay solape temático con
+        // un commitment canónico que el modelo no citó.
+        const finalClaims = enforceCanonicalDominance(validClaims, context, allowedSourceRefs, language);
+
+        const answer = assembleAnswerFromClaims(finalClaims, language);
         return {
             ok: true,
-            response: { status: 'answered', answer, claims: validClaims, citations: dedupeCitations(validClaims) },
+            response: { status: 'answered', answer, claims: finalClaims, citations: dedupeCitations(finalClaims) },
         };
     }
 

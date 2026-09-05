@@ -276,3 +276,108 @@ No tocada.
 M-1D.3 queda aprobado local, desbloqueando el hallazgo documentado en M-1F. Antes de una futura certificación en staging de M-1F: considerar una tarea separada para el hallazgo de `due_at`/`NULL` documentado arriba en "Riesgos" — afecta la tasa de falsos `no_evidence` en consultas con expresión temporal sobre commitments sin fecha límite, un patrón de uso plausible en producción.
 
 M-1D.3 INTERPRETER HARDENED — M-1F DESBLOQUEADO
+
+---
+
+## M-1D.4 — Status-Hint Semantics Hardening
+
+### Causa raíz
+
+Hallazgo real descubierto verificando M-1F.1 (`docs/M-1F.1-AGENT-FIDELITY-HARDENING.md`): `LlmInputInterpreter` inferÍa `commitmentFilterHints.status:"open"` por defecto para prácticamente CUALQUIER `commitment_query`, incluso sin ninguna señal de estado en el texto (ej. `"¿Qué pasó con el compromiso del regalo?"`, `"¿Qué le prometí a Laura?"`). Confirmado con 5 phrasings distintas, sin excepción, contra el modelo real. Esto excluía commitments cerrados/cancelados/resueltos de `retrieveCommitments` ANTES de que el guard de "canonical dominance" de M-1F.1 pudiera siquiera considerarlos — dejando ese guard funcionalmente inerte en el escenario exacto que fue diseñado para resolver.
+
+### Intent vs status
+
+`intent` describe el TIPO de entidad consultada (`commitment_query`); `commitmentFilterHints.status` es un filtro ADICIONAL, opcional, nunca implícito por el intent. Son conceptos ortogonales — el bug era tratar "es una consulta de commitments" como sinónimo de "quiere ver sólo los pendientes".
+
+### Prompt
+
+Una regla explícita y corta agregada a `buildInterpreterPrompt` (sección 5 del ticket, sin decenas de ejemplos): `commitmentFilterHints.status` es un filtro separado que NUNCA debe asumirse por el intent; sólo se setea junto con `statusBasis` (`"explicit"` = palabra de estado real, `"implied"` = la frase implica claramente pendiente/cerrado sin nombrarlo); una consulta neutral sobre un commitment/tema específico deja ambos en `null`; cuando el framing cerrado apunta a un resultado específico real (`resolved`/`cancelled`/`rejected`), usar ese valor en vez del genérico `closed`.
+
+### Schema
+
+`commitmentFilterHints` extendido (`agentInterpretation.schema.ts`): `status` ahora acepta `'open'|'resolved'|'cancelled'|'rejected'|'closed'|null` (antes sólo `'open'|'closed'`) — más preciso, sin inventar nombres fuera de `CanonicalCommitmentStatus`. `statusBasis: 'explicit'|'implied'|null` es el campo nuevo. `preprocess` sigue normalizando `commitmentFilterHints` ausente/null a `{}` (M-1D.2, sin cambios). El objeto por defecto pasa a `{status: null, statusBasis: null}`.
+
+### Normalization
+
+**Enfoque elegido, tras un intento fallido (M-1F.1)**: en vez de detectar "señal de estado" con keyword-matching determinístico EXTERNO al modelo (revertido en M-1F.1 por romper un caso implícito legítimo — ver "Cuidado con implicit status" abajo), el opt-in vive DENTRO del mismo juicio del modelo: `statusBasis` es un campo que el modelo debe declarar junto con `status`, dentro de la MISMA llamada estructurada (sin segunda llamada, sin verificador separado — sección 19 del ticket). La normalización post-LLM es mecánica y mínima: `mapPayloadToInterpretation` descarta `status` ENTERAMENTE si `statusBasis` es `null`, sin importar qué valor tenga `status` — nunca se aplica un filtro que el modelo no pueda justificar con su propio campo declarativo.
+
+```ts
+const statusHints = payload.commitmentFilterHints.statusBasis == null ? null
+    : STATUS_HINT_MAP[payload.commitmentFilterHints.status ?? ''] ?? null;
+```
+
+### Explicit status
+
+`statusBasis:"explicit"` — el usuario usó una palabra de estado real ("pendientes", "pending", "cancelé", "completé", en cualquier idioma). Certificado 20/20 contra proveedor real (4 inputs × 5 corridas: `"¿Qué pendientes tengo esta semana?"`, `"What pending commitments do I have?"`, `"¿Qué compromisos cancelé?"`, `"What commitments did I complete?"`) — 100% estable, y con precisión real: `"cancelé"` produjo `statusHints:["cancelled"]` (no el bucket genérico), `"complete"` produjo `["resolved"]`.
+
+### Implied status
+
+`statusBasis:"implied"` — la frase implica claramente pendiente/cerrado sin nombrarlo (ej. `"¿Qué me falta hacer?"`, `"Did I promise Daniel anything for this week?"`). Certificado 5/5 contra proveedor real para `"¿Qué me falta hacer?"` → `statusHints` open. El caso `"Did I promise Daniel..."` (ya certificado desde M-1D.1) se actualizó para declarar `statusBasis:'implied'` explícitamente en su fixture, reflejando lo que un modelo bien guiado por el nuevo prompt debe declarar.
+
+### Neutral commitment queries
+
+Certificado 20/20 contra proveedor real (4 inputs × 5 corridas: `"¿Qué pasó con el compromiso del regalo?"`, `"¿Qué le prometí a Laura?"`, `"What happened with the gift commitment?"`, `"Tell me about my commitment with Emily"`) — **100% `statusHints:null`**, sin excepción, incluyendo el input exacto que disparó el hallazgo original.
+
+### Closed/cancelled
+
+`STATUS_HINT_MAP` distingue los 3 estados terminales reales del Commitment Core (`resolved`/`cancelled`/`rejected`, auditados contra `CanonicalCommitmentStatus` y las migraciones reales — nunca inventados) además del `closed` genérico (fallback cuando el usuario dice "cerrado"/"closed" sin especificar cuál, preservando el comportamiento previo a M-1D.4 para ese caso). Certificado que `"cancelé"`/`"complete"` producen el estado específico, no el bucket amplio.
+
+### TextQuery interaction
+
+M-1D.3 confirmado intacto: `"¿Qué pendientes tengo sobre Proyecto Aurora?"` → `status:open` + `textQuery:"Proyecto Aurora"` juntos; `"¿Qué pasó con el compromiso de Proyecto Aurora?"` → `status:null` + `textQuery` preservado igual. Ambos campos son independientes, ninguno interfiere con el otro.
+
+### Person interaction
+
+M-1F.1 confirmado intacto: `"¿Qué le prometí a Laura?"` → `statusHints:null`, `personHints:["Laura"]` — el guard de atribución de persona (M-1F.1) sigue actuando sobre `personHints`/`resolvePerson`, sin relación con `statusHints`. `status:"open"` nunca se usa como sustituto de una persona no resuelta.
+
+### Provider real
+
+50 casos sintéticos (10 inputs × 5 corridas, sin datos reales, sin staging) contra `gpt-4o-mini`: **50/50 según lo esperado, 100% determinístico** — a diferencia del comportamiento pre-M-1D.4 (donde el status por defecto era consistentemente `"open"`, es decir, consistentemente INCORRECTO para las consultas neutrales, no inconsistente). Modelo: `gpt-4o-mini` (mismo de siempre). Sin fallback observado en ninguna corrida.
+
+### Critical E2E regression
+
+Fixture real (Postgres local desechable): 3 commitments (`open`/`due_at` esta semana, `cancelled` "Comprar regalo", `resolved` "Enviar informe mensual" con `resolution_result` — requerido por un trigger real del Commitment Core, `commitments_require_resolution_result`) + mensaje histórico "Se entregó el regalo el viernes." Pipeline completo (`runAgent`: interpreter real → context builder real → retrieval real → synthesis real, M-1F.1 incluido) con `"¿Qué pasó con el compromiso del regalo?"` × 5: **5/5 correcto** — el commitment cancelado llega a `AgentContext` (antes de M-1D.4 quedaba excluido por el status implícito) y la síntesis menciona el estado vigente ("cancelado") citando el commitment, además del mensaje histórico. Demuestra que M-1D.4 y M-1F.1 se complementan: sin M-1D.4, el guard de M-1F.1 nunca tenía nada que reforzar en este escenario exacto.
+
+### Open-query regression
+
+Misma fixture, `"¿Qué pendientes tengo?"` × 3: **3/3 correcto**, sólo el commitment `open` aparece — el `cancelled` y el `resolved` correctamente excluidos. Confirma que corregir el caso neutral no rompió el caso realmente pendiente.
+
+### Historical query
+
+Misma fixture, `"¿Qué compromisos cancelé?"` × 3: **3/3 correcto**, sólo el commitment `cancelled` aparece ("Cancelaste el compromiso de comprar un regalo") — nunca se amplía al `open`.
+
+### Tests
+
+13 tests nuevos en `agentInputInterpreter.test.ts` (42 en el archivo): consulta neutral → `null`; status sin `statusBasis` → descartado igual (defensa contra el default implícito); pendiente explícito → open; pendiente implícito → open; cancelado explícito → `["cancelled"]` específico; completado explícito → `["resolved"]` específico; "cerrados" genérico → bucket `closed` completo (compatibilidad); neutral+topic; pendiente+topic (M-1D.3 intacto); person query neutral; inglés neutral; mixed language neutral; informal. Fixtures existentes de M-1D.1 (`"Did I promise Daniel..."`) y M-1D.3 (3 casos con `status:'open'`) actualizados para incluir `statusBasis` explícito, reflejando el nuevo contrato — sin cambiar sus aserciones originales.
+
+### Suite completa
+
+`tsc --noEmit` limpio. `agentInputInterpreter.test.ts`: 42/42. Suite dirigida (interpreter+context builder+synthesizer+orchestrator+e2e): 150/150. Suite completa `--no-file-parallelism`: **534/534** (521 previos + 13 nuevos).
+
+### Archivos
+
+- `backend/src/schemas/agentInterpretation.schema.ts` (modificado: `commitmentFilterHints.status` ampliado, `+statusBasis`)
+- `backend/src/services/agentInputInterpreter.service.ts` (modificado: prompt + `STATUS_HINT_MAP` + `mapPayloadToInterpretation`)
+- `backend/tests/agentInputInterpreter.test.ts` (+13 tests, fixtures existentes actualizadas)
+- `docs/M-1D1-LLM-INPUT-INTERPRETER.md` (este apéndice)
+
+Sin cambios en M-1C/retrieval, `agentContextBuilder.service.ts`, `agentResponseSynthesizer.service.ts`, endpoint/orchestrator M-1F, mobile, legacy AI, account deletion, producción.
+
+### Riesgos
+
+- La distinción explicit/implied sigue siendo un juicio del modelo, no una regla mecánica verificable de forma independiente — un modelo diferente o una versión futura de `gpt-4o-mini` podría declarar `statusBasis` de forma distinta para la misma frase. Mitigado (no garantizado) por el prompt explícito y por el hecho de que la normalización post-LLM sigue siendo la barrera real (nunca se aplica status sin `statusBasis`, pase lo que pase el modelo declare como valor).
+- El hallazgo de M-1F.1 sobre status por defecto queda RESUELTO por este ticket — se actualiza esa nota como cerrada, no como pendiente.
+
+### Staging
+
+No aplica — sin schema de base de datos nuevo, sin migración.
+
+### Producción
+
+No tocada.
+
+### Recomendación
+
+M-1D.4 queda aprobado local. El guard de "canonical dominance" de M-1F.1 ahora tiene efecto práctico real en el escenario que lo motivó. Antes de una futura certificación en staging: recertificar el Caso K de `docs/M-1F-S` con la consulta original sin señal de estado explícita (`"¿Qué pasó con el compromiso del regalo?"`), que ahora debería funcionar correctamente sin necesitar la palabra "cancelado" en la pregunta.
+
+M-1D.4 STATUS SEMANTICS HARDENED — LISTO PARA CIERRE FIDELITY

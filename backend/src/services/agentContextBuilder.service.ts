@@ -194,6 +194,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     let needsClarification = false;
     let clarification: AgentClarification | undefined;
     let resolvedPersonId: string | undefined;
+    // M-1F.1 (Caso A del staging real, docs/M-1F-S): un personHint explícito
+    // que no resolvió a NADIE (ni ambiguo con >1 candidatos, ni resuelto) no
+    // debe degradar silenciosamente a "consulta sin filtro de persona" — eso
+    // permitía que retrieveCommitments trajera TODOS los commitments abiertos
+    // del actor, y la síntesis los atribuía erróneamente a la persona
+    // nombrada aunque no existiera vínculo real (ej. assigned_to_user_id).
+    let personAttributionUnresolved = false;
 
     for (const hint of interpretation.personHints) {
         retrievalPlan.push({ step: 'resolvePerson', params: { hint } });
@@ -205,8 +212,29 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             clarification = { reason: 'person_ambiguous', candidates: resolution.candidates };
         } else if (resolution.resolved && !resolvedPersonId) {
             resolvedPersonId = resolution.resolved.id;
+        } else if (!resolution.resolved) {
+            personAttributionUnresolved = true;
         }
     }
+
+    // Mismo mecanismo ya seguro de M-1D para "ambiguous" (candidatos reales):
+    // needsClarification tiene prioridad ABSOLUTA en deriveStatus (M-1E), así
+    // que la respuesta final nunca llega a sintetizar comentarios sobre
+    // commitments/mensajes no vinculados — se resuelve con la MISMA plantilla
+    // determinística ya usada para "unresolved_pronoun" (candidates:[] pide
+    // que se especifique el nombre, sin inventar opciones falsas).
+    if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
+        needsClarification = true;
+        clarification = { reason: 'person_ambiguous', candidates: [] };
+    }
+
+    // Retrieval-plan guard (sección 4): si hay un personHint explícito y
+    // ninguno resolvió a un ID real, las fuentes person-scoped NO se ejecutan
+    // como si no hubiera filtro de persona — se tratan como vacías. Esto es
+    // defensa en profundidad (needsClarification ya lo cubre estructuralmente
+    // arriba, vía la plantilla determinística que nunca usa context.commitments),
+    // no la única barrera — sección 17: nunca se amplía el scope semántico.
+    const personScopeBlocked = interpretation.personHints.length > 0 && !resolvedPersonId;
 
     const canonicalFacts: AgentContext['canonicalFacts'] = people
         .filter((p) => p.resolved && !p.ambiguous)
@@ -216,7 +244,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // Fuentes independientes en paralelo; nunca se ejecutan fuentes que la
     // intención no pidió (sección 33). commitment events depende de los
     // commitments encontrados, así que va después.
-    const commitmentsPromise = interpretation.wantsCommitments
+    if (personScopeBlocked && (interpretation.wantsCommitments || interpretation.wantsMessages)) {
+        retrievalPlan.push({ step: 'personScopeGuardSkipped', params: { personHints: interpretation.personHints } });
+    }
+
+    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery } });
             return retrieveCommitments({
@@ -230,7 +262,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const messagesPromise = interpretation.wantsMessages
+    const messagesPromise = interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
             return retrieveMessages({

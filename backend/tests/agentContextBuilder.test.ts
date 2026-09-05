@@ -253,6 +253,47 @@ describe('M-1D: buildAgentContext — ambigüedad de persona (sección 20)', () 
     });
 });
 
+describe('M-1F.1: buildAgentContext — persona explícita no resuelta (hallazgo real de staging, docs/M-1F-S Caso A)', () => {
+    it('personHint con 0 candidatos (ni ambiguo, ni resuelto) -> needsClarification, NUNCA retrieval sin filtro de persona', async () => {
+        // Default de resetMocks(): resolvePerson devuelve {resolved:null, ambiguous:false, candidates:[]}
+        // -- exactamente el caso real observado: "Laura" no matchea "Laura Test".
+        mockRetrieveCommitments.mockResolvedValue([
+            commitmentFixture({ id: 'a-related', assignedToUserId: 'laura-real-id' }),
+            commitmentFixture({ id: 'b-unrelated', assignedToUserId: null }),
+        ] as any);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le prometí a Laura?' });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        expect(ctx.clarification?.candidates).toEqual([]);
+        // El retrieval-plan guard (sección 4) impide que se ejecute la
+        // fuente person-scoped como si no hubiera filtro -- nunca se
+        // atribuyen A/B arbitrariamente porque nunca llegan al context.
+        expect(ctx.commitments).toEqual([]);
+        expect(mockRetrieveCommitments).not.toHaveBeenCalled();
+        expect(mockRetrieveMessages).not.toHaveBeenCalled();
+        const steps = ctx.retrievalPlan.map((s) => s.step);
+        expect(steps).toContain('personScopeGuardSkipped');
+    });
+
+    it('personHint resuelto normalmente -> retrieval con personId, sin cambios de comportamiento (caso C)', async () => {
+        mockResolvePerson.mockResolvedValue({
+            resolved: { kind: 'user', id: 'daniel-id', displayName: 'Daniel Test', email: null, avatarUrl: null },
+            ambiguous: false, candidates: [],
+        });
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'a-related', assignedToUserId: 'daniel-id' })] as any);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le prometí a Daniel?' });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments).toHaveLength(1);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ personId: 'daniel-id' }), expect.any(Number));
+    });
+});
+
 describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
     it('evidenceFound=false cuando todo retrieval vuelve vacío, sin inventar contexto', async () => {
         const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');

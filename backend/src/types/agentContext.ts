@@ -90,7 +90,7 @@ export interface Interpretation {
 // indiscriminada. Los `params` son un resumen seguro (nunca contenido crudo
 // ni datos ajenos) pensado para tests/diagnostics.
 export interface RetrievalPlanStep {
-    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments';
+    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments' | 'personScopeGuardSkipped';
     params?: Record<string, unknown>;
 }
 

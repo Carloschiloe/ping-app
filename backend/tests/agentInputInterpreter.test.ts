@@ -86,7 +86,7 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
     });
 
     it('inglés: "Did I promise Daniel anything for this week?"', async () => {
-        const model = fakeModel(validPayload({ intent: 'commitment_query', personHints: ['Daniel'], timeExpression: 'this week', commitmentFilterHints: { status: 'open' } }));
+        const model = fakeModel(validPayload({ intent: 'commitment_query', personHints: ['Daniel'], timeExpression: 'this week', commitmentFilterHints: { status: 'open', statusBasis: 'implied' } }));
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('Did I promise Daniel anything for this week?', {});
         expect(result.intent).toBe('commitment_query');
@@ -153,7 +153,7 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
     it('"pending commitments this week" con topicHints=[] -> textQuery=null (repite sólo lenguaje de estado/intención)', async () => {
         const model = fakeModel(validPayload({
             intent: 'commitment_query', topicHints: [], textQuery: 'pending commitments',
-            timeExpression: 'this week', commitmentFilterHints: { status: 'open' },
+            timeExpression: 'this week', commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
         }));
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('What pending commitments do I have this week?', {});
@@ -165,7 +165,7 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
     it('"¿qué pendientes tengo esta semana?" con textQuery="pendientes" (un solo token de control) -> null', async () => {
         const model = fakeModel(validPayload({
             intent: 'commitment_query', topicHints: [], textQuery: 'pendientes',
-            timeExpression: 'esta semana', commitmentFilterHints: { status: 'open' },
+            timeExpression: 'esta semana', commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
         }));
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('¿Qué pendientes tengo esta semana?', {});
@@ -175,7 +175,7 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
     it('"mis compromisos" (posesivo + palabra de control) -> null', async () => {
         const model = fakeModel(validPayload({
             intent: 'commitment_query', topicHints: [], textQuery: 'mis compromisos',
-            commitmentFilterHints: { status: 'open' },
+            commitmentFilterHints: { status: 'open', statusBasis: 'implied' },
         }));
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('¿Qué compromisos tengo?', {});
@@ -196,7 +196,7 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
     it('"pendientes sobre Proyecto Aurora" -> conserva el tema real, nunca lo descarta', async () => {
         const model = fakeModel(validPayload({
             intent: 'commitment_query', topicHints: ['Proyecto Aurora'], textQuery: 'Proyecto Aurora',
-            commitmentFilterHints: { status: 'open' },
+            commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
         }));
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('¿Qué pendientes tengo sobre Proyecto Aurora?', {});
@@ -242,6 +242,141 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('What did we decide about the task list app?', {});
         expect(result.textQuery).toBe('task list app');
+    });
+});
+
+describe('M-1D.4: statusHints opt-in vía statusBasis — nunca default implícito de "open"', () => {
+    // Hallazgo real de M-1F.1/M-1F-S: el modelo defaulteaba status="open"
+    // para prácticamente cualquier commitment_query, incluso sin ninguna
+    // señal de estado (ej. "¿Qué pasó con X?"), excluyendo commitments
+    // cerrados/cancelados/resueltos de retrieval ANTES de que la síntesis
+    // pudiera considerarlos. Un intento anterior de detectar esto por
+    // keyword-matching determinístico EXTERNO al modelo rompió casos de
+    // estado implícito legítimos ("Did I promise Daniel anything this
+    // week?"). La solución: el modelo debe declarar `statusBasis`
+    // ("explicit"|"implied") junto con `status` — si no lo hace, el status
+    // se descarta enteramente, sin importar qué valor tenga.
+
+    it('consulta neutral sobre un commitment específico -> statusHints=null (sin statusBasis)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', textQuery: null, commitmentFilterHints: { status: null, statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pasó con el compromiso del regalo?', {});
+        expect(result.statusHints).toBeNull();
+    });
+
+    it('el modelo pone status="open" pero SIN statusBasis -> se descarta igual (defensa contra el default implícito)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'open', statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué le prometí a Laura?', {});
+        expect(result.statusHints).toBeNull();
+    });
+
+    it('pendiente explícito ("¿Qué pendientes tengo?") -> open, statusBasis=explicit', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pendientes tengo?', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+    });
+
+    it('pendiente implícito ("¿Qué me falta hacer?") -> open, statusBasis=implied', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'open', statusBasis: 'implied' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué me falta hacer?', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+    });
+
+    it('cancelado explícito -> statusHints=["cancelled"] específico, nunca el bucket genérico "closed"', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'cancelled', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué compromisos cancelé?', {});
+        expect(result.statusHints).toEqual(['cancelled']);
+    });
+
+    it('completado/resuelto explícito -> statusHints=["resolved"] específico', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'resolved', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What commitments did I complete?', {});
+        expect(result.statusHints).toEqual(['resolved']);
+    });
+
+    it('"cerrados" genérico sin especificar cuál -> bucket "closed" completo (comportamiento previo preservado)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'closed', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué compromisos tengo cerrados?', {});
+        expect(result.statusHints).toEqual(['resolved', 'cancelled', 'rejected']);
+    });
+
+    it('neutral + topic -> statusHints=null, textQuery preservado (interacción con M-1D.3)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: ['Proyecto Aurora'], textQuery: 'Proyecto Aurora',
+            commitmentFilterHints: { status: null, statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pasó con el compromiso de Proyecto Aurora?', {});
+        expect(result.statusHints).toBeNull();
+        expect(result.textQuery).toBe('Proyecto Aurora');
+    });
+
+    it('pendiente + topic -> statusHints=open Y textQuery preservado juntos (M-1D.3 intacto)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: ['Proyecto Aurora'], textQuery: 'Proyecto Aurora',
+            commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pendientes tengo sobre Proyecto Aurora?', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        expect(result.textQuery).toBe('Proyecto Aurora');
+    });
+
+    it('person query neutral ("¿Qué le prometí a Laura?") -> statusHints=null, personHints intacto', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', personHints: ['Laura'], commitmentFilterHints: { status: null, statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué le prometí a Laura?', {});
+        expect(result.statusHints).toBeNull();
+        expect(result.personHints).toEqual(['Laura']);
+    });
+
+    it('inglés neutral ("What happened with the gift commitment?") -> statusHints=null', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: null, statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What happened with the gift commitment?', {});
+        expect(result.statusHints).toBeNull();
+    });
+
+    it('mixed language neutral ("Tell me qué pasó con el compromiso") -> statusHints=null', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: null, statusBasis: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Tell me qué pasó con el compromiso', {});
+        expect(result.statusHints).toBeNull();
+    });
+
+    it('informal ("q compromisos tengo pendientes") -> open, statusBasis=explicit', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('q compromisos tengo pendientes', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
     });
 });
 

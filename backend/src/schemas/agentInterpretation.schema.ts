@@ -41,10 +41,29 @@ export const agentInterpretationPayloadSchema = z.object({
     // validar el objeto interno, aceptando ambas formas sin ambigüedad de
     // seguridad (sigue siendo un enum acotado, sigue sin aceptar campos
     // extra).
+    //
+    // M-1D.4: `status` ahora distingue los 3 estados terminales REALES del
+    // Commitment Core (`resolved`/`cancelled`/`rejected`, nunca "todos los
+    // cerrados son equivalentes") además del genérico `closed` (fallback
+    // cuando el usuario dice "cerrado" sin especificar cuál). `statusBasis`
+    // es el mecanismo de opt-in explícito (sección 9 del ticket): el modelo
+    // debe declarar POR QUÉ está filtrando por estado (`explicit` = palabra
+    // de estado literal; `implied` = la frase implica claramente un estado
+    // sin nombrarlo, ej. "qué me falta hacer") — si `statusBasis` es null,
+    // `status` se descarta enteramente en el mapping (ver
+    // agentInputInterpreter.service.ts#mapPayloadToInterpretation), nunca se
+    // aplica un filtro que el modelo no pueda justificar. Esto reemplaza el
+    // intento fallido de M-1F.1 de detectar esto por keyword-matching
+    // determinístico externo (revertido por romper casos de estado
+    // implícito legítimos) — la distinción explicit/implied vive DENTRO del
+    // mismo juicio del modelo, no en un verificador separado.
     commitmentFilterHints: z.preprocess(
         (value) => value ?? {},
-        z.object({ status: z.enum(['open', 'closed']).nullable().default(null) }),
-    ).default({ status: null }),
+        z.object({
+            status: z.enum(['open', 'resolved', 'cancelled', 'rejected', 'closed']).nullable().default(null),
+            statusBasis: z.enum(['explicit', 'implied']).nullable().default(null),
+        }),
+    ).default({ status: null, statusBasis: null }),
     attachmentKindHints: z.array(z.enum(ATTACHMENT_KIND_VALUES)).max(4).default([]),
     ambiguityHints: z.array(z.enum(AMBIGUITY_HINT_VALUES)).max(3).default([]),
 });
