@@ -354,9 +354,18 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     let query = supabaseAdmin
         .from('commitments')
         .select(COMMITMENT_SELECT)
-        .or(visibilityFilter)
-        .order('created_at', { ascending: false })
-        .limit(fetchLimit);
+        .or(visibilityFilter);
+
+    // M-1G.2: para "¿Qué tengo vencido?" ordenar por due_at ascendente (lo
+    // más vencido primero) en vez de por creación — de lo contrario un
+    // commitment realmente vencido pero creado hace tiempo puede quedar
+    // fuera del budget si el actor tiene actividad más reciente sin
+    // relación. No aplica cuando hay textQuery: rankCommitments decide el
+    // orden final ahí, este orden SQL sólo sirve al overfetch previo.
+    query = input.orderByOverdueFirst
+        ? query.order('due_at', { ascending: true, nullsFirst: false })
+        : query.order('created_at', { ascending: false });
+    query = query.limit(fetchLimit);
 
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`assigned_to_user_id.eq.${input.personId},owner_user_id.eq.${input.personId}`);

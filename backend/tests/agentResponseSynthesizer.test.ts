@@ -609,6 +609,50 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
 
         expect(response.answer).toBe('Tienes un compromiso de entrenar.');
     });
+
+    // M-1G.2 — sección 11 del ticket: múltiples commitments con estados
+    // mixtos, sólo los realmente vencidos (no resueltos/cancelados, dueAt
+    // pasado) deben marcarse isOverdue y ser mencionados.
+    it('MULTIPLE OVERDUE: A y B vencidos, C futuro, D cancelado, E resuelto -> sólo A y B se marcan overdue', async () => {
+        const a = commitment('cm-a', { title: 'Tarea A', status: 'accepted', dueAt: '2026-07-01T00:00:00Z' });
+        const b = commitment('cm-b', { title: 'Tarea B', status: 'proposed', dueAt: '2026-08-01T00:00:00Z' });
+        const c = commitment('cm-c', { title: 'Tarea C', status: 'accepted', dueAt: '2026-12-01T00:00:00Z' }); // futuro
+        const d = commitment('cm-d', { title: 'Tarea D', status: 'cancelled', dueAt: '2026-06-01T00:00:00Z' }); // vencido en fecha pero cancelado
+        const e = commitment('cm-e', { title: 'Tarea E', status: 'resolved', dueAt: '2026-06-15T00:00:00Z', resolvedAt: '2026-06-20T00:00:00Z' }); // vencido en fecha pero resuelto
+        const ctx = baseContext({
+            evidenceFound: true, wantsOverdueFocus: true,
+            commitments: [a, b, c, d, e] as any,
+            provenance: [a, b, c, d, e].map((x) => x.provenance),
+        });
+        const model = fakeModel(claimPayload([{ text: 'No tienes compromisos vencidos.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-a' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer).toContain('Tarea A');
+        expect(response.answer).toContain('Tarea B');
+        expect(response.answer).not.toContain('Tarea C');
+        expect(response.answer).not.toContain('Tarea D');
+        expect(response.answer).not.toContain('Tarea E');
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).toMatch(/"id":"cm-a"[^}]*"isOverdue":true/);
+        expect(promptSent).toMatch(/"id":"cm-b"[^}]*"isOverdue":true/);
+        expect(promptSent).toMatch(/"id":"cm-c"[^}]*"isOverdue":false/);
+        expect(promptSent).toMatch(/"id":"cm-d"[^}]*"isOverdue":false/);
+        expect(promptSent).toMatch(/"id":"cm-e"[^}]*"isOverdue":false/);
+    });
+
+    // M-1G.2 — sección 12 del ticket: "no tienes vencidos" sólo es válido
+    // cuando NO hay ningún commitment realmente vencido en la evidencia.
+    it('NO OVERDUE: cero commitments vencidos reales -> "no tienes vencidos" es la respuesta correcta, el guard no interviene', async () => {
+        const futureOnly = commitment('cm-futuro', { title: 'Reunión futura', status: 'accepted', dueAt: '2026-12-31T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [futureOnly] as any, provenance: [futureOnly.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'No tienes compromisos vencidos.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-futuro' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer).toBe('No tienes compromisos vencidos.'); // el guard NO agrega nada -- no hay overdue real que forzar
+    });
 });
 
 // ─── Channel (sección 14) ──────────────────────────────────────────────────

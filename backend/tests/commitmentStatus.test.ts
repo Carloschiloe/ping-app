@@ -117,3 +117,27 @@ describe('isClosedCommitmentStatus', () => {
         expect(isClosedCommitmentStatus('counter_proposal')).toBe(false);
     });
 });
+
+// M-1G.2 — test de paridad documental (sección 9 del ticket): mobile y
+// backend tienen archivos `commitmentStatus.ts` SEPARADOS (mobile es un
+// "espejo" documentado, sin compartir código físicamente). El criterio de
+// "vencido" en mobile (TaskDashboardScreen.tsx, InsightsScreen.tsx) excluye
+// exactamente `['resolved', 'cancelled', 'rejected'].includes(status)`. Este
+// test fija ese contrato exacto contra `isOpenCommitmentStatus` -- si algún
+// día uno de los 6 CanonicalCommitmentStatus cambia de lado sin el otro,
+// este test debe fallar antes de que la respuesta del Agent vuelva a
+// divergir de lo que el usuario ve en la UI (causa raíz real de M-1G-S2/
+// M-1G.1/M-1G.2).
+describe('M-1G.2: paridad con el criterio de "vencido" de mobile (contrato documental)', () => {
+    // Copia LITERAL del criterio de exclusión usado en
+    // mobile/src/screens/TaskDashboardScreen.tsx e InsightsScreen.tsx.
+    const MOBILE_OVERDUE_EXCLUDED_STATUSES = ['resolved', 'cancelled', 'rejected'];
+
+    it('isOpenCommitmentStatus(status) === true exactamente para los mismos estados que mobile NO excluye de "vencido"', () => {
+        const ALL_STATUSES = ['proposed', 'accepted', 'counter_proposal', 'rejected', 'resolved', 'cancelled'];
+        for (const status of ALL_STATUSES) {
+            const mobileConsidersCandidateForOverdue = !MOBILE_OVERDUE_EXCLUDED_STATUSES.includes(status);
+            expect(isOpenCommitmentStatus(status)).toBe(mobileConsidersCandidateForOverdue);
+        }
+    });
+});

@@ -327,6 +327,40 @@ describe('M-1B: retrieveCommitments', () => {
         // por el hecho de que la llamada no lanza y respeta el contrato de firma.
         expect(mock.getCalledTables()).toContain('commitments');
     });
+
+    // M-1G.2 — hallazgo real de staging: sin orderByOverdueFirst, el SQL
+    // siempre ordena por created_at DESC, así que un commitment REALMENTE
+    // vencido pero creado hace tiempo (ej. "Entrenar", vencido hace 36 días)
+    // podía quedar fuera del budget de 10 si el actor tenía actividad más
+    // reciente sin relación -- nunca llegaba al AgentContext para que
+    // isOverdue pudiera evaluarlo.
+    it('orderByOverdueFirst=true ordena por due_at ascendente en vez de created_at descendente', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1', orderByOverdueFirst: true }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
+        expect(chain.order).not.toHaveBeenCalledWith('created_at', expect.anything());
+    });
+
+    it('orderByOverdueFirst ausente/false preserva el orden previo por created_at descendente', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1' }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+        expect(chain.order).not.toHaveBeenCalledWith('due_at', expect.anything());
+    });
 });
 
 // ─── Commitment events (sección 9) ──────────────────────────────────────────

@@ -157,6 +157,16 @@ export interface RetrieveContextInput {
     timeRange?: RetrievalTimeRange;
     types?: RetrievalSourceType[];
     statuses?: CanonicalCommitmentStatus[];
+    // M-1G.2 — hallazgo real de staging: sin esto, retrieveCommitments
+    // siempre ordena por created_at DESC (más reciente primero). Un
+    // commitment REALMENTE vencido pero creado hace tiempo (ej. "Entrenar",
+    // vencido hace 36 días) podía quedar fuera del budget de 10 si el actor
+    // tenía actividad más reciente sin relación, así que nunca llegaba al
+    // contexto del Agent para que isOverdue pudiera siquiera evaluarlo. true
+    // ordena por due_at ascendente (lo más vencido primero) en vez de por
+    // creación — sólo se usa cuando la consulta es específicamente sobre
+    // vencidos (ver agentContextBuilder.service.ts, Interpretation.wantsOverdueFocus).
+    orderByOverdueFirst?: boolean;
     limits?: RetrievalLimits;
     messageWindow?: RetrievalMessageWindow;
     attachmentKinds?: ('image' | 'video' | 'audio' | 'document')[];

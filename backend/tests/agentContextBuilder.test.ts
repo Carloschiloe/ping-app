@@ -665,6 +665,23 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
         expect(ctx.wantsOverdueFocus).toBe(true);
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ statuses: ['proposed', 'accepted', 'counter_proposal'] }), expect.any(Number));
     });
+
+    // M-1G.2 — el fix de M-1G.1 (isOverdue + enforceOverdueDisclosure) sólo
+    // funciona si el commitment realmente vencido LLEGA al contexto. Sin
+    // esto, retrieveCommitments siempre trae los 10 más recientes por
+    // created_at, así que un commitment vencido pero viejo (creado hace
+    // tiempo) podía quedar fuera y el guard nunca lo veía.
+    it('wantsOverdueFocus=true propaga orderByOverdueFirst:true a retrieveCommitments', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', wantsOverdueFocus: true }));
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?' }, { interpreter });
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ orderByOverdueFirst: true }), expect.any(Number));
+    });
+
+    it('wantsOverdueFocus=false NUNCA propaga orderByOverdueFirst:true (no cambia el orden de consultas normales)', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', wantsOverdueFocus: false }));
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le prometí a Laura?' }, { interpreter });
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ orderByOverdueFirst: false }), expect.any(Number));
+    });
 });
 
 // M-1G.1 (Caso F) — "Crea un compromiso para llamar a Alejandra" debe

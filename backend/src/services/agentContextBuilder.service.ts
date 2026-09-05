@@ -250,7 +250,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery } });
+            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             return retrieveCommitments({
                 actorUserId: input.actorUserId,
                 conversationId,
@@ -258,6 +258,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 statuses: interpretation.statusHints ?? undefined,
                 timeRange: timeRange ?? undefined,
                 query: interpretation.textQuery ?? undefined,
+                // M-1G.2: prioriza lo realmente vencido en el budget de 10
+                // en vez de dejarlo a merced de created_at DESC.
+                orderByOverdueFirst: interpretation.wantsOverdueFocus,
             }, budget.commitments);
         })()
         : Promise.resolve([]);
