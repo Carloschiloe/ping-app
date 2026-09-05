@@ -64,6 +64,9 @@ export interface RetrievalCommitment {
     messageId: string | null;
     createdAt: string;
     provenance: RetrievalProvenance;
+    // M-1C: sólo presente cuando la búsqueda usó texto (RetrieveContextInput.query).
+    // Score explicable, no ML — ver docs/M-1C-FULL-TEXT-RETRIEVAL.md, "Ranking".
+    textRank?: number;
 }
 
 export interface RetrievalCommitmentEvent {
@@ -85,6 +88,8 @@ export interface RetrievalMessage {
     isSystem: boolean;
     createdAt: string;
     provenance: RetrievalProvenance;
+    // M-1C: sólo presente cuando la búsqueda usó texto.
+    textRank?: number;
 }
 
 export interface RetrievalTranscript {
@@ -96,6 +101,8 @@ export interface RetrievalTranscript {
     languageDetected: string | null;
     completedAt: string | null;
     provenance: RetrievalProvenance;
+    // M-1C: sólo presente cuando la búsqueda usó texto.
+    textRank?: number;
 }
 
 export interface RetrievalAttachment {
@@ -136,6 +143,13 @@ export interface RetrievalLimits {
 // natural.
 export interface RetrieveContextInput {
     actorUserId: string;
+    // M-1C: búsqueda full-text canónica (Postgres tsvector/GIN, config
+    // 'spanish' — ver docs/M-1C-FULL-TEXT-RETRIEVAL.md). Se combina siempre
+    // con AND sobre el scope estructurado (conversationId/personId/status/
+    // timeRange) — nunca lo reemplaza ni lo amplía. No es NLP: es texto plano
+    // que Postgres tokeniza. Este es el ÚNICO campo de texto libre — no se
+    // introduce un "textQuery" separado para mantener un solo nombre coherente
+    // (ver doc, sección "API de retrieval / naming").
     query?: string;
     conversationId?: string;
     personId?: string;   // profiles.id ya resuelto

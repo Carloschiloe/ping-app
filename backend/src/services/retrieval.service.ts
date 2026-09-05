@@ -21,6 +21,13 @@
 // (sufijo "Internal") nunca se exportan — existen sólo para que
 // retrieveContext, que ya autorizó una vez, no repita el chequeo. Ver
 // docs/M-1B-STRUCTURED-RETRIEVAL-CONTRACT.md, sección "Authorization".
+//
+// M-1C — full-text: agrega relevancia textual (Postgres tsvector/GIN, config
+// 'spanish') sobre messages/commitments/transcriptions vía `input.query`.
+// Nunca reemplaza el scope estructurado ni la autorización: el filtro de
+// texto se combina siempre con AND sobre lo que el actor ya puede ver — un
+// query de texto nunca amplía autorización, sólo reduce dentro de lo ya
+// autorizado. Ver docs/M-1C-FULL-TEXT-RETRIEVAL.md.
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertConversationParticipant, getSharedProfileIds } from '../utils/authz';
@@ -92,6 +99,59 @@ export function dedupeProvenance(items: RetrievalProvenance[]): RetrievalProvena
         result.push(item);
     }
     return result;
+}
+
+// ─── Full-text search (M-1C) ────────────────────────────────────────────────
+// Config 'ping_text' (definida SIN prefijo de esquema en la migración de
+// esta misma feature, aunque vive en 'public') — NO 'spanish': Ping es un
+// producto global/horizontal, y 'spanish' fue verificado que destruye
+// nombres propios de cualquier idioma (stemea "Proyecto Aurora" a
+// 'proyect'/'auror') sólo por privilegiar la gramática española. 'ping_text'
+// = parser 'simple' (sin stemming de ningún idioma, nadie privilegiado) +
+// unaccent (fold de acentos sin importar el idioma). Ver doc, "Configuración
+// lingüística", para la comparación verificada contra datos reales.
+//
+// IMPORTANTE: el nombre va SIN calificar por esquema ('ping_text', no
+// 'public.ping_text') a propósito — verificado que PostgREST no puede
+// parsear un "." dentro del modificador fts()/wfts() de su filtro (choca con
+// su propia gramática de paths). Se resuelve igual gracias al search_path
+// por defecto ('public' incluido) — ver doc, "Configuración lingüística".
+// Un único config para los 3 targets — no hay razón para diferenciar por
+// tabla.
+const FTS_CONFIG = 'ping_text';
+
+// PostgREST no permite exponer ts_rank()/phraseto_tsquery() como columna de
+// ORDER BY (sólo acepta nombres de columna reales, no expresiones SQL
+// arbitrarias) — ver doc, "Ranking". Por eso el matching/filtrado real ocurre
+// en SQL vía tsvector generado + GIN (correcto, indexado, es lo que importa
+// para nunca filtrar mal), y el REFINAMIENTO de orden entre ese conjunto ya
+// autorizado y ya emparejado ocurre en JS con un proxy determinista y
+// explicable — nunca ML, nunca aproxima autorización, sólo orden.
+const FTS_OVERFETCH_MULTIPLIER = 3;
+
+function overfetchLimit(limit: number, absoluteCeiling: number): number {
+    return Math.min(limit * FTS_OVERFETCH_MULTIPLIER, absoluteCeiling);
+}
+
+// Cuenta ocurrencias de cada término de la query (case-insensitive) dentro
+// de un campo ya recuperado. No sustituye al match real de Postgres — sólo
+// aporta orden entre filas que YA hicieron match en SQL.
+export function computeTextRankProxy(text: string | null | undefined, query: string): number {
+    if (!text || !query.trim()) return 0;
+    const haystack = text.toLowerCase();
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    let score = 0;
+    for (const term of terms) {
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = haystack.match(new RegExp(escaped, 'g'));
+        if (matches) score += matches.length;
+    }
+    return score;
+}
+
+export function hasExactPhrase(text: string | null | undefined, query: string): boolean {
+    if (!text || !query.trim()) return false;
+    return text.toLowerCase().includes(query.trim().toLowerCase());
 }
 
 // ─── Personas (sección 7) ───────────────────────────────────────────────────
@@ -279,17 +339,24 @@ function toRetrievalCommitment(row: any): RetrievalCommitment {
 export async function retrieveCommitments(input: RetrieveContextInput, limit: number): Promise<RetrievalCommitment[]> {
     // Authorization: la MISMA visibilidad canónica que ya usa /search — nunca
     // se reinventa. Se aplica siempre, incluso cuando se filtra además por
-    // conversación o persona (AND, no OR): un conversationId/personId nunca
+    // conversación, persona o texto (AND, no OR): ningún filtro adicional
     // amplía lo que el actor puede ver, solo lo acota más.
     const participantProposalIds = await getParticipantProposalIds(input.actorUserId);
     const visibilityFilter = buildCommitmentVisibilityFilter(input.actorUserId, participantProposalIds);
+    const textQuery = input.query?.trim();
+
+    // M-1C: con texto se sobre-trae (acotado al mismo techo absoluto de
+    // siempre) porque el orden final lo decide rankCommitments incluyendo
+    // relevancia textual — sin esto, el "order by created_at + limit" del
+    // SQL podría cortar antes de traer el match textualmente más fuerte.
+    const fetchLimit = textQuery ? overfetchLimit(limit, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER) : limit;
 
     let query = supabaseAdmin
         .from('commitments')
         .select(COMMITMENT_SELECT)
         .or(visibilityFilter)
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .limit(fetchLimit);
 
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`assigned_to_user_id.eq.${input.personId},owner_user_id.eq.${input.personId}`);
@@ -297,17 +364,31 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     if (input.statuses && input.statuses.length > 0) query = query.in('status', input.statuses);
     if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
     if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    // FTS real ocurre aquí, en SQL, contra el índice GIN de search_tsv (title
+    // peso A, description/expected_result/next_action peso B,
+    // resolution_result/rejection_reason peso C) — esto es lo que garantiza
+    // que nunca se filtre mal, sin importar qué haga el ranking en JS después.
+    if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
-    return dedupeById((data || []).map(toRetrievalCommitment));
+    const rows = dedupeById((data || []).map(toRetrievalCommitment));
+    // Con texto, el orden final (estructura + relevancia textual) se decide
+    // aquí mismo, para que un caller directo (no sólo retrieveContext) reciba
+    // ya el resultado correctamente rankeado y acotado a `limit`.
+    return textQuery ? rankCommitments(rows, input).slice(0, limit) : rows;
 }
 
 // ─── Ranking (sección 16) ────────────────────────────────────────────────────
 // Determinista, explicable, sin ML. Orden de peso: scope de conversación
 // exacto > match de persona exacto > estado activo > recencia.
+// finalScore = structuredScore (scope/persona/status/recencia) + textRank +
+// exact-phrase bonus. Un match estructurado exacto (conversación, 100pts)
+// sigue pesando más que la relevancia textual salvo un match textual
+// excepcionalmente fuerte en varios campos — intencional, ver doc "Ranking".
 export function rankCommitments(commitments: RetrievalCommitment[], input: RetrieveContextInput): RetrievalCommitment[] {
     const now = Date.now();
+    const textQuery = input.query?.trim();
     const scored = commitments.map((c) => {
         let score = 0;
         if (input.conversationId && c.conversationId === input.conversationId) score += 100;
@@ -316,7 +397,19 @@ export function rankCommitments(commitments: RetrievalCommitment[], input: Retri
         if (isOpenCommitmentStatus(c.status)) score += 25;
         const ageDays = (now - new Date(c.createdAt).getTime()) / (1000 * 60 * 60 * 24);
         score += Math.max(0, 10 - ageDays); // decae a 0 despues de ~10 dias, nunca negativo
-        return { c, score };
+
+        let textRank: number | undefined;
+        if (textQuery) {
+            textRank = computeTextRankProxy(c.title, textQuery) * 8
+                + computeTextRankProxy(c.description, textQuery) * 3
+                + computeTextRankProxy(c.expectedResult, textQuery) * 3
+                + computeTextRankProxy(c.resolutionResult, textQuery) * 2
+                + computeTextRankProxy(c.rejectionReason, textQuery) * 2;
+            if (hasExactPhrase(c.title, textQuery)) textRank += 40; // frase exacta en el campo mas importante
+            else if (hasExactPhrase(c.description, textQuery) || hasExactPhrase(c.expectedResult, textQuery) || hasExactPhrase(c.resolutionResult, textQuery)) textRank += 25;
+            score += textRank;
+        }
+        return { c: textRank !== undefined ? { ...c, textRank } : c, score };
     });
     scored.sort((a, b) => b.score - a.score);
     return scored.map((s) => s.c);
@@ -414,6 +507,75 @@ async function retrieveRecentMessages(conversationId: string, limit: number, tim
     return dedupeById((data || []).reverse().map(toRetrievalMessage)); // orden cronológico ascendente, más legible
 }
 
+// M-1C: a diferencia de "recientes"/"ventana" (orden cronológico, para
+// lectura), el modo texto ordena por relevancia — es una búsqueda, no un
+// scroll de chat. Deliberado, documentado en el contrato.
+function rankMessagesByRelevance(messages: RetrievalMessage[], query: string): RetrievalMessage[] {
+    const scored = messages.map((m) => {
+        let textRank = computeTextRankProxy(m.content, query);
+        if (hasExactPhrase(m.content, query)) textRank += 10;
+        return { m: { ...m, textRank }, score: textRank, createdAtMs: new Date(m.createdAt).getTime() };
+    });
+    scored.sort((a, b) => b.score - a.score || b.createdAtMs - a.createdAtMs);
+    return scored.map((s) => s.m);
+}
+
+// FTS dentro de UNA conversación ya autorizada por el caller. `personId`
+// (opcional) acota además a mensajes ENVIADOS por esa persona — nunca amplía,
+// sólo reduce el conjunto ya autorizado (ver ticket M-1C, ejemplo D: "qué
+// dijo Patricio sobre calidad").
+async function retrieveMessagesFullTextInConversation(conversationId: string, limit: number, textQuery: string, timeRange?: RetrievalTimeRange, personId?: string): Promise<RetrievalMessage[]> {
+    let query = supabaseAdmin
+        .from('messages')
+        .select(MESSAGE_SELECT)
+        .eq('conversation_id', conversationId)
+        .is('deleted_at', null)
+        .textSearch('content_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG })
+        .order('created_at', { ascending: false })
+        .limit(overfetchLimit(limit, DEFAULT_LIMITS.messages * MAX_LIMIT_MULTIPLIER));
+    if (timeRange?.from) query = query.gte('created_at', timeRange.from);
+    if (timeRange?.to) query = query.lte('created_at', timeRange.to);
+    if (personId) query = query.eq('sender_id', personId);
+
+    const { data, error } = await query;
+    if (error) throw new AppError(error.message, 500);
+    const rows = dedupeById((data || []).map(toRetrievalMessage));
+    return rankMessagesByRelevance(rows, textQuery).slice(0, limit);
+}
+
+// FTS SIN conversationId: nunca "todos los mensajes de todos" — primero se
+// obtiene, en UNA sola consulta batch (nunca N+1), el universo de
+// conversaciones donde el actor mismo es participante, y sólo dentro de ese
+// universo autorizado se aplica el filtro de texto. El .in(...) sobre ese
+// universo ES el límite de autorización a nivel de query — nunca se trae
+// primero y se filtra después.
+async function retrieveMessagesFullTextAcrossAuthorizedConversations(actorUserId: string, limit: number, textQuery: string, timeRange?: RetrievalTimeRange, personId?: string): Promise<RetrievalMessage[]> {
+    const { data: participantRows, error: partErr } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', actorUserId);
+    if (partErr) throw new AppError(partErr.message, 500);
+    const conversationIds = (participantRows || []).map((row) => row.conversation_id);
+    if (conversationIds.length === 0) return [];
+
+    let query = supabaseAdmin
+        .from('messages')
+        .select(MESSAGE_SELECT)
+        .in('conversation_id', conversationIds)
+        .is('deleted_at', null)
+        .textSearch('content_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG })
+        .order('created_at', { ascending: false })
+        .limit(overfetchLimit(limit, DEFAULT_LIMITS.messages * MAX_LIMIT_MULTIPLIER));
+    if (timeRange?.from) query = query.gte('created_at', timeRange.from);
+    if (timeRange?.to) query = query.lte('created_at', timeRange.to);
+    if (personId) query = query.eq('sender_id', personId);
+
+    const { data, error } = await query;
+    if (error) throw new AppError(error.message, 500);
+    const rows = dedupeById((data || []).map(toRetrievalMessage));
+    return rankMessagesByRelevance(rows, textQuery).slice(0, limit);
+}
+
 // Ventana alrededor de un mensaje: N anteriores + el propio + N posteriores.
 // Usado para "mensajes alrededor de source_message_id" y, por el llamador,
 // para "mensajes asociados a commitment.messageId" (pasando ese mismo id).
@@ -457,15 +619,24 @@ async function retrieveMessageWindow(actorUserId: string, window: RetrievalMessa
 // (retrieveMessageWindow resuelve el mensaje → su conversación → membership
 // ANTES de traer nada) sin importar quién la llame. La rama de
 // conversationId directo, en cambio, ASUME que el caller ya autorizó esa
-// conversación — nunca debe exponerse sin ese wrapper.
+// conversación — nunca debe exponerse sin ese wrapper. La rama "sin
+// conversationId + texto" es la única excepción real: es segura por sí
+// misma (deriva su propio universo autorizado del actorUserId recibido), no
+// porque el caller la haya autorizado externamente.
 async function retrieveMessagesInternal(input: RetrieveContextInput, limit: number): Promise<RetrievalMessage[]> {
     if (input.messageWindow?.aroundMessageId) {
         return retrieveMessageWindow(input.actorUserId, input.messageWindow);
     }
+    const textQuery = input.query?.trim();
     if (input.conversationId) {
-        return retrieveRecentMessages(input.conversationId, limit, input.timeRange);
+        return textQuery
+            ? retrieveMessagesFullTextInConversation(input.conversationId, limit, textQuery, input.timeRange, input.personId)
+            : retrieveRecentMessages(input.conversationId, limit, input.timeRange);
     }
-    // Sin conversationId ni ventana explícita no hay alcance seguro que
+    if (textQuery) {
+        return retrieveMessagesFullTextAcrossAuthorizedConversations(input.actorUserId, limit, textQuery, input.timeRange, input.personId);
+    }
+    // Sin conversationId, sin ventana y sin texto no hay alcance seguro que
     // recuperar — nunca se listan mensajes "de cualquier conversación".
     return [];
 }
@@ -505,9 +676,19 @@ function toRetrievalTranscript(row: any, attachmentId: string, messageId: string
     };
 }
 
+function rankTranscriptsByRelevance(transcripts: RetrievalTranscript[], query: string): RetrievalTranscript[] {
+    const scored = transcripts.map((t) => {
+        let textRank = computeTextRankProxy(t.transcriptText, query);
+        if (hasExactPhrase(t.transcriptText, query)) textRank += 10;
+        return { t: { ...t, textRank }, score: textRank, completedAtMs: t.completedAt ? new Date(t.completedAt).getTime() : 0 };
+    });
+    scored.sort((a, b) => b.score - a.score || b.completedAtMs - a.completedAtMs);
+    return scored.map((s) => s.t);
+}
+
 // INTERNA, no exportada: asume que conversationId ya fue autorizado por el
 // caller. Nunca debe exponerse directamente.
-async function retrieveTranscriptionsInternal(conversationId: string, limit: number, timeRange?: RetrievalTimeRange): Promise<RetrievalTranscript[]> {
+async function retrieveTranscriptionsInternal(conversationId: string, limit: number, timeRange?: RetrievalTimeRange, textQuery?: string): Promise<RetrievalTranscript[]> {
     const { data: attachmentRows, error: attErr } = await supabaseAdmin
         .from('attachments')
         .select('id, message_id')
@@ -519,28 +700,37 @@ async function retrieveTranscriptionsInternal(conversationId: string, limit: num
     if (attachmentIds.length === 0) return [];
     const messageIdByAttachment = new Map((attachmentRows || []).map((a) => [a.id, a.message_id as string | null]));
 
+    const trimmedQuery = textQuery?.trim();
+    const fetchLimit = trimmedQuery ? overfetchLimit(limit, DEFAULT_LIMITS.transcriptions * MAX_LIMIT_MULTIPLIER) : limit;
+
     let query = supabaseAdmin
         .from('audio_transcriptions')
         .select('id, attachment_id, status, transcript_text, language_detected, completed_at')
         .in('attachment_id', attachmentIds)
         .eq('status', 'completed') // solo transcripciones completadas — nunca pending/processing/failed
         .order('completed_at', { ascending: false })
-        .limit(limit);
+        .limit(fetchLimit);
     if (timeRange?.from) query = query.gte('completed_at', timeRange.from);
     if (timeRange?.to) query = query.lte('completed_at', timeRange.to);
+    // FTS real vía el índice GIN parcial (where status='completed') de
+    // transcript_tsv — nunca se busca en pending/processing/failed.
+    if (trimmedQuery) query = query.textSearch('transcript_tsv', trimmedQuery, { type: 'websearch', config: FTS_CONFIG });
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
-    return dedupeById((data || [])
+    const rows = dedupeById((data || [])
         .filter((row) => Boolean(row.transcript_text))
         .map((row) => toRetrievalTranscript(row, row.attachment_id, messageIdByAttachment.get(row.attachment_id) ?? null, conversationId)));
+    return trimmedQuery ? rankTranscriptsByRelevance(rows, trimmedQuery).slice(0, limit) : rows;
 }
 
 // PÚBLICA, segura por defecto (M-1B.1): autoriza membership de la
 // conversación ANTES de delegar — nunca confía en que el caller ya lo hizo.
-export async function retrieveTranscriptions(actorUserId: string, conversationId: string, limit: number, timeRange?: RetrievalTimeRange): Promise<RetrievalTranscript[]> {
+// `textQuery` (M-1C) es opcional y siempre se combina con la conversación ya
+// autorizada, nunca la reemplaza.
+export async function retrieveTranscriptions(actorUserId: string, conversationId: string, limit: number, timeRange?: RetrievalTimeRange, textQuery?: string): Promise<RetrievalTranscript[]> {
     await assertConversationParticipant(actorUserId, conversationId);
-    return retrieveTranscriptionsInternal(conversationId, limit, timeRange);
+    return retrieveTranscriptionsInternal(conversationId, limit, timeRange, textQuery);
 }
 
 // Transcripción de un attachment específico — autoriza vía la conversación
@@ -677,7 +867,7 @@ export async function retrieveContext(input: RetrieveContextInput): Promise<Retr
 
     const [transcriptions, attachments] = await Promise.all([
         types.has('transcription') && input.conversationId
-            ? retrieveTranscriptionsInternal(input.conversationId, limits.transcriptions, input.timeRange)
+            ? retrieveTranscriptionsInternal(input.conversationId, limits.transcriptions, input.timeRange, input.query)
             : Promise.resolve([] as RetrievalTranscript[]),
         types.has('attachment') && input.conversationId
             ? retrieveAttachmentsInternal(input.conversationId, limits.attachments, input.attachmentKinds)

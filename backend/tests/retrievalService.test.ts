@@ -783,3 +783,351 @@ describe('M-1B: retrieveContext — orquestación', () => {
         expect(result.events[0].commitmentId).toBe('cm1');
     });
 });
+
+// ─── M-1C: full-text retrieval ───────────────────────────────────────────────
+// Config lingüística 'ping_text' (simple + unaccent, NO 'spanish' — Ping es
+// global/domain-agnostic, ver docs/M-1C-FULL-TEXT-RETRIEVAL.md). Fixtures
+// deliberadamente neutrales (personas: Laura/Alex/Sofia/Daniel/Emily; temas:
+// vacaciones/dentista/cumpleaños/Proyecto Aurora/presupuesto/reunión) — nunca
+// vocabulario de una industria específica, para no convertir un ejemplo de
+// test en un concepto especial del producto. Estos tests cubren el CONTRATO
+// del servicio (qué tabla/columna se consulta, orden de autorización,
+// ranking, límites) — la corrección real del matching (tsvector/GIN,
+// multilenguaje, acentos, códigos) se certifica aparte contra Postgres real
+// en backend/tests/postgres/fullTextRetrieval.integration.sql.
+
+describe('M-1C: computeTextRankProxy / hasExactPhrase', () => {
+    it('cuenta ocurrencias de cada término, case-insensitive', async () => {
+        const { computeTextRankProxy } = await import('../src/services/retrieval.service');
+        expect(computeTextRankProxy('el dentista confirmo, el DENTISTA llamo', 'dentista')).toBe(2);
+    });
+
+    it('devuelve 0 sin texto o sin query', async () => {
+        const { computeTextRankProxy } = await import('../src/services/retrieval.service');
+        expect(computeTextRankProxy(null, 'algo')).toBe(0);
+        expect(computeTextRankProxy('algo', '')).toBe(0);
+    });
+
+    it('hasExactPhrase detecta la frase completa, case-insensitive', async () => {
+        const { hasExactPhrase } = await import('../src/services/retrieval.service');
+        expect(hasExactPhrase('coordinamos el Proyecto Aurora este mes', 'Proyecto Aurora')).toBe(true);
+        expect(hasExactPhrase('coordinamos el Aurora Proyecto este mes', 'Proyecto Aurora')).toBe(false);
+    });
+});
+
+describe('M-1C: retrieveCommitments con textQuery', () => {
+    const row = (overrides: Partial<Record<string, any>> = {}) => ({
+        id: 'cm1', title: 'Agendar cita con el dentista', description: 'revisar disponibilidad', status: 'accepted', type: 'task', priority: null,
+        due_at: null, proposed_due_at: null, expected_result: null, resolved_at: null,
+        resolution_result: null, rejection_reason: null, owner_user_id: 'u1', assigned_to_user_id: null,
+        counterparty_contact_id: null, conversation_id: null, message_id: null, created_at: '2026-09-01T00:00:00Z',
+        ...overrides,
+    });
+
+    it('aplica textSearch sobre search_tsv con config ping_text', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1', query: 'dentista' }, 20);
+        expect(mock.getTextSearchCalls('commitments')).toEqual([['search_tsv', 'dentista', { type: 'websearch', config: 'ping_text' }]]);
+    });
+
+    it('agrega textRank y prioriza frase exacta en el título', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{
+                data: [
+                    row({ id: 'cm-weak', title: 'planificacion general', description: 'se menciona Proyecto Aurora una vez en la descripcion' }),
+                    row({ id: 'cm-strong', title: 'Proyecto Aurora - reunion de seguimiento' }),
+                ],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveCommitments({ actorUserId: 'u1', query: 'Proyecto Aurora' }, 20);
+        expect(results[0].id).toBe('cm-strong'); // frase en el título pesa más
+        expect(results[0].textRank).toBeGreaterThan(0);
+    });
+
+    it('sin match de texto (mock vacío) devuelve []', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveCommitments({ actorUserId: 'u1', query: 'inexistente' }, 20);
+        expect(results).toEqual([]);
+    });
+
+    it('sin textQuery no llama textSearch (compatibilidad hacia atrás)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1' }, 20);
+        expect(mock.getTextSearchCalls('commitments')).toEqual([]);
+    });
+});
+
+describe('M-1C: retrieveMessages con textQuery — dentro de una conversación', () => {
+    it('outsider es rechazado ANTES de cualquier textSearch (auth first se mantiene con texto)', async () => {
+        const mock = createSupabaseAdminMock({ conversation_participants: [{ data: null, error: null }] });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        await expect(retrieveMessages({ actorUserId: 'outsider', conversationId: 'conv-1', query: 'presupuesto' }, 30))
+            .rejects.toMatchObject({ statusCode: 403 });
+        expect(mock.getCalledTables()).not.toContain('messages');
+    });
+
+    it('participante autorizado: aplica textSearch sobre content_tsv y ordena por relevancia, no cronología', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            messages: [{
+                data: [
+                    { id: 'm-old-strong', conversation_id: 'conv-1', sender_id: 'u1', content: 'dentista dentista dentista', metadata: {}, created_at: '2026-09-01T00:00:00Z', deleted_at: null },
+                    { id: 'm-new-weak', conversation_id: 'conv-1', sender_id: 'u1', content: 'algo que menciona dentista una vez', metadata: {}, created_at: '2026-09-02T00:00:00Z', deleted_at: null },
+                ],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveMessages({ actorUserId: 'u1', conversationId: 'conv-1', query: 'dentista' }, 30);
+        expect(mock.getTextSearchCalls('messages')).toEqual([['content_tsv', 'dentista', { type: 'websearch', config: 'ping_text' }]]);
+        expect(results[0].id).toBe('m-old-strong'); // mayor frecuencia de término gana pese a ser más viejo
+        expect(results[0].textRank).toBeGreaterThan(results[1].textRank!);
+    });
+
+    it('personId acota además a mensajes enviados por esa persona', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            messages: [{ data: [{ id: 'm1', conversation_id: 'conv-1', sender_id: 'laura', content: 'el presupuesto del viaje quedo listo', metadata: {}, created_at: '2026-09-01T00:00:00Z', deleted_at: null }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        await retrieveMessages({ actorUserId: 'u1', conversationId: 'conv-1', query: 'presupuesto', personId: 'laura' }, 30);
+        expect(mock.getEqCalls('messages')).toContainEqual(['sender_id', 'laura']);
+    });
+});
+
+describe('M-1C: retrieveMessages con textQuery — sin conversationId (busca en conversaciones autorizadas)', () => {
+    it('obtiene el universo de conversaciones del actor en UNA sola consulta batch, luego aplica textSearch con .in()', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: [{ conversation_id: 'conv-a' }, { conversation_id: 'conv-b' }], error: null }],
+            messages: [{ data: [{ id: 'm1', conversation_id: 'conv-a', sender_id: 'u1', content: 'Proyecto Aurora arranca la proxima semana', metadata: {}, created_at: '2026-09-01T00:00:00Z', deleted_at: null }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveMessages({ actorUserId: 'u1', query: 'Proyecto Aurora' }, 30);
+        // Exactamente 2 tablas consultadas: el universo autorizado, luego los mensajes — nunca N+1.
+        expect(mock.getCalledTables()).toEqual(['conversation_participants', 'messages']);
+        expect(results).toHaveLength(1);
+        expect(results[0].textRank).toBeGreaterThan(0);
+    });
+
+    it('actor sin conversaciones propias: [] sin consultar messages', async () => {
+        const mock = createSupabaseAdminMock({ conversation_participants: [{ data: [], error: null }] });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveMessages({ actorUserId: 'u1', query: 'algo' }, 30);
+        expect(results).toEqual([]);
+        expect(mock.getCalledTables()).not.toContain('messages');
+    });
+
+    it('nunca se autoriza de más: el universo de conversation_id se limita a las propias del actor, no a todas', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: [{ conversation_id: 'conv-mine' }], error: null }],
+            messages: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        await retrieveMessages({ actorUserId: 'u1', query: 'dentista' }, 30);
+        // getEqCalls no aplica a .in(), pero confirmamos que la única fuente de scope
+        // fue la consulta a conversation_participants filtrada por user_id del actor.
+        expect(mock.getEqCalls('conversation_participants')).toContainEqual(['user_id', 'u1']);
+    });
+});
+
+describe('M-1C: retrieveTranscriptions con textQuery', () => {
+    it('outsider es rechazado ANTES de cualquier textSearch', async () => {
+        const mock = createSupabaseAdminMock({ conversation_participants: [{ data: null, error: null }] });
+        setSupabaseAdminMock(mock);
+        const { retrieveTranscriptions } = await import('../src/services/retrieval.service');
+
+        await expect(retrieveTranscriptions('outsider', 'conv-1', 10, undefined, 'dentista'))
+            .rejects.toMatchObject({ statusCode: 403 });
+        expect(mock.getCalledTables()).not.toContain('audio_transcriptions');
+    });
+
+    it('participante autorizado: aplica textSearch sobre transcript_tsv, sólo completed', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            attachments: [{ data: [{ id: 'att1', message_id: 'm1' }], error: null }],
+            audio_transcriptions: [{ data: [{ id: 'tr1', attachment_id: 'att1', status: 'completed', transcript_text: 'el dentista confirmo la cita para revision', language_detected: 'es', completed_at: '2026-09-01T00:00:00Z' }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveTranscriptions } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveTranscriptions('u1', 'conv-1', 10, undefined, 'dentista');
+        expect(mock.getTextSearchCalls('audio_transcriptions')).toEqual([['transcript_tsv', 'dentista', { type: 'websearch', config: 'ping_text' }]]);
+        expect(results[0].textRank).toBeGreaterThan(0);
+    });
+
+    it('sin textQuery no llama textSearch (compatibilidad hacia atrás)', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            attachments: [{ data: [{ id: 'att1', message_id: 'm1' }], error: null }],
+            audio_transcriptions: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveTranscriptions } = await import('../src/services/retrieval.service');
+
+        await retrieveTranscriptions('u1', 'conv-1', 10);
+        expect(mock.getTextSearchCalls('audio_transcriptions')).toEqual([]);
+    });
+});
+
+describe('M-1C: límites con texto — overfetch acotado, nunca sin límite', () => {
+    it('devuelve como máximo `limit` resultados aunque el mock entregue más filas', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            messages: [{
+                data: [
+                    { id: 'm1', conversation_id: 'conv-1', sender_id: 'u1', content: 'dentista uno', metadata: {}, created_at: '2026-09-01T00:00:00Z', deleted_at: null },
+                    { id: 'm2', conversation_id: 'conv-1', sender_id: 'u1', content: 'dentista dos', metadata: {}, created_at: '2026-09-02T00:00:00Z', deleted_at: null },
+                    { id: 'm3', conversation_id: 'conv-1', sender_id: 'u1', content: 'dentista tres', metadata: {}, created_at: '2026-09-03T00:00:00Z', deleted_at: null },
+                ],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveMessages({ actorUserId: 'u1', conversationId: 'conv-1', query: 'dentista' }, 2);
+        expect(results).toHaveLength(2);
+    });
+});
+
+describe('M-1C: retrieveContext — orquestación con query', () => {
+    it('propaga query a commitments y messages, agregando textRank al resultado', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{
+                data: [{ id: 'cm1', title: 'Agendar cita con el dentista', description: null, status: 'accepted', type: 'task', priority: null, due_at: null, proposed_due_at: null, expected_result: null, resolved_at: null, resolution_result: null, rejection_reason: null, owner_user_id: 'u1', assigned_to_user_id: null, counterparty_contact_id: null, conversation_id: null, message_id: null, created_at: '2026-09-01T00:00:00Z' }],
+                error: null,
+            }],
+            conversation_participants: [{ data: [], error: null }], // universo de conversaciones del actor para messages (vacío -> [])
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveContext } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveContext({ actorUserId: 'u1', query: 'dentista', types: ['commitment', 'message'] });
+        expect(result.query).toBe('dentista');
+        expect(result.commitments[0].textRank).toBeGreaterThan(0);
+        expect(result.messages).toEqual([]); // el actor no tiene conversaciones propias en este fixture
+    });
+});
+
+describe('M-1C: multi-idioma, códigos y sin resultados (contrato genérico, no vocabulario especial)', () => {
+    it('el proxy de ranking cuenta términos en inglés igual que en español (sin privilegiar ningún idioma)', async () => {
+        const { computeTextRankProxy } = await import('../src/services/retrieval.service');
+        expect(computeTextRankProxy('the birthday meeting is confirmed, birthday plans set', 'birthday')).toBe(2);
+    });
+
+    it('hasExactPhrase funciona igual sobre frases en inglés', async () => {
+        const { hasExactPhrase } = await import('../src/services/retrieval.service');
+        expect(hasExactPhrase('let us confirm the birthday dinner tonight', 'birthday dinner')).toBe(true);
+    });
+
+    it('textQuery inexistente devuelve [] sin error, no un caso especial', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        const results = await retrieveCommitments({ actorUserId: 'u1', query: 'palabraQueNoExisteJamas' }, 20);
+        expect(results).toEqual([]);
+    });
+});
+
+// ─── M-1C.1: contrato real de prefix vs typo/fuzzy — verificación ───────────
+// M-1C afirmaba (incorrectamente) que "prefix matching ya cubre los ejemplos
+// de typo del ticket". Verificado contra Postgres real (ver
+// backend/tests/postgres/fullTextRetrieval.integration.sql) que:
+//   (a) prefix (`termino:*`) SÍ existe en Postgres, pero el SERVICIO nunca lo
+//       usa — las 4 llamadas reales usan { type: 'websearch' }, que no agrega
+//       ':*' a ningún término;
+//   (b) prefix y typo/fuzzy son capacidades DISTINTAS — un typo real (letra
+//       faltante) no matchea NI SIQUIERA con prefijo.
+// Estos tests, contra el MOCK, documentan el contrato de CONSTRUCCIÓN de
+// query (qué se le pasa realmente a textSearch) — la verificación de
+// MATCHING real vive en la integración Postgres, donde @@ se evalúa de
+// verdad; el mock no simula tsvector.
+describe('M-1C.1: contrato real — el servicio nunca construye queries de prefijo/fuzzy', () => {
+    it('retrieveCommitments pasa el textQuery LITERAL a textSearch — sin agregar ":*" ni transformar el término', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1', query: 'presup' }, 20);
+        const [[, query, options]] = mock.getTextSearchCalls('commitments');
+        expect(query).toBe('presup'); // literal, sin ':*' agregado
+        expect(options).toEqual({ type: 'websearch', config: 'ping_text' }); // websearch, NO prefijo
+    });
+
+    it('retrieveMessages (dentro de conversación) pasa el textQuery literal, sin wildcard', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            messages: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMessages } = await import('../src/services/retrieval.service');
+
+        await retrieveMessages({ actorUserId: 'u1', conversationId: 'conv-1', query: 'meet' }, 30);
+        const [[, query, options]] = mock.getTextSearchCalls('messages');
+        expect(query).toBe('meet');
+        expect(options).toEqual({ type: 'websearch', config: 'ping_text' });
+    });
+
+    it('retrieveTranscriptions pasa el textQuery literal, sin wildcard', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            attachments: [{ data: [{ id: 'att1', message_id: 'm1' }], error: null }],
+            audio_transcriptions: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveTranscriptions } = await import('../src/services/retrieval.service');
+
+        await retrieveTranscriptions('u1', 'conv-1', 10, undefined, 'presup');
+        const [[, query, options]] = mock.getTextSearchCalls('audio_transcriptions');
+        expect(query).toBe('presup');
+        expect(options).toEqual({ type: 'websearch', config: 'ping_text' });
+    });
+
+    // Nota: la verificación de MATCHING real (¿"presup" encuentra "presupuesto"
+    // a través de este camino? -> NO, verificado en la integración Postgres,
+    // sección "M-1C.1 (c) CONTRATO REAL") no es reproducible aquí porque el
+    // mock no evalúa tsvector — sólo registra qué se le pidió a Postgres.
+});
