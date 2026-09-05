@@ -3,7 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIn
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../../theme/ThemeContext';
-import * as Calendar from 'expo-calendar';
+// SDK 57: la API funcional clásica (getCalendarsAsync/EntityTypes/Calendar
+// type) se movió al subpath /legacy -- el import raíz ahora expone la
+// "Next API" basada en clases. Sin cambio de comportamiento, sólo de ruta.
+import * as Calendar from 'expo-calendar/legacy';
 import { API_URL } from '../../api/client';
 import { supabase } from '../../lib/supabase';
 import { useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../../api/queries';

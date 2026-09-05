@@ -7,7 +7,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAskPing, useAIHealth, useAIHistory, useClearAIHistory } from '../api/queries';
-import { Audio } from 'expo-av';
+// SDK 57 hotfix: expo-av retirado de Expo Go -- migrado a expo-audio.
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import { uploadToSupabase } from '../lib/upload';
 import AudioPlayer from '../components/AudioPlayer';
 import { normalizeAssistantText } from '../utils/aiPresentation';
@@ -52,7 +53,7 @@ export default function PingAIScreen({ navigation }: any) {
         }
     }, [historyData]);
 
-    const [recording, setRecording] = useState<Audio.Recording | null>(null);
+    const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
     const [isRecording, setIsRecording] = useState(false);
     const [sendingMedia, setSendingMedia] = useState(false);
 
@@ -98,19 +99,17 @@ export default function PingAIScreen({ navigation }: any) {
     };
 
     const startRecording = async () => {
-        if (isRecording || recording) return;
+        if (isRecording) return;
         try {
-            const { status } = await Audio.requestPermissionsAsync();
-            if (status !== 'granted') {
+            const { granted } = await requestRecordingPermissionsAsync();
+            if (!granted) {
                 Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
                 return;
             }
-            await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+            await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
-            const { recording: rec } = await Audio.Recording.createAsync(
-                Audio.RecordingOptionsPresets.HIGH_QUALITY
-            );
-            setRecording(rec);
+            await recorder.prepareToRecordAsync();
+            recorder.record();
             setIsRecording(true);
         } catch (e) {
             console.error('[AI Audio]', e);
@@ -119,12 +118,11 @@ export default function PingAIScreen({ navigation }: any) {
     };
 
     const stopRecording = async () => {
-        if (!recording || !isRecording) return;
+        if (!isRecording) return;
         setIsRecording(false);
         try {
-            await recording.stopAndUnloadAsync();
-            const uri = recording.getURI();
-            setRecording(null);
+            await recorder.stop();
+            const uri = recorder.uri;
             if (!uri) return;
 
             setSendingMedia(true);
@@ -138,7 +136,6 @@ export default function PingAIScreen({ navigation }: any) {
             }
         } catch (e) {
             console.error('[AI Audio stop]', e);
-            setRecording(null);
         }
     };
 

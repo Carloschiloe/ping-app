@@ -13,6 +13,9 @@
     "**/*.tsx"
   ],
   "exclude": [
-    "tests"
+    "tests",
+    "app",
+    "components",
+    "hooks"
   ]
 }

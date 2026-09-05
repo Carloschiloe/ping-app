@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-av';
+// SDK 57 hotfix: expo-av retirado de Expo Go -- sólo se usaba aquí para el
+// permiso de micrófono, migrado a expo-audio.
+import { requestRecordingPermissionsAsync } from 'expo-audio';
 import { Camera } from 'expo-camera';
 import { apiClient } from '../api/client';
 import { supabase } from '../lib/supabase';
@@ -59,7 +61,7 @@ const CallScreen = ({ route, navigation }: any) => {
     }, [conversationId, navigation]);
 
     const ensurePermissions = React.useCallback(async () => {
-        const microphone = await Audio.requestPermissionsAsync();
+        const microphone = await requestRecordingPermissionsAsync();
         if (!microphone.granted) {
             throw new Error('Debes permitir el micrófono para realizar llamadas.');
         }
@@ -175,7 +177,7 @@ const CallScreen = ({ route, navigation }: any) => {
             <WebView
                 ref={webviewRef}
                 source={{ uri: callUrl }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 mediaPlaybackRequiresUserAction={false}
                 allowsInlineMediaPlayback
                 javaScriptEnabled

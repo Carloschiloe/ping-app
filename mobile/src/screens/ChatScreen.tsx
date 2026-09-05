@@ -3,7 +3,7 @@ import {
     View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
     StatusBar, Image, Alert, TouchableOpacity, Animated, Linking, Modal
 } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -99,6 +99,17 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const [selectedMsg, setSelectedMsg] = useState<any>(null);
     const [replyingToMsg, setReplyingToMsg] = useState<any>(null);
     const [viewerMedia, setViewerMedia] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
+    const viewerVideoPlayer = useVideoPlayer(null);
+
+    useEffect(() => {
+        if (viewerMedia?.type === 'video') {
+            viewerVideoPlayer.replace(viewerMedia.url);
+            viewerVideoPlayer.play();
+        } else {
+            viewerVideoPlayer.pause();
+        }
+    }, [viewerMedia, viewerVideoPlayer]);
+
     const [summary, setSummary] = useState<string | null>(null);
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
@@ -814,7 +825,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 <Modal visible={!!viewerMedia} transparent animationType="fade" onRequestClose={() => setViewerMedia(null)}>
                     <View style={styles.viewerBackdrop}>
                         {viewerMedia?.type === 'video' ? (
-                            <Video source={{ uri: viewerMedia.url }} style={styles.viewerImage} useNativeControls shouldPlay resizeMode={ResizeMode.CONTAIN} />
+                            <VideoView player={viewerVideoPlayer} style={styles.viewerImage} nativeControls contentFit="contain" />
                         ) : (
                             <TouchableOpacity style={{ flex: 1, width: '100%' }} activeOpacity={1} onPress={() => setViewerMedia(null)}>
                                 <Image source={{ uri: viewerMedia?.url || '' }} style={styles.viewerImage} resizeMode="contain" />

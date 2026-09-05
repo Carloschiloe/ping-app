@@ -62,7 +62,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
 
 const styles = StyleSheet.create({
     container: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: '#f9fafb',
         justifyContent: 'center',
         alignItems: 'center',

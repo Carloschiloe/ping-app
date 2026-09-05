@@ -144,7 +144,8 @@ const AppContent = () => {
         <>
             <BackendBanner />
             <AppNavigator />
-            <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={theme.colors.background} />
+            {/* SDK 57: expo-status-bar ya no acepta backgroundColor (Android es edge-to-edge por defecto ahora) -- sólo el estilo de contenido sigue siendo configurable. */}
+            <StatusBar style={isDark ? 'light' : 'dark'} />
             {isLocked && <LockScreen onUnlock={handleUnlock} />}
         </>
     );

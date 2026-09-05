@@ -475,7 +475,7 @@ const styles = StyleSheet.create({
     flex: { flex: 1 },
     background: { flex: 1 },
     safeArea: { flex: 1 },
-    decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', pointerEvents: 'none' },
+    decorations: { ...StyleSheet.absoluteFill, overflow: 'hidden', pointerEvents: 'none' },
     fill: { flex: 1, borderRadius: 999 },
     topBlob: {
         position: 'absolute',
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     brand: { alignItems: 'center', marginBottom: 18 },
     brandCompact: { marginBottom: 10 },
     logoCanvas: { position: 'relative', alignSelf: 'center' },
-    signal: { ...StyleSheet.absoluteFillObject },
+    signal: { ...StyleSheet.absoluteFill },
     bubble: {
         position: 'absolute',
         width: 72,

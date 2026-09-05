@@ -127,7 +127,7 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
         <View style={styles.container}>
             <LinearGradient
                 colors={isVideo ? ['#0f172a', '#1e1b4b', '#0f172a'] : ['#0d2137', '#0f4c75', '#0d2137']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
             />
 
             <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>

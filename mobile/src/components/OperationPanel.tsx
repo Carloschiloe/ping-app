@@ -781,7 +781,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         justifyContent: 'flex-end',
     },
     modalBackdrop: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
     },
     sheetHost: {
         flex: 1,

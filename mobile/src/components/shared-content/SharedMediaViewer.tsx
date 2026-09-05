@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
-import { ResizeMode, Video } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import type { SharedContentItem } from '../../types/sharedContent';
 import { useSharedContentUrl } from '../../hooks/useSharedContentUrl';
 import { useAppTheme } from '../../theme/ThemeContext';
@@ -23,6 +23,19 @@ function VisualPage({ item, active, width }: { item: SharedContentItem; active: 
     const { url, state, refresh } = useSharedContentUrl(item, active);
     const scale = useRef(new Animated.Value(1)).current;
     const onPinch = Animated.event([{ nativeEvent: { scale } }], { useNativeDriver: true });
+    const isVideo = item.type === 'video';
+    const player = useVideoPlayer(isVideo ? (url ?? null) : null);
+
+    useEffect(() => {
+        if (!isVideo || !url) return;
+        player.replace(url);
+    }, [isVideo, url, player]);
+
+    useEffect(() => {
+        if (!isVideo) return;
+        if (active) player.play();
+        else player.pause();
+    }, [isVideo, active, player]);
 
     if (state === 'loading' || !active) {
         return <View style={[styles.page, { width }]}>{active && <ActivityIndicator color={theme.colors.white} />}</View>;
@@ -36,8 +49,8 @@ function VisualPage({ item, active, width }: { item: SharedContentItem; active: 
             </View>
         );
     }
-    if (item.type === 'video') {
-        return <View style={[styles.page, { width }]}><Video source={{ uri: url }} style={styles.media} useNativeControls resizeMode={ResizeMode.CONTAIN} shouldPlay={active} /></View>;
+    if (isVideo) {
+        return <View style={[styles.page, { width }]}><VideoView player={player} style={styles.media} nativeControls contentFit="contain" /></View>;
     }
     return (
         <PinchGestureHandler

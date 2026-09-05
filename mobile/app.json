@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -27,7 +26,6 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false
     },
@@ -69,7 +67,21 @@
           "microphonePermission": "Ping necesita acceso a tu micrófono para las llamadas."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Ping necesita acceso a tu micrófono para las llamadas.",
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-router",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-video"
     ],
     "experiments": {
       "reactCompiler": false

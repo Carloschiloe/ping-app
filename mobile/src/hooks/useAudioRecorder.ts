@@ -1,6 +1,12 @@
-import { useRef, useState } from 'react';
-import { Audio } from 'expo-av';
+import { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import {
+    RecordingPresets,
+    requestRecordingPermissionsAsync,
+    setAudioModeAsync,
+    useAudioRecorder as useExpoAudioRecorder,
+    useAudioRecorderState,
+} from 'expo-audio';
 import {
     PrivateMessageAttachment,
     uploadPrivateMessageAttachment,
@@ -14,40 +20,52 @@ interface UseAudioRecorderProps {
     setSendingMedia: (sending: boolean) => void;
 }
 
+// SDK 57 hotfix: migrado de expo-av (Audio.Recording, retirado de Expo Go en
+// SDK 57 -- "Cannot find native module 'ExponentAV'") a expo-audio, la
+// librería oficial de reemplazo. RecordingPresets.HIGH_QUALITY produce el
+// MISMO formato .m4a/AAC que antes (verificado en el código fuente instalado
+// de expo-audio) -- sin cambio de contrato con el backend/Whisper. El
+// contrato público de este hook (nombres y forma del objeto devuelto) se
+// preserva sin cambios para no tocar a los consumidores (ChatScreen.tsx).
 export function useAudioRecorder({ conversationId, onAudioSent, onRecordingStateChange, setSendingMedia }: UseAudioRecorderProps) {
-    const [recording, setRecording] = useState<Audio.Recording | null>(null);
+    const recorder = useExpoAudioRecorder(RecordingPresets.HIGH_QUALITY);
+    // Polling reactivo de expo-audio (reemplaza el callback manual
+    // setOnRecordingStatusUpdate de expo-av) -- misma cadencia (250ms) que
+    // el código anterior.
+    const recorderState = useAudioRecorderState(recorder, 250);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingUri, setRecordingUri] = useState<string | null>(null);
     const [recordingDurationMs, setRecordingDurationMs] = useState(0);
     const recordingDurationRef = useRef(0);
 
+    // Mismo workaround ya certificado (sección 7 del ticket, bug real
+    // conocido): Expo puede reportar duración 0 al detener aunque el
+    // progreso ya haya observado tiempo transcurrido válido -- se conserva
+    // la última duración observada mientras se graba.
+    useEffect(() => {
+        if (!recorderState.isRecording) return;
+        const observedDuration = resolveRecordingDurationMs(
+            recorderState.durationMillis,
+            recordingDurationRef.current,
+        );
+        if (observedDuration !== undefined) {
+            recordingDurationRef.current = observedDuration;
+            setRecordingDurationMs(observedDuration);
+        }
+    }, [recorderState.durationMillis, recorderState.isRecording]);
+
     const startRecording = async () => {
-        if (isRecording || recording) return;
+        if (isRecording) return;
         try {
-            const { status } = await Audio.requestPermissionsAsync();
-            if (status !== 'granted') {
+            const { granted } = await requestRecordingPermissionsAsync();
+            if (!granted) {
                 Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
                 return;
             }
-            await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+            await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
-            const { recording: rec } = await Audio.Recording.createAsync(
-                Audio.RecordingOptionsPresets.HIGH_QUALITY
-            );
-            rec.setProgressUpdateInterval(250);
-            rec.setOnRecordingStatusUpdate((recordingStatus) => {
-                if (recordingStatus.isRecording) {
-                    const observedDuration = resolveRecordingDurationMs(
-                        recordingStatus.durationMillis,
-                        recordingDurationRef.current,
-                    );
-                    if (observedDuration !== undefined) {
-                        recordingDurationRef.current = observedDuration;
-                        setRecordingDurationMs(observedDuration);
-                    }
-                }
-            });
-            setRecording(rec);
+            await recorder.prepareToRecordAsync();
+            recorder.record();
             recordingDurationRef.current = 0;
             setRecordingDurationMs(0);
             setIsRecording(true);
@@ -61,20 +79,20 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
     };
 
     const stopRecording = async () => {
-        if (!recording || !isRecording) return;
+        if (!isRecording) return;
         setIsRecording(false);
         onRecordingStateChange?.(false);
 
         try {
-            const finalStatus = await recording.stopAndUnloadAsync();
+            await recorder.stop();
+            const finalStatus = recorder.getStatus();
             const durationMs = resolveRecordingDurationMs(
                 finalStatus.durationMillis,
                 recordingDurationRef.current,
             );
             recordingDurationRef.current = durationMs ?? 0;
             setRecordingDurationMs(durationMs ?? 0);
-            const uri = recording.getURI();
-            setRecording(null);
+            const uri = recorder.uri;
 
             if (!uri) return;
 
@@ -82,7 +100,6 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             setRecordingUri(uri);
         } catch (e) {
             console.error('[Audio stop]', e);
-            setRecording(null);
             setSendingMedia(false);
         }
     };
@@ -124,7 +141,6 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
 
     return {
         isRecording,
-        recording,
         recordingUri,
         recordingDurationMs,
         startRecording,

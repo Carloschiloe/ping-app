@@ -4,7 +4,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
@@ -28,6 +28,20 @@ function buildDirectionsUrl(lat: number, lng: number) {
     if (Platform.OS === 'ios') return `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`;
     return `google.navigation:q=${lat},${lng}`;
 }
+
+/** Vista previa muda de video en la lista de mensajes. Componente separado y memoizado para no crear un VideoPlayer nativo por cada mensaje (solo se monta cuando el mensaje es de video). */
+const InlineVideoThumbnail = React.memo(function InlineVideoThumbnail({
+    uri,
+    style,
+}: {
+    uri: string;
+    style: object;
+}) {
+    const player = useVideoPlayer(uri, (p) => {
+        p.muted = true;
+    });
+    return <VideoView player={player} style={style} nativeControls={false} contentFit="cover" />;
+});
 
 /** Regex matching http/https URLs within text (same pattern as backend link extractor). */
 const URL_REGEX = /(https?:\/\/[^\s<>"'()]+)/g;
@@ -450,14 +464,7 @@ const MessageItemComponent = ({
                         ) : isVideo && mediaUrl ? (
                             <View>
                                 <View style={styles.inlineVideoWrap} pointerEvents="none">
-                                    <Video
-                                        source={{ uri: mediaUrl as string }}
-                                        style={styles.msgImage}
-                                        useNativeControls={false}
-                                        shouldPlay={false}
-                                        isMuted={true}
-                                        resizeMode={ResizeMode.COVER}
-                                    />
+                                    <InlineVideoThumbnail uri={mediaUrl as string} style={styles.msgImage} />
                                     <View style={styles.videoPlayOverlay}>
                                         <Ionicons name="play-circle" size={48} color={theme.colors.white} />
                                     </View>
@@ -621,7 +628,7 @@ const MessageItemComponent = ({
                     )}
                 </View>
                 {highlightedMsgId === item.id && (
-                    <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
+                    <Animated.View style={{ ...StyleSheet.absoluteFill, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
                 )}
             </View>{(() => {
                 const tasks = groupTasks.filter((t: any) => t.message_id === item.id);

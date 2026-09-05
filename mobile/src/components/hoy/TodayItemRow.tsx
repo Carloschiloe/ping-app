@@ -186,7 +186,7 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
             {/* Android menu fallback */}
             {Platform.OS !== 'ios' && menuVisible && (
                 <TouchableOpacity
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     activeOpacity={1}
                     onPress={() => setMenuVisible(false)}
                 >

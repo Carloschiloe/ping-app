@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Audio } from 'expo-av';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
 import { getAudioMessagePalette } from '../utils/messagePresentation';
@@ -12,53 +12,42 @@ interface AudioPlayerProps {
     transcript?: string;
 }
 
+// SDK 57 hotfix: migrado de expo-av (Audio.Sound, retirado de Expo Go en SDK
+// 57) a expo-audio. `useAudioPlayer` libera el player automáticamente al
+// desmontar (antes requería un useEffect manual con unloadAsync) y
+// `useAudioPlayerStatus` refleja `playing` de forma reactiva -- ya no hace
+// falta un listener manual para saber cuándo terminó la reproducción.
 export default function AudioPlayer({ url, isMe = false, style, transcript }: AudioPlayerProps) {
     const { theme } = useAppTheme();
     const palette = getAudioMessagePalette(isMe, theme.colors);
-    const [sound, setSound] = useState<Audio.Sound | null>(null);
-    const [playing, setPlaying] = useState(false);
+    const player = useAudioPlayer(url);
+    const status = useAudioPlayerStatus(player);
 
     const toggle = async () => {
-        if (playing && sound) {
-            await sound.stopAsync();
-            setPlaying(false);
+        if (status.playing) {
+            player.pause();
             return;
         }
 
         try {
             // Fix: ensure audio plays through speaker and ignores silent switch
-            await Audio.setAudioModeAsync({
-                allowsRecordingIOS: false,
-                playsInSilentModeIOS: true,
-                staysActiveInBackground: false,
-                shouldDuckAndroid: true,
-                playThroughEarpieceAndroid: false,
+            await setAudioModeAsync({
+                allowsRecording: false,
+                playsInSilentMode: true,
+                shouldPlayInBackground: false,
+                interruptionMode: 'duckOthers',
+                shouldRouteThroughEarpiece: false,
             });
-
-            const { sound: s } = await Audio.Sound.createAsync({ uri: url });
-            setSound(s);
-            setPlaying(true);
-            await s.playAsync();
-            s.setOnPlaybackStatusUpdate((status: any) => {
-                if (status.didJustFinish) { setPlaying(false); }
-            });
+            player.play();
         } catch (error) {
             console.error('[AudioPlayer] play error:', error);
         }
     };
 
-    useEffect(() => {
-        return () => {
-            if (sound) {
-                sound.unloadAsync();
-            }
-        };
-    }, [sound]);
-
     return (
         <View style={style}>
             <TouchableOpacity style={styles.audioPlayer} onPress={toggle}>
-                <Ionicons name={playing ? 'pause-circle' : 'play-circle'} size={32} color={palette.iconColor} />
+                <Ionicons name={status.playing ? 'pause-circle' : 'play-circle'} size={32} color={palette.iconColor} />
                 <View style={styles.audioWave}>
                     {[...Array(12)].map((_, i) => (
                         <View key={i} style={[
@@ -66,13 +55,13 @@ export default function AudioPlayer({ url, isMe = false, style, transcript }: Au
                             {
                                 backgroundColor: palette.waveColor,
                                 height: 4 + Math.random() * 14,
-                                opacity: playing ? 0.9 : 0.55,
+                                opacity: status.playing ? 0.9 : 0.55,
                             },
                         ]} />
                     ))}
                 </View>
                 <Text style={[styles.audioLabel, { color: palette.labelColor }]}>
-                    {playing ? 'Detener' : 'Audio'}
+                    {status.playing ? 'Detener' : 'Audio'}
                 </Text>
             </TouchableOpacity>
             {transcript && (

@@ -235,7 +235,7 @@ export function CommitmentRow({
 
             {/* Android menu fallback */}
             {Platform.OS !== 'ios' && menuVisible && (
-                <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setMenuVisible(false)}>
+                <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setMenuVisible(false)}>
                     <View style={[styles.androidMenu, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenDetail(c); }}>
                             <Ionicons name="information-circle-outline" size={16} color={theme.colors.text.primary} />
