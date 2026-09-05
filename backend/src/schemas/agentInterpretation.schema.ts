@@ -66,6 +66,24 @@ export const agentInterpretationPayloadSchema = z.object({
     ).default({ status: null, statusBasis: null }),
     attachmentKindHints: z.array(z.enum(ATTACHMENT_KIND_VALUES)).max(4).default([]),
     ambiguityHints: z.array(z.enum(AMBIGUITY_HINT_VALUES)).max(3).default([]),
+    // M-1G.1 — hallazgo real de staging (M-1G-S2): "¿Qué tengo vencido?" no
+    // disparaba ningún filtro de status (ni "vencido" ni "overdue" estaban en
+    // el vocabulario), y aunque el commitment correcto llegara como
+    // evidencia, la síntesis no tenía forma de saber que la pregunta era
+    // ESPECÍFICAMENTE sobre vencimiento (vs. "pendientes" en general) para
+    // poder garantizar que se mencione. Señal explícita y separada de
+    // `commitmentFilterHints` (que ya mapea "vencido" a status "open" — algo
+    // vencido siempre es, además, no resuelto): esto sólo indica que el
+    // guard determinístico de vencidos (agentResponseSynthesizer) debe
+    // activarse.
+    wantsOverdueFocus: z.boolean().default(false),
+    // M-1G.1 — hallazgo real de staging (M-1G-S2, Caso F): "Crea un
+    // compromiso para llamar a Alejandra" caía en no_evidence ("no encontré
+    // nada relacionado"), técnicamente seguro pero confuso -- el problema
+    // real era una petición de escritura, no falta de evidencia. true
+    // cuando el texto pide una ACCIÓN (crear/cancelar/enviar/modificar/
+    // borrar), nunca cuando sólo pregunta/consulta algo.
+    isWriteActionRequest: z.boolean().default(false),
 });
 
 export type AgentInterpretationPayload = z.infer<typeof agentInterpretationPayloadSchema>;

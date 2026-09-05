@@ -483,3 +483,89 @@ describe('M-1D.1: cost control (sección 25)', () => {
         expect(model.interpret).toHaveBeenCalledTimes(1);
     });
 });
+
+// M-1G.1 — hallazgo real de staging (M-1G-S2, Caso E): "vencido"/"overdue" no
+// disparaba ningún filtro de status ni ninguna señal para el guard de
+// síntesis. Certifica ambos intérpretes (determinístico y LLM->mapping).
+describe('M-1G.1: reconocimiento de "vencido"/"overdue"', () => {
+    it('DeterministicInputInterpreter: "vencido" mapea a statusHints open + wantsOverdueFocus=true', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        expect(result.wantsOverdueFocus).toBe(true);
+    });
+
+    it('DeterministicInputInterpreter: "atrasado"/"overdue"/"past due" también activan wantsOverdueFocus', async () => {
+        for (const phrase of ['¿Qué tengo atrasado?', 'What is overdue?', 'Anything past due?']) {
+            const result = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect(result.wantsOverdueFocus).toBe(true);
+        }
+    });
+
+    it('DeterministicInputInterpreter: "pendientes" (sin vencido/overdue) NO activa wantsOverdueFocus', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué pendientes tengo?', {});
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        expect(result.wantsOverdueFocus).toBe(false);
+    });
+
+    it('LlmInputInterpreter: mapea payload.wantsOverdueFocus=true a Interpretation.wantsOverdueFocus', async () => {
+        const model = fakeModel(validPayload({ wantsOverdueFocus: true, commitmentFilterHints: { status: 'open', statusBasis: 'explicit' } }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué tengo vencido?', {});
+        expect(result.wantsOverdueFocus).toBe(true);
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+    });
+
+    it('LlmInputInterpreter: payload sin wantsOverdueFocus (ausente) -> default false, nunca undefined/crash', async () => {
+        const model = fakeModel(validPayload()); // validPayload() no incluye wantsOverdueFocus -> lo rellena el schema zod default(false)
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué hablamos del viaje?', {});
+        expect(result.wantsOverdueFocus).toBe(false);
+    });
+
+    it('fallbackInterpretation: detecta "vencido" incluso en el camino de última red de seguridad', async () => {
+        const { fallbackInterpretation } = await import('../src/services/agentInputInterpreter.service');
+        const result = fallbackInterpretation('¿Qué tengo vencido?', 'interpreter_threw');
+        expect(result.wantsOverdueFocus).toBe(true);
+    });
+});
+
+// M-1G.1 — hallazgo real de staging (M-1G-S2, Caso F): "Crea un compromiso
+// para llamar a Alejandra" caía en no_evidence confuso. Certifica que la
+// señal de petición de escritura se detecta y se distingue de una consulta.
+describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', () => {
+    it('DeterministicInputInterpreter: "Crea un compromiso..." -> isWriteActionRequest=true', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('Crea un compromiso para llamar a Alejandra por favor', {});
+        expect(result.isWriteActionRequest).toBe(true);
+    });
+
+    it('DeterministicInputInterpreter: "Envíale a Laura que llegaré tarde" -> isWriteActionRequest=true', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('Envíale a Laura que llegaré tarde', {});
+        expect(result.isWriteActionRequest).toBe(true);
+    });
+
+    it('DeterministicInputInterpreter: verbos EN (create/cancel/send/modify/delete) -> isWriteActionRequest=true', async () => {
+        for (const phrase of ['Create a commitment to call Alejandra', 'Cancel my meeting', 'Send a message to Laura', 'Modify the due date', 'Delete this commitment']) {
+            const result = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect(result.isWriteActionRequest).toBe(true);
+        }
+    });
+
+    it('DeterministicInputInterpreter: una CONSULTA sobre el mismo tema nunca activa isWriteActionRequest', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué le prometí a Laura?', {});
+        expect(result.isWriteActionRequest).toBe(false);
+    });
+
+    it('LlmInputInterpreter: mapea payload.isWriteActionRequest=true', async () => {
+        const model = fakeModel(validPayload({ isWriteActionRequest: true }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Crea un compromiso para llamar a Alejandra', {});
+        expect(result.isWriteActionRequest).toBe(true);
+    });
+
+    it('LlmInputInterpreter: payload sin isWriteActionRequest (ausente) -> default false', async () => {
+        const model = fakeModel(validPayload());
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué hablamos del viaje?', {});
+        expect(result.isWriteActionRequest).toBe(false);
+    });
+});

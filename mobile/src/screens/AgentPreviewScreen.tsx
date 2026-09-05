@@ -33,6 +33,14 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const [inputText, setInputText] = useState('');
     const [isSlow, setIsSlow] = useState(false);
     const [citationsSheetFor, setCitationsSheetFor] = useState<AgentChatMessage | null>(null);
+    // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
+    // el header NATIVO más alto de ChatScreen; el header custom de esta
+    // pantalla es más corto, y en dispositivos con inset superior grande
+    // (Dynamic Island) 90 quedaba por debajo del espacio real ocupado arriba
+    // del KeyboardAvoidingView -- el composer terminaba parcialmente tapado
+    // por el teclado. Se mide la altura real del header en runtime en vez de
+    // asumir un número fijo compartido con otra pantalla.
+    const [headerHeight, setHeaderHeight] = useState(0);
     const listRef = useRef<FlatList>(null);
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,7 +113,13 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     )}
 
                     {!isUser && citationsSummary && (
-                        <TouchableOpacity onPress={() => setCitationsSheetFor(item)} style={styles.citationsBtn}>
+                        <TouchableOpacity
+                            onPress={() => setCitationsSheetFor(item)}
+                            style={styles.citationsBtn}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Ver ${citationsSummary}`}
+                        >
                             <Text style={styles.citationsText}>{citationsSummary}</Text>
                         </TouchableOpacity>
                     )}
@@ -124,7 +138,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
             <StatusBar barStyle={theme.isDark ? 'light-content' : 'light-content'} />
 
-            <View style={styles.header}>
+            <View style={styles.header} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Volver">
                     <Ionicons name="arrow-back" size={24} color={theme.colors.white} />
                 </TouchableOpacity>
@@ -138,7 +152,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
             <KeyboardAvoidingView
                 style={styles.keyboardArea}
                 behavior={getChatKeyboardBehavior(Platform.OS)}
-                keyboardVerticalOffset={getChatKeyboardOffset(Platform.OS, insets.bottom)}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + headerHeight : getChatKeyboardOffset(Platform.OS, insets.bottom)}
             >
                 {messages.length === 0 ? (
                     <View style={styles.emptyState}>
@@ -252,7 +266,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
         },
         optionChipText: { color: theme.colors.accent, fontSize: 13, fontWeight: '600' },
 
-        citationsBtn: { marginTop: 8, alignSelf: 'flex-start' },
+        citationsBtn: { marginTop: 8, alignSelf: 'flex-start', paddingVertical: 4 },
         citationsText: { fontSize: 12, color: theme.colors.text.muted, textDecorationLine: 'underline' },
 
         retryBtn: { marginTop: 8, alignSelf: 'flex-start' },

@@ -316,11 +316,21 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         );
     }, [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
 
+    // M-1G.1 fix — TouchableOpacity's legacy Touchable mixin fires `onPress`
+    // AGAIN on release right after a successful `onLongPress` (well-known RN
+    // behavior, not a bug in this component). Without this guard, a
+    // long-press pushed BOTH 'PingAI' (ghost onPress) and 'AgentPreview'
+    // (menu choice) onto the stack, so the preview's back button landed on
+    // legacy Ping AI instead of Chats. This ref suppresses that one ghost
+    // press without touching Touchable semantics anywhere else.
+    const suppressPingAIPressRef = React.useRef(false);
+
     // M-1G — entrada discreta al preview del nuevo Agent (read-only): NO
     // reemplaza el botón ✨ (Ping AI legacy sigue en el tap normal), sólo se
     // ofrece detrás de un long-press, mismo patrón de ActionSheetIOS/Alert
     // ya usado para "Nuevo chat/Nuevo grupo" arriba.
     const handleOpenAgentMenu = React.useCallback(() => {
+        suppressPingAIPressRef.current = true;
         const items: { label: string; onPress: () => void }[] = [
             { label: 'Ping AI (actual)', onPress: () => navigation.navigate('PingAI') },
             { label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') },
@@ -411,7 +421,13 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.headerIconBtn}
-                                onPress={() => navigation.navigate('PingAI')}
+                                onPress={() => {
+                                    if (suppressPingAIPressRef.current) {
+                                        suppressPingAIPressRef.current = false;
+                                        return;
+                                    }
+                                    navigation.navigate('PingAI');
+                                }}
                                 onLongPress={handleOpenAgentMenu}
                                 accessibilityRole="button"
                                 accessibilityLabel="Abrir Ping AI. Mantén presionado para el preview del nuevo Agent"

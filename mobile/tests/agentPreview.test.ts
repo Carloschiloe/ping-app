@@ -255,3 +255,67 @@ describe('M-1G: auditoría estática — coexistencia legacy, sin writes', () =>
         expect(apiSource).not.toMatch(/OpenAI|gpt-4o|Claude|Gemini/i);
     });
 });
+
+// M-1G.1 — bugfixes reales de la certificación física en iPhone (M-1G-S2).
+describe('M-1G.1: back button — long-press ya no deja un "onPress" fantasma que apila PingAI', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
+
+    it('el botón ✨ suprime el onPress que sigue a un onLongPress exitoso (comportamiento conocido de TouchableOpacity)', () => {
+        expect(screenSource).toContain('suppressPingAIPressRef');
+        // El guard debe vivir DENTRO del onPress real (leer y resetear el flag), no sólo declarado y nunca usado.
+        const onPressBlock = screenSource.slice(screenSource.indexOf('onPress={() => {'), screenSource.indexOf('onLongPress={handleOpenAgentMenu}'));
+        expect(onPressBlock).toMatch(/if \(suppressPingAIPressRef\.current\)/);
+        expect(onPressBlock).toContain('suppressPingAIPressRef.current = false');
+    });
+
+    it('handleOpenAgentMenu marca el flag ANTES de mostrar el ActionSheet/Alert', () => {
+        const fnBody = screenSource.slice(screenSource.indexOf('const handleOpenAgentMenu'), screenSource.indexOf('const handleOpenCreateSheet'));
+        const flagIdx = fnBody.indexOf('suppressPingAIPressRef.current = true');
+        const sheetIdx = fnBody.indexOf('ActionSheetIOS.showActionSheetWithOptions');
+        expect(flagIdx).toBeGreaterThan(-1);
+        expect(flagIdx).toBeLessThan(sheetIdx);
+    });
+});
+
+describe('M-1G.1: citation tap — área táctil real, no sólo el texto pequeño', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('el TouchableOpacity de citas tiene hitSlop (evita "tocar y no pasa nada" en un texto de 12px)', () => {
+        const citationsBlock = screenSource.slice(screenSource.indexOf('citationsSummary && ('), screenSource.indexOf('citationsSummary && (') + 400);
+        expect(citationsBlock).toContain('hitSlop=');
+        expect(citationsBlock).toContain('onPress={() => setCitationsSheetFor(item)}');
+    });
+
+    it('el modal de fuentes sigue abriendo con las fuentes reales del item tocado (no se rediseñó)', () => {
+        expect(screenSource).toContain("<Modal visible={!!citationsSheetFor}");
+        expect(screenSource).toContain('describeCitationTypes(citationsSheetFor?.citations)');
+    });
+});
+
+describe('M-1G.1: keyboard + offline — el composer ya no depende de un offset fijo ajeno a esta pantalla', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('mide la altura real del header (onLayout) en vez de asumirla', () => {
+        expect(screenSource).toContain('const [headerHeight, setHeaderHeight] = useState(0)');
+        expect(screenSource).toMatch(/onLayout=\{\(e\) => setHeaderHeight\(e\.nativeEvent\.layout\.height\)\}/);
+    });
+
+    it('el offset de teclado en iOS usa insets.top + headerHeight real, no el número fijo compartido con ChatScreen', () => {
+        expect(screenSource).toMatch(/keyboardVerticalOffset=\{Platform\.OS === 'ios' \? insets\.top \+ headerHeight/);
+    });
+
+    it('Android conserva el comportamiento previo (getChatKeyboardOffset) -- el fix es específico de iOS', () => {
+        expect(screenSource).toContain('getChatKeyboardOffset(Platform.OS, insets.bottom)');
+    });
+});
+
+describe('M-1G.1: legacy coexistence — sin cambios de diseño, sólo el fix del onPress fantasma', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
+
+    it('tap normal en ✨ sigue navegando a PingAI (legacy), long-press sigue abriendo el menú del Agent nuevo', () => {
+        expect(screenSource).toContain("navigation.navigate('PingAI')");
+        expect(screenSource).toContain('onLongPress={handleOpenAgentMenu}');
+        expect(screenSource).toContain("{ label: 'Ping AI (actual)', onPress: () => navigation.navigate('PingAI') }");
+        expect(screenSource).toContain("{ label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') }");
+    });
+});

@@ -77,6 +77,18 @@ export interface Interpretation {
     wantsMessages: boolean;
     wantsTranscriptions: boolean;
     wantsAttachments: boolean;
+    // M-1G.1: true sólo cuando el usuario pregunta específicamente por
+    // compromisos vencidos/atrasados (no "pendientes" en general) — activa
+    // el guard determinístico de vencidos en la síntesis (ver
+    // agentResponseSynthesizer.service.ts#enforceOverdueDisclosure).
+    wantsOverdueFocus: boolean;
+    // M-1G.1: true cuando el texto pide una ACCIÓN de escritura (crear,
+    // cancelar, enviar, modificar, borrar...) en vez de una consulta. Este
+    // Agent sigue siendo 100% read-only -- nunca ejecuta la acción -- pero
+    // el builder usa esta señal para responder con un capability_gap claro
+    // en vez de un "no encontré evidencia" confuso (ver
+    // types/agentContext.ts#CapabilityGapType, 'write_action_not_supported').
+    isWriteActionRequest: boolean;
     ambiguityHints: AmbiguityHintType[]; // M-1D.1: señales, nunca una resolución — el builder decide needsClarification
     source: 'deterministic' | 'llm' | 'llm_fallback';
     fallbackReason?: string; // M-1D.1: sólo presente cuando source='llm_fallback' — nunca contenido sensible, sólo la causa (timeout/schema_invalid/api_error/...)
@@ -114,7 +126,13 @@ export interface AgentClarification {
 // ni buscar por una limitación real de infraestructura" (capabilityGap). El
 // futuro Agent necesita esta diferencia para no afirmar falsamente "no
 // evidence" cuando en realidad la búsqueda ni se ejecutó.
-export type CapabilityGapType = 'global_transcription_scope_not_supported' | 'global_attachment_scope_not_supported';
+// M-1G.1: hallazgo real de staging (M-1G-S2, Caso F) — "Crea un compromiso
+// para llamar a Alejandra" caía en no_evidence ("no encontré nada
+// relacionado"), técnicamente seguro (no crea nada) pero semánticamente
+// pobre/confuso: el problema no era falta de evidencia, era una petición de
+// escritura que este Agent (read-only) no soporta. Mismo mecanismo de
+// capability gap ya existente, nunca confundir con "no había evidencia".
+export type CapabilityGapType = 'global_transcription_scope_not_supported' | 'global_attachment_scope_not_supported' | 'write_action_not_supported';
 
 export interface AgentCapabilityGap {
     type: CapabilityGapType;
@@ -146,7 +164,14 @@ export interface AgentContextEntities {
 
 export interface AgentContext {
     input: string;
+    // M-1G.1: el "ahora" real usado para resolver timeExpression, propagado
+    // aquí para que la síntesis pueda calcular "vencido" (dueAt < now) de
+    // forma determinística en vez de esperar que el modelo compare fechas
+    // sin conocer la fecha actual (causa raíz real de M-1G-S2, Caso E).
+    now: string;
     intent: AgentIntent;
+    // M-1G.1: ver Interpretation.wantsOverdueFocus.
+    wantsOverdueFocus: boolean;
     entities: AgentContextEntities;
 
     commitments: RetrievalCommitment[];

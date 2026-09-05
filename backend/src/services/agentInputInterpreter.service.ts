@@ -55,6 +55,12 @@ const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentr
 const RECALL_KEYWORDS = wordBounded('hablamos|habl[óo]\\w*|dijiste|dijo|dijeron|dice|dicen|decidimos|pas[óo]\\w*|talked?|said|says?|told|happened|discussed|decided');
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 const OPEN_STATUS_KEYWORDS = wordBounded('pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved');
+const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
+// M-1G.1 — verbos imperativos de escritura (crear/cancelar/enviar/
+// modificar/borrar), ES+EN, deliberadamente pequeño y genérico (mismo
+// principio que el resto de estos conjuntos). Nunca confundir con verbos de
+// recall ("hablamos", "dijo") ya cubiertos por RECALL_KEYWORDS.
+const WRITE_ACTION_KEYWORDS = wordBounded('crea|crear|agenda|agendar|cancela|cancelar|env[ií]a\\w*|enviar|modifica|modificar|cambia|cambiar|borra|borrar|elimina|eliminar|create|schedule|cancel|send|modify|delete|remove');
 const CLOSED_STATUS_KEYWORDS = wordBounded('resuelt[oa]s?|resolved|cerrad[oa]s?|closed|cancelad[oa]s?|cancelled|canceled|rechazad[oa]s?|rejected');
 const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|tell me about');
 
@@ -149,7 +155,10 @@ function extractTimeExpression(input: string): string | null {
 }
 
 function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
-    if (OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
+    // Algo vencido/atrasado, por definición, sigue sin resolverse -- mismo
+    // filtro que "pendientes/open" (M-1G.1: antes "vencido" no matcheaba
+    // ningún grupo y el filtro de status quedaba null).
+    if (OVERDUE_KEYWORDS.test(input) || OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
     if (CLOSED_STATUS_KEYWORDS.test(input)) {
         const closed: CanonicalCommitmentStatus[] = [];
         if (/resuelt|resolved/i.test(input)) closed.push('resolved');
@@ -199,6 +208,8 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             wantsMessages: true,
             wantsTranscriptions: intent === 'recall' || intent === 'message_search' || wantsAudio,
             wantsAttachments: intent === 'document_search' || DOCUMENT_KEYWORDS.test(trimmed),
+            wantsOverdueFocus: OVERDUE_KEYWORDS.test(trimmed),
+            isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed),
             ambiguityHints: [],
             source: 'deterministic',
         };
@@ -221,6 +232,8 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         wantsMessages: true,
         wantsTranscriptions: false,
         wantsAttachments: false,
+        wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
+        isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input),
         ambiguityHints: [],
         source: 'llm_fallback',
         fallbackReason: reason,
@@ -264,9 +277,11 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
             : 'No specific conversation is known for this request.',
         '"textQuery" is OPTIONAL — set it to null whenever the structured fields (intent, commitmentFilterHints, requestedSources) already fully express the request and there is no independent topic left to filter by. Only set textQuery when the user mentions a substantive topic, subject, project, name, or event to search for. Never set it to a generic word about status or intent itself (e.g. "pending", "commitments", "tasks", "promised"), even if that exact word appears in the text — those already belong in intent/commitmentFilterHints, not textQuery.',
         'Example: "what are my pending commitments this week?" has no independent topic -> textQuery=null. "pending commitments about Project Aurora" has a real topic -> textQuery="Project Aurora".',
-        '"commitmentFilterHints.status" is a SEPARATE, OPTIONAL filter — do NOT set it just because intent is "commitment_query" (intent is the entity TYPE, status is an additional filter on top of it, never implied by the other). Only set a status when you can also set "statusBasis" to justify it: "explicit" if the user used a real state word (pending/open/completed/cancelled/rejected/etc, in any language), or "implied" if the phrasing clearly points to unmet obligations ("what do I still owe", "what\'s left to do") or clearly points to a finished/closed state ("what did I finish", "what did I cancel") WITHOUT naming it. A neutral question about a specific commitment or topic ("what happened with X", "tell me about my commitment with Y", "what did I promise Laura") has NO status signal — leave both "status" and "statusBasis" null. When the closed/past framing points to a SPECIFIC real outcome, use "resolved", "cancelled", or "rejected" instead of the generic "closed".',
-        'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[] for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[]}',
+        '"commitmentFilterHints.status" is a SEPARATE, OPTIONAL filter — do NOT set it just because intent is "commitment_query" (intent is the entity TYPE, status is an additional filter on top of it, never implied by the other). Only set a status when you can also set "statusBasis" to justify it: "explicit" if the user used a real state word (pending/open/completed/cancelled/rejected/overdue/etc, in any language), or "implied" if the phrasing clearly points to unmet obligations ("what do I still owe", "what\'s left to do") or clearly points to a finished/closed state ("what did I finish", "what did I cancel") WITHOUT naming it. A neutral question about a specific commitment or topic ("what happened with X", "tell me about my commitment with Y", "what did I promise Laura") has NO status signal — leave both "status" and "statusBasis" null. When the closed/past framing points to a SPECIFIC real outcome, use "resolved", "cancelled", or "rejected" instead of the generic "closed". A word like "overdue"/"vencido"/"atrasado"/"late"/"past due" (in any language) means status="open" + statusBasis="explicit" (something overdue is, by definition, still unresolved) AND you must ALSO set "wantsOverdueFocus":true.',
+        '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
+        '"isWriteActionRequest" is true when the user is asking to CREATE, CANCEL, SEND, MODIFY, or DELETE something (e.g. "create a commitment", "send a message to X", "cancel my meeting") — this Agent is READ-ONLY and can never perform these actions, so the backend needs this signal to answer honestly ("I can\'t do that yet") instead of a confusing "no evidence found". False for any question/query/consultation, even about the same topic (e.g. "what did I promise Laura" is a query, not an action request).',
+        'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -359,6 +374,8 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         wantsMessages: true,
         wantsTranscriptions: requested.has('transcriptions') || payload.intent === 'recall' || payload.intent === 'message_search',
         wantsAttachments: requested.has('attachments') || payload.intent === 'document_search',
+        wantsOverdueFocus: payload.wantsOverdueFocus,
+        isWriteActionRequest: payload.isWriteActionRequest,
         ambiguityHints: payload.ambiguityHints as AmbiguityHintType[],
         source: 'llm',
         modelUsed: modelName,

@@ -17,7 +17,9 @@ import type { AgentContext } from '../src/types/agentContext';
 function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
     return {
         input: 'test input',
+        now: '2026-09-05T12:00:00Z',
         intent: { type: 'commitment_query', confidence: 0.8 },
+        wantsOverdueFocus: false,
         entities: { people: [], timeRange: null, topics: [], conversationId: null },
         commitments: [],
         events: [],
@@ -351,6 +353,28 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
     });
 });
 
+describe('M-1G.1: write_action_not_supported — nunca afirma haber creado/enviado/cancelado nada', () => {
+    it('respuesta clara en español, nunca "no encontré" confuso, nunca afirma éxito', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [{ type: 'write_action_not_supported', reason: 'x' }] });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Crea un compromiso para llamar a Alejandra por favor', context: ctx, locale: 'es-CL' });
+
+        expect(response.status).toBe('capability_gap');
+        expect(response.answer).toMatch(/todavía no puedo/i);
+        expect(response.answer.toLowerCase()).not.toContain('creé');
+        expect(response.answer.toLowerCase()).not.toContain('listo');
+        expect(model.synthesize).not.toHaveBeenCalled(); // costo cero, mismo patrón que los demás caminos determinísticos
+    });
+
+    it('respuesta clara en inglés cuando locale/input son ingleses', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [{ type: 'write_action_not_supported', reason: 'x' }] });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({ input: 'Create a commitment to call Alejandra', context: ctx, locale: 'en-US' });
+        expect(response.answer).toMatch(/can't create/i);
+    });
+});
+
 describe('M-1E: H) capability gap — explicación correcta, no un string técnico', () => {
     it('nunca expone el nombre técnico del gap al usuario', async () => {
         const ctx = baseContext({ evidenceFound: false, capabilityGaps: [{ type: 'global_transcription_scope_not_supported', reason: 'x' }] });
@@ -475,6 +499,115 @@ describe('M-1E: K) mixed language — respuesta en el idioma apropiado', () => {
         const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
         const response = await synthesizer.synthesize({ input: '¿Qué hablamos del viaje?', context: ctx });
         expect(response.answer).toMatch(/no encontré/i);
+    });
+
+    // M-1G.1 — hallazgo real de staging (M-1G-S2): "Crea un compromiso para
+    // llamar a Alejandra por favor" no tiene tildes/ñ/¿¡ ni ninguna de las
+    // palabras españolas cortas del regex (qué/quien/cuando/con/sobre/el/
+    // la/los/las) -- el regex por sí solo caía al default fijo 'en' pese al
+    // locale real "es-CL" que mobile ya mandaba. `locale` ahora es la señal
+    // PRIMARIA para las plantillas determinísticas.
+    it('input español SIN señal de regex + locale es-CL -> plantilla en español (no el bug real de responder en inglés)', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [] });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({
+            input: 'Crea un compromiso para llamar a Alejandra por favor',
+            context: ctx,
+            locale: 'es-CL',
+        });
+        expect(response.answer).toMatch(/no encontré/i);
+        expect(response.answer).not.toMatch(/didn't find/i);
+    });
+
+    it('input inglés sin señal de regex + locale en-US -> plantilla en inglés', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [] });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({
+            input: 'Create a commitment to call Alejandra please',
+            context: ctx,
+            locale: 'en-US',
+        });
+        expect(response.answer).toMatch(/didn't find/i);
+    });
+
+    it('sin locale (ausente) -> preserva el fallback de regex existente (no rompe el comportamiento previo)', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [] });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({ input: 'What did we talk about regarding the trip?', context: ctx });
+        expect(response.answer).toMatch(/didn't find/i);
+    });
+
+    it('locale no reconocido (ej. fr-FR) -> cae al regex, no rompe ni asume español/inglés por defecto', async () => {
+        const ctx = baseContext({ evidenceFound: false, capabilityGaps: [] });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({ input: '¿Qué hablamos del viaje?', context: ctx, locale: 'fr-FR' });
+        expect(response.answer).toMatch(/no encontré/i); // el input SÍ tiene señal de regex español -> gana el regex
+    });
+});
+
+// ─── Overdue disclosure guard (M-1G.1) ─────────────────────────────────────
+
+describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso E)', () => {
+    it('CRÍTICO: modelo dice "no tienes compromisos vencidos" pese a un commitment realmente vencido en evidencia -> el guard agrega el claim correcto', async () => {
+        const overdueCommitment = commitment('cm-entrenar', { title: 'Entrenar', status: 'accepted', dueAt: '2026-07-31T00:00:00Z' }); // ~36 días antes de "now" del baseContext
+        const ctx = baseContext({
+            evidenceFound: true,
+            wantsOverdueFocus: true,
+            commitments: [overdueCommitment] as any,
+            provenance: [overdueCommitment.provenance],
+        });
+        // Simula EXACTAMENTE el bug real: el modelo cita el commitment pero
+        // niega que esté vencido (alucinación negativa por no tener "now").
+        const model = fakeModel(claimPayload([{ text: 'No tienes compromisos vencidos.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer.toLowerCase()).toContain('vencido');
+        expect(response.answer).toContain('Entrenar');
+        expect(response.citations).toEqual(expect.arrayContaining([{ sourceType: 'commitment', sourceId: 'cm-entrenar' }]));
+    });
+
+    it('el prompt enviado al modelo incluye isOverdue:true para un commitment vencido', async () => {
+        const overdueCommitment = commitment('cm-entrenar', { title: 'Entrenar', status: 'accepted', dueAt: '2026-07-31T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [overdueCommitment] as any, provenance: [overdueCommitment.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tienes un compromiso.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).toContain('"isOverdue":true');
+        expect(promptSent).toMatch(/TRUST it exactly, never compute overdue status yourself/i);
+    });
+
+    it('un commitment con dueAt futuro NUNCA se marca isOverdue, aunque wantsOverdueFocus sea true', async () => {
+        const futureCommitment = commitment('cm-futuro', { title: 'Reunión futura', status: 'accepted', dueAt: '2026-12-31T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [futureCommitment] as any, provenance: [futureCommitment.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tienes una reunión pendiente.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-futuro' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+    });
+
+    it('un commitment resuelto/cancelado/rechazado con dueAt pasado NUNCA se marca isOverdue', async () => {
+        const resolvedPast = commitment('cm-resuelto', { title: 'Ya resuelto', status: 'resolved', dueAt: '2026-07-31T00:00:00Z', resolvedAt: '2026-08-01T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [resolvedPast] as any, provenance: [resolvedPast.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Ese compromiso está resuelto.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-resuelto' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+    });
+
+    it('wantsOverdueFocus=false (pregunta no es sobre vencidos) -> el guard NUNCA se activa, aunque haya un commitment vencido', async () => {
+        const overdueCommitment = commitment('cm-entrenar', { title: 'Entrenar', status: 'accepted', dueAt: '2026-07-31T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: false, commitments: [overdueCommitment] as any, provenance: [overdueCommitment.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tienes un compromiso de entrenar.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué le prometí a Laura?', context: ctx });
+
+        expect(response.answer).toBe('Tienes un compromiso de entrenar.');
     });
 });
 

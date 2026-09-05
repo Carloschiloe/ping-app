@@ -282,6 +282,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // se registra un capabilityGap explícito, porque la búsqueda ni se
     // ejecutó (limitación real de infraestructura, no ausencia de datos).
     const capabilityGaps: AgentCapabilityGap[] = [];
+    // M-1G.1 (Caso F): una petición de escritura (crear/cancelar/enviar/
+    // modificar/borrar) nunca es "falta de evidencia" -- es una limitación
+    // real de este Agent read-only. Señalarlo explícito evita el "no
+    // encontré nada relacionado" confuso que ocurría antes.
+    if (interpretation.isWriteActionRequest) {
+        capabilityGaps.push({
+            type: 'write_action_not_supported',
+            reason: 'El usuario pidió una acción de escritura (crear/cancelar/enviar/modificar/borrar) -- este Agent es read-only, nunca ejecuta escrituras.',
+        });
+    }
     if (interpretation.wantsTranscriptions && !conversationId) {
         capabilityGaps.push({
             type: 'global_transcription_scope_not_supported',
@@ -372,7 +382,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     return {
         input: input.input,
+        now: now.toISOString(),
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
+        wantsOverdueFocus: interpretation.wantsOverdueFocus,
         entities: {
             people,
             timeRange,

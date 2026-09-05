@@ -466,7 +466,7 @@ function interpretationFixture(overrides: Partial<Record<string, any>> = {}) {
     return {
         intent: 'general_context', intentConfidence: 0.75, personHints: [], topicHints: [], textQuery: null,
         timeExpression: null, statusHints: null, wantsCommitments: true, wantsMessages: true,
-        wantsTranscriptions: false, wantsAttachments: false, ambiguityHints: [], source: 'llm',
+        wantsTranscriptions: false, wantsAttachments: false, wantsOverdueFocus: false, isWriteActionRequest: false, ambiguityHints: [], source: 'llm',
         ...overrides,
     };
 }
@@ -627,5 +627,66 @@ describe('M-1D.1: no evidence vs capability gap (sección 30) — nunca deben co
         expect(ctx.capabilityGaps.some((g) => g.type === 'global_attachment_scope_not_supported')).toBe(true);
         // evidenceFound sigue siendo un campo honesto sobre lo que SÍ se ejecutó — no se confunde con el gap.
         expect(typeof ctx.evidenceFound).toBe('boolean');
+    });
+});
+
+// M-1G.1 — "now" y "wantsOverdueFocus" deben llegar al AgentContext de
+// salida: antes, "now" se calculaba localmente en buildAgentContext (para
+// resolveTimeExpression) pero nunca se propagaba, así que la síntesis no
+// tenía forma de calcular "vencido" (causa raíz real de M-1G-S2, Caso E).
+describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentContext', () => {
+    it('now del output coincide con input.now cuando se provee explícitamente', async () => {
+        const interpreter = mockInterpreter(interpretationFixture());
+        const fixedNow = '2026-09-05T12:00:00.000Z';
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'algo', now: fixedNow }, { interpreter });
+        expect(ctx.now).toBe(fixedNow);
+    });
+
+    it('now del output es un ISO timestamp razonable (server "now") cuando input.now está ausente', async () => {
+        const interpreter = mockInterpreter(interpretationFixture());
+        const before = Date.now();
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'algo' }, { interpreter });
+        const after = Date.now();
+        const parsed = new Date(ctx.now).getTime();
+        expect(parsed).toBeGreaterThanOrEqual(before);
+        expect(parsed).toBeLessThanOrEqual(after);
+    });
+
+    it('wantsOverdueFocus del output refleja exactamente lo que devolvió el intérprete', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ wantsOverdueFocus: true }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?' }, { interpreter });
+        expect(ctx.wantsOverdueFocus).toBe(true);
+    });
+
+    it('DeterministicInputInterpreter real (sin mock) detecta "vencido" end-to-end hasta AgentContext.wantsOverdueFocus', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ status: 'accepted', dueAt: '2026-01-01T00:00:00Z' })] as any);
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await buildAgentContext({ actorUserId: 'u1', input: '¿Qué tengo vencido?' }, { interpreter: new DeterministicInputInterpreter() });
+        expect(ctx.wantsOverdueFocus).toBe(true);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ statuses: ['proposed', 'accepted', 'counter_proposal'] }), expect.any(Number));
+    });
+});
+
+// M-1G.1 (Caso F) — "Crea un compromiso para llamar a Alejandra" debe
+// producir un capabilityGap 'write_action_not_supported', nunca un
+// no_evidence confuso, y nunca escribe nada (este builder nunca llama a
+// ninguna función de escritura -- sólo retrieval, ya mockeado arriba).
+describe('M-1G.1: buildAgentContext — petición de escritura -> capabilityGap, nunca una escritura real', () => {
+    it('isWriteActionRequest=true -> capabilityGaps incluye write_action_not_supported', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', isWriteActionRequest: true }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Crea un compromiso para llamar a Alejandra' }, { interpreter });
+        expect(ctx.capabilityGaps.some((g) => g.type === 'write_action_not_supported')).toBe(true);
+    });
+
+    it('DeterministicInputInterpreter real (sin mock) end-to-end: "Crea un compromiso..." -> write_action_not_supported', async () => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await buildAgentContext({ actorUserId: 'u1', input: 'Crea un compromiso para llamar a Alejandra por favor' }, { interpreter: new DeterministicInputInterpreter() });
+        expect(ctx.capabilityGaps.some((g) => g.type === 'write_action_not_supported')).toBe(true);
+    });
+
+    it('una consulta normal (sin verbo de escritura) NUNCA agrega write_action_not_supported', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', isWriteActionRequest: false }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le prometí a Laura?' }, { interpreter });
+        expect(ctx.capabilityGaps.some((g) => g.type === 'write_action_not_supported')).toBe(false);
     });
 });
