@@ -182,3 +182,97 @@ No tocada.
 M-1D.1 queda aprobado local. Antes de cualquier prueba con el proveedor real: confirmar presupuesto/límites de uso de la cuenta OpenAI y reportarla como una actividad separada, nunca como parte de la suite automatizada. Antes de M-1E (o de conectar un agente real): decidir si vale la pena el fast-path determinístico documentado como deuda, y diseñar cómo la capa de síntesis final debe comunicar un `capabilityGap` al usuario sin sonar como una alucinación ("no encontré nada" vs "no puedo buscar eso todavía").
 
 M-1D.1 LLM INPUT INTERPRETER APROBADO LOCAL
+
+---
+
+## M-1D.3 — Interpreter Query-Hint Hardening
+
+### Causa raíz
+
+Hallazgo real del smoke con proveedor real de M-1F: `mapPayloadToInterpretation` tomaba `payload.textQuery` textual, tal cual el modelo lo devolvía, sin ninguna guía en el prompt sobre CUÁNDO debía ser `null`. Para inputs como `"¿Qué pendientes tengo esta semana?"`, el modelo — de forma no determinística, mismo input, corridas distintas — a veces devolvía `textQuery:"pendientes"` (repitiendo la palabra de intención/estado ya capturada por `commitmentFilterHints.status`) y a veces `textQuery:null`. M-1C aplica un `textQuery` no nulo como filtro `AND` real vía `search_tsv`; si el título del commitment no contenía esa palabra literal, un commitment estructuralmente válido (estado correcto, dueño correcto) quedaba excluido → falso `no_evidence`. Confirmado paso a paso (`buildAgentContext` corrido 3 veces con el mismo input: 1/3 `evidenceFound:true`, 2/3 `false`, tracking exacto con si el modelo adjuntó `textQuery`).
+
+### Regla intent vs topic
+
+Separación conceptual aplicada en dos capas independientes (defensa en profundidad, ninguna es la única barrera):
+1. **Prompt** (primera línea, reduce la frecuencia en origen): instruye explícitamente que `textQuery` es opcional y debe ser `null` cuando los campos estructurados (`intent`, `commitmentFilterHints`, `requestedSources`) ya expresan la solicitud completa — nunca debe repetir una palabra genérica de estado/intención ("pending", "commitments", "tasks", "promised") aunque aparezca literalmente en el texto.
+2. **Normalización determinística post-LLM** (`isControlLanguageOnly`, red de seguridad final, sección 6 del ticket): si TODOS los tokens del `textQuery` resuelto son palabras de control (stopwords + los mismos `COMMITMENT_KEYWORDS`/`OPEN_STATUS_KEYWORDS`/`CLOSED_STATUS_KEYWORDS` ES+EN ya definidos para `DeterministicInputInterpreter`), se descarta a `null`. Reutiliza conjuntos YA existentes en el archivo — sin lista lingüística nueva, sin vocabulario de industria, sin asumir un idioma. Un tema real ("Proyecto Aurora", "viaje", "trip", "task list app") nunca coincide con estos conjuntos porque basta con que UN SOLO token no sea de control para conservar el `textQuery` completo.
+
+### Prompt
+
+Dos líneas nuevas en `buildInterpreterPrompt`, deliberadamente sin sobrecargar de ejemplos (sección 4 del ticket): la instrucción explícita "textQuery is OPTIONAL... never set it to a generic word about status or intent itself" + un único par contrastivo ("what are my pending commitments this week?" → `null` vs "pending commitments about Project Aurora" → `"Project Aurora"`).
+
+### Schema
+
+Sin cambios — `textQuery: z.string().trim().max(200).nullable().default(null)` ya era null-safe desde M-1D.1; el gap estaba en el prompt/mapping, no en el schema.
+
+### Normalization
+
+`isControlLanguageOnly(text)` — tokeniza por espacios, verdadero si CADA token está en `STOPWORDS` o matchea `COMMITMENT_KEYWORDS`/`OPEN_STATUS_KEYWORDS`/`CLOSED_STATUS_KEYWORDS`. Se agregaron 12 pronombres posesivos ES+EN a `STOPWORDS` (`mi/mis/tu/tus/su/sus/my/your/his/her/their/our`) para que variantes como `"mis compromisos"` también se reconozcan como puro lenguaje de control — extensión mínima del mismo conjunto ya existente, no una lista nueva.
+
+### textQuery semantics
+
+`textQuery` final = `isControlLanguageOnly(rawTextQuery) ? null : rawTextQuery`, aplicado tanto si `rawTextQuery` vino directo de `payload.textQuery` como si se derivó de `topicHints` (el camino de fallback ya existente desde M-1D.1) — un solo punto de verdad, sin duplicar la regla.
+
+### Topic hints
+
+Auditado (sección 7 del ticket): `topicHints` sólo alimenta `AgentContext.entities.topics` (metadata de visualización) — **nunca** el filtro `AND` de retrieval, que usa exclusivamente `textQuery`. Por eso el hallazgo original era 100% explicable por `textQuery` solo; no se tocó `topicHints` (fuera del `textQuery` derivado de él), evitando ampliar el alcance sin necesidad.
+
+### Determinism
+
+Certificado con proveedor real: 5 corridas idénticas de `"¿Qué pendientes tengo esta semana?"` y de `"What pending commitments do I have this week?"` → `textQuery:null` en las 10/10 (antes: no determinístico). 5 corridas de `"¿Qué pendientes tengo sobre Proyecto Aurora?"` → `textQuery:"Proyecto Aurora"` en 5/5. 5 corridas de `"What commitments do I have about the trip?"` → `textQuery:"trip"` en 5/5. 5 corridas de `"¿Qué le prometí a Laura?"` → `textQuery:null`, `personHints:["Laura"]` en 5/5.
+
+### Provider real
+
+10 casos sintéticos (5 inputs × 5 corridas c/u, sin datos de usuario reales, sin staging) contra `gpt-4o-mini`: **50/50 según lo esperado**, cero variación una vez aplicado el hardening — a diferencia del comportamiento previo a este ticket, donde el mismo input producía resultados distintos entre corridas.
+
+### End-to-end regression
+
+Fixture con título sin palabras genéricas (`"Revisar el borrador de Proyecto Aurora"`, `status:accepted`) — 5 corridas de `buildAgentContext` con `"¿Qué pendientes tengo esta semana?"`: **5/5 `evidenceFound:true`**. Certificado además con el pipeline completo vía `runAgent` (interpretación real + retrieval real + síntesis real): `status:"answered"`, respuesta natural citando el commitment real. **Nota de fixture**: la primera corrida de este regression reveló que un commitment sin `due_at` es excluido por `retrieveCommitments` cuando la consulta incluye una expresión temporal (`gte('due_at', ...)` contra una columna `NULL` nunca es verdadero en Postgres) — un hallazgo real, separado, de la interacción `resolveTimeExpression`/`due_at` (M-1C/M-1D), no relacionado con `textQuery` y explícitamente fuera de alcance de este ticket (`NO cambiar retrieval semantics`). El fixture final incluye `due_at` dentro de la semana actual para aislar limpiamente el bug que este ticket sí corrige. Documentado aquí como hallazgo para una futura tarea (ver "Riesgos").
+
+### Negative topic case
+
+Dos commitments abiertos (`"Proyecto Aurora"` y `"viaje a Bariloche"`, ambos con `due_at` esta semana) — consulta `"¿Qué pendientes tengo sobre Proyecto Aurora?"` → sólo el commitment de Aurora aparece en `context.commitments`, el del viaje correctamente excluido. Confirma que el hardening elimina el filtro genérico sin sacrificar el filtro textual cuando SÍ hay un tema real.
+
+### No evidence
+
+Consulta sobre un tema genuinamente ausente (`"el cohete a Marte"`, filtros estructurados + tema real) → `evidenceFound:false` correctamente, sin ensanchar retrieval para forzar una respuesta.
+
+### Tests
+
+9 tests nuevos en `backend/tests/agentInputInterpreter.test.ts` (29 totales en el archivo): pending/commitments genéricos → `null` (ES+EN), posesivo+control (`"mis compromisos"`) → `null`, control word + personHint ya capturado → `null`, tema real preservado (`"Proyecto Aurora"`, `"trip"`), verbo de intención + persona → `null`, derivación desde `topicHints` sigue funcionando, un tema real que comparte una palabra de control (`"task list app"`) NO se descarta enteramente. Los 20 tests preexistentes del archivo siguen pasando sin modificación.
+
+### Suite completa
+
+`npx tsc --noEmit` limpio. `agentInputInterpreter.test.ts`: 29/29. `agentContextBuilder.test.ts` + `agentOrchestrator.test.ts` + `agentEndToEnd.test.ts`: 92/92 (sin regresión). Suite completa `--no-file-parallelism`: **516/516** (507 previos + 9 nuevos).
+
+### Archivos
+
+- `backend/src/services/agentInputInterpreter.service.ts` (modificado: `isControlLanguageOnly`, prompt extendido, `STOPWORDS` +12 posesivos, `mapPayloadToInterpretation` usa la normalización)
+- `backend/tests/agentInputInterpreter.test.ts` (extendido, +9 tests)
+- `docs/M-1D1-LLM-INPUT-INTERPRETER.md` (este apéndice)
+
+Sin cambios en `agentInterpretation.schema.ts`, `retrieval.service.ts`, `agentContextBuilder.service.ts`, M-1F, mobile, embeddings, ni producción.
+
+### M-1F impact
+
+El hallazgo NO era un defecto de M-1F — `agentOrchestrator.service.ts` siguió pasando fielmente lo que el Context Builder producía en los tres casos observados durante el smoke original. Este ticket cierra el hallazgo documentado en `docs/M-1F-AGENT-ORCHESTRATOR.md` ("Real provider smoke" → "Hallazgo real") sin tocar ningún archivo de M-1F.
+
+### Riesgos
+
+- **Nuevo hallazgo, fuera de alcance de este ticket**: un commitment sin `due_at` queda excluido de cualquier consulta que incluya una expresión temporal resuelta (`"esta semana"`, `"ayer"`, etc.), porque `retrieveCommitments` aplica `gte`/`lte` sobre `due_at`, y Postgres nunca evalúa esos operadores como verdaderos contra `NULL`. Esto puede producir falsos `no_evidence` para commitments abiertos sin fecha límite cuando el usuario pregunta con una referencia temporal. Documentado explícitamente para una futura tarea de M-1D/M-1C — no corregido aquí (`NO cambiar retrieval semantics` era una restricción explícita de este ticket).
+- La normalización basada en keyword-matching, aunque reutiliza conjuntos ya pequeños y genéricos, sigue siendo ES+EN-céntrica — un input en un tercer idioma cuyo `textQuery` sea puramente lenguaje de control en ESE idioma no sería detectado por `isControlLanguageOnly` (sólo por el prompt, que si es multilingüe por diseño). Riesgo aceptado y documentado, igual que el resto de listas ES+EN ya existentes en este archivo desde M-1D.
+- El prompt sigue sin garantía dura de cumplimiento (es una instrucción, no una restricción estructural) — la normalización determinística es la que realmente garantiza el resultado, el prompt sólo reduce cuántas veces se necesita.
+
+### Staging
+
+No aplica — sin schema de base de datos, sin migración.
+
+### Producción
+
+No tocada.
+
+### Recomendación
+
+M-1D.3 queda aprobado local, desbloqueando el hallazgo documentado en M-1F. Antes de una futura certificación en staging de M-1F: considerar una tarea separada para el hallazgo de `due_at`/`NULL` documentado arriba en "Riesgos" — afecta la tasa de falsos `no_evidence` en consultas con expresión temporal sobre commitments sin fecha límite, un patrón de uso plausible en producción.
+
+M-1D.3 INTERPRETER HARDENED — M-1F DESBLOQUEADO

@@ -15,8 +15,11 @@ import * as operationController from '../controllers/operation.controller';
 import * as contactController from '../controllers/contact.controller';
 import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
+import * as agentController from '../controllers/agent.controller';
+import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
+import { agentRequestSchema } from '../schemas/agentRequest.schema';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -33,6 +36,19 @@ import {
 } from '../middleware/featureGate';
 
 export const router = Router();
+
+// M-1F: límite dedicado para /agent/respond (sección 22) — más estricto que
+// el global de app.ts porque cada request puede costar hasta 2 llamadas LLM.
+// Keyed por usuario autenticado (requireAuth corre antes en la cadena), con
+// fallback a IP sólo si por algún motivo req.user no estuviera seteado.
+const agentRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+});
+
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
 const callsEnabled = requireFeature('ENABLE_CALLS');
@@ -226,13 +242,25 @@ router.post(
     attachmentController.createReadUrl
 );
 
-// AI
+// AI (legacy — no tocado por M-1F; coexiste temporalmente con /agent/respond, ver docs/M-1F-AGENT-ORCHESTRATOR.md "Legacy coexistence")
 router.get('/ai/health', requireAuth, aiController.getHealth);
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.get('/ai/history', requireAuth, aiController.getHistory);
 router.delete('/ai/history', requireAuth, aiController.clearHistory);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
 router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage);
+
+// Ping Agent (M-1F) — read-only orchestrator sobre M-1B/M-1C/M-1D/M-1D.1/M-1E.
+// Rate limit propio (más estricto que el global de app.ts) porque cada
+// request puede disparar hasta 2 llamadas a un LLM (sección 22/29) — keyed
+// por usuario autenticado, nunca por IP sola, ya que requireAuth corre antes.
+router.post(
+    '/agent/respond',
+    requireAuth,
+    agentRateLimiter,
+    validateRequest(agentRequestSchema),
+    agentController.respond,
+);
 
 // Insights
 router.get('/insights', requireAuth, insightsController.getInsights);

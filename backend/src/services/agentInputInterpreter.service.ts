@@ -72,7 +72,28 @@ const STOPWORDS = new Set([
     'talked', 'talk', 'said', 'say', 'says', 'told', 'happened', 'discussed', 'decided',
     'prometí', 'prometi', 'promise', 'promised', 'pendiente', 'pendientes', 'pending', 'tengo', 'have', 'this', 'esta', 'este',
     'hola', 'hello', 'hi', 'hey', 'buenas',
+    'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'my', 'your', 'his', 'her', 'their', 'our',
 ]);
+
+// M-1D.3 — un textQuery cuyos tokens son TODOS lenguaje de control/intención
+// (ya capturado estructuralmente por intent/commitmentFilterHints.status, ej.
+// "pendientes"/"compromisos"/"pending"/"commitments") nunca es un tema
+// textual real que ayude a filtrar contenido — es ruido semántico que M-1C
+// aplicaría como filtro AND real, excluyendo commitments que sí calzan por
+// estado pero no contienen esa palabra genérica en su texto. Reutiliza los
+// MISMOS conjuntos ES+EN ya definidos arriba (sin lista nueva, sin asumir un
+// idioma) — un tema real ("Proyecto Aurora", "viaje", "trip") nunca coincide
+// con estos conjuntos, así que nunca se descarta por error.
+function isControlLanguageOnly(text: string): boolean {
+    const tokens = text.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return true;
+    return tokens.every((tok) => (
+        STOPWORDS.has(tok.toLowerCase())
+        || COMMITMENT_KEYWORDS.test(tok)
+        || OPEN_STATUS_KEYWORDS.test(tok)
+        || CLOSED_STATUS_KEYWORDS.test(tok)
+    ));
+}
 
 // ─── Person hints (sección 11) — heurístico, NUNCA autoritativo. Cualquier
 // resultado pasa por resolvePerson después; un falso positivo (ej. "Proyecto
@@ -241,6 +262,8 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         context.conversationId
             ? 'This request happens inside an existing conversation the user is already part of.'
             : 'No specific conversation is known for this request.',
+        '"textQuery" is OPTIONAL — set it to null whenever the structured fields (intent, commitmentFilterHints, requestedSources) already fully express the request and there is no independent topic left to filter by. Only set textQuery when the user mentions a substantive topic, subject, project, name, or event to search for. Never set it to a generic word about status or intent itself (e.g. "pending", "commitments", "tasks", "promised"), even if that exact word appears in the text — those already belong in intent/commitmentFilterHints, not textQuery.',
+        'Example: "what are my pending commitments this week?" has no independent topic -> textQuery=null. "pending commitments about Project Aurora" has a real topic -> textQuery="Project Aurora".',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[] for anything absent, never omit a key):',
         '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"closed"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[]}',
         '',
@@ -287,6 +310,13 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
             : payload.commitmentFilterHints.status === 'closed' ? ['resolved', 'cancelled', 'rejected']
                 : null;
     const requested = new Set(payload.requestedSources);
+    // M-1D.3 — normalización determinística post-LLM (sección 6 del ticket):
+    // el prompt ya instruye al modelo a no repetir lenguaje de control como
+    // textQuery, pero el modelo es no determinístico (verificado: mismo
+    // input, corridas distintas, a veces sí lo repite) — esta es la red de
+    // seguridad final, nunca la única defensa.
+    const rawTextQuery = payload.textQuery ?? (payload.topicHints.length > 0 ? payload.topicHints.join(' ') : null);
+    const textQuery = rawTextQuery && !isControlLanguageOnly(rawTextQuery) ? rawTextQuery : null;
 
     return {
         intent: payload.intent,
@@ -296,7 +326,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         intentConfidence: 0.75,
         personHints: payload.personHints,
         topicHints: payload.topicHints,
-        textQuery: payload.textQuery ?? (payload.topicHints.length > 0 ? payload.topicHints.join(' ') : null),
+        textQuery,
         timeExpression: payload.timeExpression,
         statusHints,
         wantsCommitments: payload.intent !== 'document_search' || requested.has('commitments'),

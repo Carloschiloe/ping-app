@@ -111,6 +111,15 @@ export function setSupabaseAdminMock(mock: ReturnType<typeof createSupabaseAdmin
     current = mock;
 }
 
+// M-1F: soporte mínimo para `supabaseAdmin.auth.getUser(token)`, usado por
+// `requireAuth`. Default seguro (usuario no encontrado) para no afectar los
+// tests existentes, que nunca ejercitan este método. Sólo lo configuran
+// tests de integración HTTP reales (ver agentEndToEnd.test.ts).
+let currentAuthGetUser = vi.fn(async () => ({ data: { user: null }, error: new Error('auth not configured in this mock') }));
+export function setSupabaseAuthGetUserMock(fn: (token: string) => Promise<{ data: { user: any }; error: any }>) {
+    currentAuthGetUser = vi.fn(fn as any);
+}
+
 export function setSupabaseStorageMock(mock: any) {
     currentStorage = mock;
 }
@@ -154,6 +163,9 @@ export function supabaseAdminMockModule() {
         supabaseAdmin: {
             from: (...args: any[]) => current.from(...args),
             rpc: (...args: any[]) => current.rpc(...args),
+            auth: {
+                getUser: (...args: any[]) => currentAuthGetUser(...(args as [string])),
+            },
             storage: {
                 from: (...args: any[]) => currentStorage.from(...args),
             },

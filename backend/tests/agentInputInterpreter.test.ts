@@ -141,6 +141,110 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
     });
 });
 
+describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening contra falsos no_evidence', () => {
+    // Hallazgo real de M-1F (smoke con proveedor real): el modelo a veces
+    // adjunta un textQuery genérico ("pendientes"/"compromisos") junto a un
+    // statusHints correcto, para el MISMO input, de forma no determinística.
+    // M-1C aplica ese textQuery como filtro AND real — si el commitment no
+    // contiene esa palabra literal, queda excluido aunque calce por estado.
+    // Estos tests certifican que, sea cual sea el textQuery crudo que el
+    // modelo devuelva, el resultado final nunca deja pasar ruido de control.
+
+    it('"pending commitments this week" con topicHints=[] -> textQuery=null (repite sólo lenguaje de estado/intención)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: [], textQuery: 'pending commitments',
+            timeExpression: 'this week', commitmentFilterHints: { status: 'open' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What pending commitments do I have this week?', {});
+        expect(result.textQuery).toBeNull();
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        expect(result.timeExpression).toBe('this week');
+    });
+
+    it('"¿qué pendientes tengo esta semana?" con textQuery="pendientes" (un solo token de control) -> null', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: [], textQuery: 'pendientes',
+            timeExpression: 'esta semana', commitmentFilterHints: { status: 'open' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pendientes tengo esta semana?', {});
+        expect(result.textQuery).toBeNull();
+    });
+
+    it('"mis compromisos" (posesivo + palabra de control) -> null', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: [], textQuery: 'mis compromisos',
+            commitmentFilterHints: { status: 'open' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué compromisos tengo?', {});
+        expect(result.textQuery).toBeNull();
+    });
+
+    it('"commitments with Laura" -> textQuery=null (personHint ya captura a Laura, sin tema textual independiente)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', personHints: ['Laura'], topicHints: [], textQuery: 'commitments',
+            commitmentFilterHints: { status: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What commitments do I have with Laura?', {});
+        expect(result.textQuery).toBeNull();
+        expect(result.personHints).toEqual(['Laura']);
+    });
+
+    it('"pendientes sobre Proyecto Aurora" -> conserva el tema real, nunca lo descarta', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: ['Proyecto Aurora'], textQuery: 'Proyecto Aurora',
+            commitmentFilterHints: { status: 'open' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pendientes tengo sobre Proyecto Aurora?', {});
+        expect(result.textQuery).toBe('Proyecto Aurora');
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+    });
+
+    it('"commitments about the trip" -> conserva "trip" como tema real', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: ['trip'], textQuery: 'trip',
+            commitmentFilterHints: { status: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What commitments do I have about the trip?', {});
+        expect(result.textQuery).toBe('trip');
+    });
+
+    it('"¿qué le prometí a Laura?" -> textQuery=null (sólo verbo de intención + persona ya capturada)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', personHints: ['Laura'], topicHints: [], textQuery: 'prometí',
+            commitmentFilterHints: { status: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué le prometí a Laura?', {});
+        expect(result.textQuery).toBeNull();
+        expect(result.personHints).toEqual(['Laura']);
+    });
+
+    it('deriva textQuery desde topicHints cuando textQuery es null pero topicHints trae un tema real (camino ya existente)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'recall', topicHints: ['presupuesto de marketing'], textQuery: null,
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Hablamos del presupuesto de marketing?', {});
+        expect(result.textQuery).toBe('presupuesto de marketing');
+    });
+
+    it('no descarta un tema real sólo porque comparte una palabra con el enunciado de intención (ej. "tasks" en "task list")', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', topicHints: ['task list app'], textQuery: 'task list app',
+            commitmentFilterHints: { status: null },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What did we decide about the task list app?', {});
+        expect(result.textQuery).toBe('task list app');
+    });
+});
+
 describe('M-1D.1: LlmInputInterpreter — fallback conservador (nunca rompe)', () => {
     it('JSON inválido -> fallback, fallbackReason="invalid_json"', async () => {
         const model = fakeModel('esto no es json{{{');
