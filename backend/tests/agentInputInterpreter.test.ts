@@ -569,3 +569,80 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         expect(result.isWriteActionRequest).toBe(false);
     });
 });
+
+// M-1G.3 — causa raíz REAL del caso "Entrenar" (M-1G-S2/M-1G.2): "vencido"
+// sobrevivía como textQuery, disparando una búsqueda FTS real en
+// retrieveCommitments que EXCLUYE cualquier commitment cuyo texto no
+// contenga literalmente esa palabra -- "Entrenar" nunca llegaba al
+// AgentContext, así que el fix de M-1G.2 (orderByOverdueFirst, que sólo
+// aplica al camino SIN textQuery) nunca se ejecutaba para este caso real.
+describe('M-1G.3: "vencido"/"overdue" nunca sobrevive como textQuery (causa raíz real del bug de retrieval)', () => {
+    it('DeterministicInputInterpreter: los 5 inputs reales del ticket -> wantsOverdueFocus=true, textQuery=null', async () => {
+        const cases = [
+            '¿Qué tengo vencido?',
+            '¿Qué hay vencido?',
+            '¿Tengo algo vencido?',
+            'What is overdue?',
+            'What do I have past due?',
+        ];
+        for (const input of cases) {
+            const r = await new DeterministicInputInterpreter().interpret(input, {});
+            expect(r.wantsOverdueFocus).toBe(true);
+            expect(r.textQuery).toBeNull();
+        }
+    });
+
+    it('DeterministicInputInterpreter: un tema real junto a "vencido" sí sobrevive (topic + overdue)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido sobre el proyecto de marketing?', {});
+        expect(r.wantsOverdueFocus).toBe(true);
+        expect(r.textQuery).toBe('proyecto marketing');
+    });
+
+    it('LlmInputInterpreter: si el modelo (incorrectamente) devuelve textQuery="vencido", la red de seguridad lo neutraliza a null', async () => {
+        const model = fakeModel(validPayload({
+            textQuery: 'vencido',
+            wantsOverdueFocus: true,
+            commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué tengo vencido?', {});
+        expect(result.textQuery).toBeNull();
+        expect(result.wantsOverdueFocus).toBe(true);
+    });
+
+    it('LlmInputInterpreter: si el modelo mezcla overdue + tema real en un solo textQuery, sólo el tema sobrevive', async () => {
+        const model = fakeModel(validPayload({
+            textQuery: 'vencido Proyecto Aurora',
+            wantsOverdueFocus: true,
+            commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué tengo vencido sobre Proyecto Aurora?', {});
+        expect(result.textQuery).toBe('Proyecto Aurora');
+    });
+
+    it('LlmInputInterpreter: "past due" (frase de 2 tokens) se remueve por substring, no token a token', async () => {
+        const model = fakeModel(validPayload({
+            textQuery: 'past due',
+            wantsOverdueFocus: true,
+            commitmentFilterHints: { status: 'open', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('What do I have past due?', {});
+        expect(result.textQuery).toBeNull();
+    });
+
+    // Hallazgo real, documentado aquí como limitación CONOCIDA y FUERA de
+    // alcance de este ticket (M-1G.3 es "overdue consistency", no el
+    // heurístico de detección de nombres): en el camino DETERMINÍSTICO
+    // (fallback, nunca el primario en producción), "sobre Proyecto Aurora"
+    // matchea el patrón de person-hint (cue "sobre" + Nombre Capitalizado)
+    // y se remueve del texto ANTES de llegar al filtro de overdue -- el
+    // tema real se pierde en este camino específico. El camino LLM
+    // (primario, test anterior) no tiene este problema.
+    it('LIMITACIÓN CONOCIDA (fuera de alcance): en el camino determinístico, "sobre <Nombre Propio>" se confunde con person-hint y el tema se pierde', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido sobre Proyecto Aurora?', {});
+        expect(r.personHints).toEqual(['Proyecto Aurora']); // documenta el falso positivo real, no lo corrige aquí
+        expect(r.textQuery).toBeNull(); // el tema se pierde en este camino -- limitación pre-existente del heurístico de nombres, no de overdue
+    });
+});

@@ -707,3 +707,62 @@ describe('M-1G.1: buildAgentContext — petición de escritura -> capabilityGap,
         expect(ctx.capabilityGaps.some((g) => g.type === 'write_action_not_supported')).toBe(false);
     });
 });
+
+// M-1G.3 — CRITICAL REGRESSION (sección 12 del ticket): reproduce
+// exactamente la causa que M-1G.2 intentó resolver y no logró, porque el
+// camino real de ejecución tenía textQuery="vencido" (activando FTS), no el
+// camino "sin texto" que orderByOverdueFirst arregla. Con el fix real de
+// M-1G.3 (textQuery=null para "¿Qué tengo vencido?"), el mock de
+// retrieveCommitments simula el comportamiento real de Postgres: ordena por
+// due_at ASC y recorta al budget -- sólo así "Entrenar" (vencido hace 36+
+// días, título SIN la palabra "vencido", creado hace tiempo) sobrevive
+// frente a 15 commitments más recientes/futuros sin relación.
+describe('M-1G.3: CRITICAL REGRESSION — más de 10 commitments, "Entrenar" (sin "vencido" en el título) debe sobrevivir el budget', () => {
+    it('con textQuery=null y orderByOverdueFirst=true, retrieveCommitments recibe el flag correcto y el commitment vencido llega al contexto', async () => {
+        const now = new Date('2026-09-05T12:00:00Z');
+        const entrenar = commitmentFixture({
+            id: 'cm-entrenar', title: 'Entrenar', status: 'accepted',
+            dueAt: '2026-07-31T00:00:00Z', // ~36 días antes de "now"
+            createdAt: '2026-06-01T00:00:00Z', // creado hace tiempo -- por created_at DESC quedaría fuera del top-10
+        });
+        const recentNoise = Array.from({ length: 15 }, (_, i) => commitmentFixture({
+            id: `cm-noise-${i}`, title: `Tarea reciente ${i}`, status: 'accepted',
+            dueAt: '2026-12-01T00:00:00Z', // futuro -- nunca vencido
+            createdAt: `2026-09-0${(i % 4) + 1}T00:00:00Z`, // más reciente que "Entrenar"
+        }));
+
+        // Simula el comportamiento REAL de retrieveCommitments (ya
+        // certificado por separado en retrievalService.test.ts): cuando
+        // orderByOverdueFirst=true, ordena por due_at ASC y recorta al
+        // budget -- "Entrenar" (el único con due_at pasado) queda primero.
+        mockRetrieveCommitments.mockImplementation(async (input: any, limit: number) => {
+            const all = [entrenar, ...recentNoise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : [...all].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            return sorted.slice(0, limit) as any;
+        });
+
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', wantsOverdueFocus: true, textQuery: null,
+            statusHints: ['proposed', 'accepted', 'counter_proposal'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: now.toISOString() }, { interpreter });
+
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ orderByOverdueFirst: true, query: undefined }), 10);
+        expect(ctx.commitments.some((c) => c.id === 'cm-entrenar')).toBe(true);
+    });
+
+    it('CONTRASTE: si textQuery="vencido" sobreviviera (bug pre-M-1G.3), "Entrenar" NUNCA llegaría (FTS real lo excluiría por no contener la palabra)', async () => {
+        // No se llama a retrieveCommitments real (mockeado), pero se
+        // documenta aquí el contrato exacto que retrieval.service.ts SÍ
+        // aplica en producción: .textSearch('search_tsv', 'vencido', ...)
+        // es un filtro AND real sobre el texto -- "Entrenar" (que no
+        // contiene "vencido") sería excluido antes de llegar a este mock.
+        // Este test certifica que la INTERPRETACIÓN ya no genera ese
+        // textQuery -- ver 'M-1G.3: "vencido"/"overdue" nunca sobrevive...'
+        // en agentInputInterpreter.test.ts para la prueba directa.
+        const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+        expect(interpretation.textQuery).toBeNull();
+    });
+});

@@ -79,6 +79,11 @@ const STOPWORDS = new Set([
     'prometí', 'prometi', 'promise', 'promised', 'pendiente', 'pendientes', 'pending', 'tengo', 'have', 'this', 'esta', 'este',
     'hola', 'hello', 'hi', 'hey', 'buenas',
     'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'my', 'your', 'his', 'her', 'their', 'our',
+    // M-1G.3: verbos/pronombres funcionales que quedaban como residuo de
+    // preguntas de vencido/status ("¿Qué hay vencido?" -> "hay", "¿Tengo
+    // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
+    // have..." -> "I") — sin significado temático propio en ningún idioma.
+    'hay', 'algo', 'is', 'i',
 ]);
 
 // M-1D.3 — un textQuery cuyos tokens son TODOS lenguaje de control/intención
@@ -99,6 +104,23 @@ function isControlLanguageOnly(text: string): boolean {
         || OPEN_STATUS_KEYWORDS.test(tok)
         || CLOSED_STATUS_KEYWORDS.test(tok)
     ));
+}
+
+// M-1G.3 — hallazgo real de staging (M-1G-S2/M-1G.2, caso "Entrenar"): esta
+// función original nunca cubrió OVERDUE_KEYWORDS (agregada en M-1G.1) --
+// "vencido" sobrevivía como textQuery, disparaba una búsqueda FTS real
+// (retrieveCommitments) que EXCLUYE cualquier commitment cuyo texto no
+// contenga literalmente esa palabra. "Entrenar" nunca contiene "vencido" en
+// su título, así que quedaba fuera del contexto antes de que isOverdue
+// pudiera siquiera evaluarlo -- el fix de M-1G.2 (orderByOverdueFirst) sólo
+// aplica al camino SIN textQuery, así que nunca se ejecutaba para este caso
+// real. A diferencia de las demás keywords (palabras sueltas), OVERDUE_KEYWORDS
+// incluye la frase de dos tokens "past due", que un chequeo token-por-token
+// nunca detecta -- por eso se remueve por substring ANTES de tokenizar, no
+// se prueba token a token como las demás.
+function stripOverdueLanguage(text: string): string {
+    const globalOverduePattern = new RegExp(OVERDUE_KEYWORDS.source, 'giu');
+    return text.replace(globalOverduePattern, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // ─── Person hints (sección 11) — heurístico, NUNCA autoritativo. Cualquier
@@ -177,6 +199,10 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     for (const hint of personHints) {
         cleaned = cleaned.replace(hint, ' ');
     }
+    // M-1G.3: "vencido"/"overdue"/"past due" ya está capturado por
+    // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
+    // (ver stripOverdueLanguage).
+    cleaned = stripOverdueLanguage(cleaned);
     const tokens = cleaned
         .replace(/[¿?¡!.,;:]/g, ' ')
         .split(/\s+/)
@@ -275,7 +301,7 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         context.conversationId
             ? 'This request happens inside an existing conversation the user is already part of.'
             : 'No specific conversation is known for this request.',
-        '"textQuery" is OPTIONAL — set it to null whenever the structured fields (intent, commitmentFilterHints, requestedSources) already fully express the request and there is no independent topic left to filter by. Only set textQuery when the user mentions a substantive topic, subject, project, name, or event to search for. Never set it to a generic word about status or intent itself (e.g. "pending", "commitments", "tasks", "promised"), even if that exact word appears in the text — those already belong in intent/commitmentFilterHints, not textQuery.',
+        '"textQuery" is OPTIONAL — set it to null whenever the structured fields (intent, commitmentFilterHints, requestedSources) already fully express the request and there is no independent topic left to filter by. Only set textQuery when the user mentions a substantive topic, subject, project, name, or event to search for. Never set it to a generic word about status or intent itself (e.g. "pending", "commitments", "tasks", "promised", "overdue", "vencido", "late", "past due"), even if that exact word appears in the text — those already belong in intent/commitmentFilterHints/wantsOverdueFocus, not textQuery. "what is overdue" has no independent topic -> textQuery=null. "what is overdue about Project Aurora" has a real topic -> textQuery="Project Aurora".',
         'Example: "what are my pending commitments this week?" has no independent topic -> textQuery=null. "pending commitments about Project Aurora" has a real topic -> textQuery="Project Aurora".',
         '"commitmentFilterHints.status" is a SEPARATE, OPTIONAL filter — do NOT set it just because intent is "commitment_query" (intent is the entity TYPE, status is an additional filter on top of it, never implied by the other). Only set a status when you can also set "statusBasis" to justify it: "explicit" if the user used a real state word (pending/open/completed/cancelled/rejected/overdue/etc, in any language), or "implied" if the phrasing clearly points to unmet obligations ("what do I still owe", "what\'s left to do") or clearly points to a finished/closed state ("what did I finish", "what did I cancel") WITHOUT naming it. A neutral question about a specific commitment or topic ("what happened with X", "tell me about my commitment with Y", "what did I promise Laura") has NO status signal — leave both "status" and "statusBasis" null. When the closed/past framing points to a SPECIFIC real outcome, use "resolved", "cancelled", or "rejected" instead of the generic "closed". A word like "overdue"/"vencido"/"atrasado"/"late"/"past due" (in any language) means status="open" + statusBasis="explicit" (something overdue is, by definition, still unresolved) AND you must ALSO set "wantsOverdueFocus":true.',
         '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
@@ -357,7 +383,13 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // input, corridas distintas, a veces sí lo repite) — esta es la red de
     // seguridad final, nunca la única defensa.
     const rawTextQuery = payload.textQuery ?? (payload.topicHints.length > 0 ? payload.topicHints.join(' ') : null);
-    const textQuery = rawTextQuery && !isControlLanguageOnly(rawTextQuery) ? rawTextQuery : null;
+    // M-1G.3: el modelo no siempre sigue la instrucción de nunca repetir
+    // lenguaje de status/intent en textQuery (no determinístico, y
+    // "overdue"/"vencido" nunca fue mencionado como ejemplo en el prompt) --
+    // esta es la red de seguridad real, aplicada ANTES de decidir si lo que
+    // queda es sólo control language.
+    const strippedTextQuery = rawTextQuery ? stripOverdueLanguage(rawTextQuery) : null;
+    const textQuery = strippedTextQuery && !isControlLanguageOnly(strippedTextQuery) ? strippedTextQuery : null;
 
     return {
         intent: payload.intent,
