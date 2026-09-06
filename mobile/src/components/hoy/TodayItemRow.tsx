@@ -78,8 +78,8 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
             const datePassed = isProposalDatePassed(c.due_at);
             return (
                 <View style={styles.waitingBadge}>
-                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={2}>
-                        {waitingLabel}{datePassed ? ' · Fecha propuesta ya pasó' : ''}
+                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={3}>
+                        {waitingLabel}{datePassed ? '\nFecha propuesta ya pasó' : ''}
                     </Text>
                 </View>
             );
@@ -338,13 +338,14 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     waitingBadge: {
-        maxWidth: 130,
+        maxWidth: 150,
         paddingHorizontal: 2,
     },
     waitingBadgeText: {
         fontSize: 11,
         fontWeight: '600',
         textAlign: 'right',
+        lineHeight: 14,
     },
     moreBtn: {
         width: 28,

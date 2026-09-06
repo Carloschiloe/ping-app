@@ -64,9 +64,18 @@ const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past du
 // (lleva además un personHint), luego needs_my_response, luego
 // waiting_for_others -- así una frase que calzara con más de un patrón
 // nunca queda ambigua.
-const PENDING_RESPONSE_FROM_PERSON_KEYWORDS = wordBounded("falta que acepte|needs? to accept|hasn'?t responded");
-const NEEDS_MY_RESPONSE_KEYWORDS = wordBounded("por aceptar|pendiente de mi respuesta|to accept|my response");
-const WAITING_FOR_OTHERS_KEYWORDS = wordBounded('esperando|en espera|waiting');
+const PENDING_RESPONSE_FROM_PERSON_KEYWORDS = wordBounded("falta que (?:acepte|confirme)|needs? to (?:accept|confirm)|hasn'?t responded");
+const NEEDS_MY_RESPONSE_KEYWORDS = wordBounded('por aceptar|por confirmar|tengo que aceptar|debo aprobar|pendiente de mi respuesta|mi respuesta|to accept|to confirm|my response');
+const WAITING_FOR_OTHERS_KEYWORDS = wordBounded('esperando|en espera|waiting|pendientes? de confirmaci[oó]n');
+// M-1H v7 (ticket "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS") — hallazgo
+// real físico: "¿Qué falta por confirmar?"/"¿Qué falta que me confirmen?"
+// usan "falta" impersonal (nadie nombrado como responsable) y por eso
+// significan lo mismo que "esperando" (esperando a que OTROS confirmen) --
+// nunca la obligación propia del actor. Se revisa con prioridad MÁS ALTA que
+// NEEDS_MY_RESPONSE_KEYWORDS (que ahora incluye el genérico "por confirmar")
+// para que "falta por confirmar" nunca colisione con el "por confirmar" de
+// "¿Qué tengo por confirmar?" (ese sí es needs_my_response real, sección 5).
+const FALTA_WAITING_KEYWORDS = wordBounded('falta por confirmar|falta que (?:me )?confirmen|falta confirmaci[oó]n');
 // M-1G.1 — verbos imperativos de escritura (crear/cancelar/enviar/
 // modificar/borrar), ES+EN, deliberadamente pequeño y genérico (mismo
 // principio que el resto de estos conjuntos). Nunca confundir con verbos de
@@ -100,6 +109,30 @@ const STOPWORDS = new Set([
     // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo
     // funcional sin tema propio (paralelo a "is"/"hay").
     'estoy',
+    // M-1H v7 (ticket "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS", sección
+    // 7) — auditoría explícita: estas palabras SIEMPRE expresan estado de
+    // proposal (confirmar/aceptar/aprobar/responder), nunca un tema real de
+    // FTS por sí solas. Cuando aparecen COMO PARTE de una de las frases de
+    // proposalFocus arriba, ya se eliminan enteras vía
+    // stripProposalFocusLanguage; esto cubre el residuo suelto que queda
+    // cuando el verbo aparece solo (ej. "¿Qué estoy esperando confirmación?"
+    // -> tras quitar "esperando" queda "confirmación" suelto). Mismo
+    // principio que "pendiente"/"tengo"/"prometí" ya arriba -- deliberadamente
+    // pequeño, sin conjugación exhaustiva, sólo las formas que aparecen en
+    // las frases reales de este ticket.
+    'confirmar', 'confirmación', 'confirmacion', 'confirmen', 'confirme', 'confirmes', 'confirmo', 'confirmó',
+    'confirm', 'confirms', 'confirmed', 'confirmation',
+    'aceptar', 'acepte', 'aceptes', 'acepto', 'aceptó', 'aceptan',
+    'accept', 'accepts', 'accepted',
+    'aprobar', 'apruebe', 'apruebo', 'aprueban', 'aprobación', 'aprobacion',
+    'approve', 'approves', 'approved', 'approval',
+    'respuesta', 'respuestas', 'response', 'responses',
+    'propuesta', 'propuestas',
+    // Conjugaciones de "esperar" distintas de "esperando" (ya removida por
+    // stripProposalFocusLanguage cuando aparece exacta) -- residuo suelto en
+    // frases como "¿Qué propuestas esperan mi respuesta?".
+    'espera', 'esperan', 'esperas', 'esperamos',
+    'siguen', 'debo',
 ]);
 
 // M-1D.3 — un textQuery cuyos tokens son TODOS lenguaje de control/intención
@@ -120,6 +153,31 @@ function isControlLanguageOnly(text: string): boolean {
         || OPEN_STATUS_KEYWORDS.test(tok)
         || CLOSED_STATUS_KEYWORDS.test(tok)
     ));
+}
+
+// M-1H v7 (ticket "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS", sección 9) —
+// hallazgo real: `isControlLanguageOnly` es (a propósito, ver M-1D.3) un
+// gate TODO-O-NADA -- si UN SOLO token del string es contenido real, el
+// string entero sobrevive SIN TOCAR, incluyendo cualquier palabra de control
+// suelta que venga pegada (ej. topicHints="task list app" preserva "task"
+// aunque matchee COMMITMENT_KEYWORDS, porque el resto es tema real). Eso es
+// intencional y NO debe tocarse -- pero significa que un modelo que
+// devuelve textQuery="confirmación viaje" nunca pierde el "confirmación"
+// suelto por ese camino. La red de seguridad real y acotada es esta:
+// remover la MISMA lista pequeña de vocabulario de confirmación/aceptación/
+// aprobación (sección 7 del ticket) por REGEX, igual que ya se hace con
+// OVERDUE_KEYWORDS/proposalFocus arriba -- nunca un filtro token-por-token
+// genérico (eso sí rompía "task list app" y "presupuesto de marketing", ver
+// regresión detectada al intentarlo).
+const CONFIRMATION_CONTROL_WORDS = wordBounded(
+    'confirmar|confirmaci[oó]n|confirmen|confirme|confirmes|confirm[oó]|'
+    + 'aceptar|acepte|aceptes|acept[oó]|aceptan|'
+    + 'aprobar|apruebe|aprueb[oa]n?|aprobaci[oó]n|'
+    + 'respuestas?|propuestas?',
+);
+function stripConfirmationControlWords(text: string): string {
+    const pattern = new RegExp(CONFIRMATION_CONTROL_WORDS.source, 'giu');
+    return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // M-1G.3 — hallazgo real de staging (M-1G-S2/M-1G.2, caso "Entrenar"): esta
@@ -144,7 +202,7 @@ function stripOverdueLanguage(text: string): string {
 // estructuralmente).
 function stripProposalFocusLanguage(text: string): string {
     let cleaned = text;
-    for (const kw of [PENDING_RESPONSE_FROM_PERSON_KEYWORDS, NEEDS_MY_RESPONSE_KEYWORDS, WAITING_FOR_OTHERS_KEYWORDS]) {
+    for (const kw of [PENDING_RESPONSE_FROM_PERSON_KEYWORDS, FALTA_WAITING_KEYWORDS, NEEDS_MY_RESPONSE_KEYWORDS, WAITING_FOR_OTHERS_KEYWORDS]) {
         cleaned = cleaned.replace(new RegExp(kw.source, 'giu'), ' ');
     }
     return cleaned.replace(/\s+/g, ' ').trim();
@@ -164,6 +222,13 @@ function extractProposalFocus(input: string): ProposalFocus {
     const hasPendingPersonCue = PENDING_RESPONSE_PERSON_CUE.test(input) || /\bhasn'?t responded\b/iu.test(input);
     PENDING_RESPONSE_PERSON_CUE.lastIndex = 0;
     if (hasPendingPersonCue) return 'pending_response_from_person';
+    // "falta por confirmar"/"falta que (me) confirmen" (impersonal, sin
+    // sujeto que deba actuar) se revisa ANTES que NEEDS_MY_RESPONSE_KEYWORDS
+    // a propósito -- éste último ahora incluye el "por confirmar" genérico
+    // ("¿Qué tengo por confirmar?"), y "falta por confirmar" lo contiene
+    // como substring. Sin esta prioridad, "falta por confirmar" quedaría
+    // mal clasificado como needs_my_response.
+    if (FALTA_WAITING_KEYWORDS.test(input)) return 'waiting_for_others';
     if (NEEDS_MY_RESPONSE_KEYWORDS.test(input)) return 'needs_my_response';
     if (WAITING_FOR_OTHERS_KEYWORDS.test(input)) return 'waiting_for_others';
     return null;
@@ -182,7 +247,18 @@ const PERSON_HINT_VERB_AFTER = new RegExp(`(${NAME_TOKEN})\\s+(?:say|says|said|d
 // Alejandra?" / "What still needs to accept from Alejandra?": el cue-before
 // genérico de arriba no cubre "acepte"/"accept" como verbo introductorio, y
 // esta construcción específica siempre va junto a PENDING_RESPONSE_FROM_PERSON_KEYWORDS.
-const PENDING_RESPONSE_PERSON_CUE = new RegExp(`(?:falta que acepte|needs? to accept(?:\\s+from)?)\\s+(${NAME_TOKEN})`, 'gi');
+//
+// M-1H v7 (ticket "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS", sección 6) —
+// ampliado con 2 formas más, mismo principio ("la semántica depende de QUIÉN
+// debe actuar" -- nombrar a la persona hace la pregunta MÁS específica que
+// el genérico waiting_for_others, nunca menos): "confirme" como verbo
+// alternativo a "acepte" ("¿Qué falta que confirme Alejandra?"), y
+// "esperando de <Nombre>" / "esperando que (acepte|confirme) <Nombre>"
+// ("¿Qué estoy esperando de Alejandra?" / "...que acepte Alejandra?").
+const PENDING_RESPONSE_PERSON_CUE = new RegExp(
+    `(?:falta que (?:acepte|confirme)|needs? to (?:accept|confirm)(?:\\s+from)?|esperando (?:de|que (?:acepte|confirme)))\\s+(${NAME_TOKEN})`,
+    'gi',
+);
 
 // ─── Time expressions (sección 12) — sólo detecta la FRASE cruda aquí; la
 // resolución a rango de fechas real (con timezone) vive en
@@ -207,7 +283,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     // general_context y podrían activar el guard de "topic_too_broad"
     // (sección 20) en vez de la respuesta determinística correcta cuando no
     // hay evidencia.
-    if (PENDING_RESPONSE_FROM_PERSON_KEYWORDS.test(input) || NEEDS_MY_RESPONSE_KEYWORDS.test(input) || WAITING_FOR_OTHERS_KEYWORDS.test(input)) {
+    if (PENDING_RESPONSE_FROM_PERSON_KEYWORDS.test(input) || FALTA_WAITING_KEYWORDS.test(input) || NEEDS_MY_RESPONSE_KEYWORDS.test(input) || WAITING_FOR_OTHERS_KEYWORDS.test(input)) {
         return { type: 'commitment_query', confidence: 0.75 };
     }
     if (SEARCH_KEYWORDS.test(input)) return { type: 'message_search', confidence: 0.7 };
@@ -266,6 +342,11 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     // M-1H v6: mismo principio para "esperando"/"por aceptar"/"falta que
     // acepte" -- ya capturado estructuralmente en proposalFocus.
     cleaned = stripProposalFocusLanguage(cleaned);
+    // M-1H v7: "confirmación"/"confirmen"/"aceptar"/"aprobar"/"propuestas"
+    // sueltos (no parte de ninguna frase de proposalFocus reconocida, ej.
+    // tras remover "esperando" de "esperando confirmación") nunca deben
+    // sobrevivir como textQuery -- ver stripConfirmationControlWords.
+    cleaned = stripConfirmationControlWords(cleaned);
     const tokens = cleaned
         .replace(/[¿?¡!.,;:]/g, ' ')
         .split(/\s+/)
@@ -458,7 +539,11 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // M-1H v6: misma red de seguridad que stripOverdueLanguage -- el modelo
     // no siempre sigue la instrucción de nunca repetir "esperando"/"por
     // aceptar"/"falta que acepte" en textQuery.
-    const finalTextQuery = strippedTextQuery ? stripProposalFocusLanguage(strippedTextQuery) : null;
+    const proposalCleanedTextQuery = strippedTextQuery ? stripProposalFocusLanguage(strippedTextQuery) : null;
+    // M-1H v7: misma red de seguridad que arriba (extractTextQuery) -- el
+    // modelo no siempre sigue la instrucción de nunca repetir
+    // "confirmación"/"aceptar"/"aprobar" sueltos en textQuery.
+    const finalTextQuery = proposalCleanedTextQuery ? stripConfirmationControlWords(proposalCleanedTextQuery) : null;
     const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
     return {

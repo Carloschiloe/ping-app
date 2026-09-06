@@ -1100,6 +1100,61 @@ describe('M-1H v6: GAP B — filterByProposalFocus (Core decide, nunca el LLM)',
     });
 });
 
+// M-1H v7 — "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS": regresión del FAIL
+// físico real reportado -- "¿Qué estoy esperando confirmación?" devolvía
+// no_evidence porque "confirmación" sobrevivía como textQuery (fix real en
+// agentInputInterpreter.service.ts). A diferencia de los tests de arriba
+// (interpretación INYECTADA vía mockInterpreter, que sólo certifican el
+// filtrado del Core), estos usan `withDeterministicInterpreter` SIN pasar
+// `interpreter` -- el default real (`new DeterministicInputInterpreter()`)
+// -- para certificar el pipeline COMPLETO interpreter+Core end-to-end, tal
+// como corre en producción quel el proveedor LLM no está configurado.
+describe('M-1H v7: END-TO-END con interpreter REAL — regresión del FAIL físico "¿Qué estoy esperando confirmación?"', () => {
+    const CARLOS = 'u1';
+    const ALEJANDRA = 'alejandra-id';
+
+    it('"¿Qué estoy esperando confirmación?" -> Entrenar + ver peli (Carlos ya aprobó, Alejandra pendiente), NUNCA no_evidence; excluye Proyecto Aurora (ahí a Carlos le falta aprobar, no es waiting_for_others)', async () => {
+        const entrenar = proposalFixture({ id: 'pr-entrenar', title: 'Entrenar', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        const verPeli = proposalFixture({ id: 'pr-verpeli', title: 'ver peli', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        const proyectoAurora = proposalFixture({ id: 'pr-aurora', title: 'Proyecto Aurora', actorHasApproved: false, actorCanRespond: true, isFullyApproved: false });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar, verPeli, proyectoAurora] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando confirmación?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.evidenceFound).toBe(true);
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(['pr-entrenar', 'pr-verpeli']);
+    });
+
+    it('"¿Qué falta que acepte Alejandra?" real (sin interpreter mockeado) sigue devolviendo las 3 proposals -- regresión física obligatoria (sección 10)', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: ALEJANDRA, displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const puertoMontt = proposalFixture({ id: 'pr-puertomontt', title: 'ir a Puerto Montt', actorHasApproved: true, actorCanRespond: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        const verPeli = proposalFixture({ id: 'pr-verpeli', title: 'ver peli', actorHasApproved: true, actorCanRespond: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        const entrenar = proposalFixture({ id: 'pr-entrenar', title: 'Entrenar', actorHasApproved: true, actorCanRespond: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([puertoMontt, verPeli, entrenar] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra?' });
+
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(['pr-entrenar', 'pr-puertomontt', 'pr-verpeli']);
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ personId: undefined }), expect.any(Number));
+    });
+
+    it('"¿Qué estoy esperando confirmación sobre el viaje?" real -- tema real conservado, filtro de texto no excluye la evidencia (sin mock del interpreter)', async () => {
+        const viaje = proposalFixture({ id: 'pr-viaje', title: 'Planear el viaje', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([viaje] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando confirmación sobre el viaje?' });
+
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+        // El tema real ("viaje") sí llega como filtro de texto -- nunca
+        // "confirmación" mezclado (eso habría sido la causa raíz A del FAIL físico).
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje' }), expect.any(Number));
+    });
+});
+
 // PING — OVERDUE ROOT CAUSE AUDIT TOTAL, secciones 19/20/23: dataset de 100
 // commitments (no 15) para descartar cualquier efecto de budget/sort/
 // ranking a mayor escala; topic+overdue con 100; persona+overdue.

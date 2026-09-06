@@ -779,3 +779,144 @@ describe('M-1H v6: proposalFocus nunca sobrevive como textQuery incluso cuando e
         expect(r.textQuery).not.toMatch(/\bpor aceptar\b/i);
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H v7 — "WAITING / CONFIRMATION LANGUAGE ROBUSTNESS": hallazgo físico
+// real -- "¿Qué estoy esperando confirmación?" fallaba con no_evidence
+// porque "confirmación" sobrevivía como textQuery (causa A del ticket,
+// confirmada reproduciendo el interpreter real: proposalFocus SÍ se detectaba
+// correctamente como waiting_for_others, pero "confirmación" quedaba como
+// residuo no cubierto por ningún STOPWORD ni por stripProposalFocusLanguage).
+// Ampliado también el vocabulario de proposalFocus (confirmar/confirmen/
+// aprobar/mi respuesta/tengo que aceptar/falta por confirmar) y el cue de
+// persona (confirme/esperando de <Nombre>/esperando que acepte <Nombre>),
+// sección 6 del ticket: "la semántica depende de QUIÉN debe actuar".
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H v7: waiting_for_others — lenguaje de confirmación SIN sujeto que deba actuar (sección 4)', () => {
+    it.each([
+        '¿Qué estoy esperando confirmación?',
+        '¿Qué estoy esperando que confirmen?',
+        '¿Qué propuestas estoy esperando?',
+        '¿Qué falta por confirmar?',
+        '¿Qué falta que me confirmen?',
+        '¿Qué tengo pendiente de confirmación?',
+    ])('%s -> waiting_for_others, textQuery=null (nunca "confirmación"/"confirmen"/"propuestas" sueltos)', async (phrase) => {
+        const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+        expect(r.textQuery).toBeNull();
+        expect(r.intent).toBe('commitment_query');
+    });
+});
+
+describe('M-1H v7: needs_my_response — "me toca a mí" (sección 5)', () => {
+    it.each([
+        '¿Qué tengo por confirmar?',
+        '¿Qué propuestas esperan mi respuesta?',
+        '¿Qué debo aprobar?',
+    ])('%s -> needs_my_response, textQuery=null', async (phrase) => {
+        const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+        expect(r.textQuery).toBeNull();
+        expect(r.intent).toBe('commitment_query');
+    });
+
+    it('"¿Qué tengo que aceptar?" -> needs_my_response (sección 5, forma "tengo que" no cubierta por el "por aceptar" ya existente)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo que aceptar?', {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+    });
+
+    it('nunca colisiona con "falta por confirmar" (waiting_for_others) pese a compartir la sub-frase "por confirmar"', async () => {
+        const waiting = await new DeterministicInputInterpreter().interpret('¿Qué falta por confirmar?', {});
+        const mine = await new DeterministicInputInterpreter().interpret('¿Qué tengo por confirmar?', {});
+        expect(waiting.proposalFocus).toBe('waiting_for_others');
+        expect(mine.proposalFocus).toBe('needs_my_response');
+    });
+});
+
+describe('M-1H v7: pending_response_from_person — persona explícita (sección 6, "la semántica depende de QUIÉN debe actuar")', () => {
+    it.each([
+        ['¿Qué falta que confirme Alejandra?', 'Alejandra'],
+        ['¿Qué estoy esperando de Alejandra?', 'Alejandra'],
+        ['¿Qué estoy esperando que acepte Alejandra?', 'Alejandra'],
+    ])('%s -> pending_response_from_person + personHint=%s (Alejandra nunca se convierte en textQuery)', async (phrase, name) => {
+        const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+        expect(r.personHints).toContain(name);
+        expect(r.textQuery).toBeNull();
+    });
+});
+
+describe('M-1H v7: preservación de tema real junto a lenguaje de confirmación (sección 7)', () => {
+    it('"¿Qué estoy esperando confirmación sobre el viaje?" -> waiting_for_others + textQuery="viaje" (tema real conservado)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué estoy esperando confirmación sobre el viaje?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+        expect(r.textQuery).toBe('viaje');
+    });
+
+    // LÍMITE HONESTO (no introducido por este ticket, mismo mecanismo ya
+    // documentado como "LIMITACIÓN CONOCIDA" en M-1G.3 para "sobre Proyecto
+    // Aurora" con overdue): el cue genérico "sobre <Nombre Propio>" de
+    // PERSON_HINT_CUE_BEFORE no distingue un nombre de persona real de un
+    // título de tarea con mayúscula inicial. Cuando el tema es un nombre
+    // propio (ej. "Entrenar" capitalizado como título), se captura como
+    // personHint y se pierde como textQuery. A diferencia del caso de
+    // overdue, aquí el efecto es benigno: como textQuery queda null (no un
+    // string falso), la consulta NO excluye evidencia real -- sólo pierde el
+    // acotamiento por tema, devolviendo todas las proposals en
+    // waiting_for_others en vez de sólo la nombrada. Corregir el heurístico
+    // genérico de persona está fuera del alcance de este ticket (sección 1:
+    // "NO tocar" nada fuera de robustez lingüística de proposalFocus) y
+    // arriesgaría el flujo de resolución/clarificación de personas real.
+    it('LÍMITE HONESTO: "sobre <Título con mayúscula>" sigue colisionando con el heurístico de persona -- documentado, no oculto', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué estoy esperando confirmación sobre Entrenar?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+        expect(r.personHints).toContain('Entrenar'); // falso positivo conocido
+        expect(r.textQuery).toBeNull(); // benigno: nunca excluye evidencia real, sólo pierde el acotamiento por tema
+    });
+});
+
+describe('M-1H v7: regresiones físicas obligatorias (sección 10) — no romper lo ya certificado', () => {
+    it('"¿Qué estoy esperando?" -> waiting_for_others', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué estoy esperando?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+    });
+
+    it('"¿Qué falta que acepte Alejandra?" -> pending_response_from_person + personHint Alejandra', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué falta que acepte Alejandra?', {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+        expect(r.personHints).toContain('Alejandra');
+    });
+
+    it('"¿Qué tengo por aceptar?" -> needs_my_response', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo por aceptar?', {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+    });
+
+    it('"¿Qué tengo vencido?" -> wantsOverdueFocus=true (el criterio real de exclusión de proposals vive en el Core/filterByProposalFocus, ya certificado aparte)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+        expect(r.wantsOverdueFocus).toBe(true);
+    });
+});
+
+describe('M-1H v7: NO depender del LLM (sección 9) — el mismo saneamiento determinístico aplica sin importar lo que el modelo decida', () => {
+    it('ADVERSARIAL: modelo devuelve textQuery="confirmación" + proposalFocus=null -> la red de seguridad igual limpia el residuo de control (nunca dispara FTS falso)', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: null, textQuery: 'confirmación' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando confirmación?', {});
+        expect(r.textQuery).toBeNull();
+    });
+
+    it('ADVERSARIAL: modelo devuelve textQuery="esperando confirmación" + proposalFocus=null -> igual se limpia por completo', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: null, textQuery: 'esperando confirmación' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando confirmación?', {});
+        expect(r.textQuery).toBeNull();
+    });
+
+    it('ADVERSARIAL: modelo mezcla lenguaje de confirmación con un tema real en un solo textQuery -- sólo el tema sobrevive', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', textQuery: 'esperando confirmación viaje' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando confirmación sobre el viaje?', {});
+        expect(r.textQuery).toBe('viaje');
+    });
+});
