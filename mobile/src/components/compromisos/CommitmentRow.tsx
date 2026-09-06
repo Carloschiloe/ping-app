@@ -14,7 +14,11 @@ interface CommitmentRowProps {
     currentUserId?: string;
     contactNameMap?: Record<string, string>;
     onMarkDone: (id: string) => void;
-    onConfirm: (id: string) => void;
+    // M-1H fix — recibe el objeto completo, no sólo el id: el caller necesita
+    // `commitment._isAgreementProposal` para despachar al endpoint correcto
+    // (proposal vs commitment canónico son entidades distintas con IDs de
+    // tablas distintas — ver docs del hallazgo real, caso "Entrenar").
+    onConfirm: (commitment: any) => void;
     onOpenReschedule: (commitment: any) => void;
     onOpenDetail: (commitment: any) => void;
     onCancel?: (id: string) => void;
@@ -98,7 +102,7 @@ export function CommitmentRow({
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
-                    onPress={() => onConfirm(c.id)}
+                    onPress={() => onConfirm(c)}
                 >
                     <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Confirmar</Text>
                 </TouchableOpacity>

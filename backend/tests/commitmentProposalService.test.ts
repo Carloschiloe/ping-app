@@ -30,6 +30,43 @@ describe('canonical Commitment proposals', () => {
         expect(result.status).toBe('accepted');
     });
 
+    // M-1H v2 — respuesta al bloqueo de "materialización real" del final
+    // review gate: prueba confirmProposal SOBRE UNA PROPOSAL EXISTENTE
+    // (caso real "Entrenar" -- una proposal solo, ya creada, sin
+    // participantes), no sólo el camino combinado de createConfirmedCommitment
+    // (que crea Y confirma en la misma llamada). Este es el mismo RPC que el
+    // nuevo endpoint mobile POST /commitment-proposals/:id/confirm dispara.
+    // La transición real de negocio (proposal.status='confirmed',
+    // commitments row con proposal_id=P1, status='accepted') está
+    // implementada en confirm_commitment_proposal -> finalize_approved_commitment_proposal
+    // (ver supabase/migrations/20260730123000_shared_commitment_agreements.sql,
+    // líneas 170-305 y 543-573) -- no se puede re-certificar la SQL real sin
+    // Postgres, pero este test certifica que el service llama exactamente
+    // ese RPC con los args correctos y propaga fielmente su resultado
+    // (incluyendo proposal_id, la prueba de que el commitment resultante
+    // referencia a su proposal de origen).
+    it('confirmProposal (proposal SOLO existente, sin agreement_responses) llama confirm_commitment_proposal con el actor y proposal reales, y devuelve el commitment materializado con proposal_id', async () => {
+        const mock = createSupabaseAdminMock({
+            'rpc:confirm_commitment_proposal': [{
+                data: { id: 'commitment-entrenar', proposal_id: PROPOSAL, status: 'accepted', title: 'Entrenar' },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { confirmProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await confirmProposal(USER, PROPOSAL);
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'confirm_commitment_proposal',
+            args: { p_proposal_id: PROPOSAL, p_actor_user_id: USER },
+        }]);
+        // La relación real (sección 4 del ticket, "o la relación real
+        // equivalente del schema"): commitments.proposal_id -> el id de la
+        // proposal de origen -- nunca un campo inventado.
+        expect(result).toMatchObject({ id: 'commitment-entrenar', proposal_id: PROPOSAL, status: 'accepted' });
+    });
+
     it('rejecting a Proposal never inserts a Commitment', async () => {
         const mock = createSupabaseAdminMock({
             'rpc:reject_commitment_proposal_with_evidence': [{

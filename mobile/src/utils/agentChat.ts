@@ -52,6 +52,9 @@ export function canSendInput(input: string, isPending: boolean): boolean {
 
 const CITATION_TYPE_LABELS: Record<string, string> = {
     commitment: 'Compromiso',
+    // M-1H: sin esta entrada, una cita a una commitment_proposal (caso real
+    // "Entrenar") caía al fallback genérico 'Fuente' en vez de 'Compromiso'.
+    commitment_proposal: 'Compromiso',
     commitment_event: 'Compromiso',
     message: 'Mensaje',
     transcription: 'Audio',

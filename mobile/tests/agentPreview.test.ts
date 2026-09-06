@@ -88,6 +88,19 @@ describe('M-1G: parseAgentResponse — shape exacto, sin claims/diagnostics', ()
         expect(result.followUp).toBeUndefined();
     });
 
+    // M-1H v2 — punto 7 del final review gate ("source type end-to-end"):
+    // parseAgentResponse filtra por forma (sourceType/sourceId strings), no
+    // por un enum cerrado -- una cita a commitment_proposal (caso real
+    // "Entrenar") debe sobrevivir intacta, nunca caer al filtro de
+    // "citations mal formadas".
+    it('acepta y preserva una cita con sourceType="commitment_proposal" (compromiso aún no confirmado)', () => {
+        const result = parseAgentResponse({
+            status: 'answered', answer: 'Tienes una propuesta de entrenar.',
+            citations: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }],
+        });
+        expect(result.citations).toEqual([{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }]);
+    });
+
     it('nunca espera ni depende de claims/diagnostics aunque el backend los agregara por error', () => {
         const result = parseAgentResponse({ status: 'answered', answer: 'x', citations: [], claims: [{ text: 'leak' }], diagnostics: { model: 'gpt-4o-mini' } });
         expect(result).not.toHaveProperty('claims');
@@ -196,6 +209,17 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         ]);
         expect(labels).toEqual(['Compromiso', 'Audio']);
         expect(labels.join(' ')).not.toContain('1111');
+    });
+
+    // M-1H — hallazgo real de staging (caso "Entrenar"): una cita a un
+    // commitment_proposal (compromiso todavía no confirmado, tabla distinta
+    // de commitments) caía al fallback genérico 'Fuente' en vez de
+    // 'Compromiso' porque el label no existía en absoluto.
+    it('describeCitationTypes: commitment_proposal se etiqueta igual que commitment ("Compromiso"), nunca cae al fallback genérico', () => {
+        const labels = describeCitationTypes([
+            { sourceType: 'commitment_proposal' as any, sourceId: 'pr1' },
+        ]);
+        expect(labels).toEqual(['Compromiso']);
     });
 
     it('AGENT_SUGGESTED_STARTERS: 4 ejemplos neutrales, sin vocabulario sectorial', () => {

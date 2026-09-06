@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule } from './helpers/supabaseMock';
+import { DeterministicInputInterpreter } from '../src/services/agentInputInterpreter.service';
 
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
 
@@ -360,6 +361,148 @@ describe('M-1B: retrieveCommitments', () => {
         const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
         expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
         expect(chain.order).not.toHaveBeenCalledWith('due_at', expect.anything());
+    });
+});
+
+// ─── M-1H: retrieveCommitmentProposals (hallazgo real de staging, caso
+// "Entrenar" — un compromiso que existe SÓLO en commitment_proposals, nunca
+// en commitments, así que el Agent nunca lo veía). Mismo shape de salida
+// (RetrievalCommitment) que retrieveCommitments, con entityType honesto. ────
+
+describe('M-1H: retrieveCommitmentProposals', () => {
+    const proposalRow = (overrides: Partial<Record<string, any>> = {}) => ({
+        id: 'pr1', title: 'Entrenar', description: null, status: 'pending', due_at: '2026-08-01T00:00:00Z',
+        type: 'task', priority: null, expected_result: null,
+        proposed_by_user_id: 'u1', proposed_responsible_user_id: null, counterparty_contact_id: null,
+        conversation_id: 'conv-1', source_message_id: 'msg-1', created_at: '2026-07-01T00:00:00Z',
+        rejection_reason: null, latest_counterproposal_due_at: null,
+        ...overrides,
+    });
+
+    it('mapea una proposal pendiente a RetrievalCommitment con entityType honesto y status "proposed"', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(p).toMatchObject({
+            id: 'pr1', entityType: 'commitment_proposal', title: 'Entrenar', status: 'proposed',
+            dueAt: '2026-08-01T00:00:00Z', ownerUserId: 'u1', conversationId: 'conv-1', messageId: 'msg-1',
+        });
+        expect(p.provenance).toEqual({
+            sourceType: 'commitment_proposal', sourceId: 'pr1', conversationId: 'conv-1', messageId: 'msg-1',
+            commitmentId: null, timestamp: '2026-07-01T00:00:00Z',
+        });
+    });
+
+    it('deriveProposalViewStatus: pending + latest_counterproposal_due_at -> counter_proposal', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ latest_counterproposal_due_at: '2026-08-15T00:00:00Z' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(p.status).toBe('counter_proposal');
+        expect(p.proposedDueAt).toBe('2026-08-15T00:00:00Z');
+    });
+
+    it('deriveProposalViewStatus: status="rejected" se preserva tal cual', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ status: 'rejected', rejection_reason: 'no aplica' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(p.status).toBe('rejected');
+        expect(p.rejectionReason).toBe('no aplica');
+    });
+
+    it('con textQuery presente devuelve [] sin consultar ninguna tabla -- commitment_proposals no tiene search_tsv (sin FTS)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'entrenar' }, 20);
+        expect(result).toEqual([]);
+        expect(mock.getCalledTables()).toEqual([]);
+    });
+
+    it('orderByOverdueFirst=true ordena por due_at ascendente en vez de created_at descendente', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitmentProposals({ actorUserId: 'u1', orderByOverdueFirst: true }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
+        expect(chain.order).not.toHaveBeenCalledWith('created_at', expect.anything());
+    });
+
+    it('orderByOverdueFirst ausente/false ordena por created_at descendente', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitmentProposals({ actorUserId: 'u1' }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    });
+
+    it('dedupea por id cuando la misma fila aparece más de una vez', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow(), proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(result).toHaveLength(1);
+    });
+
+    it('filtra por statuses canónicos DESPUÉS del mapeo (nunca contra la columna real de 3 valores)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{
+                data: [
+                    proposalRow({ id: 'pr-open', status: 'pending' }),
+                    proposalRow({ id: 'pr-rejected', status: 'rejected' }),
+                ],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', statuses: ['proposed', 'accepted', 'counter_proposal'] as any }, 20);
+        expect(result.map((p) => p.id)).toEqual(['pr-open']);
+    });
+
+    it('resultado vacío no lanza error', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await expect(retrieveCommitmentProposals({ actorUserId: 'u1' }, 20)).resolves.toEqual([]);
     });
 });
 
@@ -1164,4 +1307,63 @@ describe('M-1C.1: contrato real — el servicio nunca construye queries de prefi
     // a través de este camino? -> NO, verificado en la integración Postgres,
     // sección "M-1C.1 (c) CONTRATO REAL") no es reproducible aquí porque el
     // mock no evalúa tsvector — sólo registra qué se le pidió a Postgres.
+});
+
+// PING — OVERDUE ROOT CAUSE AUDIT TOTAL, secciones 21/22: contra el código
+// REAL de retrieveCommitments (no un mock de la capa completa), usando el
+// textQuery REAL que el interpreter real (M-1G.3) produce para cada
+// pregunta -- nunca un textQuery inventado a mano.
+describe('AUDIT (sección 21): "¿Qué tengo vencido?" nunca activa FTS (textQuery real = null)', () => {
+    const row = (overrides: Partial<Record<string, any>> = {}) => ({
+        id: 'cm1', title: 'Entrenar', description: null, status: 'accepted', type: 'task', priority: null,
+        due_at: '2026-07-01T00:00:00Z', proposed_due_at: null, expected_result: null, resolved_at: null,
+        resolution_result: null, rejection_reason: null, owner_user_id: 'u1', assigned_to_user_id: null,
+        counterparty_contact_id: null, conversation_id: 'conv-1', message_id: null, created_at: '2026-06-01T00:00:00Z',
+        ...overrides,
+    });
+
+    it('retrieveCommitments con el textQuery real de "¿Qué tengo vencido?" NUNCA llama textSearch, SÍ ordena por due_at ASC', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+        expect(interpretation.textQuery).toBeNull(); // precondición real: si esto cambia, la auditoría debe reajustarse
+
+        await retrieveCommitments({ actorUserId: 'u1', query: interpretation.textQuery ?? undefined, orderByOverdueFirst: interpretation.wantsOverdueFocus }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.textSearch).not.toHaveBeenCalled();
+        expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
+    });
+});
+
+describe('AUDIT (sección 22): "¿Qué tengo vencido sobre el viaje?" activa FTS SÓLO con "viaje", nunca con vencido/overdue', () => {
+    const row = (overrides: Partial<Record<string, any>> = {}) => ({
+        id: 'cm1', title: 'Planear el viaje', description: null, status: 'accepted', type: 'task', priority: null,
+        due_at: '2026-07-01T00:00:00Z', proposed_due_at: null, expected_result: null, resolved_at: null,
+        resolution_result: null, rejection_reason: null, owner_user_id: 'u1', assigned_to_user_id: null,
+        counterparty_contact_id: null, conversation_id: 'conv-1', message_id: null, created_at: '2026-06-01T00:00:00Z',
+        ...overrides,
+    });
+
+    it('retrieveCommitments con el textQuery real de "¿Qué tengo vencido sobre el viaje?" llama textSearch sólo con "viaje"', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido sobre el viaje?', {});
+        expect(interpretation.textQuery).toBe('viaje'); // precondición real
+
+        await retrieveCommitments({ actorUserId: 'u1', query: interpretation.textQuery ?? undefined, orderByOverdueFirst: interpretation.wantsOverdueFocus }, 10);
+        const calls = mock.getTextSearchCalls('commitments');
+        expect(calls.length).toBe(1);
+        expect(calls[0][1]).toBe('viaje');
+        expect(calls[0][1]).not.toMatch(/vencido|overdue|atrasad|past due|\blate\b/i);
+    });
 });

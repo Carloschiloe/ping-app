@@ -11,6 +11,7 @@ import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 export type RetrievalSourceType =
     | 'commitment'
+    | 'commitment_proposal'
     | 'commitment_event'
     | 'message'
     | 'transcription'
@@ -46,6 +47,13 @@ export interface PersonResolutionResult {
 
 export interface RetrievalCommitment {
     id: string;
+    // M-1H — 'commitment' (tabla canónica) o 'commitment_proposal' (tabla
+    // separada, aún sin confirmar). El mismo shape estructural se reutiliza
+    // para ambas fuentes (mismo pipeline de síntesis/overdue), pero este
+    // campo es la fuente de verdad de qué es REALMENTE cada item — nunca se
+    // finge una proposal como commitment. Ver retrieval.service.ts
+    // #retrieveCommitmentProposals.
+    entityType: 'commitment' | 'commitment_proposal';
     title: string;
     description: string | null;
     status: CanonicalCommitmentStatus;

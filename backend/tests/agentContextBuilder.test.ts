@@ -25,6 +25,7 @@ async function withDeterministicInterpreter(input: AgentContextInput, options: B
 vi.mock('../src/services/retrieval.service', () => ({
     resolvePerson: vi.fn(),
     retrieveCommitments: vi.fn(),
+    retrieveCommitmentProposals: vi.fn(),
     retrieveCommitmentEvents: vi.fn(),
     retrieveMessages: vi.fn(),
     retrieveTranscriptions: vi.fn(),
@@ -46,6 +47,7 @@ import * as retrievalService from '../src/services/retrieval.service';
 
 const mockResolvePerson = vi.mocked(retrievalService.resolvePerson);
 const mockRetrieveCommitments = vi.mocked(retrievalService.retrieveCommitments);
+const mockRetrieveCommitmentProposals = vi.mocked(retrievalService.retrieveCommitmentProposals);
 const mockRetrieveCommitmentEvents = vi.mocked(retrievalService.retrieveCommitmentEvents);
 const mockRetrieveMessages = vi.mocked(retrievalService.retrieveMessages);
 const mockRetrieveTranscriptions = vi.mocked(retrievalService.retrieveTranscriptions);
@@ -54,6 +56,7 @@ const mockRetrieveAttachments = vi.mocked(retrievalService.retrieveAttachments);
 function resetMocks() {
     mockResolvePerson.mockReset().mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
     mockRetrieveCommitments.mockReset().mockResolvedValue([]);
+    mockRetrieveCommitmentProposals.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentEvents.mockReset().mockResolvedValue([]);
     mockRetrieveMessages.mockReset().mockResolvedValue([]);
     mockRetrieveTranscriptions.mockReset().mockResolvedValue([]);
@@ -65,11 +68,23 @@ beforeEach(() => {
 });
 
 const commitmentFixture = (overrides: Partial<Record<string, any>> = {}) => ({
-    id: 'cm1', title: 'Agendar cita con el dentista', description: null, status: 'accepted', type: 'task',
+    id: 'cm1', entityType: 'commitment' as const, title: 'Agendar cita con el dentista', description: null, status: 'accepted', type: 'task',
     priority: null, dueAt: null, proposedDueAt: null, expectedResult: null, resolvedAt: null,
     resolutionResult: null, rejectionReason: null, ownerUserId: 'u1', assignedToUserId: null,
     counterpartyContactId: null, conversationId: 'conv-1', messageId: null, createdAt: '2026-09-01T00:00:00Z',
     provenance: { sourceType: 'commitment' as const, sourceId: 'cm1' },
+    ...overrides,
+});
+
+// M-1H — hallazgo real de staging (caso "Entrenar"): mismo shape que
+// commitmentFixture, pero entityType/provenance.sourceType honestos como
+// 'commitment_proposal' -- ver retrieval.service.ts#retrieveCommitmentProposals.
+const proposalFixture = (overrides: Partial<Record<string, any>> = {}) => ({
+    id: 'pr1', entityType: 'commitment_proposal' as const, title: 'Entrenar', description: null, status: 'proposed', type: 'task',
+    priority: null, dueAt: null, proposedDueAt: null, expectedResult: null, resolvedAt: null,
+    resolutionResult: null, rejectionReason: null, ownerUserId: 'u1', assignedToUserId: null,
+    counterpartyContactId: null, conversationId: 'conv-1', messageId: null, createdAt: '2026-07-01T00:00:00Z',
+    provenance: { sourceType: 'commitment_proposal' as const, sourceId: 'pr1', commitmentId: null },
     ...overrides,
 });
 
@@ -764,5 +779,282 @@ describe('M-1G.3: CRITICAL REGRESSION — más de 10 commitments, "Entrenar" (si
         // en agentInputInterpreter.test.ts para la prueba directa.
         const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
         expect(interpretation.textQuery).toBeNull();
+    });
+});
+
+// M-1H — CANONICAL COMMITMENT/PROPOSAL UNIFICATION: hallazgo real de staging
+// (trace real, no inferido): "Entrenar" nunca llegaba al AgentContext porque
+// existe SÓLO en commitment_proposals (tabla que retrieveCommitments jamás
+// consulta), mientras que la UI real (InsightsScreen.tsx) siempre mezcló
+// GET /commitments + GET /commitment-proposals. Estos tests certifican que
+// buildAgentContext ahora consulta AMBAS fuentes en paralelo y las combina
+// bajo las MISMAS reglas de orden/budget ya certificadas para commitments
+// solo -- nunca un concat sin reglas.
+describe('M-1H: buildAgentContext — combina commitments + commitment_proposals (caso real "Entrenar")', () => {
+    it('CASO REAL: "Entrenar" existe SÓLO como commitment_proposal, vencido -> llega al AgentContext con entityType honesto', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]); // "Entrenar" NO existe en commitments -- ver trace real de staging
+        const entrenar = proposalFixture({
+            id: 'pr-entrenar', title: 'Entrenar', status: 'proposed',
+            dueAt: '2026-07-31T00:00:00Z', // ~36 días antes de "now"
+        });
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', wantsOverdueFocus: true, textQuery: null,
+            statusHints: ['proposed', 'accepted', 'counter_proposal'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        const found = ctx.commitments.find((c) => c.id === 'pr-entrenar');
+        expect(found).toBeTruthy();
+        expect(found?.entityType).toBe('commitment_proposal');
+        expect(ctx.evidenceFound).toBe(true);
+    });
+
+    it('retrievalPlan incluye retrieveCommitmentProposals para toda commitment_query (misma guarda que retrieveCommitments)', async () => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué pendientes tengo?', conversationId: 'conv-1' });
+
+        const steps = ctx.retrievalPlan.map((s) => s.step);
+        expect(steps).toContain('retrieveCommitmentProposals');
+    });
+
+    it('document_search NO incluye retrieveCommitmentProposals en el plan (misma guarda que retrieveCommitments)', async () => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Me mandaron algún contrato?', conversationId: 'conv-1' });
+
+        const steps = ctx.retrievalPlan.map((s) => s.step);
+        expect(steps).not.toContain('retrieveCommitmentProposals');
+    });
+
+    it('personScopeBlocked bloquea retrieveCommitmentProposals igual que retrieveCommitments (nunca amplía el scope)', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: ['Alguien Desconocido'],
+        }));
+        mockResolvePerson.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le debo a Alguien Desconocido?' }, { interpreter });
+
+        expect(mockRetrieveCommitmentProposals).not.toHaveBeenCalled();
+    });
+
+    it('PARIDAD UI-AGENT: dataset mixto (commitments + proposals) se combina en un solo array, ninguna fuente se descarta', async () => {
+        const confirmedOnes = Array.from({ length: 4 }, (_, i) => commitmentFixture({ id: `cm-${i}`, title: `Confirmado ${i}` }));
+        const pendingOnes = Array.from({ length: 4 }, (_, i) => proposalFixture({ id: `pr-${i}`, title: `Propuesta ${i}` }));
+        mockRetrieveCommitments.mockResolvedValue(confirmedOnes as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue(pendingOnes as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué pendientes tengo?', conversationId: 'conv-1' });
+
+        expect(ctx.commitments).toHaveLength(8);
+        for (const c of confirmedOnes) expect(ctx.commitments.some((x) => x.id === c.id)).toBe(true);
+        for (const p of pendingOnes) expect(ctx.commitments.some((x) => x.id === p.id)).toBe(true);
+    });
+
+    it('100 ITEMS MIXTOS: commitments + proposals vencidos sobreviven el budget de 10 juntos, ordenados por due_at real', async () => {
+        const overdueCommitments = Array.from({ length: 3 }, (_, i) => commitmentFixture({
+            id: `cm-overdue-${i}`, title: `Compromiso viejo ${i}`, dueAt: `2026-0${i + 1}-01T00:00:00Z`,
+        }));
+        const overdueProposals = Array.from({ length: 2 }, (_, i) => proposalFixture({
+            id: `pr-overdue-${i}`, title: `Propuesta vieja ${i}`, dueAt: `2026-0${i + 4}-01T00:00:00Z`,
+        }));
+        const commitmentNoise = Array.from({ length: 50 }, (_, i) => commitmentFixture({ id: `cm-noise-${i}`, title: `Ruido ${i}`, dueAt: '2027-01-01T00:00:00Z' }));
+        const proposalNoise = Array.from({ length: 45 }, (_, i) => proposalFixture({ id: `pr-noise-${i}`, title: `Ruido prop ${i}`, dueAt: '2027-01-01T00:00:00Z' }));
+
+        mockRetrieveCommitments.mockImplementation(async (input: any, limit: number) => {
+            const all = [...overdueCommitments, ...commitmentNoise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : all;
+            return sorted.slice(0, limit) as any;
+        });
+        mockRetrieveCommitmentProposals.mockImplementation(async (input: any, limit: number) => {
+            const all = [...overdueProposals, ...proposalNoise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : all;
+            return sorted.slice(0, limit) as any;
+        });
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' });
+
+        for (let i = 0; i < 3; i++) expect(ctx.commitments.some((c) => c.id === `cm-overdue-${i}`)).toBe(true);
+        for (let i = 0; i < 2; i++) expect(ctx.commitments.some((c) => c.id === `pr-overdue-${i}`)).toBe(true);
+        expect(ctx.commitments).toHaveLength(10); // budget único, nunca 10+10
+    });
+
+    // M-1H v2 — CASO ADVERSARIAL (respuesta al bloqueo "6. 100 items — revisar
+    // budget global" del final review gate): el test anterior sólo tenía 5
+    // vencidos reales (3+2), muy por debajo del budget de 10 -- nunca
+    // ejercitó el caso real de interés: MÁS de 10 vencidos combinados. Este
+    // test prueba, con 10 commitments vencidos + 10 proposals vencidas (20
+    // reales, el doble del budget) + 80 futuros de ruido, que:
+    //   (a) el resultado final tiene EXACTAMENTE 10 items (el budget único,
+    //       nunca 20) -- "ninguno se pierde" sería FALSO aquí y no se
+    //       declara;
+    //   (b) los 10 que sobreviven son matemáticamente los 10 GLOBALMENTE más
+    //       vencidos (due_at más antiguo) de los 20 reales, intercalando
+    //       commitments y proposals según su fecha real -- nunca "todos los
+    //       commitments antes que las proposals" ni al revés;
+    //   (c) los 10 vencidos reales restantes (menos vencidos, pero igual de
+    //       reales) NO llegan a este contexto -- es una limitación de
+    //       producto ya aceptada para una sola fuente desde M-1G.2, aquí
+    //       extendida correctamente a dos fuentes en vez de sesgarse hacia
+    //       una.
+    // Política resultante (documentada, no inferida): cada fuente se
+    // consulta con su propio LIMIT=budget.commitments (10) ordenado por
+    // due_at ASC -- esto NUNCA puede descartar un item que sí calificaría en
+    // el top-10 global (cualquier item más allá del puesto 10 de UNA fuente
+    // es, por definición, menos vencido que el ítem #10 de esa misma fuente,
+    // que ya es candidato) -- y el merge final re-ordena las ~20 filas
+    // combinadas y recorta al mismo budget único. El sistema NO comunica hoy
+    // "hay N vencidos más sin mostrar" -- ver sección de riesgos del reporte.
+    it('CASO ADVERSARIAL: 10 commitments vencidos + 10 proposals vencidas + 80 futuros -> el resultado final tiene EXACTAMENTE 10 (nunca 20), y son los 10 globalmente más vencidos, intercalados', async () => {
+        // Días impares (1,3,5,...,19) para commitments; pares (2,4,...,20)
+        // para proposals -- así el top-10 global real intercala ambas
+        // fuentes (días 1-10: 5 commitments + 5 proposals alternados), en
+        // vez de que una fuente domine trivialmente por construcción.
+        const overdueCommitments = Array.from({ length: 10 }, (_, i) => commitmentFixture({
+            id: `cm-overdue-day${2 * i + 1}`, title: `Compromiso día ${2 * i + 1}`,
+            dueAt: `2026-01-${String(2 * i + 1).padStart(2, '0')}T00:00:00Z`,
+        }));
+        const overdueProposals = Array.from({ length: 10 }, (_, i) => proposalFixture({
+            id: `pr-overdue-day${2 * i + 2}`, title: `Propuesta día ${2 * i + 2}`,
+            dueAt: `2026-01-${String(2 * i + 2).padStart(2, '0')}T00:00:00Z`,
+        }));
+        const commitmentNoise = Array.from({ length: 40 }, (_, i) => commitmentFixture({ id: `cm-noise-${i}`, title: `Ruido ${i}`, dueAt: '2027-01-01T00:00:00Z' }));
+        const proposalNoise = Array.from({ length: 40 }, (_, i) => proposalFixture({ id: `pr-noise-${i}`, title: `Ruido prop ${i}`, dueAt: '2027-01-01T00:00:00Z' }));
+
+        // Simula exactamente el contrato real ya certificado en
+        // retrievalService.test.ts: ORDER BY due_at ASC + LIMIT en SQL.
+        mockRetrieveCommitments.mockImplementation(async (input: any, limit: number) => {
+            const all = [...overdueCommitments, ...commitmentNoise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : all;
+            return sorted.slice(0, limit) as any;
+        });
+        mockRetrieveCommitmentProposals.mockImplementation(async (input: any, limit: number) => {
+            const all = [...overdueProposals, ...proposalNoise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : all;
+            return sorted.slice(0, limit) as any;
+        });
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' });
+
+        // (a) budget único real: 10, nunca 20.
+        expect(ctx.commitments).toHaveLength(10);
+
+        // (b) exactamente los 10 más vencidos (días 1-10), intercalados 5+5.
+        const expectedIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((day) =>
+            day % 2 === 1 ? `cm-overdue-day${day}` : `pr-overdue-day${day}`
+        );
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(expectedIds.sort());
+        expect(ctx.commitments.filter((c) => c.entityType === 'commitment')).toHaveLength(5);
+        expect(ctx.commitments.filter((c) => c.entityType === 'commitment_proposal')).toHaveLength(5);
+
+        // (c) los 10 vencidos "menos vencidos" (días 11-20) NO llegan -- se
+        // documenta la pérdida, no se declara falsamente "ninguno se pierde".
+        for (let day = 11; day <= 20; day++) {
+            const id = day % 2 === 1 ? `cm-overdue-day${day}` : `pr-overdue-day${day}`;
+            expect(ctx.commitments.some((c) => c.id === id)).toBe(false);
+        }
+        // Ningún item de ruido futuro llega jamás.
+        expect(ctx.commitments.some((c) => c.id.includes('noise'))).toBe(false);
+    });
+
+    it('DEDUPE/MATERIALIZACIÓN: una proposal ya confirmada no aparece dos veces junto a su commitment canónico (exclusión ya ocurre en la fuente -- ver retrieveCommitmentProposals .neq("status","confirmed"))', async () => {
+        // Simula: la proposal "Entrenar" fue confirmada -> retrieveCommitmentProposals
+        // (mockeado aquí, pero certificado por separado en retrievalService.test.ts)
+        // ya no la devuelve -- sólo el commitment canónico materializado existe.
+        const materialized = commitmentFixture({ id: 'cm-entrenar-confirmado', title: 'Entrenar' });
+        mockRetrieveCommitments.mockResolvedValue([materialized] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué pendientes tengo?', conversationId: 'conv-1' });
+
+        const matches = ctx.commitments.filter((c) => c.title === 'Entrenar');
+        expect(matches).toHaveLength(1);
+        expect(matches[0].entityType).toBe('commitment');
+    });
+});
+
+// PING — OVERDUE ROOT CAUSE AUDIT TOTAL, secciones 19/20/23: dataset de 100
+// commitments (no 15) para descartar cualquier efecto de budget/sort/
+// ranking a mayor escala; topic+overdue con 100; persona+overdue.
+describe('AUDIT (sección 19): 100 commitments sintéticos — 5 vencidos antiguos sobreviven el budget completo', () => {
+    it('interpreter real -> contextBuilder -> retrieval(mock simulando Postgres real) -> los 5 vencidos llegan', async () => {
+        const overdueOnes = Array.from({ length: 5 }, (_, i) => commitmentFixture({
+            id: `cm-overdue-${i}`, title: `Vieja tarea ${i}`, status: 'accepted',
+            dueAt: `2026-0${i + 1}-01T00:00:00Z`, createdAt: `2026-0${i + 1}-01T00:00:00Z`,
+        }));
+        const noise = Array.from({ length: 95 }, (_, i) => commitmentFixture({
+            id: `cm-noise-${i}`, title: `Tarea reciente ${i}`, status: 'accepted',
+            dueAt: '2027-01-01T00:00:00Z', createdAt: '2026-09-01T00:00:00Z',
+        }));
+        mockRetrieveCommitments.mockImplementation(async (input: any, limit: number) => {
+            const all = [...overdueOnes, ...noise];
+            const sorted = input.orderByOverdueFirst
+                ? [...all].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+                : [...all].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            return sorted.slice(0, limit) as any;
+        });
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' });
+        for (let i = 0; i < 5; i++) expect(ctx.commitments.some((c) => c.id === `cm-overdue-${i}`)).toBe(true);
+    });
+});
+
+describe('AUDIT (sección 20): topic + overdue con 100 commitments — sólo vencidos de "Proyecto Aurora", topic real preservado', () => {
+    it('"¿Qué tengo vencido sobre el proyecto Aurora?" -> topic sobrevive sin "vencido", sólo Aurora vencido llega', async () => {
+        const auroraOverdue = Array.from({ length: 3 }, (_, i) => commitmentFixture({
+            id: `cm-aurora-overdue-${i}`, title: `Proyecto Aurora fase ${i}`, status: 'accepted', dueAt: `2026-0${i + 1}-01T00:00:00Z`,
+        }));
+        const betaOverdue = Array.from({ length: 3 }, (_, i) => commitmentFixture({
+            id: `cm-beta-overdue-${i}`, title: `Proyecto Beta fase ${i}`, status: 'accepted', dueAt: `2026-0${i + 1}-01T00:00:00Z`,
+        }));
+        const noise = Array.from({ length: 94 }, (_, i) => commitmentFixture({ id: `cm-noise-${i}`, title: `Tarea ${i}`, status: 'accepted', dueAt: '2027-01-01T00:00:00Z' }));
+        mockRetrieveCommitments.mockImplementation(async (input: any, limit: number) => {
+            const all = [...auroraOverdue, ...betaOverdue, ...noise];
+            // Simula el filtro FTS AND real de Postgres: sólo lo que contiene literalmente el texto buscado.
+            const filtered = input.query ? all.filter((c) => c.title.toLowerCase().includes(String(input.query).toLowerCase())) : all;
+            return filtered.slice(0, limit) as any;
+        });
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido sobre el proyecto Aurora?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.entities.topics.join(' ').toLowerCase()).not.toMatch(/vencido|overdue/); // el topic real nunca se contamina con lenguaje de status
+        for (let i = 0; i < 3; i++) expect(ctx.commitments.some((c) => c.id === `cm-aurora-overdue-${i}`)).toBe(true);
+        expect(ctx.commitments.some((c) => c.id.startsWith('cm-beta'))).toBe(false); // filtrado por texto -- "Beta" no matchea "aurora"
+        expect(ctx.commitments.some((c) => c.id.startsWith('cm-noise'))).toBe(false);
+    });
+});
+
+describe('AUDIT (sección 23): persona + overdue — ambos filtros aplican juntos, nunca se amplía el scope', () => {
+    it('"¿Qué tengo vencido con Laura?" -> resolvePerson Y retrieveCommitments con personId + orderByOverdueFirst juntos', async () => {
+        mockResolvePerson.mockResolvedValue({
+            resolved: { kind: 'user', id: 'laura-id', displayName: 'Laura', email: null, avatarUrl: null },
+            ambiguous: false, candidates: [],
+        });
+        mockRetrieveCommitments.mockResolvedValue([]);
+
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido con Laura?', now: '2026-09-05T12:00:00Z' });
+
+        expect(mockResolvePerson).toHaveBeenCalledWith('u1', expect.objectContaining({ name: 'Laura' }));
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(
+            expect.objectContaining({ personId: 'laura-id', orderByOverdueFirst: true }),
+            expect.any(Number),
+        );
+    });
+
+    it('"¿Qué tengo vencido con Nadie Inexistente?" (persona no resuelve) -> needsClarification, NUNCA amplía a todos los commitments', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([{ id: 'cm-should-not-appear' }] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido con Nadie Inexistente?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.commitments).toEqual([]); // personScopeBlocked -- retrieveCommitments nunca debió ejecutarse con scope ampliado
     });
 });

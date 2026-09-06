@@ -14,6 +14,7 @@ import { AppError } from '../utils/AppError';
 import {
     resolvePerson,
     retrieveCommitments,
+    retrieveCommitmentProposals,
     retrieveCommitmentEvents,
     retrieveMessages,
     retrieveTranscriptions,
@@ -30,10 +31,11 @@ import type {
     Interpretation,
     RetrievalPlanStep,
 } from '../types/agentContext';
-import type { PersonResolutionResult, RetrievalTimeRange } from '../types/retrieval';
+import type { PersonResolutionResult, RetrievalCommitment, RetrievalTimeRange } from '../types/retrieval';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
-import { isOpenCommitmentStatus } from '../utils/commitmentStatus';
+import { resolveAgentTimezone, timeZoneOffsetMs, startOfDayInZone } from '../utils/timezone';
+import { isCommitmentOverdue } from '../utils/overdueSemantics';
 
 // ─── Context budget (sección 16) — mismo orden de magnitud que los defaults
 // de M-1B/M-1C; M-1D no inventa un techo distinto, sólo lo hace explícito a
@@ -46,40 +48,10 @@ const DEFAULT_BUDGET: Required<AgentContextBudget> = {
     attachments: 5,
 };
 
-// ─── Timezone (sección 12) — Ping es global: el default es UTC, NUNCA una
-// zona regional específica. Se valida con Intl.DateTimeFormat (mismo
-// mecanismo que ya usa date-parser.service.ts, reescrito aquí en vez de
-// importado para no heredar su default regional 'America/Santiago', que
-// contradice el principio global de M-1D — ver doc, "Time resolution".
-function resolveAgentTimezone(timezone?: string): string {
-    const candidate = timezone?.trim();
-    if (!candidate) return 'UTC';
-    try {
-        new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(0);
-        return candidate;
-    } catch {
-        return 'UTC';
-    }
-}
-
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-        timeZone, hourCycle: 'h23',
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
-    const parts = Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
-    const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-    return asUtc - date.getTime();
-}
-
-function startOfDayInZone(date: Date, timeZone: string): Date {
-    const offsetMs = timeZoneOffsetMs(date, timeZone);
-    const local = new Date(date.getTime() + offsetMs);
-    const localMidnightUtcMs = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), 0, 0, 0);
-    return new Date(localMidnightUtcMs - offsetMs);
-}
-
+// ─── Timezone (sección 12) — resolveAgentTimezone/timeZoneOffsetMs/
+// startOfDayInZone ahora viven en utils/timezone.ts (M-1H v3): las necesita
+// también overdueSemantics.ts para "mismo día calendario" -- una sola
+// fuente de verdad para la aritmética de zona horaria, nunca duplicada.
 function addDays(date: Date, days: number): Date {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
@@ -161,6 +133,37 @@ async function safeInterpret(interpreter: AgentInputInterpreter, input: string, 
     } catch {
         return fallbackInterpretation(input, 'interpreter_threw');
     }
+}
+
+// M-1H — hallazgo real de staging (caso "Entrenar"): la UI siempre mezcló
+// GET /commitments + GET /commitment-proposals; el Agent sólo consultaba la
+// primera, así que un compromiso que existía SÓLO como proposal (todavía no
+// confirmada) nunca aparecía en el contexto ni podía evaluarse como vencido.
+// Esto NO es "retrieveCommitments + retrieveProposals + concat sin reglas"
+// (explícitamente prohibido en el ticket): ambas fuentes ya llegan con el
+// MISMO shape (RetrievalCommitment, entityType honesto) y se combinan bajo
+// el MISMO criterio de orden ya certificado para commitments solo
+// (orderByOverdueFirst: due_at asc / si no: created_at desc), recortadas al
+// mismo budget único. La precedencia "canonical commitment gana sobre su
+// proposal" no requiere lógica extra aquí: retrieveCommitmentProposals ya
+// excluye status='confirmed' en el query (dedupe en la fuente) — una
+// proposal materializada simplemente deja de existir en el segundo array.
+function mergeCommitmentSources(
+    commitments: RetrievalCommitment[],
+    proposals: RetrievalCommitment[],
+    limit: number,
+    orderByOverdueFirst: boolean,
+): RetrievalCommitment[] {
+    const merged = [...commitments, ...proposals];
+    merged.sort((a, b) => {
+        if (orderByOverdueFirst) {
+            const aTime = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
+            const bTime = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
+            return aTime - bTime;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    return merged.slice(0, limit);
 }
 
 export interface BuildAgentContextOptions {
@@ -300,6 +303,26 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
+    // M-1H — misma guarda (wantsCommitments + personScopeBlocked) que
+    // commitmentsPromise: es la MISMA intención ("compromisos"), sólo una
+    // segunda fuente real. retrieveCommitmentProposals ya maneja
+    // internamente su propia limitación de FTS (devuelve [] con textQuery,
+    // ver retrieval.service.ts) — no se duplica esa condición aquí.
+    const commitmentProposalsPromise = interpretation.wantsCommitments && !personScopeBlocked
+        ? (() => {
+            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            return retrieveCommitmentProposals({
+                actorUserId: input.actorUserId,
+                conversationId,
+                personId: resolvedPersonId,
+                statuses: interpretation.statusHints ?? undefined,
+                timeRange: timeRange ?? undefined,
+                query: interpretation.textQuery ?? undefined,
+                orderByOverdueFirst: interpretation.wantsOverdueFocus,
+            }, budget.commitments);
+        })()
+        : Promise.resolve([]);
+
     const messagesPromise = interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
@@ -357,15 +380,21 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const [commitments, messages, transcriptions, attachments] = await Promise.all([
-        commitmentsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
+    const [commitmentsOnly, proposalsOnly, messages, transcriptions, attachments] = await Promise.all([
+        commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
     ]);
+    const commitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, budget.commitments, interpretation.wantsOverdueFocus);
     // [PING_OVERDUE_TRACE] TEMPORARY — retrieved commitments trace (máx 20).
+    // Post-merge a propósito (M-1H): el trace debe reflejar lo que el Agent
+    // realmente evalúa, no sólo la tabla `commitments`.
     if (interpretation.wantsOverdueFocus) {
         traceOverdue(input.traceId, 'RETRIEVED_COMMITMENTS', {
             count: commitments.length,
+            commitmentsOnlyCount: commitmentsOnly.length,
+            proposalsOnlyCount: proposalsOnly.length,
             items: commitments.slice(0, 20).map((c) => ({
                 safeTitle: traceSafeTitle(c.title),
+                entityType: c.entityType,
                 status: c.status,
                 dueAt: c.dueAt,
                 createdAt: c.createdAt,
@@ -373,7 +402,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             })),
         });
     }
-    if (commitments.length > 0) sourcesConsulted.push('retrieveCommitments');
+    if (commitmentsOnly.length > 0) sourcesConsulted.push('retrieveCommitments');
+    if (proposalsOnly.length > 0) sourcesConsulted.push('retrieveCommitmentProposals');
     if (messages.length > 0 || interpretation.wantsMessages) sourcesConsulted.push('retrieveMessages');
     if (transcriptions.length > 0 || (interpretation.wantsTranscriptions && conversationId)) sourcesConsulted.push('retrieveTranscriptions');
     if (attachments.length > 0 || (interpretation.wantsAttachments && conversationId)) sourcesConsulted.push('retrieveAttachments');
@@ -431,9 +461,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         }
     }
 
-    // [PING_OVERDUE_TRACE] TEMPORARY — AgentContext trace. isOverdue aquí es
-    // SÓLO para el log (misma fórmula que agentResponseSynthesizer.service.ts
-    // #isCommitmentOverdue) -- nunca se agrega al AgentContext real.
+    // [PING_OVERDUE_TRACE] TEMPORARY — AgentContext trace. isOverdue aquí usa
+    // AHORA la misma función canónica real que consumirá la síntesis
+    // (utils/overdueSemantics.ts#isCommitmentOverdue) -- antes tenía su
+    // propia fórmula inline, una TERCERA duplicación de esta lógica que
+    // nunca aplicaba el carve-out de "mismo día calendario" (M-1H v3,
+    // Canonical Overdue Semantics). isOverdue aquí es sólo para el log,
+    // nunca se agrega al AgentContext real.
     if (interpretation.wantsOverdueFocus) {
         const nowIso = now.toISOString();
         traceOverdue(input.traceId, 'AGENT_CONTEXT', {
@@ -442,7 +476,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 safeTitle: traceSafeTitle(c.title),
                 status: c.status,
                 dueAt: c.dueAt,
-                isOverdue: !!c.dueAt && isOpenCommitmentStatus(c.status) && new Date(c.dueAt).getTime() < new Date(nowIso).getTime(),
+                isOverdue: isCommitmentOverdue(c.dueAt, c.status, nowIso, timezone),
             })),
             wantsOverdueFocus: interpretation.wantsOverdueFocus,
             textQuery: interpretation.textQuery,
@@ -453,6 +487,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     return {
         input: input.input,
         now: now.toISOString(),
+        // M-1H v3 — CANONICAL OVERDUE SEMANTICS: propagada para que la
+        // síntesis (agentResponseSynthesizer.service.ts) calcule "mismo día
+        // calendario" en la zona REAL del actor, nunca con new Date() local
+        // del servidor (Render). Siempre presente (resolveAgentTimezone ya
+        // garantiza un fallback a 'UTC', nunca undefined).
+        timezone,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         entities: {

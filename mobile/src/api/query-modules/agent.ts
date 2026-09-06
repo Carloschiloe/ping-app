@@ -7,7 +7,10 @@ import * as Localization from 'expo-localization';
 import { apiClient, ApiError } from '../client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 
-export type AgentCitationSourceType = 'commitment' | 'commitment_event' | 'message' | 'transcription' | 'attachment' | 'person';
+// M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
+// commitment_proposals, distinta de commitments) — ver backend
+// types/retrieval.ts#RetrievalSourceType, misma unión.
+export type AgentCitationSourceType = 'commitment' | 'commitment_proposal' | 'commitment_event' | 'message' | 'transcription' | 'attachment' | 'person';
 
 export interface AgentCitation {
     sourceType: AgentCitationSourceType;

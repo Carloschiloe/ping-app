@@ -20,7 +20,9 @@ interface TodayItemRowProps {
     currentUserId?: string;
     /** Mutations passed from parent to avoid prop drilling hooks */
     onMarkDone: (id: string) => void;
-    onConfirm: (id: string) => void;
+    // M-1H fix — recibe el objeto completo, no sólo el id: el caller necesita
+    // `commitment._isAgreementProposal` para despachar al endpoint correcto.
+    onConfirm: (commitment: any) => void;
 }
 
 export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfirm }: TodayItemRowProps) {
@@ -62,7 +64,7 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
-                    onPress={() => onConfirm(c.id)}
+                    onPress={() => onConfirm(c)}
                 >
                     <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Confirmar</Text>
                 </TouchableOpacity>

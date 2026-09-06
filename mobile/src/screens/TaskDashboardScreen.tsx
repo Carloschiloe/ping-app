@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
-    Modal, RefreshControl, LayoutAnimation, Platform, UIManager,
+    Modal, RefreshControl, LayoutAnimation, Platform, UIManager, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -15,8 +15,10 @@ import { isRedDay } from '../utils/holidays';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { useAppTheme } from '../theme/ThemeContext';
 import {
-    useAcceptCommitment, useResolveCommitment, useRespondToCommitmentProposal,
+    useAcceptCommitment, useResolveCommitment, useRespondToCommitmentProposal, useConfirmCommitmentProposal,
 } from '../api/queries';
+import { resolveCommitmentConfirmAction } from '../utils/commitmentConfirmDispatch';
+import { isCommitmentOverdue } from '../utils/commitmentDisplay';
 
 import { TodaySummaryBar } from '../components/hoy/TodaySummaryBar';
 import { OverdueAlert } from '../components/hoy/OverdueAlert';
@@ -75,14 +77,34 @@ export default function TaskDashboardScreen() {
     const { mutate: acceptCommitment } = useAcceptCommitment();
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
+    const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
 
     const handleMarkDone = useCallback((id: string) => {
         resolveCommitment({ id, result: 'Resuelto desde Hoy.' });
     }, [resolveCommitment]);
 
-    const handleConfirm = useCallback((id: string) => {
-        acceptCommitment(id);
-    }, [acceptCommitment]);
+    // M-1H v2 fix — mismo hallazgo/patrón que InsightsScreen.tsx: una row de
+    // `commitment_proposals` trae un proposal_id como `id`, nunca un
+    // commitment_id -- llamar directo a acceptCommitment fallaba con 404
+    // para toda proposal. resolveCommitmentConfirmAction distingue proposal
+    // SOLO (confirmProposal, RPC confirm_commitment_proposal) de proposal
+    // COMPARTIDA (respondToProposal, RPC respond_to_commitment_proposal) --
+    // ver utils/commitmentConfirmDispatch.ts, el patrón de
+    // GroupTaskCard.tsx#handleAccept sólo cubre el caso compartido.
+    const handleConfirm = useCallback(async (commitment: any) => {
+        const action = resolveCommitmentConfirmAction(commitment);
+        try {
+            if (action.type === 'respondToProposal') {
+                await respondToProposal({ id: action.id, decision: 'approve' });
+            } else if (action.type === 'confirmProposal') {
+                await confirmProposal(action.id);
+            } else {
+                acceptCommitment(action.id);
+            }
+        } catch {
+            Alert.alert('No se pudo confirmar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+        }
+    }, [acceptCommitment, respondToProposal, confirmProposal]);
 
     // ─── Team members for assignee picker ────────────────────────────────────
     const teamMembers = useMemo(() => {
@@ -104,14 +126,18 @@ export default function TaskDashboardScreen() {
     const isSelectedToday = useMemo(() => dateFnsIsToday(selectedDate), [selectedDate]);
 
     // ─── Overdue (relative to now, not selectedDate) ─────────────────────────
+    // M-1H v3: isCommitmentOverdue (utils/commitmentDisplay.ts) es ahora la
+    // ÚNICA función de overdue -- antes esta pantalla tenía su propia copia
+    // inline (idéntica en efecto, pero duplicada). `referenceDay` se pasa
+    // explícitamente como `selectedDate` (no el default `now`) porque este
+    // selector de día permite navegar a fechas distintas de "hoy real": el
+    // carve-out de "mismo día" debe compararse contra el día que el usuario
+    // está viendo, mientras que "¿ya pasó?" siempre usa el reloj real.
     const overdueItems = useMemo(() => {
         const now = new Date();
-        return commitments.filter((c: any) => {
-            if (!c.due_at) return false;
-            const status = normalizeCommitmentStatus(c.status);
-            if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
-            return new Date(c.due_at) < now && !isSameDay(new Date(c.due_at), selectedDate);
-        }).sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
+        return commitments
+            .filter((c: any) => isCommitmentOverdue(c, now, selectedDate))
+            .sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
     }, [commitments, selectedDate]);
 
     // ─── Today items (matching selectedDate) ─────────────────────────────────

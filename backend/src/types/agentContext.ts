@@ -104,7 +104,7 @@ export interface Interpretation {
 // indiscriminada. Los `params` son un resumen seguro (nunca contenido crudo
 // ni datos ajenos) pensado para tests/diagnostics.
 export interface RetrievalPlanStep {
-    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments' | 'personScopeGuardSkipped';
+    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentProposals' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments' | 'personScopeGuardSkipped';
     params?: Record<string, unknown>;
 }
 
@@ -171,6 +171,11 @@ export interface AgentContext {
     // forma determinística en vez de esperar que el modelo compare fechas
     // sin conocer la fecha actual (causa raíz real de M-1G-S2, Caso E).
     now: string;
+    // M-1H v3 — CANONICAL OVERDUE SEMANTICS: zona horaria REAL del actor
+    // (IANA, ya validada/con fallback a 'UTC' vía resolveAgentTimezone),
+    // propagada para que "vencido" se calcule comparando el día calendario
+    // en la zona del actor, nunca en la del servidor. Siempre presente.
+    timezone: string;
     intent: AgentIntent;
     // M-1G.1: ver Interpretation.wantsOverdueFocus.
     wantsOverdueFocus: boolean;

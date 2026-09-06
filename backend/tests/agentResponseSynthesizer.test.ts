@@ -18,6 +18,7 @@ function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
     return {
         input: 'test input',
         now: '2026-09-05T12:00:00Z',
+        timezone: 'UTC',
         intent: { type: 'commitment_query', confidence: 0.8 },
         wantsOverdueFocus: false,
         entities: { people: [], timeRange: null, topics: [], conversationId: null },
@@ -38,7 +39,7 @@ function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
 
 function commitment(id: string, overrides: Partial<Record<string, any>> = {}) {
     return {
-        id, title: 'Enviar presupuesto', description: null, status: 'accepted', type: 'task', priority: null,
+        id, entityType: 'commitment' as const, title: 'Enviar presupuesto', description: null, status: 'accepted', type: 'task', priority: null,
         dueAt: '2026-09-12T00:00:00Z', proposedDueAt: null, expectedResult: null, resolvedAt: null,
         resolutionResult: null, rejectionReason: null, ownerUserId: 'u1', assignedToUserId: null,
         counterpartyContactId: null, conversationId: 'conv-1', messageId: null, createdAt: '2026-09-01T00:00:00Z',
@@ -51,6 +52,21 @@ function message(id: string, content: string, overrides: Partial<Record<string, 
     return {
         id, conversationId: 'conv-1', senderId: 'u2', content, isSystem: false, createdAt: '2026-09-01T00:00:00Z',
         provenance: { sourceType: 'message' as const, sourceId: id },
+        ...overrides,
+    };
+}
+
+// M-1H — mismo shape que commitment(), pero entityType/provenance.sourceType
+// honestos como 'commitment_proposal' (compromiso todavía no confirmado,
+// tabla commitment_proposals). Ver ticket "Canonical Commitment/Proposal
+// Unification", caso real de staging "Entrenar".
+function proposal(id: string, overrides: Partial<Record<string, any>> = {}) {
+    return {
+        id, entityType: 'commitment_proposal' as const, title: 'Entrenar', description: null, status: 'proposed', type: 'task', priority: null,
+        dueAt: '2026-09-12T00:00:00Z', proposedDueAt: null, expectedResult: null, resolvedAt: null,
+        resolutionResult: null, rejectionReason: null, ownerUserId: 'u1', assignedToUserId: null,
+        counterpartyContactId: null, conversationId: 'conv-1', messageId: null, createdAt: '2026-07-01T00:00:00Z',
+        provenance: { sourceType: 'commitment_proposal' as const, sourceId: id, commitmentId: null },
         ...overrides,
     };
 }
@@ -652,6 +668,82 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
         expect(response.answer).toBe('No tienes compromisos vencidos.'); // el guard NO agrega nada -- no hay overdue real que forzar
+    });
+});
+
+// ─── M-1H: commitment_proposal es evidencia citable honestamente ───────────
+// Hallazgo real de staging: "Entrenar" existe SÓLO como commitment_proposal.
+// Estos tests certifican que, una vez que llega al AgentContext (M-1H,
+// agentContextBuilder.service.ts), el synthesizer lo trata como evidencia
+// "commitment-like" completa (dominancia/overdue) pero SIEMPRE cita su
+// sourceType real -- nunca lo disfraza de 'commitment'.
+describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/overdue', () => {
+    it('allowedSourceRefs usa sourceType="commitment_proposal" real, nunca "commitment" hardcodeado', async () => {
+        const pendingEntrenar = proposal('pr-entrenar');
+        const ctx = baseContext({ evidenceFound: true, commitments: [pendingEntrenar] as any, provenance: [pendingEntrenar.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tienes una propuesta de entrenar.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué pendientes tengo?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.citations).toEqual([{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }]);
+    });
+
+    it('una cita que finge sourceType="commitment" para un id que en realidad es una proposal es rechazada (fuera de la allowlist real)', async () => {
+        const pendingEntrenar = proposal('pr-entrenar');
+        const ctx = baseContext({ evidenceFound: true, commitments: [pendingEntrenar] as any, provenance: [pendingEntrenar.provenance] });
+        // El modelo (o un intento de inyección en el contenido citado) intenta
+        // citarlo como si fuera un 'commitment' canónico -- no está en la
+        // allowlist real (que es 'commitment_proposal:pr-entrenar'), así que
+        // el claim entero se descarta (sección 7: cualquier ref no permitida invalida el claim completo).
+        const model = fakeModel(claimPayload([{ text: 'Tienes un compromiso de entrenar.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué pendientes tengo?', context: ctx });
+
+        expect(response.answer).not.toContain('Tienes un compromiso de entrenar.');
+    });
+
+    it('overdue disclosure guard funciona igual para un commitment_proposal vencido (mismo pipeline que un commitment canónico)', async () => {
+        const overdueProposal = proposal('pr-entrenar', { dueAt: '2026-07-31T00:00:00Z' }); // ~36 días antes de "now"
+        const ctx = baseContext({
+            evidenceFound: true, wantsOverdueFocus: true,
+            commitments: [overdueProposal] as any, provenance: [overdueProposal.provenance],
+        });
+        const model = fakeModel(claimPayload([{ text: 'No tienes compromisos vencidos.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer.toLowerCase()).toContain('vencido');
+        expect(response.answer).toContain('Entrenar');
+    });
+
+    it('canonical dominance guard también cierra un claim "sólo histórico" cuando el commitment relacionado es una proposal, no sólo un commitment canónico', async () => {
+        const rejectedProposal = proposal('pr-entrenar', { status: 'rejected' });
+        const ctx = baseContext({
+            evidenceFound: true,
+            commitments: [rejectedProposal] as any,
+            messages: [message('m1', 'dijimos que entrenar era buena idea')] as any,
+            provenance: [rejectedProposal.provenance, { sourceType: 'message' as const, sourceId: 'm1' }],
+        });
+        // Claim histórico que menciona el tema pero NUNCA cita el commitment/proposal.
+        const model = fakeModel(claimPayload([{ text: 'Se habló de entrenar en el chat.', sourceRefs: [{ sourceType: 'message', sourceId: 'm1' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué se dijo de entrenar?', context: ctx });
+
+        expect(response.answer).toContain('rechazado'); // claim determinístico agregado por enforceCanonicalDominance, citando la proposal real
+        expect(response.citations).toEqual(expect.arrayContaining([{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }]));
+    });
+
+    it('el prompt distingue explícitamente "commitment_proposal" (pendiente) de "commitment" (canónico)', async () => {
+        const pendingEntrenar = proposal('pr-entrenar');
+        const ctx = baseContext({ evidenceFound: true, commitments: [pendingEntrenar] as any, provenance: [pendingEntrenar.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tienes una propuesta.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        await synthesizer.synthesize({ input: '¿Qué pendientes tengo?', context: ctx });
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).toMatch(/PENDING, UNCONFIRMED proposal/i);
+        expect(promptSent).toContain('"entityType":"commitment_proposal"');
     });
 });
 

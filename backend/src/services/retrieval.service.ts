@@ -31,7 +31,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertConversationParticipant, getSharedProfileIds } from '../utils/authz';
-import { getParticipantProposalIds, buildCommitmentVisibilityFilter } from '../utils/commitmentVisibility';
+import { getParticipantProposalIds, buildCommitmentVisibilityFilter, buildCommitmentProposalVisibilityFilter } from '../utils/commitmentVisibility';
 import { normalizePhoneInput } from '../utils/profileValidation';
 import { isOpenCommitmentStatus, type CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type {
@@ -299,6 +299,7 @@ const COMMITMENT_SELECT = `
 function toRetrievalCommitment(row: any): RetrievalCommitment {
     return {
         id: row.id,
+        entityType: 'commitment',
         title: row.title,
         description: row.description,
         status: row.status,
@@ -386,6 +387,118 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     // aquí mismo, para que un caller directo (no sólo retrieveContext) reciba
     // ya el resultado correctamente rankeado y acotado a `limit`.
     return textQuery ? rankCommitments(rows, input).slice(0, limit) : rows;
+}
+
+// ─── M-1H — Commitment proposals (hallazgo real de staging, caso "Entrenar") ─
+// La UI real (InsightsScreen.tsx) siempre mezcló GET /commitments +
+// GET /commitment-proposals — el Agent sólo consultaba la primera. Esta
+// función es el equivalente de retrieval para la segunda fuente, con el
+// MISMO tipo de salida (RetrievalCommitment) para reutilizar sin cambios
+// todo el pipeline de síntesis/overdue ya certificado, pero con
+// `entityType`/`provenance.sourceType`='commitment_proposal' honesto —
+// nunca se finge una proposal como commitment.
+const COMMITMENT_PROPOSAL_SELECT = `
+    id, title, description, status, due_at, type, priority, expected_result,
+    proposed_by_user_id, proposed_responsible_user_id, counterparty_contact_id,
+    conversation_id, source_message_id, created_at, rejection_reason,
+    latest_counterproposal_due_at
+`;
+
+// Misma regla que commitmentProposal.service.ts#toAgreementView (única
+// fuente de esta traducción status real -> status de vista canónico) —
+// replicada aquí porque esa función no está exportada y arma además el
+// shape completo de UI (owner/assignee resueltos, agreement_responses) que
+// el Agent no necesita. Los 3 valores reales de la columna son
+// 'pending'|'confirmed'|'rejected' (constraint commitment_proposals_status_check);
+// 'confirmed' nunca llega aquí porque se excluye en la query (dedupe: una
+// vez confirmada, el commitment canónico ya materializado es la única
+// fuente válida).
+function deriveProposalViewStatus(row: any): CanonicalCommitmentStatus {
+    if (row.status === 'rejected') return 'rejected';
+    if (row.status === 'pending' && row.latest_counterproposal_due_at) return 'counter_proposal';
+    return 'proposed';
+}
+
+function toRetrievalCommitmentFromProposal(row: any): RetrievalCommitment {
+    return {
+        id: row.id,
+        entityType: 'commitment_proposal',
+        title: row.title,
+        description: row.description,
+        status: deriveProposalViewStatus(row),
+        type: row.type,
+        priority: row.priority,
+        dueAt: row.due_at,
+        proposedDueAt: row.latest_counterproposal_due_at,
+        expectedResult: row.expected_result,
+        resolvedAt: null, // una proposal activa (no confirmada) nunca está resuelta
+        resolutionResult: null,
+        rejectionReason: row.rejection_reason,
+        ownerUserId: row.proposed_by_user_id,
+        assignedToUserId: row.proposed_responsible_user_id,
+        counterpartyContactId: row.counterparty_contact_id,
+        conversationId: row.conversation_id,
+        messageId: row.source_message_id,
+        createdAt: row.created_at,
+        provenance: {
+            sourceType: 'commitment_proposal',
+            sourceId: row.id,
+            conversationId: row.conversation_id,
+            messageId: row.source_message_id,
+            commitmentId: null,
+            timestamp: row.created_at,
+        },
+    };
+}
+
+// PÚBLICA, segura por defecto — mismo principio que retrieveCommitments:
+// buildCommitmentProposalVisibilityFilter se aplica siempre con AND,
+// ningún filtro adicional amplía visibilidad.
+//
+// Limitación conocida y deliberada (sección 19 del ticket: "no migración a
+// ciegas"): commitment_proposals NO tiene columna search_tsv (confirmado
+// contra supabase/migrations/20260728180000_canonical_commitment_beta.sql
+// — la tabla nunca la creó). Con `query` (texto libre) presente, esta
+// función NO aplica FTS y devuelve [] en vez de arriesgar un filtro
+// incorrecto o traer de más sin relevancia textual real. El camino
+// wantsOverdueFocus (sin texto, ya garantizado por M-1G.3) no se ve
+// afectado por esta limitación.
+export async function retrieveCommitmentProposals(input: RetrieveContextInput, limit: number): Promise<RetrievalCommitment[]> {
+    const textQuery = input.query?.trim();
+    if (textQuery) return [];
+
+    const participantProposalIds = await getParticipantProposalIds(input.actorUserId);
+    const visibilityFilter = buildCommitmentProposalVisibilityFilter(input.actorUserId, participantProposalIds);
+
+    let query = supabaseAdmin
+        .from('commitment_proposals')
+        .select(COMMITMENT_PROPOSAL_SELECT)
+        .or(visibilityFilter)
+        .neq('status', 'confirmed'); // dedupe: ya materializada -> el commitment canónico prevalece
+
+    query = input.orderByOverdueFirst
+        ? query.order('due_at', { ascending: true, nullsFirst: false })
+        : query.order('created_at', { ascending: false });
+    query = query.limit(limit);
+
+    if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
+    if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
+    if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
+    if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
+    if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    // El filtro canónico de status (proposed/accepted/counter_proposal/etc)
+    // no mapea 1:1 a los 3 valores reales de esta tabla -- se aplica DESPUÉS
+    // del mapeo (en JS, sobre el status YA derivado), nunca en SQL contra
+    // una columna que no tiene esos valores.
+
+    const { data, error } = await query;
+    if (error) throw new AppError(error.message, 500);
+    let rows = dedupeById((data || []).map(toRetrievalCommitmentFromProposal));
+    if (input.statuses && input.statuses.length > 0) {
+        const wanted = new Set(input.statuses);
+        rows = rows.filter((r) => wanted.has(r.status));
+    }
+    return rows;
 }
 
 // ─── Ranking (sección 16) ────────────────────────────────────────────────────

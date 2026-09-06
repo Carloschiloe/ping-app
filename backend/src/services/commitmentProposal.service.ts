@@ -7,6 +7,7 @@ import {
     assertOwnContact,
 } from '../utils/authz';
 import { readLegacyAssignedToUserId, readLegacyConversationId, readLegacyDueAt } from '../utils/commitmentCompat';
+import { buildCommitmentProposalVisibilityFilter, getParticipantProposalIds } from '../utils/commitmentVisibility';
 
 export async function createProposal(userId: string, input: any) {
     const conversationId = readLegacyConversationId(input);
@@ -200,18 +201,12 @@ export async function getAgreementProposals(
         await assertConversationParticipant(userId, conversationId);
     }
 
-    let visibleProposalIds: string[] = [];
-    if (!conversationId) {
-        const { data: responseRows, error: responseError } = await supabaseAdmin
-            .from('commitment_proposal_responses')
-            .select('proposal_id')
-            .eq('participant_user_id', userId);
-        if (responseError) throw responseError;
-        visibleProposalIds = Array.from(new Set(
-            (responseRows || []).map((row: any) => row.proposal_id)
-        ));
-    }
-
+    // M-1H: usa la MISMA función de autorización que el Agent
+    // (retrieval.service.ts#retrieveCommitmentProposals) — antes esta lógica
+    // vivía inline aquí, duplicada. Sin conversationId, la visibilidad real
+    // es "yo la propuse O soy participante con una respuesta registrada";
+    // dentro de una conversación ya autorizada (assertConversationParticipant
+    // arriba), se ve todo lo de esa conversación sin filtro adicional.
     let query = supabaseAdmin
         .from('commitment_proposals')
         .select(`
@@ -223,12 +218,9 @@ export async function getAgreementProposals(
 
     if (conversationId) {
         query = query.eq('conversation_id', conversationId);
-    } else if (visibleProposalIds.length > 0) {
-        query = query.or(
-            `proposed_by_user_id.eq.${userId},id.in.(${visibleProposalIds.join(',')})`
-        );
     } else {
-        query = query.eq('proposed_by_user_id', userId);
+        const participantProposalIds = await getParticipantProposalIds(userId);
+        query = query.or(buildCommitmentProposalVisibilityFilter(userId, participantProposalIds));
     }
 
     const { data: proposals, error } = await query.order('created_at', { ascending: false });

@@ -13,7 +13,12 @@ import { z } from 'zod';
 // `status` NUNCA es parte de este schema — se calcula determinísticamente
 // en el backend ANTES de invocar al modelo (sección 6) y sólo se le informa
 // al modelo como hecho ya decidido.
-const SOURCE_TYPE_VALUES = ['commitment', 'commitment_event', 'message', 'transcription', 'attachment', 'person'] as const;
+// M-1H: 'commitment_proposal' -- un compromiso todavía no confirmado (tabla
+// commitment_proposals, distinta de commitments). Sin este valor, cualquier
+// claim del modelo que citara honestamente una proposal como tal fallaba
+// la validación de schema y degradaba TODA la respuesta al fallback
+// estructurado -- ver retrieval.service.ts#retrieveCommitmentProposals.
+const SOURCE_TYPE_VALUES = ['commitment', 'commitment_proposal', 'commitment_event', 'message', 'transcription', 'attachment', 'person'] as const;
 
 const citationSchema = z.object({
     sourceType: z.enum(SOURCE_TYPE_VALUES),

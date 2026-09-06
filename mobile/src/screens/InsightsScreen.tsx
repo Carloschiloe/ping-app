@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, StatusBar, TextInput,
-    ScrollView, SectionList, Modal, RefreshControl, Platform, UIManager,
+    ScrollView, SectionList, Modal, RefreshControl, Platform, UIManager, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
@@ -18,7 +18,10 @@ import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import {
     useAcceptCommitment, useResolveCommitment, useReopenCommitment,
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
+    useRespondToCommitmentProposal, useConfirmCommitmentProposal,
 } from '../api/queries';
+import { resolveCommitmentConfirmAction } from '../utils/commitmentConfirmDispatch';
+import { isCommitmentOverdue } from '../utils/commitmentDisplay';
 
 import { CommitmentRow } from '../components/compromisos/CommitmentRow';
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
@@ -117,14 +120,45 @@ export default function InsightsScreen() {
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
+    const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
+    const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
 
     const handleMarkDone = useCallback((id: string) => {
         resolveCommitment({ id, result: 'Resuelto desde Compromisos.' });
     }, [resolveCommitment]);
 
-    const handleConfirm = useCallback((id: string) => {
-        acceptCommitment(id);
-    }, [acceptCommitment]);
+    // M-1H v2 fix — hallazgo real a nivel de RPC (no sólo de ruta HTTP): una
+    // row de `commitment_proposals` (_isAgreementProposal=true) trae un `id`
+    // que es en realidad un proposal_id, nunca un commitment_id. Antes esto
+    // siempre llamaba POST /commitments/:id/accept sin importar el origen,
+    // lo que fallaba con 404 "Commitment not found" para toda proposal. La
+    // primera corrección (v1) despachaba TODA proposal a
+    // respondToProposal({decision:'approve'}) copiando el patrón de
+    // GroupTaskCard.tsx#handleAccept -- pero ese endpoint (RPC
+    // respond_to_commitment_proposal) exige una fila previa en
+    // commitment_proposal_responses, que sólo existe para proposals
+    // COMPARTIDAS (creadas vía POST /commitment-proposals/shared); una
+    // proposal SOLO (el caso real "Entrenar", creada vía
+    // POST /commitment-proposals) nunca tiene esa fila, así que v1 sólo
+    // cambiaba el error de 404 a 403 ("Actor is not required for this
+    // agreement"), sin arreglar nada. resolveCommitmentConfirmAction decide
+    // el endpoint real según agreement_responses -- ver
+    // utils/commitmentConfirmDispatch.ts para la prueba completa contra el
+    // RPC real.
+    const handleConfirm = useCallback(async (commitment: any) => {
+        const action = resolveCommitmentConfirmAction(commitment);
+        try {
+            if (action.type === 'respondToProposal') {
+                await respondToProposal({ id: action.id, decision: 'approve' });
+            } else if (action.type === 'confirmProposal') {
+                await confirmProposal(action.id);
+            } else {
+                acceptCommitment(action.id);
+            }
+        } catch {
+            Alert.alert('No se pudo confirmar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+        }
+    }, [acceptCommitment, respondToProposal, confirmProposal]);
 
     const handleCancel = useCallback((id: string) => {
         cancelCommitment({ id });
@@ -214,7 +248,12 @@ export default function InsightsScreen() {
                 return;
             }
             const date = new Date(c.due_at);
-            if (date < now && !isSameDay(date, today)) {
+            // M-1H v3: isCommitmentOverdue (utils/commitmentDisplay.ts) es
+            // ahora la ÚNICA función de overdue para Mis Compromisos,
+            // Encargados (más abajo) y Hoy (TaskDashboardScreen) — comparable
+            // 1:1 contra el criterio del Agent en tests, ver
+            // tests/overdueUiAgentParity.test.ts.
+            if (isCommitmentOverdue(c, now)) {
                 overdue.push(c);
             } else if (isSameDay(date, today)) {
                 hoy.push(c);
@@ -260,7 +299,12 @@ export default function InsightsScreen() {
                 pendingReview.push(c);
             } else if (status === 'proposed') {
                 pendingAcceptance.push(c);
-            } else if (c.due_at && new Date(c.due_at) < now && status !== 'resolved') {
+            } else if (isCommitmentOverdue(c, now)) {
+                // M-1H v3: antes esta rama tenía su PROPIA regla (sin
+                // carve-out de mismo día, y sólo excluía 'resolved' -- un
+                // delegado 'cancelled'/'rejected' con due_at pasado se
+                // mostraba incorrectamente como "Vencido"). Ahora usa la
+                // misma función canónica que Mis Compromisos/Hoy/Agent.
                 overdue.push(c);
             } else {
                 inProgress.push(c);

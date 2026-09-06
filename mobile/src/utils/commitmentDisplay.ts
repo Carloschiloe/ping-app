@@ -1,6 +1,8 @@
 // Funciones puras compartidas por GroupTaskCard.tsx e InsightsScreen.tsx
 // para no duplicar (ni desincronizar) la logica de derivacion visual del
 // dominio de commitments V2.
+import { isSameDay, startOfDay } from 'date-fns';
+import { normalizeCommitmentStatus } from './commitmentStatus';
 
 export interface MinimalContact {
     id: string;
@@ -78,6 +80,52 @@ export type DueDateBucket = 'noDate' | 'overdue' | 'upcoming';
 export function classifyDueDate(commitment: { due_at?: string | null }, nowMs: number = Date.now()): DueDateBucket {
     if (!commitment.due_at) return 'noDate';
     return new Date(commitment.due_at).getTime() < nowMs ? 'overdue' : 'upcoming';
+}
+
+// M-1H v3 — CANONICAL OVERDUE SEMANTICS. Única función de overdue para
+// TODAS las superficies mobile activas (Mis Compromisos, Encargados, Hoy) —
+// antes de esta unificación existían TRES reglas divergentes: Mis
+// Compromisos y Hoy ya coincidían (con carve-out de mismo día), pero
+// Encargados tenía una tercera regla propia, sin el carve-out y sin excluir
+// 'cancelled'/'rejected' (sólo 'resolved'). Espejo exacto de la regla
+// backend en utils/overdueSemantics.ts#isCommitmentOverdue (mismo contrato,
+// código físicamente separado -- ver tests/overdueUiAgentParity.test.ts +
+// backend/tests/overdueUiAgentParity.test.ts para la prueba de paridad).
+//
+// DECISIÓN DE PRODUCTO (no técnica): un commitment cuya hora ya pasó HOY es
+// "para hoy", nunca "vencido" -- vencido significa que se dejó pasar el DÍA
+// completo. Se eligió esta regla (y no "cualquier instante pasado ya es
+// vencido") porque ya estaba shippeada en DOS superficies activas antes de
+// este ticket; se unificó Encargados y el Agent hacia ella, no al revés.
+//
+// `referenceDay` (default = `now`) existe por TaskDashboardScreen: su
+// selector de día navega a fechas distintas de "hoy real", y el "mismo día"
+// para el carve-out debe compararse contra el día que el usuario está
+// viendo (`selectedDate`), no contra la fecha real del reloj -- mientras que
+// "¿ya pasó?" siempre se compara contra el reloj real (`now`). Mis
+// Compromisos/Encargados usan el default (referenceDay = now).
+//
+// Timezone: en mobile, "hoy" del usuario ES la hora local del dispositivo
+// (el teléfono corre en la zona real del usuario) -- por eso, a diferencia
+// del backend (que corre en un servidor sin zona propia y necesita un IANA
+// timezone explícito), aquí basta con Date/date-fns en hora local implícita.
+// Nunca se debe forzar una zona fija (ej. UTC) aquí -- sería exactamente el
+// "new Date() del servidor" que el contrato canónico prohíbe, sólo que del
+// lado del cliente.
+//
+// Nota: esta regla NO es igual a classifyDueDate (arriba) -- esa función es
+// una clasificación más simple (sin carve-out de día, sin excluir status
+// cerrados) usada en otro contexto visual; ambas conviven a propósito.
+export function isCommitmentOverdue(
+    commitment: { status?: string | null; due_at?: string | null },
+    now: Date = new Date(),
+    referenceDay: Date = now,
+): boolean {
+    const status = normalizeCommitmentStatus(commitment.status);
+    if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
+    if (!commitment.due_at) return false;
+    const date = new Date(commitment.due_at);
+    return date < now && !isSameDay(date, startOfDay(referenceDay));
 }
 
 // Contrapropuesta: la fecha a resaltar es proposed_due_at, no due_at (que

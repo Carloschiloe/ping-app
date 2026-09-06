@@ -35,3 +35,24 @@ export function buildCommitmentVisibilityFilter(
 
     return filters.join(',');
 }
+
+// M-1H — extraído de commitmentProposal.service.ts#getAgreementProposals
+// (que tenía esta misma lógica inline, duplicada) para que el Agent
+// (retrieval.service.ts#retrieveCommitmentProposals) pueda reutilizar
+// EXACTAMENTE el mismo criterio de autorización, en vez de reimplementarlo
+// una tercera vez. Un actor ve una commitment_proposal si: la propuso él
+// mismo, O es un participante con una respuesta registrada en
+// commitment_proposal_responses (proposals compartidas). Nunca amplía la
+// visibilidad — sólo la tabla objetivo cambia (commitment_proposals, no
+// commitments), la RLS/columna owner_user_id de referencia es
+// proposed_by_user_id aquí.
+export function buildCommitmentProposalVisibilityFilter(
+    userId: string,
+    participantProposalIds: string[],
+): string {
+    const filters = [`proposed_by_user_id.eq.${userId}`];
+    if (participantProposalIds.length > 0) {
+        filters.push(`id.in.(${participantProposalIds.join(',')})`);
+    }
+    return filters.join(',');
+}

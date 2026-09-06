@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
 import { useAuth } from '../../context/AuthContext';
+import {
+    acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest,
+} from './commitmentConfirmRequests';
+
+export { acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest };
 
 export const useReactToMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
@@ -119,24 +124,49 @@ export const useCreateSharedCommitmentProposal = () => {
     });
 };
 
+// M-1H v2 (hallazgo real a nivel de RPC, ver
+// supabase/migrations/20260730123000_shared_commitment_agreements.sql):
+// respond_to_commitment_proposal EXIGE una fila previa en
+// commitment_proposal_responses para (proposal_id, actor_user_id) --
+// "Actor is not required for this agreement" (403) si no existe. Esa fila
+// SÓLO la crea create_shared_commitment_proposal_with_responses (proposals
+// COMPARTIDAS). Una proposal SOLO (creada vía POST /commitment-proposals,
+// el caso real "Entrenar") nunca tiene esa fila -- llamar /respond para ella
+// sólo cambia el error de 404 a 403, nunca la confirma. Ver
+// resolveCommitmentConfirmAction en utils/commitmentConfirmDispatch.ts para
+// el criterio real de cuál endpoint usar. (Request function en
+// commitmentConfirmRequests.ts, importada arriba.)
 export const useRespondToCommitmentProposal = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({
-            id,
-            decision,
-            reason,
-            proposedDueAt,
-        }: {
-            id: string;
-            decision: 'approve' | 'reject' | 'counter_propose';
-            reason?: string | null;
-            proposedDueAt?: string | null;
-        }) => apiClient.post(`/commitment-proposals/${id}/respond`, {
-            decision,
-            reason: reason?.trim() || null,
-            proposedDueAt: proposedDueAt || null,
-        }),
+        mutationFn: respondToCommitmentProposalRequest,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
+        },
+    });
+};
+
+// M-1H v2 — el endpoint REAL para confirmar una proposal SOLO (sin
+// participantes/respuestas registradas): POST /commitment-proposals/:id/confirm
+// -> confirmProposal (commitmentProposal.service.ts) -> RPC
+// confirm_commitment_proposal, cuyo único guard es "el actor es el owner de
+// la proposal" (no depende de commitment_proposal_responses en absoluto).
+// Materializa inmediatamente el commitment canónico (proposal_id = este id,
+// status='accepted') y marca la proposal status='confirmed'. Esta función ya
+// existía sin usar en el backend (confirmProposal) pero nunca tuvo
+// contraparte en mobile -- por eso el caso solo ("Entrenar") no tenía NINGÚN
+// camino de confirmación funcional antes de este fix. (Request function en
+// commitmentConfirmRequests.ts, importada arriba.)
+export const useConfirmCommitmentProposal = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: confirmCommitmentProposalRequest,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
@@ -152,7 +182,7 @@ export const useRespondToCommitmentProposal = () => {
 export const useAcceptCommitment = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/accept`, {}),
+        mutationFn: acceptCommitmentRequest,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['insights'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });
