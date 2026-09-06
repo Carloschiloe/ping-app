@@ -16,6 +16,7 @@ import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { useAppTheme } from '../theme/ThemeContext';
 import {
     useAcceptCommitment, useResolveCommitment, useRespondToCommitmentProposal, useConfirmCommitmentProposal,
+    useUpdateCommitment,
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
@@ -24,6 +25,7 @@ import { TodaySummaryBar } from '../components/hoy/TodaySummaryBar';
 import { OverdueAlert } from '../components/hoy/OverdueAlert';
 import { TodayItemRow } from '../components/hoy/TodayItemRow';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
+import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -79,16 +81,59 @@ export default function TaskDashboardScreen() {
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
+    const { mutateAsync: updateCommitment } = useUpdateCommitment();
 
     // M-1H v4 — item pendiente de confirmar (abre ConfirmCommitmentModal) y
     // loading state explícito -- mismo patrón que InsightsScreen.tsx. El tap
     // primario de la fila nunca ejecuta la escritura directamente.
     const [confirmItem, setConfirmItem] = useState<any | null>(null);
     const [isConfirming, setIsConfirming] = useState(false);
+    // M-1H v6 (Gap A del final proposal lifecycle gate): "Proponer otra
+    // fecha" -- mismo RescheduleModal ya usado en InsightsScreen.tsx.
+    const [rescheduleItem, setRescheduleItem] = useState<any | null>(null);
 
     const handleMarkDone = useCallback((id: string) => {
         resolveCommitment({ id, result: 'Resuelto desde Hoy.' });
     }, [resolveCommitment]);
+
+    // M-1H v6 — "Proponer otra fecha" sobre una commitment_proposal usa el
+    // flujo REAL ya existente (decision='counter_propose'); PATCH
+    // /commitments/:id sigue siendo correcto sólo para un commitment
+    // canónico -- ver InsightsScreen.tsx#handleSaveDate, mismo patrón.
+    const handleSaveDate = useCallback(async (id: string, newDateIso: string) => {
+        if (rescheduleItem?._isAgreementProposal) {
+            try {
+                await respondToProposal({ id, decision: 'counter_propose', proposedDueAt: newDateIso });
+            } catch {
+                Alert.alert('No se pudo proponer la fecha', 'Intenta nuevamente.');
+            }
+            return;
+        }
+        await updateCommitment({ id, data: { due_at: newDateIso } });
+    }, [rescheduleItem, respondToProposal, updateCommitment]);
+
+    // M-1H v6 — confirmación nativa antes del write ("¿Rechazar propuesta?"),
+    // mismo flujo real (decision='reject') que InsightsScreen.tsx.
+    const handleRejectProposal = useCallback((commitment: any) => {
+        Alert.alert(
+            '¿Rechazar propuesta?',
+            `"${commitment.title}" no se convertirá en un compromiso.`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Rechazar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await respondToProposal({ id: commitment.id, decision: 'reject' });
+                        } catch {
+                            Alert.alert('No se pudo rechazar la propuesta', 'Intenta nuevamente.');
+                        }
+                    },
+                },
+            ]
+        );
+    }, [respondToProposal]);
 
     const handleRequestConfirm = useCallback((commitment: any) => {
         setConfirmItem(commitment);
@@ -114,7 +159,13 @@ export default function TaskDashboardScreen() {
         try {
             await performCommitmentConfirm(confirmItem, { acceptCommitment, respondToProposal, confirmProposal });
             setConfirmItem(null);
-            Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+            // M-1H v5: aceptar una proposal compartida NO garantiza que ya
+            // quede "activa" -- puede faltar la aprobación de alguien más.
+            if (confirmItem._isAgreementProposal) {
+                Alert.alert('Respuesta registrada', `Tu respuesta a "${confirmItem.title}" fue registrada.`);
+            } else {
+                Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+            }
         } catch (error: any) {
             console.warn('[Confirmar compromiso] falló', { status: error?.status, message: error instanceof Error ? error.message : 'unknown' });
             Alert.alert('No se pudo confirmar el compromiso', 'Intenta nuevamente.');
@@ -287,6 +338,8 @@ export default function TaskDashboardScreen() {
                             currentUserId={user?.id}
                             onMarkDone={handleMarkDone}
                             onConfirm={handleRequestConfirm}
+                            onOpenReschedule={(item) => setRescheduleItem(item)}
+                            onReject={handleRejectProposal}
                         />
                     ))}
                 </View>
@@ -303,6 +356,8 @@ export default function TaskDashboardScreen() {
                         currentUserId={user?.id}
                         onMarkDone={handleMarkDone}
                         onConfirm={handleRequestConfirm}
+                        onOpenReschedule={(item) => setRescheduleItem(item)}
+                        onReject={handleRejectProposal}
                     />
                 ))}
             </View>
@@ -512,6 +567,11 @@ export default function TaskDashboardScreen() {
                 onCancel={handleCancelConfirm}
                 onConfirm={handleConfirmSubmit}
             />
+            <RescheduleModal
+                item={rescheduleItem}
+                onClose={() => setRescheduleItem(null)}
+                onSaveDate={handleSaveDate}
+            />
 
             {/* ── HEADER ── */}
             <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
@@ -592,6 +652,8 @@ export default function TaskDashboardScreen() {
                                 currentUserId={user?.id}
                                 onMarkDone={handleMarkDone}
                                 onConfirm={handleRequestConfirm}
+                                onOpenReschedule={(item) => setRescheduleItem(item)}
+                                onReject={handleRejectProposal}
                             />
                         ))}
                     </View>

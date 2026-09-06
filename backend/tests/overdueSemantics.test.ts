@@ -90,10 +90,13 @@ describe('CANONICAL_OVERDUE_RULE: temporal boundary tests (America/Santiago) —
 
 // ─── Sección 11: paridad completa (dataset mixto, fechas ayer/hoy pasada/
 // hoy futura/mañana) — espejo EXACTO de mobile/tests/overdueSemantics.test.ts.
+//
+// M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): ninguna
+// commitment_proposal puede estar "vencida", sin importar su status
+// derivado o due_at -- por eso las proposals con fecha "ayer"
+// (pending/shared/counter) quedan FUERA de este set, sólo los commitments
+// canónicos (entityType='commitment') pueden estarlo.
 const EXPECTED_OVERDUE_IDS = [
-    'pending-proposal-ayer',
-    'shared-proposal-ayer',
-    'counter-proposal-ayer',
     'proposed-commitment-ayer',
     'accepted-commitment-ayer',
 ].sort();

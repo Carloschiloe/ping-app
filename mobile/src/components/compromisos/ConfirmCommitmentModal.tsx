@@ -1,7 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAppTheme } from '../../theme/ThemeContext';
-import { isCommitmentOverdue } from '../../utils/commitmentDisplay';
+import { isCommitmentOverdue, isProposalDatePassed } from '../../utils/commitmentDisplay';
 
 // M-1H v4 — hallazgo real de staging: tocar "Confirmar" ejecutaba la acción
 // de inmediato, sin modal, sin loading state, sin feedback de éxito/error.
@@ -23,20 +23,40 @@ export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConf
     const { theme } = useAppTheme();
     const styles = createStyles(theme);
     const visible = !!commitment;
-    // isCommitmentOverdue ya excluye status cerrados -- un item aquí siempre
-    // está en un status abierto (proposed), así que esto sólo depende de la fecha.
+    // M-1H v5 (sección 28 del ticket): este modal SÓLO se abre cuando
+    // getCommitmentPrimaryAction ya decidió 'accept' -- nunca aparece para
+    // un actor que sólo está esperando a otra persona (caso real Carlos en
+    // "Entrenar"), porque esa fila no tiene botón tappable en absoluto (ver
+    // CommitmentRow.tsx/TodayItemRow.tsx, rama 'waiting'). Aun así, el copy
+    // se adapta explícitamente según el tipo real de entidad: "aceptar una
+    // propuesta" (aún no es un commitment) nunca se confunde con "confirmar
+    // un commitment" (ya lo es, sólo falta esta transición de estado).
+    const isProposalAccept = commitment?._isAgreementProposal === true;
+    const title = isProposalAccept ? '¿Aceptar propuesta?' : '¿Confirmar compromiso?';
+    const bodyText = isProposalAccept
+        ? 'Al aceptar, tu respuesta quedará registrada. El compromiso se activará una vez que todas las personas requeridas acepten.'
+        : 'Al confirmar, este compromiso quedará aceptado y activo.';
+    const confirmLabel = isProposalAccept ? 'Aceptar' : 'Confirmar';
+    // isCommitmentOverdue ya excluye toda commitment_proposal (regla
+    // principal) -- por eso isOverdueItem sólo puede ser true para un
+    // commitment canónico. Para una proposal, la señal separada y honesta
+    // es proposalDatePassed ("la fecha propuesta ya pasó", nunca "vencido").
     const isOverdueItem = !!commitment && isCommitmentOverdue(commitment);
+    const datePassed = isProposalAccept && isProposalDatePassed(commitment?.due_at);
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!isPending) onCancel(); }}>
             <Pressable style={styles.overlay} onPress={() => { if (!isPending) onCancel(); }}>
                 {/* Evita que el tap dentro de la tarjeta se propague al overlay y la cierre por accidente. */}
                 <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
-                    <Text style={styles.title}>¿Confirmar compromiso?</Text>
+                    <Text style={styles.title}>{title}</Text>
                     <Text style={styles.commitmentTitle} numberOfLines={3}>{commitment?.title}</Text>
-                    <Text style={styles.body}>Al confirmar, este compromiso quedará aceptado y activo.</Text>
+                    <Text style={styles.body}>{bodyText}</Text>
                     {isOverdueItem && (
                         <Text style={styles.warning}>Este compromiso está vencido.</Text>
+                    )}
+                    {datePassed && (
+                        <Text style={styles.warning}>La fecha propuesta ya pasó.</Text>
                     )}
                     <View style={styles.buttonsRow}>
                         <TouchableOpacity
@@ -53,7 +73,7 @@ export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConf
                         >
                             {isPending
                                 ? <ActivityIndicator size="small" color={theme.colors.white} />
-                                : <Text style={[styles.buttonText, { color: theme.colors.white }]}>Confirmar</Text>}
+                                : <Text style={[styles.buttonText, { color: theme.colors.white }]}>{confirmLabel}</Text>}
                         </TouchableOpacity>
                     </View>
                 </Pressable>

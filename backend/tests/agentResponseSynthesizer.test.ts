@@ -703,7 +703,14 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
         expect(response.answer).not.toContain('Tienes un compromiso de entrenar.');
     });
 
-    it('overdue disclosure guard funciona igual para un commitment_proposal vencido (mismo pipeline que un commitment canónico)', async () => {
+    // M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): una
+    // commitment_proposal con fecha pasada NUNCA es "vencida" -- el guard de
+    // overdue disclosure NUNCA debe agregar un claim de vencimiento para
+    // ella, aunque wantsOverdueFocus sea true. "No tienes compromisos
+    // vencidos" es la respuesta CORRECTA aquí (no hay commitments
+    // canónicos, sólo una proposal pendiente) -- versiones anteriores
+    // (v2-v4) esperaban lo contrario, reproduciendo el bug real.
+    it('overdue disclosure guard NUNCA agrega un claim de vencimiento para una commitment_proposal con fecha pasada', async () => {
         const overdueProposal = proposal('pr-entrenar', { dueAt: '2026-07-31T00:00:00Z' }); // ~36 días antes de "now"
         const ctx = baseContext({
             evidenceFound: true, wantsOverdueFocus: true,
@@ -713,8 +720,8 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
         const synthesizer = new LlmResponseSynthesizer({ model });
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        expect(response.answer.toLowerCase()).toContain('vencido');
-        expect(response.answer).toContain('Entrenar');
+        expect(response.answer).toBe('No tienes compromisos vencidos.'); // el guard no interviene -- correcto, no hay overdue real
+        expect(response.answer.toLowerCase()).not.toContain('entrenar');
     });
 
     it('canonical dominance guard también cierra un claim "sólo histórico" cuando el commitment relacionado es una proposal, no sólo un commitment canónico', async () => {
@@ -742,8 +749,220 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
         await synthesizer.synthesize({ input: '¿Qué pendientes tengo?', context: ctx });
 
         const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
-        expect(promptSent).toMatch(/PENDING, UNCONFIRMED proposal/i);
+        expect(promptSent).toMatch(/is NOT a commitment yet/i);
         expect(promptSent).toContain('"entityType":"commitment_proposal"');
+        expect(promptSent).toContain('"isOverdue":false'); // regla principal: nunca vencida, sea cual sea su fecha
+    });
+
+    // M-1H v5 — sección 15 del ticket: el prompt debe instruir explícitamente
+    // que los campos de participación (actorHasApproved/actorCanRespond/
+    // pendingResponderNamesSafe/isFullyApproved/proposalDatePassed) ya vienen
+    // resueltos por el Core, y nunca deben inferirse ni confundirse con
+    // "vencido".
+    it('el prompt instruye usar los campos de participación de una proposal, nunca inferirlos ni llamarla "overdue"', async () => {
+        const waitingEntrenar = proposal('pr-entrenar', {
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, commitments: [waitingEntrenar] as any, provenance: [waitingEntrenar.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Entrenar está esperando la aceptación de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).toMatch(/actorHasApproved/);
+        expect(promptSent).toMatch(/pendingResponderNamesSafe/);
+        expect(promptSent).toMatch(/NEVER.*overdue|NEVER phrase this as "overdue"/i);
+        expect(promptSent).toContain('"pendingResponderNamesSafe":["Alejandra"]');
+        expect(promptSent).toContain('"proposalDatePassed":true');
+    });
+
+    // M-1H v5 — sección 25 del ticket, dataset EXACTO: A) proposal "Entrenar"
+    // (Carlos ya aprobó, Alejandra pendiente, fecha 37 días atrás) y B)
+    // commitment canónico "Ver Spiderman" (accepted, fecha pasada). Certifica
+    // que el modelo recibe evidencia consistente con la regla principal --
+    // "Entrenar" nunca puede aparecer con isOverdue:true, sólo "Ver
+    // Spiderman" puede, y el guard de overdue disclosure sólo puede forzar
+    // la mención del segundo, nunca del primero.
+    it('DATASET REAL (sección 25): "¿Qué tengo vencido?" -- sólo Ver Spiderman puede ser forzado por el guard, Entrenar nunca', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z', // ~37 días antes de "now" del baseContext
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const verSpiderman = commitment('cm-spiderman', { title: 'Ver Spiderman', status: 'accepted', dueAt: '2026-08-15T00:00:00Z' });
+        const ctx = baseContext({
+            evidenceFound: true, wantsOverdueFocus: true,
+            commitments: [entrenar, verSpiderman] as any,
+            provenance: [entrenar.provenance, verSpiderman.provenance],
+        });
+        // El modelo (simulando el peor caso: niega ambos) recibe el guard --
+        // sólo debe agregarse el claim determinístico para Ver Spiderman.
+        const model = fakeModel(claimPayload([{ text: 'No tienes compromisos vencidos.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-spiderman' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer).toContain('Ver Spiderman');
+        expect(response.answer.toLowerCase()).toContain('vencido');
+        expect(response.answer).not.toContain('Entrenar'); // la proposal nunca se menciona como vencida
+        expect(response.citations).toEqual(expect.arrayContaining([{ sourceType: 'commitment', sourceId: 'cm-spiderman' }]));
+        expect(response.citations).not.toContainEqual(expect.objectContaining({ sourceId: 'pr-entrenar' }));
+    });
+
+    it('DATASET REAL (sección 25): "¿Qué estoy esperando?" -- el modelo puede citar honestamente Entrenar esperando a Alejandra, nunca como "vencido"', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, commitments: [entrenar] as any, provenance: [entrenar.provenance] });
+        const model = fakeModel(claimPayload([{ text: '"Entrenar" está esperando la aceptación de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
+
+        expect(response.answer).toContain('Entrenar');
+        expect(response.answer).toContain('Alejandra');
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+    });
+
+    // M-1H v6 (GAP B, sección 15 del ticket final) — ejemplo EXACTO de
+    // síntesis permitida vs. prohibida pedido por el ticket:
+    //   PERMITIDO: 'Estás esperando la respuesta de Alejandra para
+    //   Entrenar. La fecha propuesta ya pasó.'
+    //   PROHIBIDO: 'Entrenar está vencido.'
+    it('PERMITIDO (sección 15): la frase exacta del ticket se acepta tal cual cuando el modelo la cita honestamente', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, commitments: [entrenar] as any, provenance: [entrenar.provenance] });
+        const permitted = 'Estás esperando la respuesta de Alejandra para Entrenar. La fecha propuesta ya pasó.';
+        const model = fakeModel(claimPayload([{ text: permitted, sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
+
+        expect(response.answer).toBe(permitted);
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+    });
+
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H v7 — "FINAL PROPOSAL SYNTHESIS TRUTH GUARD": el hole reconocido en el
+// gate anterior (un modelo adversarial podía producir "Entrenar está
+// vencido." con una cita técnicamente válida, sobreviviendo
+// validateClaimsAgainstAllowedRefs porque esa función sólo mira sourceRefs,
+// nunca el texto) ahora está cerrado por enforceProposalLifecycleTruth
+// (agentResponseSynthesizer.service.ts): DESPUÉS del modelo, ANTES de
+// ensamblar, descarta cualquier claim que cite una commitment_proposal con
+// lenguaje de vencimiento y lo reemplaza por un claim canónico determinístico
+// usando los campos de participación que Core ya resolvió. Nunca fact-
+// checking NLP general -- sólo esta contradicción específica y acotada.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H v7: enforceProposalLifecycleTruth — guarda determinística contra contradicciones proposal/vencido', () => {
+    it('A) CASO ENTRENAR: claim adversarial "Entrenar está vencido." citando la proposal real -- el resultado NUNCA contiene esa afirmación, se reemplaza por waiting canónico', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [entrenar] as any, provenance: [entrenar.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Entrenar está vencido.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toContain('Entrenar');
+        expect(response.answer).toContain('Alejandra');
+        expect(response.answer).toContain('La fecha propuesta ya pasó.');
+        expect(response.citations).toEqual([{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }]);
+    });
+
+    it('B) CASO NEEDS-MY-RESPONSE: claim adversarial "Tu compromiso está vencido." sobre una proposal donde el actor puede responder -- se reemplaza por "pendiente de tu respuesta"', async () => {
+        const waitingOnMe = proposal('pr-waiting', {
+            title: 'Revisar propuesta', dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: false, actorCanRespond: true, isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [waitingOnMe] as any, provenance: [waitingOnMe.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Tu compromiso está vencido.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-waiting' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toContain('pendiente de tu respuesta');
+        expect(response.answer).toContain('La fecha propuesta ya pasó.');
+    });
+
+    it('C) COMMITMENT REAL VENCIDO: la guarda nunca interfiere con un commitment canónico realmente vencido -- "Ver Spiderman está vencido." sobrevive intacto', async () => {
+        const verSpiderman = commitment('cm-spiderman', { title: 'Ver Spiderman', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [verSpiderman] as any, provenance: [verSpiderman.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Ver Spiderman está vencido.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-spiderman' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer).toContain('Ver Spiderman está vencido.');
+    });
+
+    it('D) MIXED SOURCES: "Entrenar y Ver Spiderman están vencidos." -- Entrenar nunca se describe como vencido, Ver Spiderman sí (garantizado por enforceOverdueDisclosure, que corre antes)', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const verSpiderman = commitment('cm-spiderman', { title: 'Ver Spiderman', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' });
+        const ctx = baseContext({
+            evidenceFound: true, wantsOverdueFocus: true,
+            commitments: [entrenar, verSpiderman] as any,
+            provenance: [entrenar.provenance, verSpiderman.provenance],
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'Entrenar y Ver Spiderman están vencidos.',
+            sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }, { sourceType: 'commitment', sourceId: 'cm-spiderman' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        // La oración mixta original se descarta entera (no se puede editar
+        // en caliente cuál mitad corresponde a cuál cita); Ver Spiderman
+        // conserva su disclosure real vía enforceOverdueDisclosure, Entrenar
+        // recibe el reemplazo canónico de esta guarda.
+        expect(response.answer).not.toContain('Entrenar y Ver Spiderman están vencidos.');
+        expect(response.answer).toMatch(/Ver Spiderman.*vencido/);
+        expect(response.answer).toContain('Alejandra');
+        const entrenarSentences = response.answer.split(/(?<=\.)\s+/).filter((s) => s.includes('Entrenar'));
+        for (const sentence of entrenarSentences) expect(sentence.toLowerCase()).not.toContain('vencido');
+        expect(response.citations).toEqual(expect.arrayContaining([
+            { sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' },
+            { sourceType: 'commitment', sourceId: 'cm-spiderman' },
+        ]));
+    });
+
+    it('E) proposalDatePassed se expresa siempre sin la palabra "vencido", incluso cuando el modelo se comporta honestamente desde el inicio (no sólo en el camino adversarial)', async () => {
+        const entrenar = proposal('pr-entrenar', {
+            dueAt: '2026-07-31T00:00:00Z',
+            actorHasApproved: true, actorCanRespond: false,
+            pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false, proposalDatePassed: true,
+        });
+        const ctx = baseContext({ evidenceFound: true, commitments: [entrenar] as any, provenance: [entrenar.provenance] });
+        const honest = 'Entrenar sigue esperando la respuesta de Alejandra. La fecha propuesta ya pasó.';
+        const model = fakeModel(claimPayload([{ text: honest, sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
+
+        // Un claim ya honesto (sin lenguaje de vencimiento) nunca es tocado
+        // por la guarda -- pasa intacto, palabra por palabra.
+        expect(response.answer).toBe(honest);
+    });
+
+    it('la guarda nunca interviene cuando no hay ninguna commitment_proposal en el contexto (costo cero en el camino normal)', async () => {
+        const verSpiderman = commitment('cm-spiderman', { title: 'Ver Spiderman', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [verSpiderman] as any, provenance: [verSpiderman.provenance] });
+        const model = fakeModel(claimPayload([{ text: 'Ver Spiderman está vencido.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-spiderman' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(response.answer).toContain('Ver Spiderman está vencido.');
     });
 });
 

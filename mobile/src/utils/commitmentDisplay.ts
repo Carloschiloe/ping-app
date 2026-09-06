@@ -116,16 +116,37 @@ export function classifyDueDate(commitment: { due_at?: string | null }, nowMs: n
 // Nota: esta regla NO es igual a classifyDueDate (arriba) -- esa función es
 // una clasificación más simple (sin carve-out de día, sin excluir status
 // cerrados) usada en otro contexto visual; ambas conviven a propósito.
+//
+// M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar": Carlos
+// ya aprobó, Alejandra sigue pendiente, y esto se mostraba como "VENCIDO"):
+// una commitment_proposal aún no completamente aprobada NUNCA está vencida,
+// sin importar su status o due_at -- "vencido" sólo aplica a un commitment
+// YA materializado/aceptado. Se detecta con el MISMO discriminador ya usado
+// en el resto de mobile (`_isAgreementProposal`, ver
+// commitmentConfirmDispatch.ts) -- también se acepta `entityType` por si el
+// caller ya trae el shape honesto del backend (Agent/tests espejo). Ver
+// isProposalDatePassed para la señal separada y honesta ("la fecha
+// propuesta ya pasó") que SÍ aplica a una proposal.
 export function isCommitmentOverdue(
-    commitment: { status?: string | null; due_at?: string | null },
+    commitment: { status?: string | null; due_at?: string | null; _isAgreementProposal?: boolean; entityType?: string },
     now: Date = new Date(),
     referenceDay: Date = now,
 ): boolean {
+    if (commitment._isAgreementProposal === true || commitment.entityType === 'commitment_proposal') return false;
     const status = normalizeCommitmentStatus(commitment.status);
     if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
     if (!commitment.due_at) return false;
     const date = new Date(commitment.due_at);
     return date < now && !isSameDay(date, startOfDay(referenceDay));
+}
+
+// M-1H v5 — señal separada y honesta para una proposal cuya fecha propuesta
+// ya pasó, SIN llamarla "vencida" (espejo de
+// backend/utils/overdueSemantics.ts#isProposalDatePassed). No depende de
+// status ni de zona/mismo-día -- "pasó" es simplemente instante < now.
+export function isProposalDatePassed(dueAt: string | null | undefined, now: Date = new Date()): boolean {
+    if (!dueAt) return false;
+    return new Date(dueAt) < now;
 }
 
 // Contrapropuesta: la fecha a resaltar es proposed_due_at, no due_at (que

@@ -29,6 +29,7 @@ import type {
     AgentContextInput,
     AgentClarification,
     Interpretation,
+    ProposalFocus,
     RetrievalPlanStep,
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalTimeRange } from '../types/retrieval';
@@ -164,6 +165,38 @@ function mergeCommitmentSources(
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return merged.slice(0, limit);
+}
+
+// M-1H v6 (Gap B del final proposal lifecycle gate, secciones 8/9/11): el
+// Core filtra determinísticamente según proposalFocus -- el LLM NUNCA
+// decide "¿quién falta por responder?"/"¿ya aprobé?"/"¿está aprobada del
+// todo?" por su cuenta, sólo fraseia lo que ya llega filtrado aquí. Aplica
+// SOLO a commitment_proposal -- un commitment canónico ya activo no tiene
+// concepto de "aprobación pendiente".
+function filterByProposalFocus(
+    commitments: RetrievalCommitment[],
+    proposalFocus: ProposalFocus,
+    resolvedPersonId: string | undefined,
+): RetrievalCommitment[] {
+    if (!proposalFocus) return commitments;
+    return commitments.filter((c) => {
+        if (c.entityType !== 'commitment_proposal') return false;
+        if (proposalFocus === 'waiting_for_others') {
+            return c.actorHasApproved === true && c.isFullyApproved === false;
+        }
+        if (proposalFocus === 'needs_my_response') {
+            return c.actorCanRespond === true;
+        }
+        if (proposalFocus === 'pending_response_from_person') {
+            // Sin persona resuelta, no hay a quién filtrar -- nunca amplía
+            // el scope devolviendo todo sin filtrar (sección 17: nunca
+            // ampliar el scope semántico, mismo principio ya establecido
+            // para personScopeBlocked).
+            if (!resolvedPersonId) return false;
+            return (c.pendingResponderIds ?? []).includes(resolvedPersonId);
+        }
+        return true;
+    });
 }
 
 export interface BuildAgentContextOptions {
@@ -308,17 +341,30 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // segunda fuente real. retrieveCommitmentProposals ya maneja
     // internamente su propia limitación de FTS (devuelve [] con textQuery,
     // ver retrieval.service.ts) — no se duplica esa condición aquí.
+    //
+    // M-1H v6 (Gap B): para 'pending_response_from_person' ("¿qué falta que
+    // acepte Alejandra?"), la persona resuelta NUNCA debe pasarse como
+    // `personId` de retrieval -- ese filtro SQL sólo matchea
+    // proposed_by_user_id/proposed_responsible_user_id (proposer/
+    // responsible), pero Alejandra en el caso real "Entrenar" es sólo una
+    // PARTICIPANTE requerida (fila en commitment_proposal_responses) --
+    // pasarla como personId excluiría "Entrenar" de la query SQL antes de
+    // que filterByProposalFocus pudiera siquiera evaluarla. El filtrado por
+    // "¿Alejandra está pendiente aquí?" ocurre DESPUÉS, vía
+    // pendingResponderIds (ver filterByProposalFocus arriba).
+    const proposalsPersonId = interpretation.proposalFocus === 'pending_response_from_person' ? undefined : resolvedPersonId;
     const commitmentProposalsPromise = interpretation.wantsCommitments && !personScopeBlocked
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus } });
             return retrieveCommitmentProposals({
                 actorUserId: input.actorUserId,
                 conversationId,
-                personId: resolvedPersonId,
+                personId: proposalsPersonId,
                 statuses: interpretation.statusHints ?? undefined,
                 timeRange: timeRange ?? undefined,
                 query: interpretation.textQuery ?? undefined,
                 orderByOverdueFirst: interpretation.wantsOverdueFocus,
+                now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
             }, budget.commitments);
         })()
         : Promise.resolve([]);
@@ -383,7 +429,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const [commitmentsOnly, proposalsOnly, messages, transcriptions, attachments] = await Promise.all([
         commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
     ]);
-    const commitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, budget.commitments, interpretation.wantsOverdueFocus);
+    const mergedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, budget.commitments, interpretation.wantsOverdueFocus);
+    // M-1H v6 (Gap B): filtro determinístico POST-merge/budget -- nunca
+    // decidido por el LLM, ver filterByProposalFocus arriba.
+    const commitments = filterByProposalFocus(mergedCommitments, interpretation.proposalFocus, resolvedPersonId);
     // [PING_OVERDUE_TRACE] TEMPORARY — retrieved commitments trace (máx 20).
     // Post-merge a propósito (M-1H): el trace debe reflejar lo que el Agent
     // realmente evalúa, no sólo la tabla `commitments`.
@@ -474,9 +523,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             commitmentCount: commitments.length,
             commitments: commitments.map((c) => ({
                 safeTitle: traceSafeTitle(c.title),
+                entityType: c.entityType,
                 status: c.status,
                 dueAt: c.dueAt,
-                isOverdue: isCommitmentOverdue(c.dueAt, c.status, nowIso, timezone),
+                // M-1H v5: entityType real -- una commitment_proposal nunca
+                // es "vencida" (regla principal), isOverdue siempre false
+                // para ella aquí también, para que el trace refleje la
+                // MISMA verdad que la síntesis real, nunca una tercera
+                // fórmula.
+                isOverdue: isCommitmentOverdue(c.dueAt, c.status, nowIso, timezone, c.entityType),
             })),
             wantsOverdueFocus: interpretation.wantsOverdueFocus,
             textQuery: interpretation.textQuery,

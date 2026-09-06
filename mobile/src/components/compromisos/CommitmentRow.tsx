@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isToday, isTomorrow, isPast as dateFnsIsPast } from 'date-fns';
+import { format, isToday, isTomorrow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
+import { getProposalWaitingLabel } from '../../utils/agreement';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
 interface CommitmentRowProps {
@@ -22,6 +24,10 @@ interface CommitmentRowProps {
     onOpenReschedule: (commitment: any) => void;
     onOpenDetail: (commitment: any) => void;
     onCancel?: (id: string) => void;
+    // M-1H v6 (Gap A del final proposal lifecycle gate): rechazar una
+    // commitment_proposal pendiente -- sólo ofrecido cuando el actor mismo
+    // puede responder (nunca "rechazar por Alejandra").
+    onReject?: (commitment: any) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -53,6 +59,7 @@ export function CommitmentRow({
     onOpenReschedule,
     onOpenDetail,
     onCancel,
+    onReject,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -64,8 +71,19 @@ export function CommitmentRow({
     const isMeeting = c.type === 'meeting' || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(c.title || '');
     const hasConversation = canViewOriginConversation(c);
     const conversationId = resolveConversationId(c);
-    const isOverdueItem = !!c.due_at && dateFnsIsPast(new Date(c.due_at)) && !['resolved', 'cancelled', 'rejected'].includes(status);
+    // M-1H v5: isCommitmentOverdue ya excluye toda commitment_proposal
+    // (regla principal) -- antes esta fila tenía su PROPIA cuarta fórmula de
+    // "vencido" (dateFnsIsPast + status abierto, sin el carve-out de mismo
+    // día ni la exclusión de proposals), que sí marcaba "Entrenar" en rojo.
+    const isOverdueItem = isCommitmentOverdue(c);
     const isFinished = ['resolved', 'cancelled', 'rejected'].includes(status);
+    const primaryAction = getCommitmentPrimaryAction(c, currentUserId);
+    const isProposal = c._isAgreementProposal === true;
+    // M-1H v6 (Gap A, secciones 2/6): "Proponer otra fecha"/"Rechazar
+    // propuesta" sólo se ofrecen cuando el actor mismo puede responder --
+    // nunca para el caso Carlos (primaryAction==='waiting'), donde "rechazar
+    // por Alejandra" sería exactamente el error que este ticket prohíbe.
+    const canRespondToProposal = isProposal && primaryAction === 'accept';
 
     const goToChat = () => {
         if (!conversationId) return;
@@ -85,8 +103,26 @@ export function CommitmentRow({
     };
 
     // ─── Primary Action Button ─────────────────────────────────────────────
+    // M-1H v5 — getCommitmentPrimaryAction reemplaza el chequeo directo de
+    // `status==='proposed'` (regla principal del ticket): para una
+    // commitment_proposal donde el actor ya aprobó y sólo falta otra
+    // persona (caso real "Entrenar"), NUNCA se ofrece "Confirmar" -- se
+    // muestra en cambio "Esperando a <persona>", sin acción disponible.
     const renderPrimaryAction = () => {
         if (isFinished) return null;
+
+        if (primaryAction === 'waiting') {
+            const waitingLabel = getProposalWaitingLabel(c, currentUserId);
+            const datePassed = isProposalDatePassed(c.due_at);
+            return (
+                <View style={styles.waitingBadge}>
+                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={2}>
+                        {waitingLabel}{datePassed ? ' · Fecha propuesta ya pasó' : ''}
+                    </Text>
+                </View>
+            );
+        }
+
         if (!c.due_at) {
             return (
                 <TouchableOpacity
@@ -98,17 +134,19 @@ export function CommitmentRow({
                 </TouchableOpacity>
             );
         }
-        if (status === 'proposed') {
+        if (primaryAction === 'accept') {
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
                     onPress={() => onConfirm(c)}
                 >
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Confirmar</Text>
+                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>
+                        {c._isAgreementProposal ? 'Aceptar' : 'Confirmar'}
+                    </Text>
                 </TouchableOpacity>
             );
         }
-        if (status === 'accepted') {
+        if (primaryAction === 'complete') {
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
@@ -123,24 +161,36 @@ export function CommitmentRow({
     };
 
     // ─── Menu ─────────────────────────────────────────────────────────────
+    // M-1H v6 (Gap A, secciones 2/3/4/5 del ticket): "Reprogramar fecha"/
+    // "Archivar / Cancelar" son transiciones de un commitment YA activo --
+    // nunca se ofrecen para una commitment_proposal (llamarían al endpoint
+    // equivocado con un proposal_id). "Proponer otra fecha"/"Rechazar
+    // propuesta" reutilizan el flujo REAL ya existente
+    // (respond_to_commitment_proposal, decision counter_propose/reject) y
+    // sólo aparecen cuando el actor mismo puede responder -- nunca para
+    // Carlos (caso "Entrenar", esperando a Alejandra).
     const openMenu = () => {
         if (Platform.OS === 'ios') {
             const options = [
                 'Cancelar',
                 'Ver detalle',
-                'Reprogramar fecha',
+                !isProposal ? 'Reprogramar fecha' : null,
+                canRespondToProposal ? 'Proponer otra fecha' : null,
                 hasConversation ? 'Ver conversación' : null,
-                onCancel && !isFinished ? 'Archivar / Cancelar' : null,
+                canRespondToProposal ? 'Rechazar propuesta' : null,
+                onCancel && !isFinished && !isProposal ? 'Archivar / Cancelar' : null,
             ].filter(Boolean) as string[];
+            const destructiveButtonIndex = canRespondToProposal ? options.indexOf('Rechazar propuesta') : undefined;
 
             ActionSheetIOS.showActionSheetWithOptions(
-                { options, cancelButtonIndex: 0, title: c.title },
+                { options, cancelButtonIndex: 0, destructiveButtonIndex, title: c.title },
                 (idx) => {
                     if (idx === 0) return;
                     const opt = options[idx];
                     if (opt === 'Ver detalle') onOpenDetail(c);
-                    else if (opt === 'Reprogramar fecha') onOpenReschedule(c);
+                    else if (opt === 'Reprogramar fecha' || opt === 'Proponer otra fecha') onOpenReschedule(c);
                     else if (opt === 'Ver conversación') goToChat();
+                    else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
                     else if (opt === 'Archivar / Cancelar' && onCancel) onCancel(c.id);
                 }
             );
@@ -245,17 +295,31 @@ export function CommitmentRow({
                             <Ionicons name="information-circle-outline" size={16} color={theme.colors.text.primary} />
                             <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver detalle</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                            <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
-                            <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>
-                        </TouchableOpacity>
+                        {!isProposal && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
+                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>
+                            </TouchableOpacity>
+                        )}
+                        {canRespondToProposal && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
+                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
+                            </TouchableOpacity>
+                        )}
                         {hasConversation && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); goToChat(); }}>
                                 <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
-                        {onCancel && !isFinished && (
+                        {canRespondToProposal && onReject && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
+                                <Ionicons name="close-circle-outline" size={16} color={theme.colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
+                            </TouchableOpacity>
+                        )}
+                        {onCancel && !isFinished && !isProposal && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
                                 <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Archivar / Cancelar</Text>
@@ -346,6 +410,15 @@ const styles = StyleSheet.create({
     primaryBtnText: {
         fontSize: 12,
         fontWeight: '700',
+    },
+    waitingBadge: {
+        maxWidth: 130,
+        paddingHorizontal: 2,
+    },
+    waitingBadgeText: {
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'right',
     },
     moreBtn: {
         width: 28,

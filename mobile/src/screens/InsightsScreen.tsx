@@ -22,6 +22,7 @@ import {
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
+import { getCommitmentPrimaryAction } from '../utils/commitmentPrimaryAction';
 
 import { CommitmentRow } from '../components/compromisos/CommitmentRow';
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
@@ -157,7 +158,15 @@ export default function InsightsScreen() {
         try {
             await performCommitmentConfirm(confirmItem, { acceptCommitment, respondToProposal, confirmProposal });
             setConfirmItem(null);
-            Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+            // M-1H v5: aceptar una proposal compartida NO garantiza que ya
+            // quede "activa" -- puede faltar la aprobación de alguien más
+            // (caso real "Entrenar"). El mensaje nunca afirma algo que el
+            // Core no puede garantizar en este punto.
+            if (confirmItem._isAgreementProposal) {
+                Alert.alert('Respuesta registrada', `Tu respuesta a "${confirmItem.title}" fue registrada.`);
+            } else {
+                Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+            }
         } catch (error: any) {
             // Sección 7: nunca cerrar silenciosamente -- el modal permanece
             // abierto para reintentar, y el error real (status/mensaje) se
@@ -178,9 +187,52 @@ export default function InsightsScreen() {
         reopenCommitment(id);
     }, [reopenCommitment]);
 
+    // M-1H v6 (Gap A, sección 3 del ticket): "Proponer otra fecha" sobre una
+    // commitment_proposal usa el flujo REAL ya existente
+    // (respond_to_commitment_proposal, decision='counter_propose') --
+    // PATCH /commitments/:id (updateCommitment) sigue siendo el correcto
+    // para un commitment canónico, pero sería el endpoint equivocado (con
+    // un proposal_id) para una proposal. rescheduleItem (el objeto completo
+    // que abrió el modal) decide cuál usar -- RescheduleModal sólo pasa
+    // (id, fecha), nunca el entityType.
     const handleSaveDate = useCallback(async (id: string, newDateIso: string) => {
+        if (rescheduleItem?._isAgreementProposal) {
+            try {
+                await respondToProposal({ id, decision: 'counter_propose', proposedDueAt: newDateIso });
+            } catch {
+                Alert.alert('No se pudo proponer la fecha', 'Intenta nuevamente.');
+            }
+            return;
+        }
         await updateCommitment({ id, data: { due_at: newDateIso } });
-    }, [updateCommitment]);
+    }, [rescheduleItem, respondToProposal, updateCommitment]);
+
+    // M-1H v6 (Gap A, sección 4 del ticket): confirmación nativa antes del
+    // write, tal como se pidió -- "¿Rechazar propuesta?" Cancelar | Rechazar.
+    // Reutiliza el mismo flujo real (decision='reject'), nunca un endpoint
+    // nuevo. Sólo alcanzable cuando el actor mismo puede responder (ver
+    // CommitmentRow.tsx/TodayItemRow.tsx, canRespondToProposal) -- nunca
+    // "rechazar por Alejandra".
+    const handleRejectProposal = useCallback((commitment: any) => {
+        Alert.alert(
+            '¿Rechazar propuesta?',
+            `"${commitment.title}" no se convertirá en un compromiso.`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Rechazar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await respondToProposal({ id: commitment.id, decision: 'reject' });
+                        } catch {
+                            Alert.alert('No se pudo rechazar la propuesta', 'Intenta nuevamente.');
+                        }
+                    },
+                },
+            ]
+        );
+    }, [respondToProposal]);
 
     // Contact map helper
     const contactNameMap = useMemo(() => {
@@ -245,6 +297,16 @@ export default function InsightsScreen() {
         const now = new Date();
         const today = startOfDay(now);
 
+        // M-1H v5 — REGLA PRINCIPAL (sección 8/27 del ticket, hallazgo real
+        // físico "Entrenar"): una commitment_proposal pendiente NUNCA se
+        // clasifica junto a los commitments activos (Vencidos/Hoy/Mañana/
+        // etc.), sin importar su fecha -- ni siquiera si esa fecha es hoy o
+        // ya pasó. Tiene su propia sección "Por Confirmar", separada del
+        // lifecycle de commitment. Las proposals rechazadas van a Historial
+        // (segmento 3), no aquí.
+        const porConfirmar = list.filter((c: any) => c._isAgreementProposal === true && normalizeCommitmentStatus(c.status) !== 'rejected');
+        const regularCommitments = list.filter((c: any) => !(c._isAgreementProposal === true && normalizeCommitmentStatus(c.status) !== 'rejected'));
+
         const overdue: any[] = [];
         const hoy: any[] = [];
         const manana: any[] = [];
@@ -252,7 +314,7 @@ export default function InsightsScreen() {
         const masAdelante: any[] = [];
         const sinFecha: any[] = [];
 
-        list.forEach((c: any) => {
+        regularCommitments.forEach((c: any) => {
             if (!c.due_at) {
                 sinFecha.push(c);
                 return;
@@ -279,7 +341,16 @@ export default function InsightsScreen() {
         overdue.sort((a, b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
         const sortByTime = (arr: any[]) => arr.sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
 
+        // "Pendiente de tu respuesta" (Caso A, sección 8) antes que "Esperando
+        // a otra persona" (Caso B/C) -- lo accionable primero.
+        const porConfirmarOrdenado = [...porConfirmar].sort((a, b) => {
+            const aCanRespond = getCommitmentPrimaryAction(a, user?.id) === 'accept' ? 0 : 1;
+            const bCanRespond = getCommitmentPrimaryAction(b, user?.id) === 'accept' ? 0 : 1;
+            return aCanRespond - bCanRespond;
+        });
+
         const sections = [
+            { title: '📝 Por confirmar', data: porConfirmarOrdenado },
             { title: '⏰ Vencidos', data: overdue },
             { title: '📅 Hoy', data: sortByTime(hoy) },
             { title: '🌅 Mañana', data: sortByTime(manana) },
@@ -532,6 +603,7 @@ export default function InsightsScreen() {
                 onReschedule={(c) => setRescheduleItem(c)}
                 onReopen={handleReopen}
                 onCancel={handleCancel}
+                onConfirmRequest={handleRequestConfirm}
             />
 
             <RescheduleModal
@@ -670,6 +742,7 @@ export default function InsightsScreen() {
                         onOpenReschedule={(c) => setRescheduleItem(c)}
                         onOpenDetail={(c) => setDetailItem(c)}
                         onCancel={handleCancel}
+                        onReject={handleRejectProposal}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (

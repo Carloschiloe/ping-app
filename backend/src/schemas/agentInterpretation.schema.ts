@@ -77,6 +77,15 @@ export const agentInterpretationPayloadSchema = z.object({
     // guard determinístico de vencidos (agentResponseSynthesizer) debe
     // activarse.
     wantsOverdueFocus: z.boolean().default(false),
+    // M-1H v6 (Gap B del final proposal lifecycle gate) — señal ESTRUCTURADA
+    // para el lifecycle de aprobación de una commitment_proposal, nunca
+    // textQuery libre (mismo principio que wantsOverdueFocus/status arriba):
+    // "waiting_for_others" (el actor ya aprobó, espera a alguien más),
+    // "needs_my_response" (al actor le falta responder), o
+    // "pending_response_from_person" (pregunta por una persona específica
+    // que aún no responde -- debe venir junto con personHints). null cuando
+    // la pregunta no es sobre esto.
+    proposalFocus: z.enum(['waiting_for_others', 'needs_my_response', 'pending_response_from_person']).nullable().default(null),
     // M-1G.1 — hallazgo real de staging (M-1G-S2, Caso F): "Crea un
     // compromiso para llamar a Alejandra" caía en no_evidence ("no encontré
     // nada relacionado"), técnicamente seguro pero confuso -- el problema

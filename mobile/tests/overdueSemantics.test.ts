@@ -76,10 +76,11 @@ describe('CANONICAL_OVERDUE_RULE: temporal boundary tests (America/Santiago) —
 
 // ─── Sección 11: paridad completa — espejo EXACTO de
 // backend/tests/overdueSemantics.test.ts (mismos ids, mismas fechas).
+// M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): ninguna
+// commitment_proposal puede estar "vencida" -- las proposals con fecha
+// "ayer" (pending/shared/counter) quedan FUERA de este set, sólo los
+// commitments canónicos pueden estarlo.
 const EXPECTED_OVERDUE_IDS = [
-    'pending-proposal-ayer',
-    'shared-proposal-ayer',
-    'counter-proposal-ayer',
     'proposed-commitment-ayer',
     'accepted-commitment-ayer',
 ].sort();
@@ -90,25 +91,28 @@ const HOY_FUTURA = '2026-01-15T19:00:00Z';
 const MANANA = '2026-01-16T13:00:00Z';
 
 // Shape "legacy" (snake_case), igual al que toAgreementView/toLegacyCommitmentShape
-// devuelven realmente -- isCommitmentOverdue consume { status, due_at }.
+// devuelven realmente -- isCommitmentOverdue consume { status, due_at,
+// _isAgreementProposal }. _isAgreementProposal=true en todos los items
+// "proposal" -- es el discriminador REAL que toAgreementView pone (ver
+// commitmentProposal.service.ts), nunca inferido de status/id.
 const DATASET = [
-    { id: 'pending-proposal-ayer', status: 'proposed', due_at: AYER },
-    { id: 'pending-proposal-hoy-pasada', status: 'proposed', due_at: HOY_PASADA },
-    { id: 'pending-proposal-hoy-futura', status: 'proposed', due_at: HOY_FUTURA },
-    { id: 'pending-proposal-manana', status: 'proposed', due_at: MANANA },
+    { id: 'pending-proposal-ayer', status: 'proposed', due_at: AYER, _isAgreementProposal: true },
+    { id: 'pending-proposal-hoy-pasada', status: 'proposed', due_at: HOY_PASADA, _isAgreementProposal: true },
+    { id: 'pending-proposal-hoy-futura', status: 'proposed', due_at: HOY_FUTURA, _isAgreementProposal: true },
+    { id: 'pending-proposal-manana', status: 'proposed', due_at: MANANA, _isAgreementProposal: true },
     // "shared-proposal" comparte el MISMO status derivado que una proposal
     // solo (proposed) -- la distinción solo/compartida vive en
     // agreement_responses (dispatch de confirm), no en la regla de overdue.
-    { id: 'shared-proposal-ayer', status: 'proposed', due_at: AYER },
-    { id: 'counter-proposal-ayer', status: 'counter_proposal', due_at: AYER },
-    { id: 'counter-proposal-manana', status: 'counter_proposal', due_at: MANANA },
-    { id: 'proposed-commitment-ayer', status: 'proposed', due_at: AYER },
-    { id: 'proposed-commitment-hoy-futura', status: 'proposed', due_at: HOY_FUTURA },
-    { id: 'accepted-commitment-ayer', status: 'accepted', due_at: AYER },
-    { id: 'accepted-commitment-hoy-pasada', status: 'accepted', due_at: HOY_PASADA },
-    { id: 'rejected-ayer', status: 'rejected', due_at: AYER },
-    { id: 'resolved-ayer', status: 'resolved', due_at: AYER },
-    { id: 'cancelled-ayer', status: 'cancelled', due_at: AYER },
+    { id: 'shared-proposal-ayer', status: 'proposed', due_at: AYER, _isAgreementProposal: true },
+    { id: 'counter-proposal-ayer', status: 'counter_proposal', due_at: AYER, _isAgreementProposal: true },
+    { id: 'counter-proposal-manana', status: 'counter_proposal', due_at: MANANA, _isAgreementProposal: true },
+    { id: 'proposed-commitment-ayer', status: 'proposed', due_at: AYER, _isAgreementProposal: false },
+    { id: 'proposed-commitment-hoy-futura', status: 'proposed', due_at: HOY_FUTURA, _isAgreementProposal: false },
+    { id: 'accepted-commitment-ayer', status: 'accepted', due_at: AYER, _isAgreementProposal: false },
+    { id: 'accepted-commitment-hoy-pasada', status: 'accepted', due_at: HOY_PASADA, _isAgreementProposal: false },
+    { id: 'rejected-ayer', status: 'rejected', due_at: AYER, _isAgreementProposal: true },
+    { id: 'resolved-ayer', status: 'resolved', due_at: AYER, _isAgreementProposal: false },
+    { id: 'cancelled-ayer', status: 'cancelled', due_at: AYER, _isAgreementProposal: false },
 ];
 
 describe('CANONICAL_OVERDUE_RULE: UI_OVERDUE_IDS (Mis Compromisos / Encargados) -- misma función, mismo resultado (sección 11)', () => {

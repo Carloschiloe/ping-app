@@ -29,9 +29,9 @@ const NOW = new Date('2026-09-06T12:00:00Z');
 // #retrieveCommitmentProposals). Sólo su commitment canónico materializado
 // (proposal_id apuntando a ella) es visible.
 const DATASET = [
-    { id: 'item-1-proposal-pending-overdue', entityType: 'commitment_proposal', status: 'proposed', due_at: '2026-08-01T00:00:00Z' },
+    { id: 'item-1-proposal-pending-datepassed', entityType: 'commitment_proposal', status: 'proposed', due_at: '2026-08-01T00:00:00Z' },
     { id: 'item-2-proposal-pending-future', entityType: 'commitment_proposal', status: 'proposed', due_at: '2027-01-01T00:00:00Z' },
-    { id: 'item-3-proposal-counter-overdue', entityType: 'commitment_proposal', status: 'counter_proposal', due_at: '2026-07-01T00:00:00Z' },
+    { id: 'item-3-proposal-counter-datepassed', entityType: 'commitment_proposal', status: 'counter_proposal', due_at: '2026-07-01T00:00:00Z' },
     { id: 'item-4-commitment-proposed-overdue', entityType: 'commitment', status: 'proposed', due_at: '2026-06-01T00:00:00Z' },
     { id: 'item-5-commitment-accepted-overdue', entityType: 'commitment', status: 'accepted', due_at: '2026-05-01T00:00:00Z' },
     { id: 'item-6-commitment-accepted-future', entityType: 'commitment', status: 'accepted', due_at: '2027-02-01T00:00:00Z' },
@@ -42,11 +42,15 @@ const DATASET = [
     { id: 'item-10-commitment-materialized', entityType: 'commitment', status: 'accepted', due_at: '2026-01-01T00:00:00Z', proposal_id: 'item-10-proposal-confirmed' },
 ] as const;
 
+// M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): una
+// commitment_proposal NUNCA está vencida, sin importar su status o due_at.
+// item-1 y item-3 (proposals con fecha pasada) quedan deliberadamente FUERA
+// de este set -- versiones anteriores (v2-v4) esperaban que SÍ contaran,
+// reproduciendo exactamente el bug real reportado.
+//
 // Constante compartida por contrato con backend/tests/overdueUiAgentParity.test.ts
 // (no importable directamente -- monorepo sin test runner cross-paquete).
 export const EXPECTED_OVERDUE_IDS = [
-    'item-1-proposal-pending-overdue',
-    'item-3-proposal-counter-overdue',
     'item-4-commitment-proposed-overdue',
     'item-5-commitment-accepted-overdue',
     'item-10-commitment-materialized',
@@ -67,11 +71,13 @@ describe('M-1H v2: UI_OVERDUE_IDS — calculado con la función REAL de Insights
         expect(uiOverdueIds).toEqual(EXPECTED_OVERDUE_IDS);
     });
 
-    it('cada item NO vencido tiene una razón real (futuro o status cerrado), nunca un accidente de la fórmula', () => {
+    it('cada item NO vencido tiene una razón real (futuro, status cerrado, o -- regla v5 -- ser una proposal aún no aprobada), nunca un accidente de la fórmula', () => {
         const notOverdue = DATASET.filter((item) => !isCommitmentOverdue(item, NOW));
         const notOverdueIds = notOverdue.map((i) => i.id).sort();
         expect(notOverdueIds).toEqual([
+            'item-1-proposal-pending-datepassed',
             'item-2-proposal-pending-future',
+            'item-3-proposal-counter-datepassed',
             'item-6-commitment-accepted-future',
             'item-7-proposal-rejected-past',
             'item-8-commitment-resolved-past',

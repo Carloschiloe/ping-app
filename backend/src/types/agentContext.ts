@@ -67,6 +67,18 @@ export interface AgentIntent {
 // (no hay a quién resolver, a diferencia de una ambigüedad de >1 match real).
 export type AmbiguityHintType = 'unresolved_pronoun' | 'time_ambiguous' | 'topic_too_broad';
 
+// M-1H v6 (Gap B del final proposal lifecycle gate): señal ESTRUCTURADA
+// (nunca textQuery) para preguntas sobre el lifecycle de una
+// commitment_proposal -- "¿qué estoy esperando?" (waiting_for_others),
+// "¿qué tengo por aceptar?" (needs_my_response), "¿qué falta que acepte
+// Alejandra?" (pending_response_from_person, junto con personHints). El
+// Core filtra los resultados usando esta señal + los campos ya resueltos de
+// participación (actorHasApproved/actorCanRespond/pendingResponderIds) --
+// el LLM NUNCA decide esto por su cuenta (ver
+// agentContextBuilder.service.ts, filtro aplicado después del merge de
+// commitments+proposals).
+export type ProposalFocus = 'waiting_for_others' | 'needs_my_response' | 'pending_response_from_person' | null;
+
 export interface Interpretation {
     intent: AgentIntentType;
     intentConfidence: number;
@@ -84,6 +96,9 @@ export interface Interpretation {
     // el guard determinístico de vencidos en la síntesis (ver
     // agentResponseSynthesizer.service.ts#enforceOverdueDisclosure).
     wantsOverdueFocus: boolean;
+    // M-1H v6 — ver ProposalFocus arriba. null cuando la pregunta no es
+    // sobre el lifecycle de aprobación de una proposal (el caso normal).
+    proposalFocus: ProposalFocus;
     // M-1G.1: true cuando el texto pide una ACCIÓN de escritura (crear,
     // cancelar, enviar, modificar, borrar...) en vez de una consulta. Este
     // Agent sigue siendo 100% read-only -- nunca ejecuta la acción -- pero

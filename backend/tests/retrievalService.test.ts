@@ -398,6 +398,76 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         });
     });
 
+    // M-1H v5 — CANONICAL PROPOSAL PARTICIPATION MODEL: caso real físico
+    // "Entrenar" -- Carlos (actor, proposer+responsible) ya aprobó,
+    // Alejandra sigue pendiente. Certifica que retrieveCommitmentProposals
+    // resuelve esto vía un join real contra commitment_proposal_responses
+    // (con nombres ya resueltos), nunca inferido de status/due_at.
+    it('CASO REAL "Entrenar": resuelve actorHasApproved/actorCanRespond/pendingResponderNamesSafe/isFullyApproved vía join real de responses', async () => {
+        const mock = createSupabaseAdminMock({
+            // 1ª consulta: getParticipantProposalIds (visibilidad) -- vacío, Carlos ve por ser proposer.
+            // 2ª consulta: el join real de responses para el modelo de participación.
+            commitment_proposal_responses: [
+                { data: [], error: null },
+                {
+                    data: [
+                        { proposal_id: 'pr1', participant_user_id: 'carlos-id', status: 'approved', profile: { full_name: 'Carlos', email: 'carlos@x.com' } },
+                        { proposal_id: 'pr1', participant_user_id: 'alejandra-id', status: 'pending', profile: { full_name: 'Alejandra', email: 'alejandra@x.com' } },
+                    ],
+                    error: null,
+                },
+            ],
+            commitment_proposals: [{ data: [proposalRow({ proposed_by_user_id: 'carlos-id', proposed_responsible_user_id: 'carlos-id' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'carlos-id' }, 20);
+        expect(p.actorHasApproved).toBe(true);
+        expect(p.actorCanRespond).toBe(false);
+        expect(p.pendingResponderNamesSafe).toEqual(['Alejandra']);
+        expect(p.isFullyApproved).toBe(false);
+    });
+
+    it('proposal SOLO (sin filas de respuesta): actorHasApproved=false, actorCanRespond=true (el owner puede confirmarla), pendingResponderNamesSafe=[]', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ proposed_by_user_id: 'u1' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(p.actorHasApproved).toBe(false);
+        expect(p.actorCanRespond).toBe(true);
+        expect(p.pendingResponderNamesSafe).toEqual([]);
+        expect(p.isFullyApproved).toBe(true);
+    });
+
+    it('proposalDatePassed=true cuando due_at ya pasó, calculado a partir de input.now (nunca new Date() no determinista)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ due_at: '2026-01-01T00:00:00Z' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1', now: '2026-09-06T00:00:00Z' }, 20);
+        expect(p.proposalDatePassed).toBe(true);
+    });
+
+    it('proposalDatePassed=false cuando due_at aún no pasó', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ due_at: '2027-01-01T00:00:00Z' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const [p] = await retrieveCommitmentProposals({ actorUserId: 'u1', now: '2026-09-06T00:00:00Z' }, 20);
+        expect(p.proposalDatePassed).toBe(false);
+    });
+
     it('deriveProposalViewStatus: pending + latest_counterproposal_due_at -> counter_proposal', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],
@@ -437,6 +507,17 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         expect(mock.getCalledTables()).toEqual([]);
     });
 
+    // M-1H v5: retrieveCommitmentProposals ahora hace un fetch ADICIONAL de
+    // commitment_proposal_responses (para el modelo de participación) DESPUÉS
+    // de la query principal -- ya no es el último `.from()` de la llamada.
+    // Se localiza el chain de la query principal por nombre de tabla, no por
+    // posición.
+    function mainProposalsChain(mock: ReturnType<typeof createSupabaseAdminMock>) {
+        const tables = mock.getCalledTables();
+        const idx = tables.lastIndexOf('commitment_proposals');
+        return mock.from.mock.results[idx].value;
+    }
+
     it('orderByOverdueFirst=true ordena por due_at ascendente en vez de created_at descendente', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],
@@ -446,7 +527,7 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
 
         await retrieveCommitmentProposals({ actorUserId: 'u1', orderByOverdueFirst: true }, 10);
-        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        const chain = mainProposalsChain(mock);
         expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
         expect(chain.order).not.toHaveBeenCalledWith('created_at', expect.anything());
     });
@@ -460,7 +541,7 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
 
         await retrieveCommitmentProposals({ actorUserId: 'u1' }, 10);
-        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        const chain = mainProposalsChain(mock);
         expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
     });
 

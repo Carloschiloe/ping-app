@@ -34,6 +34,8 @@ import { assertConversationParticipant, getSharedProfileIds } from '../utils/aut
 import { getParticipantProposalIds, buildCommitmentVisibilityFilter, buildCommitmentProposalVisibilityFilter } from '../utils/commitmentVisibility';
 import { normalizePhoneInput } from '../utils/profileValidation';
 import { isOpenCommitmentStatus, type CanonicalCommitmentStatus } from '../utils/commitmentStatus';
+import { getProposalParticipationState, type ProposalResponseRow } from '../utils/proposalParticipation';
+import { isProposalDatePassed } from '../utils/overdueSemantics';
 import type {
     RetrievalAttachment,
     RetrievalCommitment,
@@ -419,7 +421,22 @@ function deriveProposalViewStatus(row: any): CanonicalCommitmentStatus {
     return 'proposed';
 }
 
-function toRetrievalCommitmentFromProposal(row: any): RetrievalCommitment {
+// M-1H v5 — el Core (nunca el modelo) resuelve la participación real del
+// actor sobre esta proposal ANTES de que llegue a síntesis. `responses` es
+// [] para una proposal SOLO (sin filas en commitment_proposal_responses);
+// `namesByUserId` resuelve ids a nombres seguros para pendingResponderNamesSafe
+// (nunca se exponen uuids crudos al modelo).
+function toRetrievalCommitmentFromProposal(
+    row: any,
+    actorUserId: string,
+    nowIso: string,
+    responses: ProposalResponseRow[],
+    namesByUserId: Map<string, string>,
+): RetrievalCommitment {
+    const participation = getProposalParticipationState(
+        { proposed_by_user_id: row.proposed_by_user_id, proposed_responsible_user_id: row.proposed_responsible_user_id, responses },
+        actorUserId,
+    );
     return {
         id: row.id,
         entityType: 'commitment_proposal',
@@ -448,6 +465,12 @@ function toRetrievalCommitmentFromProposal(row: any): RetrievalCommitment {
             commitmentId: null,
             timestamp: row.created_at,
         },
+        actorHasApproved: participation.actorHasApproved,
+        actorCanRespond: participation.actorCanRespond,
+        pendingResponderNamesSafe: participation.pendingResponderIds.map((id) => namesByUserId.get(id) || 'Alguien'),
+        pendingResponderIds: participation.pendingResponderIds,
+        isFullyApproved: participation.isFullyApproved,
+        proposalDatePassed: isProposalDatePassed(row.due_at, nowIso),
     };
 }
 
@@ -493,7 +516,35 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
-    let rows = dedupeById((data || []).map(toRetrievalCommitmentFromProposal));
+    const proposalRows = dedupeById(data || []);
+    const nowIso = input.now ?? new Date().toISOString();
+
+    // M-1H v5 — un solo fetch de responses (con nombres ya resueltos) para
+    // TODAS las proposals de esta página, en vez de una consulta por
+    // proposal. Vacío para proposals SOLO -- getProposalParticipationState
+    // ya maneja ese caso ([] de responses) sin necesitar esta consulta.
+    const proposalIds = proposalRows.map((r: any) => r.id);
+    const responsesByProposal = new Map<string, ProposalResponseRow[]>();
+    const namesByUserId = new Map<string, string>();
+    if (proposalIds.length > 0) {
+        const { data: responseRows, error: responsesError } = await supabaseAdmin
+            .from('commitment_proposal_responses')
+            .select('proposal_id, participant_user_id, status, profile:participant_user_id(full_name, email)')
+            .in('proposal_id', proposalIds);
+        if (responsesError) throw new AppError(responsesError.message, 500);
+        for (const r of responseRows || []) {
+            const list = responsesByProposal.get(r.proposal_id) || [];
+            list.push({ participant_user_id: r.participant_user_id, status: r.status });
+            responsesByProposal.set(r.proposal_id, list);
+            const profile = Array.isArray(r.profile) ? r.profile[0] : r.profile;
+            const safeName = profile?.full_name?.trim() || profile?.email?.split('@')[0];
+            if (safeName) namesByUserId.set(r.participant_user_id, safeName);
+        }
+    }
+
+    let rows = dedupeById(proposalRows.map((row: any) =>
+        toRetrievalCommitmentFromProposal(row, input.actorUserId, nowIso, responsesByProposal.get(row.id) || [], namesByUserId)
+    ));
     if (input.statuses && input.statuses.length > 0) {
         const wanted = new Set(input.statuses);
         rows = rows.filter((r) => wanted.has(r.status));

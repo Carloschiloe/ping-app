@@ -17,9 +17,15 @@ import type { AgentContext } from '../src/types/agentContext';
 // cada uno sigue fallando por su cuenta.
 const NOW_ISO = '2026-09-06T12:00:00Z';
 
+// M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): una
+// commitment_proposal NUNCA está vencida, sin importar su status o due_at
+// -- "vencido" es un concepto que sólo aplica a un commitment YA
+// materializado/aceptado. item-1 y item-3 (ambas proposals con fecha
+// pasada) quedaron deliberadamente FUERA de este set -- antes (v2-v4) se
+// esperaba que SÍ contaran como vencidas, lo cual reproducía exactamente el
+// bug real reportado (Carlos ya aprobado + Alejandra pendiente, mostrado
+// como "Entrenar: VENCIDO").
 const EXPECTED_OVERDUE_IDS = [
-    'item-1-proposal-pending-overdue',
-    'item-3-proposal-counter-overdue',
     'item-4-commitment-proposed-overdue',
     'item-5-commitment-accepted-overdue',
     'item-10-commitment-materialized',
@@ -65,9 +71,9 @@ function item(overrides: Partial<Record<string, any>>) {
 // .neq('status','confirmed')). Sólo su commitment canónico materializado
 // (proposal_id -> item-10-proposal-confirmed) es evidencia real.
 const DATASET = [
-    item({ id: 'item-1-proposal-pending-overdue', entityType: 'commitment_proposal', status: 'proposed', dueAt: '2026-08-01T00:00:00Z' }),
+    item({ id: 'item-1-proposal-pending-datepassed', entityType: 'commitment_proposal', status: 'proposed', dueAt: '2026-08-01T00:00:00Z' }),
     item({ id: 'item-2-proposal-pending-future', entityType: 'commitment_proposal', status: 'proposed', dueAt: '2027-01-01T00:00:00Z' }),
-    item({ id: 'item-3-proposal-counter-overdue', entityType: 'commitment_proposal', status: 'counter_proposal', dueAt: '2026-07-01T00:00:00Z' }),
+    item({ id: 'item-3-proposal-counter-datepassed', entityType: 'commitment_proposal', status: 'counter_proposal', dueAt: '2026-07-01T00:00:00Z' }),
     item({ id: 'item-4-commitment-proposed-overdue', entityType: 'commitment', status: 'proposed', dueAt: '2026-06-01T00:00:00Z' }),
     item({ id: 'item-5-commitment-accepted-overdue', entityType: 'commitment', status: 'accepted', dueAt: '2026-05-01T00:00:00Z' }),
     item({ id: 'item-6-commitment-accepted-future', entityType: 'commitment', status: 'accepted', dueAt: '2027-02-01T00:00:00Z' }),

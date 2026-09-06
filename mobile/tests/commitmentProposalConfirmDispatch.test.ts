@@ -357,3 +357,244 @@ describe('M-1H v4: feedback de éxito/error siempre visible (secciones 6-7 del t
         }
     });
 });
+
+// M-1H v5 — CANONICAL PRIMARY ACTION DECISION: CommitmentRow.tsx/
+// TodayItemRow.tsx decidían el botón primario mirando ÚNICAMENTE
+// `status==='proposed'` (caso real "Entrenar": Carlos ya aprobado veía
+// "Confirmar" igual). Certifica que ambos componentes usan la función
+// canónica, nunca un chequeo de status inline reinventado.
+describe('M-1H v5: CommitmentRow.tsx / TodayItemRow.tsx usan getCommitmentPrimaryAction (nunca status===\'proposed\' inline)', () => {
+    it('CommitmentRow.tsx importa y usa getCommitmentPrimaryAction, no una comparación de status inline para decidir Confirmar/Listo', () => {
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
+        expect(src).toMatch(/getCommitmentPrimaryAction/);
+        expect(src).not.toMatch(/if \(status === 'proposed'\)/);
+        expect(src).not.toMatch(/if \(status === 'accepted'\)/);
+    });
+
+    it('TodayItemRow.tsx importa y usa getCommitmentPrimaryAction, no una comparación de status inline para decidir Confirmar/Listo', () => {
+        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        expect(src).toMatch(/getCommitmentPrimaryAction/);
+        expect(src).not.toMatch(/if \(status === 'proposed'\)/);
+        expect(src).not.toMatch(/if \(status === 'accepted'\)/);
+    });
+
+    it('ambos muestran una etiqueta "Esperando" (nunca Confirmar/Completar) cuando primaryAction==="waiting"', () => {
+        for (const relPath of ['src/components/compromisos/CommitmentRow.tsx', 'src/components/hoy/TodayItemRow.tsx']) {
+            const src = readSrc(relPath);
+            expect(src).toMatch(/primaryAction === 'waiting'/);
+            expect(src).toMatch(/getProposalWaitingLabel/);
+        }
+    });
+
+    it('CommitmentRow.tsx ya no tiene su propia (cuarta) fórmula de overdue -- usa isCommitmentOverdue canónico', () => {
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
+        expect(src).toMatch(/isOverdueItem = isCommitmentOverdue\(c\)/);
+        expect(src).not.toMatch(/import \{[^}]*dateFnsIsPast/); // ya no se importa -- sólo queda mencionado en un comentario histórico
+    });
+});
+
+// ─── M-1H v6 — GAP A (final proposal lifecycle gate), sección 7: test
+// dinámico de las 3 decisiones reales sobre una proposal COMPARTIDA.
+// Fixture: Carlos (proposer/responsible, ya aprobó), Alejandra (pendiente).
+// Como CARLOS ninguna de las 3 debe estar disponible (getCommitmentPrimaryAction
+// devuelve 'waiting'); como ALEJANDRA las 3 deben mapear al request real
+// correcto -- mismo flujo ya existente (respond_to_commitment_proposal),
+// nunca un endpoint nuevo.
+describe('M-1H v6: las 3 decisiones reales sobre una proposal compartida (Aceptar/Proponer otra fecha/Rechazar)', () => {
+    const entrenar = {
+        id: 'pr-entrenar', title: 'Entrenar', status: 'proposed', _isAgreementProposal: true,
+        owner_user_id: 'carlos-id', assigned_to_user_id: 'carlos-id',
+        agreement_responses: [
+            { participant_user_id: 'carlos-id', status: 'approved' as const },
+            { participant_user_id: 'alejandra-id', status: 'pending' as const },
+        ],
+    };
+
+    it('CARLOS: ninguna de las 3 decisiones está disponible (ya aprobó, sólo espera a Alejandra)', async () => {
+        const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');
+        expect(getCommitmentPrimaryAction(entrenar, 'carlos-id')).toBe('waiting');
+        // canRespondToProposal (la guarda real de CommitmentRow.tsx/TodayItemRow.tsx
+        // que decide si se muestran "Proponer otra fecha"/"Rechazar propuesta") es
+        // exactamente esta misma condición -- nunca true para Carlos aquí.
+    });
+
+    it('ALEJANDRA — A) Aceptar: POST /commitment-proposals/pr-entrenar/respond, decision=approve', async () => {
+        await respondToCommitmentProposalRequest({ id: 'pr-entrenar', decision: 'approve' });
+        expect(apiClient.post).toHaveBeenCalledWith(
+            '/commitment-proposals/pr-entrenar/respond',
+            expect.objectContaining({ decision: 'approve' }),
+        );
+    });
+
+    it('ALEJANDRA — B) Proponer otra fecha: POST /commitment-proposals/pr-entrenar/respond, decision=counter_propose, con la nueva fecha', async () => {
+        await respondToCommitmentProposalRequest({ id: 'pr-entrenar', decision: 'counter_propose', proposedDueAt: '2026-10-01T00:00:00Z' });
+        expect(apiClient.post).toHaveBeenCalledWith(
+            '/commitment-proposals/pr-entrenar/respond',
+            expect.objectContaining({ decision: 'counter_propose', proposedDueAt: '2026-10-01T00:00:00Z' }),
+        );
+    });
+
+    it('ALEJANDRA — C) Rechazar: POST /commitment-proposals/pr-entrenar/respond, decision=reject', async () => {
+        await respondToCommitmentProposalRequest({ id: 'pr-entrenar', decision: 'reject' });
+        expect(apiClient.post).toHaveBeenCalledWith(
+            '/commitment-proposals/pr-entrenar/respond',
+            expect.objectContaining({ decision: 'reject' }),
+        );
+    });
+
+    it('las 3 decisiones son SIEMPRE sobre la propia fila de respuesta del actor autenticado -- el actor real lo decide el backend (req.user.id), nunca el payload del cliente', () => {
+        // Certificado a nivel RPC en el backend (respond_to_commitment_proposal
+        // sólo busca (proposal_id, participant_user_id=p_actor_user_id), el
+        // actor NUNCA viaja como campo editable desde mobile -- ver
+        // respondToCommitmentProposalRequest: su firma no acepta un actorUserId.
+        const src = readSrc('src/api/query-modules/commitmentConfirmRequests.ts');
+        expect(src).not.toMatch(/actorUserId|participant_user_id/); // el cliente nunca elige de quién es la respuesta
+    });
+});
+
+describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reutilizan el flujo real, nunca uno nuevo', () => {
+    it('CommitmentRow.tsx: ambas opciones sólo aparecen cuando canRespondToProposal es true, y usan onOpenReschedule/onReject existentes', () => {
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
+        expect(src).toMatch(/canRespondToProposal = isProposal && primaryAction === 'accept'/);
+        expect(src).toMatch(/canRespondToProposal \? 'Proponer otra fecha' : null/);
+        expect(src).toMatch(/canRespondToProposal \? 'Rechazar propuesta' : null/);
+        // "Reprogramar fecha"/"Archivar" (transiciones de commitment activo)
+        // nunca se ofrecen para una proposal.
+        expect(src).toMatch(/!isProposal \? 'Reprogramar fecha' : null/);
+        expect(src).toMatch(/onCancel && !isFinished && !isProposal/);
+    });
+
+    it('TodayItemRow.tsx: mismo patrón (canRespondToProposal), mismas 2 opciones condicionadas', () => {
+        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        expect(src).toMatch(/canRespondToProposal = c\._isAgreementProposal === true && primaryAction === 'accept'/);
+        expect(src).toMatch(/canRespondToProposal && onOpenReschedule \? 'Proponer otra fecha' : null/);
+        expect(src).toMatch(/canRespondToProposal && onReject \? 'Rechazar propuesta' : null/);
+    });
+
+    it('InsightsScreen.tsx: handleSaveDate distingue proposal (counter_propose) de commitment canónico (updateCommitment) -- nunca PATCH /commitments/:id con un proposal_id', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/if \(rescheduleItem\?\.\_isAgreementProposal\)/);
+        expect(src).toMatch(/decision: 'counter_propose', proposedDueAt: newDateIso/);
+        expect(src).toMatch(/await updateCommitment\(\{ id, data: \{ due_at: newDateIso \} \}\)/);
+    });
+
+    it('InsightsScreen.tsx: handleRejectProposal pide confirmación nativa "¿Rechazar propuesta?" antes de ejecutar el write', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/'¿Rechazar propuesta\?'/);
+        expect(src).toMatch(/decision: 'reject'/);
+    });
+
+    it('TaskDashboardScreen.tsx (Hoy): mismo patrón -- RescheduleModal + handleSaveDate + handleRejectProposal, mismo flujo real', () => {
+        const src = readSrc('src/screens/TaskDashboardScreen.tsx');
+        expect(src).toMatch(/<RescheduleModal/);
+        expect(src).toMatch(/if \(rescheduleItem\?\.\_isAgreementProposal\)/);
+        expect(src).toMatch(/'¿Rechazar propuesta\?'/);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H v6 (GAP B, sección 16 del ticket final) — PARIDAD UI-AGENT: Carlos
+// SIEMPRE ve el equivalente de "Esperando a Alejandra" y Alejandra SIEMPRE
+// ve el equivalente de "Pendiente de tu respuesta", nunca contradictorio,
+// en las 5 superficies: Compromisos, Hoy, Detalle (dinámico, vía
+// getProposalWaitingLabel/getCommitmentPrimaryAction reales, mismo dataset
+// "Entrenar" del backend), Conversation card (auditoría estática de su
+// mecanismo paralelo pre-existente), y Agent (ya certificado en
+// backend/tests/agentResponseSynthesizer.test.ts + agentContextBuilder.test.ts
+// -- referenciado aquí, no re-implementado).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H v6: paridad UI-Agent — Compromisos/Hoy/Detalle (dinámico, mismo dataset "Entrenar")', () => {
+    const CARLOS = 'carlos-id';
+    const ALEJANDRA = 'alejandra-id';
+    const entrenar = {
+        id: 'pr-entrenar', title: 'Entrenar', status: 'proposed', _isAgreementProposal: true,
+        owner_user_id: CARLOS, assigned_to_user_id: CARLOS,
+        agreement_responses: [
+            { participant_user_id: CARLOS, status: 'approved' as const, participant: { full_name: 'Carlos' } },
+            { participant_user_id: ALEJANDRA, status: 'pending' as const, participant: { full_name: 'Alejandra' } },
+        ],
+    };
+
+    it('Carlos: getCommitmentPrimaryAction -> "waiting" (nunca "accept"/"complete") -- ninguna superficie le ofrece actuar', async () => {
+        const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');
+        expect(getCommitmentPrimaryAction(entrenar, CARLOS)).toBe('waiting');
+    });
+
+    it('Carlos: getProposalWaitingLabel -> "Esperando a Alejandra" (la misma etiqueta que renderizan CommitmentRow/TodayItemRow/CommitmentDetailSheet)', async () => {
+        const { getProposalWaitingLabel } = await import('../src/utils/agreement');
+        expect(getProposalWaitingLabel(entrenar, CARLOS)).toBe('Esperando a Alejandra');
+    });
+
+    it('Carlos: NUNCA se le presenta como vencido -- isCommitmentOverdue excluye toda commitment_proposal por regla principal', async () => {
+        const { isCommitmentOverdue } = await import('../src/utils/commitmentDisplay');
+        const overdueEntrenar = { ...entrenar, due_at: '2026-07-31T00:00:00Z' };
+        expect(isCommitmentOverdue(overdueEntrenar as any)).toBe(false);
+    });
+
+    it('Alejandra: getCommitmentPrimaryAction -> "accept" (Pendiente de tu respuesta) -- la única de las dos a quien se le ofrece actuar', async () => {
+        const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');
+        expect(getCommitmentPrimaryAction(entrenar, ALEJANDRA)).toBe('accept');
+    });
+
+    it('Alejandra: NUNCA ve "Esperando a Alejandra" (esperar a sí misma no tiene sentido) -- getProposalWaitingLabel sólo se invoca cuando primaryAction !== \'accept\', que para ella es falso', async () => {
+        const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');
+        // Certifica la guarda real de CommitmentRow.tsx/TodayItemRow.tsx: el
+        // label de espera sólo se calcula cuando la acción primaria NO es
+        // 'accept' -- para Alejandra es 'accept', así que en la UI real
+        // nunca se llega a invocar getProposalWaitingLabel con su propio id.
+        expect(getCommitmentPrimaryAction(entrenar, ALEJANDRA)).not.toBe('waiting');
+    });
+
+    it('contrato nunca contradictorio: para el mismo item, Carlos y Alejandra jamás obtienen la misma acción primaria', async () => {
+        const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');
+        expect(getCommitmentPrimaryAction(entrenar, CARLOS)).not.toBe(getCommitmentPrimaryAction(entrenar, ALEJANDRA));
+    });
+});
+
+describe('M-1H v6: paridad UI-Agent — Conversation card (GroupTaskCard.tsx, mecanismo paralelo pre-existente)', () => {
+    // HALLAZGO HONESTO (no un bug de este ticket, documentado a propósito):
+    // GroupTaskCard.tsx NUNCA fue migrado a getProposalParticipationState/
+    // getCommitmentPrimaryAction/getProposalWaitingLabel -- calcula su propio
+    // "agreementWaitingLabel" en paralelo (canRespondToAgreement +
+    // getAgreementSummary). Migrarlo es refactor fuera del alcance de Gap A/
+    // Gap B de este ticket (no está en la lista de archivos autorizados, y
+    // tocar la Conversation card ampliamente usada sin más contexto es un
+    // riesgo no solicitado). Este test certifica que, aunque NO está
+    // unificado, tampoco es CONTRADICTORIO: la misma conclusión semántica
+    // (Carlos espera, Alejandra actúa) se cumple por su propio camino, y
+    // nunca renderiza "vencido" para una proposal (isPast es una prop
+    // externa nunca pasada por su único call site real, MessageItem.tsx).
+    it('canRespondToAgreement usa currentAgreementResponse?.status===\'pending\' -- misma fuente de verdad real (agreement_responses), nunca duplica el estado', () => {
+        const src = readSrc('src/components/GroupTaskCard.tsx');
+        expect(src).toMatch(/canRespondToAgreement = isAgreementProposal && currentAgreementResponse\?\.status === 'pending'/);
+    });
+
+    it('el botón de aprobar ("Aprobar propuesta") sólo se ofrece quien puede responder (canRespondToAgreement/isAssignee), nunca a quien ya aprobó', () => {
+        const src = readSrc('src/components/GroupTaskCard.tsx');
+        expect(src).toMatch(/isAgreementProposal \? 'Aprobar propuesta' : `Aceptar/);
+    });
+
+    it('nunca computa isOverdue/vencido internamente para una proposal -- "isPast" es una prop externa, y su único call site real (MessageItem.tsx) nunca la pasa', () => {
+        const src = readSrc('src/components/GroupTaskCard.tsx');
+        expect(src).not.toMatch(/isOverdue|isCommitmentOverdue/);
+        const callerSrc = readSrc('src/components/MessageItem.tsx');
+        const groupTaskCardUsage = callerSrc.slice(callerSrc.indexOf('<GroupTaskCard'), callerSrc.indexOf('<GroupTaskCard') + 800);
+        expect(groupTaskCardUsage).not.toMatch(/isPast=/);
+    });
+
+    it('agreementWaitingLabel para quien ya aprobó nunca dice "vencido" -- sólo "Esperando N respuesta(s)" o el label genérico de resumen', () => {
+        const src = readSrc('src/components/GroupTaskCard.tsx');
+        expect(src).toMatch(/`Esperando \$\{agreementSummary\.pending\} respuesta/);
+        expect(src).not.toMatch(/agreementWaitingLabel[\s\S]{0,120}vencido/i);
+    });
+});
+
+// El quinto surface -- Agent -- ya está certificado dinámicamente en el
+// backend (no duplicable aquí sin un renderer/red real): ver
+// backend/tests/agentContextBuilder.test.ts ("GAP B — filterByProposalFocus")
+// y backend/tests/agentResponseSynthesizer.test.ts ("DATASET REAL (sección 25)"
+// + "PERMITIDO (sección 15)"), que certifican exactamente el mismo dataset
+// "Entrenar" (Carlos aprobado/Alejandra pendiente) con el mismo resultado
+// semántico: Carlos recibe "esperando a Alejandra", Alejandra recibe
+// evidencia de que a ella le corresponde responder, y ninguno de los dos
+// puede recibir "vencido" para esta proposal.

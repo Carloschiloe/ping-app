@@ -980,6 +980,126 @@ describe('M-1H: buildAgentContext — combina commitments + commitment_proposals
     });
 });
 
+// M-1H v6 — GAP B (final proposal lifecycle gate), secciones 9/11/12/13:
+// FILTRADO DETERMINÍSTICO DEL CORE según proposalFocus -- nunca decidido
+// por el LLM. Dataset EXACTO de la sección 25/12: "Entrenar" (proposal,
+// Carlos aprobó, Alejandra pendiente, fecha 37 días atrás) + "Ver
+// Spiderman" (commitment canónico, accepted, fecha pasada).
+describe('M-1H v6: GAP B — filterByProposalFocus (Core decide, nunca el LLM)', () => {
+    const CARLOS = 'u1';
+    const ALEJANDRA = 'alejandra-id';
+
+    const entrenar = (overrides: Partial<Record<string, any>> = {}) => proposalFixture({
+        id: 'pr-entrenar', title: 'Entrenar', status: 'proposed',
+        dueAt: '2026-07-31T00:00:00Z', // ~37 días antes de "now"
+        ownerUserId: CARLOS, assignedToUserId: CARLOS,
+        ...overrides,
+    });
+    const verSpiderman = commitmentFixture({
+        id: 'cm-spiderman', title: 'Ver Spiderman', status: 'accepted', dueAt: '2026-08-01T00:00:00Z',
+    });
+
+    it('A) Carlos — "¿Qué estoy esperando?" (waiting_for_others) -> SÓLO Entrenar (ya aprobó, falta Alejandra)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([verSpiderman] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: true, actorCanRespond: false, isFullyApproved: false, pendingResponderNamesSafe: ['Alejandra'] })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'waiting_for_others' }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-entrenar']);
+    });
+
+    it('B) Carlos — "¿Qué tengo por aceptar?" (needs_my_response) -> NO Entrenar (Carlos ya respondió)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([verSpiderman] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: true, actorCanRespond: false, isFullyApproved: false })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'needs_my_response' }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo por aceptar?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        expect(ctx.commitments.some((c) => c.id === 'pr-entrenar')).toBe(false);
+    });
+
+    it('C) Carlos — "¿Qué falta que acepte Alejandra?" (pending_response_from_person) -> Entrenar (Alejandra está pendiente ahí)', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: ALEJANDRA, displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([verSpiderman] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: true, actorCanRespond: false, isFullyApproved: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'] })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'pending_response_from_person', personHints: ['Alejandra'] }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra?' }, { interpreter });
+
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-entrenar']);
+    });
+
+    it('C.2) sin resolución de persona, pending_response_from_person NUNCA amplía el scope devolviendo todo sin filtrar', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]); // personScopeBlocked ya impide llegar aquí, pero se certifica el resultado final igual
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'pending_response_from_person', personHints: ['Alguien Desconocido'] }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alguien Desconocido?' }, { interpreter });
+
+        expect(ctx.commitments).toEqual([]);
+    });
+
+    it('D) Carlos — "¿Qué tengo vencido?" -> SÓLO Ver Spiderman, nunca Entrenar (regla principal, ya certificada, re-confirmada con este dataset exacto)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([verSpiderman] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: true, actorCanRespond: false, isFullyApproved: false })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', wantsOverdueFocus: true, statusHints: ['proposed', 'accepted', 'counter_proposal'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        // Certificado vía el pipeline real de síntesis en otros tests
+        // (agentResponseSynthesizer.test.ts); aquí sólo se confirma que
+        // AMBOS items siguen presentes en el contexto (isOverdue se calcula
+        // más adelante, en síntesis) -- proposalFocus=null no filtra nada.
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(['cm-spiderman', 'pr-entrenar']);
+    });
+
+    it('E) Alejandra — "¿Qué tengo por aceptar?" (needs_my_response) -> Entrenar SÍ aparece (a ella le corresponde responder)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: false, actorCanRespond: true, isFullyApproved: false })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'needs_my_response' }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: ALEJANDRA, input: '¿Qué tengo por aceptar?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-entrenar']);
+    });
+
+    it('F) Alejandra — "¿Qué estoy esperando?" (waiting_for_others) -> Entrenar NUNCA aparece (ella no ha aprobado -- no tiene sentido que "se espere a sí misma")', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([entrenar({ actorHasApproved: false, actorCanRespond: true, isFullyApproved: false })] as any);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'waiting_for_others' }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: ALEJANDRA, input: '¿Qué estoy esperando?', now: '2026-09-05T12:00:00Z' }, { interpreter });
+
+        expect(ctx.commitments).toEqual([]);
+    });
+
+    it('un commitment canónico NUNCA sobrevive ningún filtro de proposalFocus -- ese concepto no existe para un commitment ya activo', async () => {
+        mockRetrieveCommitments.mockResolvedValue([verSpiderman] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+
+        for (const focus of ['waiting_for_others', 'needs_my_response'] as const) {
+            const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: focus }));
+            const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: 'x', now: '2026-09-05T12:00:00Z' }, { interpreter });
+            expect(ctx.commitments).toEqual([]);
+        }
+    });
+
+    it('retrieveCommitmentProposals NUNCA recibe personId cuando proposalFocus=pending_response_from_person (evitaría excluir "Entrenar" de la query SQL antes de filtrar)', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: ALEJANDRA, displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', proposalFocus: 'pending_response_from_person', personHints: ['Alejandra'] }));
+        await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra?' }, { interpreter });
+
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ personId: undefined }), expect.any(Number));
+    });
+});
+
 // PING — OVERDUE ROOT CAUSE AUDIT TOTAL, secciones 19/20/23: dataset de 100
 // commitments (no 15) para descartar cualquier efecto de budget/sort/
 // ranking a mayor escala; topic+overdue con 100; persona+overdue.

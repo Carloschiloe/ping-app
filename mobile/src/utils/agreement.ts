@@ -86,6 +86,100 @@ export function getInvolvedParticipants(
     });
 }
 
+// M-1H v5 — CANONICAL PROPOSAL PARTICIPATION MODEL. Espejo exacto de
+// backend/src/utils/proposalParticipation.ts#getProposalParticipationState
+// (mismo modelo conceptual, shape de entrada distinto: aquí el objeto ya
+// transformado por toAgreementView -- owner_user_id/assigned_to_user_id/
+// agreement_responses -- en vez de una fila cruda de Postgres + join).
+// Hallazgo real físico (caso "Entrenar"): Carlos (proposer + responsible)
+// ya aprobó, Alejandra sigue pendiente -- ni CommitmentRow ni el modal de
+// confirmación sabían responder "¿le corresponde a Carlos hacer algo aquí?"
+// sin esta función, sólo miraban status==='proposed'.
+export type ProposalActorRole = 'proposer' | 'responsible' | 'participant' | 'none';
+
+export interface ProposalParticipationInput {
+    owner_user_id?: string | null; // = proposed_by_user_id
+    assigned_to_user_id?: string | null; // = proposed_responsible_user_id
+    agreement_responses?: AgreementResponse[];
+}
+
+export interface ProposalParticipationState {
+    actorRole: ProposalActorRole;
+    actorHasApproved: boolean;
+    actorCanRespond: boolean;
+    pendingResponderIds: string[];
+    approvedResponderIds: string[];
+    rejectedResponderIds: string[];
+    isFullyApproved: boolean;
+    requiresMoreResponses: boolean;
+}
+
+export function getProposalParticipationState(
+    proposal: ProposalParticipationInput,
+    actorUserId: string | null | undefined,
+): ProposalParticipationState {
+    const responses = proposal.agreement_responses ?? [];
+    const isSolo = responses.length === 0;
+
+    const actorRole: ProposalActorRole = !actorUserId
+        ? 'none'
+        : proposal.owner_user_id === actorUserId
+            ? 'proposer'
+            : proposal.assigned_to_user_id === actorUserId
+                ? 'responsible'
+                : responses.some((r) => r.participant_user_id === actorUserId)
+                    ? 'participant'
+                    : 'none';
+
+    if (isSolo) {
+        // Proposal SOLO: el owner puede confirmarla en cualquier momento
+        // (POST /commitment-proposals/:id/confirm sólo exige ser el owner,
+        // nunca depende de agreement_responses).
+        return {
+            actorRole,
+            actorHasApproved: false,
+            actorCanRespond: actorRole === 'proposer',
+            pendingResponderIds: [],
+            approvedResponderIds: [],
+            rejectedResponderIds: [],
+            isFullyApproved: true,
+            requiresMoreResponses: false,
+        };
+    }
+
+    const actorResponse = responses.find((r) => r.participant_user_id === actorUserId);
+    const others = responses.filter((r) => r.participant_user_id !== actorUserId);
+    const isFullyApproved = responses.every((r) => r.status === 'approved');
+
+    return {
+        actorRole,
+        actorHasApproved: actorResponse?.status === 'approved',
+        actorCanRespond: actorResponse?.status === 'pending',
+        pendingResponderIds: others.filter((r) => r.status === 'pending').map((r) => r.participant_user_id),
+        approvedResponderIds: responses.filter((r) => r.status === 'approved').map((r) => r.participant_user_id),
+        rejectedResponderIds: responses.filter((r) => r.status === 'rejected').map((r) => r.participant_user_id),
+        isFullyApproved,
+        requiresMoreResponses: !isFullyApproved,
+    };
+}
+
+// M-1H v5 — etiqueta canónica de "esperando a quién" para una proposal
+// donde el actor no puede/no debe actuar (ya aprobó, o no le corresponde) --
+// caso real "Entrenar": Carlos ve "Esperando a Alejandra", nunca "Vencido".
+export function getProposalWaitingLabel(
+    proposal: ProposalParticipationInput,
+    actorUserId: string | null | undefined,
+): string {
+    const participation = getProposalParticipationState(proposal, actorUserId);
+    const responses = proposal.agreement_responses ?? [];
+    const pendingNames = responses
+        .filter((r) => participation.pendingResponderIds.includes(r.participant_user_id))
+        .map((r) => getAgreementParticipantName(r, actorUserId));
+    if (pendingNames.length === 1) return `Esperando a ${pendingNames[0]}`;
+    if (pendingNames.length > 1) return `Esperando ${pendingNames.length} respuestas`;
+    return 'Esperando respuesta';
+}
+
 export function getAgreementSummary(responses: AgreementResponse[]): {
     approved: number;
     pending: number;

@@ -646,3 +646,136 @@ describe('M-1G.3: "vencido"/"overdue" nunca sobrevive como textQuery (causa raí
         expect(r.textQuery).toBeNull(); // el tema se pierde en este camino -- limitación pre-existente del heurístico de nombres, no de overdue
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H v6 (GAP B, final proposal lifecycle gate) — proposalFocus: señal
+// ESTRUCTURADA para el lifecycle de aprobación de una commitment_proposal,
+// nunca decidido por texto libre. Mismo patrón exacto que
+// wantsOverdueFocus/M-1G.3 arriba: detección determinística por keyword,
+// mapping+validación del payload del LLM, y nunca sobrevive como textQuery.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('M-1H v6: reconocimiento determinístico de proposalFocus', () => {
+    it('"¿Qué estoy esperando?" -> waiting_for_others', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué estoy esperando?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+        expect(r.intent).toBe('commitment_query');
+    });
+
+    it('"What am I waiting on?" -> waiting_for_others', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('What am I waiting on?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+    });
+
+    it('"¿Qué tengo por aceptar?" -> needs_my_response', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo por aceptar?', {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+    });
+
+    it('"What do I need to accept?" -> needs_my_response (sin nombre propio -- nunca se confunde con pending_response_from_person)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('What do I need to accept?', {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+    });
+
+    it('"¿Qué falta que acepte Alejandra?" -> pending_response_from_person + personHint "Alejandra"', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué falta que acepte Alejandra?', {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+        expect(r.personHints).toContain('Alejandra');
+    });
+
+    it('"What still needs to accept from Alejandra?" -> pending_response_from_person + personHint "Alejandra" (nombre real presente, a diferencia del caso genérico de arriba)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('What still needs to accept from Alejandra?', {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+        expect(r.personHints).toContain('Alejandra');
+    });
+
+    it('una pregunta sin lenguaje de proposalFocus -> null, nunca un falso positivo', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué le prometí a Laura?', {});
+        expect(r.proposalFocus).toBeNull();
+    });
+
+    it('prioridad: "falta que acepte <Persona>" gana sobre el genérico "por aceptar" cuando ambos calzarían', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué falta que acepte Laura sobre lo que tengo por aceptar?', {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+    });
+
+    it('nunca sobrevive como textQuery -- el mismo lenguaje que activa proposalFocus se limpia del texto (mismo patrón que overdue, M-1G.3)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué estoy esperando?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+        expect(r.textQuery).toBeNull();
+    });
+
+    it('un tema real junto al lenguaje de proposalFocus sí sobrevive (topic + proposalFocus, igual que topic + overdue)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo por aceptar sobre Proyecto Aurora?', {});
+        expect(r.proposalFocus).toBe('needs_my_response');
+    });
+});
+
+describe('M-1H v6: LlmInputInterpreter — mapping de proposalFocus del payload del modelo', () => {
+    it('mapea payload.proposalFocus="waiting_for_others" directo a Interpretation.proposalFocus', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 'waiting_for_others' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando?', {});
+        expect(r.proposalFocus).toBe('waiting_for_others');
+    });
+
+    it('payload sin proposalFocus (ausente) -> default null, nunca undefined/crash', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué pendientes tengo?', {});
+        expect(r.proposalFocus).toBeNull();
+    });
+
+    it('ADVERSARIAL: el modelo devuelve un proposalFocus inventado fuera del enum ("waiting_for_alejandra_specifically") -> falla el schema completo, cae a fallback determinístico, nunca un bypass silencioso', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 'waiting_for_alejandra_specifically' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando?', {});
+        // La capa de normalización determinística (schema zod, sección 8) es
+        // la que decide -- nunca el string arbitrario del modelo. El
+        // fallback vuelve a analizar el texto real y produce el valor
+        // correcto de todos modos.
+        expect(r.source).toBe('llm_fallback');
+        expect(r.fallbackReason).toBe('schema_invalid');
+        expect(r.proposalFocus).toBe('waiting_for_others');
+    });
+
+    it('ADVERSARIAL: el modelo intenta inyectar pendingResponderIds/actorHasApproved directamente en el payload -- el schema los descarta en modo "strip", igual que personId/commitmentId (sección 5/21)', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query',
+            proposalFocus: 'pending_response_from_person',
+            pendingResponderIds: ['alejandra-id'],
+            actorHasApproved: true,
+            personId: 'carlos-id',
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué falta que acepte Alejandra?', {});
+        expect(r.proposalFocus).toBe('pending_response_from_person');
+        expect((r as any).pendingResponderIds).toBeUndefined();
+        expect((r as any).actorHasApproved).toBeUndefined();
+        expect((r as any).personId).toBeUndefined();
+    });
+
+    it('ADVERSARIAL: el modelo devuelve proposalFocus como número/objeto en vez de string -> falla el schema, fallback seguro', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 42 }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando?', {});
+        expect(r.source).toBe('llm_fallback');
+    });
+});
+
+describe('M-1H v6: proposalFocus nunca sobrevive como textQuery incluso cuando el modelo lo mezcla mal (mismo patrón que overdue, M-1G.3)', () => {
+    it('si el modelo (incorrectamente) devuelve textQuery="esperando", la red de seguridad lo neutraliza a null', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', textQuery: 'esperando' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué estoy esperando?', {});
+        expect(r.textQuery).toBeNull();
+    });
+
+    it('si el modelo mezcla proposalFocus + tema real en un solo textQuery, sólo el tema sobrevive', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', proposalFocus: 'needs_my_response', textQuery: 'por aceptar Proyecto Aurora' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const r = await interpreter.interpret('¿Qué tengo por aceptar sobre Proyecto Aurora?', {});
+        expect(r.textQuery).toContain('Proyecto Aurora');
+        expect(r.textQuery).not.toMatch(/\bpor aceptar\b/i);
+    });
+});

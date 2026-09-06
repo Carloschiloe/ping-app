@@ -75,6 +75,29 @@ export interface RetrievalCommitment {
     // M-1C: sólo presente cuando la búsqueda usó texto (RetrieveContextInput.query).
     // Score explicable, no ML — ver docs/M-1C-FULL-TEXT-RETRIEVAL.md, "Ranking".
     textRank?: number;
+
+    // M-1H v5 — CANONICAL PROPOSAL PARTICIPATION MODEL. Presentes SÓLO
+    // cuando entityType==='commitment_proposal' (undefined para un
+    // commitment canónico) — ver utils/proposalParticipation.ts. El Core
+    // (nunca el LLM) ya resuelve "¿quién falta por responder?" y "¿puede
+    // este actor actuar?" antes de llegar a síntesis; el modelo sólo
+    // fraseia estos hechos, nunca los infiere de status/due_at por su
+    // cuenta (sección 15 del ticket).
+    actorHasApproved?: boolean;
+    actorCanRespond?: boolean;
+    pendingResponderNamesSafe?: string[]; // nombres ya resueltos, nunca ids/uuids expuestos a síntesis
+    // M-1H v6 (Gap B, secciones 9/11 del ticket) — ids reales, SÓLO para
+    // filtrado determinístico del Core (agentContextBuilder.service.ts,
+    // proposalFocus='pending_response_from_person'). Nunca se serializa al
+    // modelo (ver agentResponseSynthesizer.service.ts#serializeContextForSynthesis,
+    // que sólo copia pendingResponderNamesSafe) -- el LLM nunca decide ni ve
+    // un id, sólo el resultado ya filtrado.
+    pendingResponderIds?: string[];
+    isFullyApproved?: boolean;
+    // M-1H v5 — "la fecha propuesta ya pasó" (hecho informativo, nunca
+    // "vencido" -- ver utils/overdueSemantics.ts#isProposalDatePassed).
+    // Presente sólo para entityType==='commitment_proposal'.
+    proposalDatePassed?: boolean;
 }
 
 export interface RetrievalCommitmentEvent {
@@ -151,6 +174,11 @@ export interface RetrievalLimits {
 // natural.
 export interface RetrieveContextInput {
     actorUserId: string;
+    // M-1H v5 — instante "ahora" real del caller (ISO), propagado para que
+    // retrieveCommitmentProposals pueda calcular proposalDatePassed sin
+    // depender de un new Date() propio no determinista. Opcional: si se
+    // omite (callers directos/tests), se usa el reloj real como fallback.
+    now?: string;
     // M-1C: búsqueda full-text canónica (Postgres tsvector/GIN, config
     // 'spanish' — ver docs/M-1C-FULL-TEXT-RETRIEVAL.md). Se combina siempre
     // con AND sobre el scope estructurado (conversationId/personId/status/

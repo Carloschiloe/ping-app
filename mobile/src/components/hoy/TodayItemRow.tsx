@@ -6,7 +6,9 @@ import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
+import { getProposalWaitingLabel } from '../../utils/agreement';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
 const MEETING_RE = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i;
@@ -23,9 +25,14 @@ interface TodayItemRowProps {
     // M-1H fix — recibe el objeto completo, no sólo el id: el caller necesita
     // `commitment._isAgreementProposal` para despachar al endpoint correcto.
     onConfirm: (commitment: any) => void;
+    // M-1H v6 (Gap A del final proposal lifecycle gate): "Proponer otra
+    // fecha"/"Rechazar propuesta" -- mismo flujo real, sólo ofrecidos cuando
+    // el actor mismo puede responder (nunca "por Alejandra").
+    onOpenReschedule?: (commitment: any) => void;
+    onReject?: (commitment: any) => void;
 }
 
-export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfirm }: TodayItemRowProps) {
+export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfirm, onOpenReschedule, onReject }: TodayItemRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [menuVisible, setMenuVisible] = useState(false);
@@ -42,8 +49,14 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
     const isCancelled = status === 'cancelled';
     const isResolved = status === 'resolved';
     const isPast = isCancelled || isResolved;
+    const primaryAction = getCommitmentPrimaryAction(c, currentUserId);
+    const canRespondToProposal = c._isAgreementProposal === true && primaryAction === 'accept';
 
     // ─── Primary Action ─────────────────────────────────────────────────────
+    // M-1H v5 — getCommitmentPrimaryAction reemplaza el chequeo directo de
+    // `status==='proposed'` (regla principal): una commitment_proposal
+    // donde el actor ya aprobó y falta otra persona nunca ofrece
+    // "Confirmar" -- muestra "Esperando a <persona>" en su lugar.
     const renderPrimaryAction = () => {
         if (isPast) return null;
         if (meeting && externalUrl) {
@@ -60,17 +73,30 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                 </TouchableOpacity>
             );
         }
-        if (status === 'proposed') {
+        if (primaryAction === 'waiting') {
+            const waitingLabel = getProposalWaitingLabel(c, currentUserId);
+            const datePassed = isProposalDatePassed(c.due_at);
+            return (
+                <View style={styles.waitingBadge}>
+                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={2}>
+                        {waitingLabel}{datePassed ? ' · Fecha propuesta ya pasó' : ''}
+                    </Text>
+                </View>
+            );
+        }
+        if (primaryAction === 'accept') {
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
                     onPress={() => onConfirm(c)}
                 >
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Confirmar</Text>
+                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>
+                        {c._isAgreementProposal ? 'Aceptar' : 'Confirmar'}
+                    </Text>
                 </TouchableOpacity>
             );
         }
-        if (status === 'accepted') {
+        if (primaryAction === 'complete') {
             return (
                 <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
@@ -85,20 +111,30 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
     };
 
     // ─── Context Menu ────────────────────────────────────────────────────────
+    // M-1H v6 (Gap A del final proposal lifecycle gate): "Proponer otra
+    // fecha"/"Rechazar propuesta" reutilizan el mismo flujo real que
+    // CommitmentRow.tsx (respond_to_commitment_proposal) -- sólo aparecen
+    // cuando el actor mismo puede responder, nunca para el caso Carlos.
     const openMenu = () => {
         if (Platform.OS === 'ios') {
             const options = [
                 'Cancelar',
                 hasConversation ? 'Ver conversación' : null,
+                canRespondToProposal && onOpenReschedule ? 'Proponer otra fecha' : null,
+                canRespondToProposal && onReject ? 'Rechazar propuesta' : null,
                 'Ver en Compromisos',
             ].filter(Boolean) as string[];
+            const destructiveButtonIndex = canRespondToProposal ? options.indexOf('Rechazar propuesta') : undefined;
 
             ActionSheetIOS.showActionSheetWithOptions(
-                { options, cancelButtonIndex: 0, title: c.title },
+                { options, cancelButtonIndex: 0, destructiveButtonIndex, title: c.title },
                 (index) => {
                     if (index === 0) return;
-                    if (hasConversation && index === 1) goToChat();
-                    else navigation.navigate('Insights' as any);
+                    const opt = options[index];
+                    if (opt === 'Ver conversación') goToChat();
+                    else if (opt === 'Proponer otra fecha' && onOpenReschedule) onOpenReschedule(c);
+                    else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
+                    else if (opt === 'Ver en Compromisos') navigation.navigate('Insights' as any);
                 }
             );
         } else {
@@ -199,6 +235,18 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
+                        {canRespondToProposal && onOpenReschedule && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
+                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
+                            </TouchableOpacity>
+                        )}
+                        {canRespondToProposal && onReject && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
+                                <Ionicons name="close-circle-outline" size={16} color={theme.colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); }}>
                             <Ionicons name="list-outline" size={16} color={theme.colors.text.primary} />
                             <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver en Compromisos</Text>
@@ -288,6 +336,15 @@ const styles = StyleSheet.create({
     primaryBtnText: {
         fontSize: 12,
         fontWeight: '700',
+    },
+    waitingBadge: {
+        maxWidth: 130,
+        paddingHorizontal: 2,
+    },
+    waitingBadgeText: {
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'right',
     },
     moreBtn: {
         width: 28,

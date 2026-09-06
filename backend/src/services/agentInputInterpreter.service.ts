@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 export interface InterpreterContext {
@@ -56,6 +56,17 @@ const RECALL_KEYWORDS = wordBounded('hablamos|habl[óo]\\w*|dijiste|dijo|dijeron
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 const OPEN_STATUS_KEYWORDS = wordBounded('pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved');
 const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
+// M-1H v6 (Gap B del final proposal lifecycle gate, sección 9/10): señal
+// ESTRUCTURADA para el lifecycle de aprobación de una commitment_proposal --
+// NUNCA debe sobrevivir como textQuery (mismo error real que "vencido"/FTS
+// ya corregido en M-1G.3, ver stripProposalFocusLanguage). Orden de chequeo
+// deliberado (específico -> general): pending_response_from_person primero
+// (lleva además un personHint), luego needs_my_response, luego
+// waiting_for_others -- así una frase que calzara con más de un patrón
+// nunca queda ambigua.
+const PENDING_RESPONSE_FROM_PERSON_KEYWORDS = wordBounded("falta que acepte|needs? to accept|hasn'?t responded");
+const NEEDS_MY_RESPONSE_KEYWORDS = wordBounded("por aceptar|pendiente de mi respuesta|to accept|my response");
+const WAITING_FOR_OTHERS_KEYWORDS = wordBounded('esperando|en espera|waiting');
 // M-1G.1 — verbos imperativos de escritura (crear/cancelar/enviar/
 // modificar/borrar), ES+EN, deliberadamente pequeño y genérico (mismo
 // principio que el resto de estos conjuntos). Nunca confundir con verbos de
@@ -84,6 +95,11 @@ const STOPWORDS = new Set([
     // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
     // have..." -> "I") — sin significado temático propio en ningún idioma.
     'hay', 'algo', 'is', 'i',
+    // M-1H v6: mismo residuo que arriba pero para proposalFocus -- "¿Qué
+    // estoy esperando?" ya captura "esperando" vía
+    // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo
+    // funcional sin tema propio (paralelo a "is"/"hay").
+    'estoy',
 ]);
 
 // M-1D.3 — un textQuery cuyos tokens son TODOS lenguaje de control/intención
@@ -123,6 +139,36 @@ function stripOverdueLanguage(text: string): string {
     return text.replace(globalOverduePattern, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// M-1H v6 — mismo mecanismo que stripOverdueLanguage: ninguna de las 3
+// frases de proposalFocus debe sobrevivir como textQuery (ya está capturada
+// estructuralmente).
+function stripProposalFocusLanguage(text: string): string {
+    let cleaned = text;
+    for (const kw of [PENDING_RESPONSE_FROM_PERSON_KEYWORDS, NEEDS_MY_RESPONSE_KEYWORDS, WAITING_FOR_OTHERS_KEYWORDS]) {
+        cleaned = cleaned.replace(new RegExp(kw.source, 'giu'), ' ');
+    }
+    return cleaned.replace(/\s+/g, ' ').trim();
+}
+
+// Orden específico -> general, ver comentario de las keywords arriba.
+//
+// OJO: "pending_response_from_person" NUNCA se decide por la frase suelta
+// "needs? to accept" (PENDING_RESPONSE_FROM_PERSON_KEYWORDS) -- esa frase es
+// AMBIGUA con el genérico "to accept" de NEEDS_MY_RESPONSE_KEYWORDS ("What
+// do I need to accept?" = el actor mismo, no una tercera persona). El
+// desambiguador real es PENDING_RESPONSE_PERSON_CUE: sólo cuenta como
+// person-specific cuando efectivamente hay un nombre propio junto a la
+// frase (mismo regex que ya usa extractPersonHints para capturarlo).
+function extractProposalFocus(input: string): ProposalFocus {
+    PENDING_RESPONSE_PERSON_CUE.lastIndex = 0;
+    const hasPendingPersonCue = PENDING_RESPONSE_PERSON_CUE.test(input) || /\bhasn'?t responded\b/iu.test(input);
+    PENDING_RESPONSE_PERSON_CUE.lastIndex = 0;
+    if (hasPendingPersonCue) return 'pending_response_from_person';
+    if (NEEDS_MY_RESPONSE_KEYWORDS.test(input)) return 'needs_my_response';
+    if (WAITING_FOR_OTHERS_KEYWORDS.test(input)) return 'waiting_for_others';
+    return null;
+}
+
 // ─── Person hints (sección 11) — heurístico, NUNCA autoritativo. Cualquier
 // resultado pasa por resolvePerson después; un falso positivo (ej. "Proyecto
 // Aurora" detectado como nombre) simplemente no resuelve a nadie — no rompe
@@ -132,6 +178,11 @@ function stripOverdueLanguage(text: string): string {
 const NAME_TOKEN = '[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?';
 const PERSON_HINT_CUE_BEFORE = new RegExp(`\\b(?:a|con|de|sobre|dijo|dice|dijeron|with|about|to|told|said)\\s+(${NAME_TOKEN})`, 'g');
 const PERSON_HINT_VERB_AFTER = new RegExp(`(${NAME_TOKEN})\\s+(?:say|says|said|dijo|dice|mentioned)\\b`, 'g');
+// M-1H v6 (Gap B, sección 12) — cue dedicado para "¿Qué falta que acepte
+// Alejandra?" / "What still needs to accept from Alejandra?": el cue-before
+// genérico de arriba no cubre "acepte"/"accept" como verbo introductorio, y
+// esta construcción específica siempre va junto a PENDING_RESPONSE_FROM_PERSON_KEYWORDS.
+const PENDING_RESPONSE_PERSON_CUE = new RegExp(`(?:falta que acepte|needs? to accept(?:\\s+from)?)\\s+(${NAME_TOKEN})`, 'gi');
 
 // ─── Time expressions (sección 12) — sólo detecta la FRASE cruda aquí; la
 // resolución a rango de fechas real (con timezone) vive en
@@ -150,6 +201,15 @@ const TIME_EXPRESSIONS: RegExp[] = [
 function classifyIntent(input: string): { type: AgentIntentType; confidence: number } {
     if (DOCUMENT_KEYWORDS.test(input)) return { type: 'document_search', confidence: 0.8 };
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
+    // M-1H v6 (Gap B): "¿qué estoy esperando?"/"¿qué tengo por aceptar?"/
+    // "¿qué falta que acepte X?" son preguntas de commitment_query aunque no
+    // usen ninguna palabra de COMMITMENT_KEYWORDS -- sin esto, caerían a
+    // general_context y podrían activar el guard de "topic_too_broad"
+    // (sección 20) en vez de la respuesta determinística correcta cuando no
+    // hay evidencia.
+    if (PENDING_RESPONSE_FROM_PERSON_KEYWORDS.test(input) || NEEDS_MY_RESPONSE_KEYWORDS.test(input) || WAITING_FOR_OTHERS_KEYWORDS.test(input)) {
+        return { type: 'commitment_query', confidence: 0.75 };
+    }
     if (SEARCH_KEYWORDS.test(input)) return { type: 'message_search', confidence: 0.7 };
     if (PERSON_QUERY_KEYWORDS.test(input)) return { type: 'person_query', confidence: 0.7 };
     if (RECALL_KEYWORDS.test(input) || AUDIO_KEYWORDS.test(input)) return { type: 'recall', confidence: 0.6 };
@@ -158,7 +218,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
 
 function extractPersonHints(input: string): string[] {
     const hints = new Set<string>();
-    for (const pattern of [PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER]) {
+    for (const pattern of [PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER, PENDING_RESPONSE_PERSON_CUE]) {
         pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
         while ((match = pattern.exec(input)) !== null) {
@@ -203,6 +263,9 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
     // (ver stripOverdueLanguage).
     cleaned = stripOverdueLanguage(cleaned);
+    // M-1H v6: mismo principio para "esperando"/"por aceptar"/"falta que
+    // acepte" -- ya capturado estructuralmente en proposalFocus.
+    cleaned = stripProposalFocusLanguage(cleaned);
     const tokens = cleaned
         .replace(/[¿?¡!.,;:]/g, ' ')
         .split(/\s+/)
@@ -235,6 +298,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             wantsTranscriptions: intent === 'recall' || intent === 'message_search' || wantsAudio,
             wantsAttachments: intent === 'document_search' || DOCUMENT_KEYWORDS.test(trimmed),
             wantsOverdueFocus: OVERDUE_KEYWORDS.test(trimmed),
+            proposalFocus: extractProposalFocus(trimmed),
             isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed),
             ambiguityHints: [],
             source: 'deterministic',
@@ -259,6 +323,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         wantsTranscriptions: false,
         wantsAttachments: false,
         wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
+        proposalFocus: extractProposalFocus(input),
         isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input),
         ambiguityHints: [],
         source: 'llm_fallback',
@@ -305,9 +370,10 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         'Example: "what are my pending commitments this week?" has no independent topic -> textQuery=null. "pending commitments about Project Aurora" has a real topic -> textQuery="Project Aurora".',
         '"commitmentFilterHints.status" is a SEPARATE, OPTIONAL filter — do NOT set it just because intent is "commitment_query" (intent is the entity TYPE, status is an additional filter on top of it, never implied by the other). Only set a status when you can also set "statusBasis" to justify it: "explicit" if the user used a real state word (pending/open/completed/cancelled/rejected/overdue/etc, in any language), or "implied" if the phrasing clearly points to unmet obligations ("what do I still owe", "what\'s left to do") or clearly points to a finished/closed state ("what did I finish", "what did I cancel") WITHOUT naming it. A neutral question about a specific commitment or topic ("what happened with X", "tell me about my commitment with Y", "what did I promise Laura") has NO status signal — leave both "status" and "statusBasis" null. When the closed/past framing points to a SPECIFIC real outcome, use "resolved", "cancelled", or "rejected" instead of the generic "closed". A word like "overdue"/"vencido"/"atrasado"/"late"/"past due" (in any language) means status="open" + statusBasis="explicit" (something overdue is, by definition, still unresolved) AND you must ALSO set "wantsOverdueFocus":true.',
         '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
+        '"proposalFocus" is a SEPARATE, OPTIONAL signal about the approval lifecycle of a not-yet-confirmed proposal (never about an already-active commitment). Set it to "waiting_for_others" when the user asks what they themselves are still waiting on someone else for (e.g. "what am I waiting for?", "¿qué estoy esperando?"). Set it to "needs_my_response" when the user asks what they themselves still need to accept/respond to (e.g. "what do I have to accept?", "¿qué tengo por aceptar?"). Set it to "pending_response_from_person" when the user asks specifically what a NAMED person still needs to accept or respond to (e.g. "what is Alejandra still missing to accept?", "¿qué falta que acepte Alejandra?") — in that case you MUST also include that person in personHints. Leave it null for anything else, including a plain overdue/pending question with no approval-lifecycle angle. NEVER put any of this language (esperando/waiting/por aceptar/to accept/falta que acepte) into textQuery — it is already fully captured here.',
         '"isWriteActionRequest" is true when the user is asking to CREATE, CANCEL, SEND, MODIFY, or DELETE something (e.g. "create a commitment", "send a message to X", "cancel my meeting") — this Agent is READ-ONLY and can never perform these actions, so the backend needs this signal to answer honestly ("I can\'t do that yet") instead of a confusing "no evidence found". False for any question/query/consultation, even about the same topic (e.g. "what did I promise Laura" is a query, not an action request).',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"isWriteActionRequest":boolean}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -389,7 +455,11 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // esta es la red de seguridad real, aplicada ANTES de decidir si lo que
     // queda es sólo control language.
     const strippedTextQuery = rawTextQuery ? stripOverdueLanguage(rawTextQuery) : null;
-    const textQuery = strippedTextQuery && !isControlLanguageOnly(strippedTextQuery) ? strippedTextQuery : null;
+    // M-1H v6: misma red de seguridad que stripOverdueLanguage -- el modelo
+    // no siempre sigue la instrucción de nunca repetir "esperando"/"por
+    // aceptar"/"falta que acepte" en textQuery.
+    const finalTextQuery = strippedTextQuery ? stripProposalFocusLanguage(strippedTextQuery) : null;
+    const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
     return {
         intent: payload.intent,
@@ -407,6 +477,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         wantsTranscriptions: requested.has('transcriptions') || payload.intent === 'recall' || payload.intent === 'message_search',
         wantsAttachments: requested.has('attachments') || payload.intent === 'document_search',
         wantsOverdueFocus: payload.wantsOverdueFocus,
+        proposalFocus: payload.proposalFocus,
         isWriteActionRequest: payload.isWriteActionRequest,
         ambiguityHints: payload.ambiguityHints as AmbiguityHintType[],
         source: 'llm',

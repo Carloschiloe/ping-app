@@ -5,7 +5,9 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation, getWaitingLabel } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation, getWaitingLabel, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
+import { getProposalWaitingLabel } from '../../utils/agreement';
 import { AgreementParticipantsList } from '../AgreementParticipantsList';
 import { useNavigation } from '@react-navigation/native';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
@@ -20,6 +22,13 @@ interface CommitmentDetailSheetProps {
     onReschedule?: (item: any) => void;
     onReopen?: (id: string) => void;
     onCancel?: (id: string) => void;
+    // M-1H v5 — abre el mismo ConfirmCommitmentModal ya usado desde la fila
+    // (handleRequestConfirm), para aceptar una commitment_proposal o
+    // confirmar un commitment canónico desde el detalle. "Proponer otra
+    // fecha"/"Rechazar" desde este sheet quedan fuera de esta corrección
+    // (ver Riesgos del reporte) -- ya existen vía GroupTaskCard.tsx en el
+    // contexto de chat.
+    onConfirmRequest?: (item: any) => void;
 }
 
 function formatDetailDate(iso?: string | null) {
@@ -37,6 +46,7 @@ export function CommitmentDetailSheet({
     onReschedule,
     onReopen,
     onCancel,
+    onConfirmRequest,
 }: CommitmentDetailSheetProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -49,6 +59,14 @@ export function CommitmentDetailSheet({
     const waiting = getWaitingLabel(item, currentUserId, contacts);
 
     const isFinished = ['resolved', 'cancelled', 'rejected'].includes(status);
+    // M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): este
+    // sheet mostraba "Completar"/"Archivar"/"Reprogramar" para CUALQUIER
+    // item no finalizado, incluida una commitment_proposal pendiente -- eso
+    // nunca es correcto: una proposal no es un commitment activo todavía.
+    const isProposal = item._isAgreementProposal === true;
+    const primaryAction = getCommitmentPrimaryAction(item, currentUserId);
+    const proposalWaitingLabel = isProposal ? getProposalWaitingLabel(item, currentUserId) : null;
+    const proposalDatePassed = isProposal && isProposalDatePassed(item.due_at);
 
     const goToChat = () => {
         if (!conversationId) return;
@@ -113,6 +131,21 @@ export function CommitmentDetailSheet({
                                 <Text style={[styles.metaValue, { color: theme.colors.warning }]}>{waiting}</Text>
                             </View>
                         )}
+                        {/* M-1H v5 (sección 17): una commitment_proposal pendiente
+                            muestra a quién le corresponde responder -- nunca se
+                            confunde con "Seguimiento" de un commitment ya activo. */}
+                        {isProposal && primaryAction === 'waiting' && (
+                            <View style={styles.metaRow}>
+                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Esperando</Text>
+                                <Text style={[styles.metaValue, { color: theme.colors.warning }]}>{proposalWaitingLabel}</Text>
+                            </View>
+                        )}
+                        {proposalDatePassed && (
+                            <View style={styles.metaRow}>
+                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Nota</Text>
+                                <Text style={[styles.metaValue, { color: theme.colors.warning }]}>La fecha propuesta ya pasó</Text>
+                            </View>
+                        )}
                     </View>
 
                     {/* Agreement Responses if multipartite */}
@@ -153,28 +186,39 @@ export function CommitmentDetailSheet({
                         </TouchableOpacity>
                     )}
 
-                    {!isFinished && onReschedule && (
+                    {/* M-1H v5 (sección 17, regla principal): Reprogramar/Completar/
+                        Archivar son transiciones de un commitment YA activo --
+                        nunca se ofrecen para una commitment_proposal pendiente,
+                        sea cual sea su status derivado o fecha. */}
+                    {!isFinished && !isProposal && onReschedule && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onReschedule(item); }}>
                             <Ionicons name="calendar-outline" size={16} color={theme.colors.accent} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.accent }]}>Reprogramar</Text>
                         </TouchableOpacity>
                     )}
 
-                    {!isFinished && onMarkDone && (
+                    {!isFinished && primaryAction === 'accept' && onConfirmRequest && (
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onConfirmRequest(item); }}>
+                            <Ionicons name="checkmark" size={16} color={theme.colors.white} />
+                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>{isProposal ? 'Aceptar' : 'Confirmar'}</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {!isFinished && !isProposal && primaryAction === 'complete' && onMarkDone && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onMarkDone(item.id); }}>
                             <Ionicons name="checkmark" size={16} color={theme.colors.white} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Completar</Text>
                         </TouchableOpacity>
                     )}
 
-                    {isFinished && onReopen && (
+                    {isFinished && !isProposal && onReopen && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onReopen(item.id); }}>
                             <Ionicons name="refresh-outline" size={16} color={theme.colors.white} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Reabrir</Text>
                         </TouchableOpacity>
                     )}
 
-                    {!isFinished && onCancel && (
+                    {!isFinished && !isProposal && onCancel && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => { onClose(); onCancel(item.id); }}>
                             <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Archivar</Text>
