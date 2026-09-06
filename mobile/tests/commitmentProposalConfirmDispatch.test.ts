@@ -41,7 +41,7 @@ import { apiClient } from '../src/api/client';
 import {
     acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest,
 } from '../src/api/query-modules/commitmentConfirmRequests';
-import { resolveCommitmentConfirmAction } from '../src/utils/commitmentConfirmDispatch';
+import { resolveCommitmentConfirmAction, performCommitmentConfirm } from '../src/utils/commitmentConfirmDispatch';
 
 function readSrc(relPath: string): string {
     return fs.readFileSync(path.join(__dirname, '..', relPath), 'utf-8');
@@ -151,19 +151,23 @@ describe('M-1H v2: paridad con GroupTaskCard.tsx (proposals compartidas siguen u
     });
 });
 
-describe('M-1H v2: InsightsScreen.tsx / TaskDashboardScreen.tsx usan el resolver real, no un branch inline reinventado', () => {
-    it('InsightsScreen.tsx importa y usa resolveCommitmentConfirmAction + useConfirmCommitmentProposal', () => {
+// M-1H v4: desde el refactor del modal obligatorio, ambas pantallas ya NO
+// llaman resolveCommitmentConfirmAction directamente -- delegan TODO el
+// despacho (resolución + ejecución) a performCommitmentConfirm (única
+// función real, ver describe "M-1H v4: performCommitmentConfirm" más abajo).
+describe('M-1H v4: InsightsScreen.tsx / TaskDashboardScreen.tsx usan performCommitmentConfirm (único punto de ejecución), no un branch inline reinventado', () => {
+    it('InsightsScreen.tsx importa y usa performCommitmentConfirm + useConfirmCommitmentProposal', () => {
         const src = readSrc('src/screens/InsightsScreen.tsx');
-        expect(src).toMatch(/resolveCommitmentConfirmAction/);
+        expect(src).toMatch(/performCommitmentConfirm/);
         expect(src).toMatch(/useConfirmCommitmentProposal/);
-        expect(src).toMatch(/confirmProposal\(action\.id\)/);
+        expect(src).toMatch(/\{ acceptCommitment, respondToProposal, confirmProposal \}/);
     });
 
-    it('TaskDashboardScreen.tsx importa y usa resolveCommitmentConfirmAction + useConfirmCommitmentProposal', () => {
+    it('TaskDashboardScreen.tsx importa y usa performCommitmentConfirm + useConfirmCommitmentProposal', () => {
         const src = readSrc('src/screens/TaskDashboardScreen.tsx');
-        expect(src).toMatch(/resolveCommitmentConfirmAction/);
+        expect(src).toMatch(/performCommitmentConfirm/);
         expect(src).toMatch(/useConfirmCommitmentProposal/);
-        expect(src).toMatch(/confirmProposal\(action\.id\)/);
+        expect(src).toMatch(/\{ acceptCommitment, respondToProposal, confirmProposal \}/);
     });
 });
 
@@ -195,5 +199,161 @@ describe('M-1H v2: el endpoint /commitment-proposals/:id/confirm ahora SÍ tiene
 
         const commitmentsSrc = readSrc('src/api/query-modules/commitments.ts');
         expect(commitmentsSrc).toMatch(/export const useConfirmCommitmentProposal/);
+    });
+});
+
+// ─── M-1H v4 — hallazgo real de staging (caso "Entrenar"): tocar "Confirmar"
+// ejecutaba la escritura de inmediato, sin modal/loading/feedback -- si la
+// request fallaba o tardaba en refrescar, era indistinguible de "no pasó
+// nada". performCommitmentConfirm es ahora el ÚNICO punto de ejecución real
+// (compartido entre InsightsScreen.tsx y TaskDashboardScreen.tsx, invocado
+// sólo desde ConfirmCommitmentModal), y NUNCA traga un error -- lo propaga
+// siempre, para que el caller (el modal) pueda mostrar feedback real.
+describe('M-1H v4: performCommitmentConfirm — única ejecución real, inyectando las 3 requests (sin apiClient, sin renderer)', () => {
+    function mockRequests(overrides: Partial<Record<'acceptCommitment' | 'respondToProposal' | 'confirmProposal', any>> = {}) {
+        return {
+            acceptCommitment: vi.fn().mockResolvedValue({}),
+            respondToProposal: vi.fn().mockResolvedValue({}),
+            confirmProposal: vi.fn().mockResolvedValue({}),
+            ...overrides,
+        };
+    }
+
+    it('CASO A: commitment canónico -> llama acceptCommitment(id), nunca las otras dos', async () => {
+        const requests = mockRequests();
+        await performCommitmentConfirm({ id: 'commitment-123', status: 'proposed' }, requests);
+        expect(requests.acceptCommitment).toHaveBeenCalledWith('commitment-123');
+        expect(requests.respondToProposal).not.toHaveBeenCalled();
+        expect(requests.confirmProposal).not.toHaveBeenCalled();
+    });
+
+    it('CASO B: proposal compartida -> llama respondToProposal({id, decision:approve}), nunca las otras dos', async () => {
+        const requests = mockRequests();
+        await performCommitmentConfirm({
+            id: 'proposal-456', _isAgreementProposal: true,
+            agreement_responses: [{ participant_user_id: 'u1', status: 'pending' }],
+        }, requests);
+        expect(requests.respondToProposal).toHaveBeenCalledWith({ id: 'proposal-456', decision: 'approve' });
+        expect(requests.acceptCommitment).not.toHaveBeenCalled();
+        expect(requests.confirmProposal).not.toHaveBeenCalled();
+    });
+
+    it('CASO C (real, "Entrenar"): proposal solo -> llama confirmProposal(id), nunca las otras dos', async () => {
+        const requests = mockRequests();
+        await performCommitmentConfirm({ id: 'proposal-entrenar', _isAgreementProposal: true, agreement_responses: [] }, requests);
+        expect(requests.confirmProposal).toHaveBeenCalledWith('proposal-entrenar');
+        expect(requests.acceptCommitment).not.toHaveBeenCalled();
+        expect(requests.respondToProposal).not.toHaveBeenCalled();
+    });
+
+    it('NUNCA traga un error -- lo propaga siempre para que el caller pueda mostrar feedback (sección 3/7 del ticket)', async () => {
+        const boom = new Error('Network request failed');
+        const requests = mockRequests({ confirmProposal: vi.fn().mockRejectedValue(boom) });
+        await expect(
+            performCommitmentConfirm({ id: 'proposal-entrenar', _isAgreementProposal: true, agreement_responses: [] }, requests)
+        ).rejects.toThrow('Network request failed');
+    });
+});
+
+describe('M-1H v4: tap primario de la fila NUNCA ejecuta la escritura -- sólo abre el modal (sección 4 del ticket)', () => {
+    it('InsightsScreen.tsx: onConfirm apunta a handleRequestConfirm (abre modal), no a una ejecución directa', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/onConfirm=\{handleRequestConfirm\}/);
+        expect(src).not.toMatch(/onConfirm=\{handleConfirm\}/);
+        // handleRequestConfirm sólo debe fijar estado, nunca llamar a performCommitmentConfirm directamente.
+        const handleRequestConfirmBody = src.match(/const handleRequestConfirm = useCallback\(\(commitment: any\) => \{([\s\S]*?)\}, \[\]\);/);
+        expect(handleRequestConfirmBody).not.toBeNull();
+        expect(handleRequestConfirmBody![1]).not.toMatch(/performCommitmentConfirm|acceptCommitment\(|respondToProposal\(|confirmProposal\(/);
+    });
+
+    it('TaskDashboardScreen.tsx: onConfirm apunta a handleRequestConfirm (abre modal), no a una ejecución directa', () => {
+        const src = readSrc('src/screens/TaskDashboardScreen.tsx');
+        expect(src).toMatch(/onConfirm=\{handleRequestConfirm\}/);
+        expect(src).not.toMatch(/onConfirm=\{handleConfirm\}/);
+        const handleRequestConfirmBody = src.match(/const handleRequestConfirm = useCallback\(\(commitment: any\) => \{([\s\S]*?)\}, \[\]\);/);
+        expect(handleRequestConfirmBody).not.toBeNull();
+        expect(handleRequestConfirmBody![1]).not.toMatch(/performCommitmentConfirm|acceptCommitment\(|respondToProposal\(|confirmProposal\(/);
+    });
+
+    it('ambas pantallas llaman performCommitmentConfirm ÚNICAMENTE dentro de handleConfirmSubmit (invocado por el modal, nunca por el tap primario)', () => {
+        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+            const src = readSrc(relPath);
+            const occurrences = src.match(/performCommitmentConfirm\(/g) || [];
+            // Una vez en el import (comentario/nombre no cuenta), una vez en la llamada real dentro de handleConfirmSubmit.
+            expect(occurrences.length).toBe(1);
+            expect(src).toMatch(/const handleConfirmSubmit = useCallback\(async \(\) => \{[\s\S]*?performCommitmentConfirm\(/);
+        }
+    });
+});
+
+describe('M-1H v4: semántica de producto -- Confirmar (proposal->accepted) y Listo (accepted->resolved) son flujos distintos, nunca fusionados', () => {
+    it('CommitmentRow: el botón "Listo" (status=accepted) llama onMarkDone(c.id), nunca onConfirm', () => {
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
+        expect(src).toMatch(/onPress=\{\(\)\s*=>\s*onMarkDone\(c\.id\)\}/);
+    });
+
+    it('InsightsScreen/TaskDashboardScreen: handleMarkDone usa useResolveCommitment, un hook y endpoint totalmente distinto de performCommitmentConfirm', () => {
+        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+            const src = readSrc(relPath);
+            expect(src).toMatch(/const handleMarkDone = useCallback\(\(id: string\) => \{\s*resolveCommitment\(/);
+        }
+    });
+});
+
+describe('M-1H v4: ConfirmCommitmentModal — modal obligatorio, loading state, feedback (secciones 4-7 del ticket)', () => {
+    const src = readSrc('src/components/compromisos/ConfirmCommitmentModal.tsx');
+
+    it('título y contenido del modal muestran el título real del compromiso, nunca un id crudo', () => {
+        expect(src).toMatch(/¿Confirmar compromiso\?/);
+        expect(src).toMatch(/commitment\?\.title/);
+        expect(src).toMatch(/Al confirmar, este compromiso quedará aceptado y activo\./);
+    });
+
+    it('muestra una advertencia adicional cuando el compromiso está vencido', () => {
+        expect(src).toMatch(/isOverdueItem/);
+        expect(src).toMatch(/Este compromiso está vencido\./);
+    });
+
+    it('ambos botones (Cancelar/Confirmar) se deshabilitan mientras isPending es true, y Confirmar muestra un spinner', () => {
+        expect(src).toMatch(/disabled=\{isPending\}/g);
+        expect((src.match(/disabled=\{isPending\}/g) || []).length).toBeGreaterThanOrEqual(2);
+        expect(src).toMatch(/ActivityIndicator/);
+    });
+
+    it('cerrar el modal (overlay/onRequestClose) está bloqueado mientras isPending es true -- no se puede cancelar a mitad de la escritura', () => {
+        expect(src).toMatch(/if \(!isPending\) onCancel\(\)/g);
+    });
+
+    it('nunca ejecuta ninguna request directamente -- sólo invoca los callbacks onCancel/onConfirm recibidos por props', () => {
+        expect(src).not.toMatch(/apiClient|performCommitmentConfirm|acceptCommitment\(|respondToProposal\(|confirmProposal\(/);
+    });
+});
+
+describe('M-1H v4: feedback de éxito/error siempre visible (secciones 6-7 del ticket)', () => {
+    it('ambas pantallas muestran un Alert de éxito visible tras confirmar, nunca un cierre silencioso', () => {
+        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+            const src = readSrc(relPath);
+            expect(src).toMatch(/Alert\.alert\('Compromiso confirmado'/);
+        }
+    });
+
+    it('ambas pantallas muestran un Alert de error claro si la confirmación falla, nunca un catch vacío', () => {
+        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+            const src = readSrc(relPath);
+            expect(src).toMatch(/Alert\.alert\('No se pudo confirmar el compromiso'/);
+        }
+    });
+
+    it('el modal permanece abierto en caso de error (setConfirmItem(null) sólo ocurre en el camino de éxito) -- permite reintentar sin re-tocar Confirmar en la fila', () => {
+        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+            const src = readSrc(relPath);
+            const submitBody = src.match(/const handleConfirmSubmit = useCallback\(async \(\) => \{([\s\S]*?)\n    \}, \[/);
+            expect(submitBody).not.toBeNull();
+            const [, body] = submitBody!;
+            const trySection = body.split('catch')[0];
+            const catchSection = body.split('catch')[1];
+            expect(trySection).toMatch(/setConfirmItem\(null\)/);
+            expect(catchSection).not.toMatch(/setConfirmItem\(null\)/);
+        }
     });
 });

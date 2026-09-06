@@ -20,12 +20,13 @@ import {
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
     useRespondToCommitmentProposal, useConfirmCommitmentProposal,
 } from '../api/queries';
-import { resolveCommitmentConfirmAction } from '../utils/commitmentConfirmDispatch';
+import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
 
 import { CommitmentRow } from '../components/compromisos/CommitmentRow';
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
+import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -97,6 +98,12 @@ export default function InsightsScreen() {
     // ─── Active Items for Sheets ──────────────────────────────────────────────
     const [detailItem, setDetailItem] = useState<any | null>(null);
     const [rescheduleItem, setRescheduleItem] = useState<any | null>(null);
+    // M-1H v4 — item pendiente de confirmar (abre ConfirmCommitmentModal) y
+    // loading state explícito de esa acción. Nunca se ejecuta la escritura
+    // desde el tap primario de la fila -- sólo desde el botón "Confirmar"
+    // DENTRO del modal (sección 4 del ticket).
+    const [confirmItem, setConfirmItem] = useState<any | null>(null);
+    const [isConfirming, setIsConfirming] = useState(false);
 
     // ─── Queries & Mutations ─────────────────────────────────────────────────
     const { data: commitments = [], refetch, isRefetching } = useQuery({
@@ -115,7 +122,7 @@ export default function InsightsScreen() {
 
     useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
 
-    const { mutate: acceptCommitment } = useAcceptCommitment();
+    const { mutateAsync: acceptCommitment } = useAcceptCommitment();
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
@@ -127,38 +134,41 @@ export default function InsightsScreen() {
         resolveCommitment({ id, result: 'Resuelto desde Compromisos.' });
     }, [resolveCommitment]);
 
-    // M-1H v2 fix — hallazgo real a nivel de RPC (no sólo de ruta HTTP): una
-    // row de `commitment_proposals` (_isAgreementProposal=true) trae un `id`
-    // que es en realidad un proposal_id, nunca un commitment_id. Antes esto
-    // siempre llamaba POST /commitments/:id/accept sin importar el origen,
-    // lo que fallaba con 404 "Commitment not found" para toda proposal. La
-    // primera corrección (v1) despachaba TODA proposal a
-    // respondToProposal({decision:'approve'}) copiando el patrón de
-    // GroupTaskCard.tsx#handleAccept -- pero ese endpoint (RPC
-    // respond_to_commitment_proposal) exige una fila previa en
-    // commitment_proposal_responses, que sólo existe para proposals
-    // COMPARTIDAS (creadas vía POST /commitment-proposals/shared); una
-    // proposal SOLO (el caso real "Entrenar", creada vía
-    // POST /commitment-proposals) nunca tiene esa fila, así que v1 sólo
-    // cambiaba el error de 404 a 403 ("Actor is not required for this
-    // agreement"), sin arreglar nada. resolveCommitmentConfirmAction decide
-    // el endpoint real según agreement_responses -- ver
-    // utils/commitmentConfirmDispatch.ts para la prueba completa contra el
-    // RPC real.
-    const handleConfirm = useCallback(async (commitment: any) => {
-        const action = resolveCommitmentConfirmAction(commitment);
+    // M-1H v4 — hallazgo real de staging (caso "Entrenar"): tocar
+    // "Confirmar" ejecutaba la escritura de inmediato, sin modal, sin
+    // loading, sin feedback de éxito/error -- si la request tardaba en
+    // refrescar la lista o fallaba silenciosamente, era indistinguible de
+    // "no pasó nada". El tap primario de la fila AHORA sólo abre el modal de
+    // confirmación (sección 4); la ejecución real vive en
+    // handleConfirmSubmit, llamada únicamente desde el botón "Confirmar"
+    // DENTRO del modal.
+    const handleRequestConfirm = useCallback((commitment: any) => {
+        setConfirmItem(commitment);
+    }, []);
+
+    const handleCancelConfirm = useCallback(() => {
+        if (isConfirming) return; // no cerrar mientras la escritura está en curso (sección 5)
+        setConfirmItem(null);
+    }, [isConfirming]);
+
+    const handleConfirmSubmit = useCallback(async () => {
+        if (!confirmItem) return;
+        setIsConfirming(true);
         try {
-            if (action.type === 'respondToProposal') {
-                await respondToProposal({ id: action.id, decision: 'approve' });
-            } else if (action.type === 'confirmProposal') {
-                await confirmProposal(action.id);
-            } else {
-                acceptCommitment(action.id);
-            }
-        } catch {
-            Alert.alert('No se pudo confirmar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+            await performCommitmentConfirm(confirmItem, { acceptCommitment, respondToProposal, confirmProposal });
+            setConfirmItem(null);
+            Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+        } catch (error: any) {
+            // Sección 7: nunca cerrar silenciosamente -- el modal permanece
+            // abierto para reintentar, y el error real (status/mensaje) se
+            // deja en consola para diagnóstico de staging, sin exponer
+            // detalle interno al usuario.
+            console.warn('[Confirmar compromiso] falló', { status: error?.status, message: error instanceof Error ? error.message : 'unknown' });
+            Alert.alert('No se pudo confirmar el compromiso', 'Intenta nuevamente.');
+        } finally {
+            setIsConfirming(false);
         }
-    }, [acceptCommitment, respondToProposal, confirmProposal]);
+    }, [confirmItem, acceptCommitment, respondToProposal, confirmProposal]);
 
     const handleCancel = useCallback((id: string) => {
         cancelCommitment({ id });
@@ -530,6 +540,13 @@ export default function InsightsScreen() {
                 onSaveDate={handleSaveDate}
             />
 
+            <ConfirmCommitmentModal
+                commitment={confirmItem}
+                isPending={isConfirming}
+                onCancel={handleCancelConfirm}
+                onConfirm={handleConfirmSubmit}
+            />
+
             {/* ── HEADER & SEARCH ── */}
             <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
                 <View style={styles.headerTop}>
@@ -649,7 +666,7 @@ export default function InsightsScreen() {
                         currentUserId={user?.id}
                         contactNameMap={contactNameMap}
                         onMarkDone={handleMarkDone}
-                        onConfirm={handleConfirm}
+                        onConfirm={handleRequestConfirm}
                         onOpenReschedule={(c) => setRescheduleItem(c)}
                         onOpenDetail={(c) => setDetailItem(c)}
                         onCancel={handleCancel}

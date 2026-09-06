@@ -17,12 +17,13 @@ import { useAppTheme } from '../theme/ThemeContext';
 import {
     useAcceptCommitment, useResolveCommitment, useRespondToCommitmentProposal, useConfirmCommitmentProposal,
 } from '../api/queries';
-import { resolveCommitmentConfirmAction } from '../utils/commitmentConfirmDispatch';
+import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
 
 import { TodaySummaryBar } from '../components/hoy/TodaySummaryBar';
 import { OverdueAlert } from '../components/hoy/OverdueAlert';
 import { TodayItemRow } from '../components/hoy/TodayItemRow';
+import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -74,37 +75,53 @@ export default function TaskDashboardScreen() {
     useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
 
     // ─── Mutations ────────────────────────────────────────────────────────────
-    const { mutate: acceptCommitment } = useAcceptCommitment();
+    const { mutateAsync: acceptCommitment } = useAcceptCommitment();
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
+
+    // M-1H v4 — item pendiente de confirmar (abre ConfirmCommitmentModal) y
+    // loading state explícito -- mismo patrón que InsightsScreen.tsx. El tap
+    // primario de la fila nunca ejecuta la escritura directamente.
+    const [confirmItem, setConfirmItem] = useState<any | null>(null);
+    const [isConfirming, setIsConfirming] = useState(false);
 
     const handleMarkDone = useCallback((id: string) => {
         resolveCommitment({ id, result: 'Resuelto desde Hoy.' });
     }, [resolveCommitment]);
 
-    // M-1H v2 fix — mismo hallazgo/patrón que InsightsScreen.tsx: una row de
-    // `commitment_proposals` trae un proposal_id como `id`, nunca un
-    // commitment_id -- llamar directo a acceptCommitment fallaba con 404
-    // para toda proposal. resolveCommitmentConfirmAction distingue proposal
-    // SOLO (confirmProposal, RPC confirm_commitment_proposal) de proposal
-    // COMPARTIDA (respondToProposal, RPC respond_to_commitment_proposal) --
-    // ver utils/commitmentConfirmDispatch.ts, el patrón de
+    const handleRequestConfirm = useCallback((commitment: any) => {
+        setConfirmItem(commitment);
+    }, []);
+
+    const handleCancelConfirm = useCallback(() => {
+        if (isConfirming) return;
+        setConfirmItem(null);
+    }, [isConfirming]);
+
+    // M-1H v4 — hallazgo real de staging: tocar "Confirmar" ejecutaba la
+    // escritura de inmediato, sin modal/loading/feedback -- indistinguible
+    // de "no pasó nada" tanto en éxito silencioso como en fallo silencioso.
+    // performCommitmentConfirm (utils/commitmentConfirmDispatch.ts) es el
+    // ÚNICO punto de ejecución real, ahora compartido con InsightsScreen.tsx
+    // en vez de duplicado -- distingue proposal SOLO (confirmProposal, RPC
+    // confirm_commitment_proposal) de proposal COMPARTIDA (respondToProposal,
+    // RPC respond_to_commitment_proposal); el patrón de
     // GroupTaskCard.tsx#handleAccept sólo cubre el caso compartido.
-    const handleConfirm = useCallback(async (commitment: any) => {
-        const action = resolveCommitmentConfirmAction(commitment);
+    const handleConfirmSubmit = useCallback(async () => {
+        if (!confirmItem) return;
+        setIsConfirming(true);
         try {
-            if (action.type === 'respondToProposal') {
-                await respondToProposal({ id: action.id, decision: 'approve' });
-            } else if (action.type === 'confirmProposal') {
-                await confirmProposal(action.id);
-            } else {
-                acceptCommitment(action.id);
-            }
-        } catch {
-            Alert.alert('No se pudo confirmar', 'La respuesta no fue guardada. Inténtalo nuevamente.');
+            await performCommitmentConfirm(confirmItem, { acceptCommitment, respondToProposal, confirmProposal });
+            setConfirmItem(null);
+            Alert.alert('Compromiso confirmado', `"${confirmItem.title}" quedó confirmado y activo.`);
+        } catch (error: any) {
+            console.warn('[Confirmar compromiso] falló', { status: error?.status, message: error instanceof Error ? error.message : 'unknown' });
+            Alert.alert('No se pudo confirmar el compromiso', 'Intenta nuevamente.');
+        } finally {
+            setIsConfirming(false);
         }
-    }, [acceptCommitment, respondToProposal, confirmProposal]);
+    }, [confirmItem, acceptCommitment, respondToProposal, confirmProposal]);
 
     // ─── Team members for assignee picker ────────────────────────────────────
     const teamMembers = useMemo(() => {
@@ -269,7 +286,7 @@ export default function TaskDashboardScreen() {
                             commitment={c}
                             currentUserId={user?.id}
                             onMarkDone={handleMarkDone}
-                            onConfirm={handleConfirm}
+                            onConfirm={handleRequestConfirm}
                         />
                     ))}
                 </View>
@@ -285,7 +302,7 @@ export default function TaskDashboardScreen() {
                         commitment={c}
                         currentUserId={user?.id}
                         onMarkDone={handleMarkDone}
-                        onConfirm={handleConfirm}
+                        onConfirm={handleRequestConfirm}
                     />
                 ))}
             </View>
@@ -489,6 +506,12 @@ export default function TaskDashboardScreen() {
             <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
             <CalendarModal />
             <FilterDrawer />
+            <ConfirmCommitmentModal
+                commitment={confirmItem}
+                isPending={isConfirming}
+                onCancel={handleCancelConfirm}
+                onConfirm={handleConfirmSubmit}
+            />
 
             {/* ── HEADER ── */}
             <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
@@ -568,7 +591,7 @@ export default function TaskDashboardScreen() {
                                 commitment={c}
                                 currentUserId={user?.id}
                                 onMarkDone={handleMarkDone}
-                                onConfirm={handleConfirm}
+                                onConfirm={handleRequestConfirm}
                             />
                         ))}
                     </View>
