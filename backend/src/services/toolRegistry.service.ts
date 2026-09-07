@@ -136,44 +136,52 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         failureModes: ['entity_not_found'],
     },
 
+    // M-4 (sección 15/49) — estos cinco tools pasan a 'available_now' SÓLO
+    // porque ahora tienen, cada uno: un ToolExecutor real
+    // (toolExecutors/*.ts), autorización real (agentAuthorization.service.ts),
+    // verificación desde fuente canónica, e idempotencia real (constraint
+    // única en agent_executions +, cuando existe, el idempotency key nativo
+    // del servicio subyacente -- ver sendMessageExecutor.ts). Nunca un
+    // "global switch": cada uno se habilitó individualmente, con su propio
+    // executor probado contra Postgres real (backend/tests/agentExecution.*.test.ts).
     send_message: {
         toolId: 'send_message', version: 1, category: 'WRITE', domain: 'messaging',
-        description: 'Sends a real message in a conversation. PLANNING ONLY in M-3 — no invoke() exists.',
+        description: 'Sends a real message in a conversation. Executable via POST /api/agent/execute after explicit authorization — never from /agent/respond or /agent/plan.',
         argumentNames: ['conversationId', 'recipientPersonId', 'content'], sideEffectClass: 'state_change',
         authorizationRequirement: 'conversation_membership', confirmationPolicy: 'explicit',
-        supportsDryRun: true, availability: 'planned_future', requiredContext: ['actorUserId'],
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.message', failureModes: ['not_authorized', 'missing_context'],
     },
     create_commitment: {
         toolId: 'create_commitment', version: 1, category: 'WRITE', domain: 'commitment',
-        description: 'Creates a new commitment or proposal. PLANNING ONLY in M-3. Confirmation is ALWAYS explicit — commitments/proposals are never auto-created (product rule, sección 37).',
+        description: 'Creates a new commitment or proposal. Confirmation is ALWAYS explicit — commitments/proposals are never auto-created (product rule, sección 8/37).',
         argumentNames: ['title', 'dueAt', 'responsiblePersonId', 'conversationId'], sideEffectClass: 'state_change',
         authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
-        supportsDryRun: true, availability: 'planned_future', requiredContext: ['actorUserId'],
-        auditCategory: 'write.commitment', failureModes: ['missing_context', 'not_authorized'],
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.commitment', failureModes: ['missing_context', 'not_authorized', 'invalid_lifecycle'],
     },
     respond_to_proposal: {
         toolId: 'respond_to_proposal', version: 1, category: 'WRITE', domain: 'commitment_proposal',
-        description: 'Responds to a shared/solo proposal as the actor\'s own required response. PLANNING ONLY in M-3. No target-participant argument exists — an actor can never respond on behalf of someone else, matching the real RPC contract.',
+        description: 'Responds to a shared/solo proposal as the actor\'s own required response. No target-participant argument exists — an actor can never respond on behalf of someone else, matching the real RPC contract.',
         argumentNames: ['proposalId', 'decision', 'proposedDueAt'], sideEffectClass: 'state_change',
         authorizationRequirement: 'proposal_response_actor', confirmationPolicy: 'explicit',
-        supportsDryRun: true, availability: 'planned_future', requiredContext: ['actorUserId'],
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment_proposal', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
     reschedule_commitment: {
         toolId: 'reschedule_commitment', version: 1, category: 'WRITE', domain: 'commitment',
-        description: 'Counter-proposes a new date on an existing, already-canonical commitment. PLANNING ONLY in M-3.',
+        description: 'Counter-proposes a new date on an existing, already-canonical commitment.',
         argumentNames: ['commitmentId', 'newDueAt'], sideEffectClass: 'state_change',
         authorizationRequirement: 'commitment_owner_or_assignee', confirmationPolicy: 'explicit',
-        supportsDryRun: true, availability: 'planned_future', requiredContext: ['actorUserId'],
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
     complete_commitment: {
         toolId: 'complete_commitment', version: 1, category: 'WRITE', domain: 'commitment',
-        description: 'Marks an existing, already-canonical commitment resolved. PLANNING ONLY in M-3.',
+        description: 'Marks an existing, already-canonical commitment resolved.',
         argumentNames: ['commitmentId', 'resolutionResult'], sideEffectClass: 'state_change',
         authorizationRequirement: 'commitment_owner_or_assignee', confirmationPolicy: 'explicit',
-        supportsDryRun: true, availability: 'planned_future', requiredContext: ['actorUserId'],
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
 };

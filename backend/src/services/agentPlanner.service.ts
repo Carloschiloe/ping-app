@@ -48,6 +48,33 @@ function newStepId(): string {
     return `step-${randomUUID().slice(0, 8)}`;
 }
 
+// M-4 (sección 9/10/19/62 adversarial): /agent/authorize re-ejecuta este
+// mismo pipeline desde cero para verificar el digest (Option C, nunca
+// confía en un plan JSON del cliente) -- eso significa que CADA llamada a
+// planObjective produce sus propios stepId random y nuevos, incluso para el
+// MISMO request lógico. Si el cliente autoriza usando los stepId que vio en
+// su propia llamada a /agent/plan, esos IDs jamás coincidirían con los de
+// la re-planificación interna de /agent/authorize -- un rechazo
+// "plan_changed" FALSO POSITIVO en el 100% de los casos reales, nunca
+// detectado por los tests unitarios de M-3 porque cada uno de ellos sólo
+// planifica UNA vez. Se resuelve reasignando cada stepId de forma
+// determinística por POSICIÓN dentro del array ya ordenado (mismo principio
+// posicional que agentPlanDigest.service.ts ya usa para el propio digest) --
+// dos planificaciones independientes del mismo estado canónico producen
+// exactamente los mismos stepId literales, nunca sólo un digest que coincide
+// "por casualidad" mientras los IDs reales no.
+function canonicalizeStepIds(steps: AgentPlanStep[]): AgentPlanStep[] {
+    const idMap = new Map(steps.map((step, index) => [step.stepId, `step-${index}`]));
+    return steps.map((step) => ({
+        ...step,
+        stepId: idMap.get(step.stepId)!,
+        dependsOn: step.dependsOn.map((id) => idMap.get(id) ?? id),
+        condition: step.condition.dependsOnStepId
+            ? { ...step.condition, dependsOnStepId: idMap.get(step.condition.dependsOnStepId) ?? step.condition.dependsOnStepId }
+            : step.condition,
+    }));
+}
+
 // ─── Identity resolution (sección 12) — never invents a recipient. ─────────
 async function resolvePersonHint(actorUserId: string, hint: string, conversationId?: string): Promise<{
     resolved: RetrievalPerson | null;
@@ -394,6 +421,12 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
 }
 
 export async function planObjective(input: AgentPlannerInput): Promise<DraftOutcome> {
+    const outcome = await planObjectiveDraft(input);
+    if (outcome.steps.length === 0) return outcome;
+    return { ...outcome, steps: canonicalizeStepIds(outcome.steps) };
+}
+
+async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcome> {
     const { objective } = input;
     tracePlan(input.traceId, 'OBJECTIVE', { objectiveType: objective.objectiveType, source: objective.source, confidence: objective.confidence });
 

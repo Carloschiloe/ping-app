@@ -20,11 +20,19 @@ describe('ToolRegistry: taxonomía mínima requerida (sección 32)', () => {
             expect(getToolContract(id)?.category).toBe('DRAFT');
         }
     });
-    it('declara todos los WRITE tools requeridos, todos planned_future (nunca available_now -- sección 4)', () => {
+    // ACTUALIZACIÓN M-4 (sección 15/49 del ticket M-4): estos cinco WRITE
+    // tools eran 'planned_future' en M-3 (sin invoke()) -- M-4 los pasa
+    // individualmente a 'available_now' SÓLO porque cada uno ahora tiene un
+    // ToolExecutor real, autorización real, verificación e idempotencia
+    // (ver backend/src/services/toolExecutors/*.ts y
+    // backend/tests/agentExecution*.test.ts). category sigue siendo WRITE
+    // sin cambios -- esto certifica que M-3 y M-4 acuerdan qué tools son
+    // WRITE, nunca que M-4 dejó alguno como planned_future por accidente.
+    it('declara todos los WRITE tools requeridos, category=WRITE, ahora available_now (M-4 los habilitó individualmente, cada uno con executor real)', () => {
         for (const id of REQUIRED_WRITE) {
             const contract = getToolContract(id);
             expect(contract?.category).toBe('WRITE');
-            expect(contract?.availability).toBe('planned_future');
+            expect(contract?.availability).toBe('available_now');
         }
     });
 });

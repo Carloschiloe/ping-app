@@ -17,11 +17,15 @@ import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
 import * as agentController from '../controllers/agent.controller';
 import * as agentPlanController from '../controllers/agentPlan.controller';
+import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
+import * as agentExecuteController from '../controllers/agentExecute.controller';
 import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentRequestSchema } from '../schemas/agentRequest.schema';
 import { agentPlanRequestSchema } from '../schemas/agentPlanRequest.schema';
+import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
+import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -46,6 +50,21 @@ export const router = Router();
 const agentRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+});
+
+// M-4 (sección 52) — límite más estricto que el de lectura/planificación:
+// /agent/authorize y /agent/execute pueden producir efectos secundarios
+// reales (mensajes enviados, commitments creados) -- repetidos taps de un
+// botón nunca deben poder convertirse en un flood de escrituras. La
+// protección REAL contra duplicados es la idempotencia a nivel de Core
+// (agent_executions unique + digest binding), este límite es defensa en
+// profundidad adicional, no el mecanismo primario.
+const agentExecutionRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
@@ -278,6 +297,33 @@ router.post(
     agentRateLimiter,
     validateRequest(agentPlanRequestSchema),
     agentPlanController.plan,
+);
+
+// Ping Agent Authorization + Execution (M-4) — the ONLY endpoints in the
+// Agent pipeline that can produce a real side effect, and only via a
+// re-derived, digest-verified plan bound to a durable, atomically-consumed
+// authorization (sección 1/3/9/38 del ticket M-4). /agent/respond and
+// /agent/plan remain exactly as certified in M-1F/M-3 — neither is touched
+// here, neither can execute anything (sección 72/73).
+router.post(
+    '/agent/authorize',
+    requireAuth,
+    agentExecutionRateLimiter,
+    validateRequest(agentAuthorizeRequestSchema),
+    agentAuthorizeController.authorize,
+);
+router.post(
+    '/agent/authorize/:authorizationId/revoke',
+    requireAuth,
+    agentExecutionRateLimiter,
+    agentAuthorizeController.revoke,
+);
+router.post(
+    '/agent/execute',
+    requireAuth,
+    agentExecutionRateLimiter,
+    validateRequest(agentExecuteRequestSchema),
+    agentExecuteController.execute,
 );
 
 // Insights

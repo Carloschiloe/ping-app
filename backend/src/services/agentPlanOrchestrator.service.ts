@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { LlmObjectiveInterpreter, type AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
 import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput } from './agentPlanner.service';
 import { validateAgentPlan } from './agentPlanValidator.service';
+import { computePlanDigest } from './agentPlanDigest.service';
 import { tracePlan } from '../utils/planTrace';
 import type { AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
 
@@ -122,11 +123,16 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         humanReadableSummary,
         traceId: input.traceId,
     };
+    // M-4 (sección 5) — sólo tiene sentido autorizar un plan estructuralmente
+    // válido; nunca se calcula (ni se expone) un digest para draft/needs_clarification.
+    if (status === 'ready_for_authorization') {
+        plan.planDigest = computePlanDigest(plan);
+    }
 
     tracePlan(input.traceId, 'PLAN_RESULT', {
         status: plan.status, stepCount: plan.steps.length, toolIds: plan.steps.map((s) => s.toolId),
         riskLevel: plan.riskSummary.highestRiskLevel, failureMode: plan.failureMode,
-        canExecute: plan.canExecute,
+        canExecute: plan.canExecute, planDigest: plan.planDigest,
     });
 
     return plan;

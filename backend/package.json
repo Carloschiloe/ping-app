@@ -21,6 +21,8 @@
     "test:audio-core:staging": "node scripts/e2e-audio-core-staging.mjs",
     "test:migrations:fresh": "node scripts/test-migrations-from-scratch.mjs",
     "test:attachment-core:staging": "node scripts/e2e-attachment-core-staging.mjs",
+    "test:m4-agent-execution:postgres": "node scripts/test-agent-execution-postgres.mjs",
+    "test:m4-agent:local-e2e": "node scripts/e2e-agent-m4-local.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },

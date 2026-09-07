@@ -214,6 +214,13 @@ export interface AgentPlan {
     failureMode?: AgentPlanFailureMode;
     humanReadableSummary: string;
     traceId?: string;
+    // M-4 (sección 5/9/10) — fingerprint determinístico del contenido
+    // material del plan (agentPlanDigest.service.ts#computePlanDigest,
+    // calculado por el orquestador para evitar un import circular con este
+    // archivo de tipos). Nunca contiene datos sensibles -- es un hash, no el
+    // plan serializado. Presente sólo cuando status==='ready_for_authorization'
+    // (nunca tiene sentido autorizar un plan bloqueado/incompleto).
+    planDigest?: string;
 }
 
 // ─── Public response DTO (sección 38) — deliberately minimal, mirrors the
@@ -242,6 +249,11 @@ export interface AgentPlanPublicResponse {
     clarification?: ClarificationQuestion[];
     failureMode?: AgentPlanFailureMode;
     failureMessage?: string;
+    // M-4 — el cliente debe ecoar este valor tal cual en POST /agent/authorize
+    // (nunca reconstruirlo) para que Core pueda comparar contra el digest
+    // que re-deriva desde cero en ese momento (sección 9/10/74: nunca se
+    // confía en un plan JSON devuelto por el cliente, sólo en este hash).
+    planDigest?: string;
 }
 
 export function toPublicAgentPlanResponse(plan: AgentPlan): AgentPlanPublicResponse {
@@ -251,6 +263,7 @@ export function toPublicAgentPlanResponse(plan: AgentPlan): AgentPlanPublicRespo
         status: plan.status,
         objectiveType: plan.objective.objectiveType,
         humanReadableSummary: plan.humanReadableSummary,
+        planDigest: plan.status === 'ready_for_authorization' ? plan.planDigest : undefined,
         steps: plan.steps.map((step) => ({
             stepId: step.stepId,
             toolId: step.toolId,
