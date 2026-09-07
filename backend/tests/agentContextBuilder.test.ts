@@ -43,8 +43,19 @@ vi.mock('../src/services/retrieval.service', () => ({
     }),
 }));
 
-import * as retrievalService from '../src/services/retrieval.service';
+// M-2 — sólo se mockea retrieveMemory (la llamada a la base); el resto del
+// módulo (enforceMemoryCanonicalDominance, pura/determinística) se deja
+// real -- así los tests de dominancia canónica ejercitan la lógica
+// verdadera, no una versión simulada de ella.
+vi.mock('../src/services/memory.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/memory.service')>();
+    return { ...actual, retrieveMemory: vi.fn() };
+});
 
+import * as retrievalService from '../src/services/retrieval.service';
+import * as memoryService from '../src/services/memory.service';
+
+const mockRetrieveMemory = vi.mocked(memoryService.retrieveMemory);
 const mockResolvePerson = vi.mocked(retrievalService.resolvePerson);
 const mockRetrieveCommitments = vi.mocked(retrievalService.retrieveCommitments);
 const mockRetrieveCommitmentProposals = vi.mocked(retrievalService.retrieveCommitmentProposals);
@@ -55,6 +66,7 @@ const mockRetrieveAttachments = vi.mocked(retrievalService.retrieveAttachments);
 
 function resetMocks() {
     mockResolvePerson.mockReset().mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+    mockRetrieveMemory.mockReset().mockResolvedValue([]);
     mockRetrieveCommitments.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentProposals.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentEvents.mockReset().mockResolvedValue([]);
@@ -1900,5 +1912,183 @@ describe('M-1H.1: "topic must remain topic" (sección 15) -- lenguaje estructura
         expect(ctx.proposalFocus).toBe('waiting_for_others');
         expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje' }), expect.any(Number));
         expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+    });
+});
+
+// ─── M-2: CANONICAL MEMORY + CONTEXT ARCHITECTURE ──────────────────────────
+function memoryFixture(overrides: Partial<Record<string, any>> = {}) {
+    return {
+        id: 'mem1', memoryType: 'semantic', subjectPersonId: null, subjectContactId: null,
+        canonicalText: 'Alejandra vive en Puerto Montt', predicate: 'lives_in', objectValue: 'Puerto Montt',
+        observedAt: '2026-01-01T00:00:00Z', validFrom: null, validUntil: null, status: 'active',
+        isCurrent: true, supersededBy: null, confidence: 1, sensitivity: 'normal', evidenceRefs: [],
+        sourceType: 'message', sourceId: 'msg1', conversationId: null,
+        ...overrides,
+    };
+}
+
+describe('M-2: detección de intención de memoria (detectMemoryIntent) -- wantsMemory/memoryFreshness en AgentContext', () => {
+    it('"¿Qué sabes de Alejandra?" -> wantsMemory=true, freshness="any" (sin marcador current/historical)', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué sabes de Alejandra?' });
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.memoryFreshness).toBe('any');
+    });
+
+    it('"¿Dónde vive Alejandra?" -> freshness="current"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vive Alejandra?' });
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.memoryFreshness).toBe('current');
+    });
+
+    it('"¿Dónde vivía Alejandra el año pasado?" -> freshness="historical"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vivía Alejandra el año pasado?' });
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.memoryFreshness).toBe('historical');
+    });
+
+    it('"¿Qué preferencias mías conoces?" -> sujeto es el propio actor (nunca requiere resolvePerson)', async () => {
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué preferencias mías conoces?' });
+        expect(ctx.wantsMemory).toBe(true);
+        expect(mockRetrieveMemory).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 'u1', subjectPersonId: 'u1' }), undefined);
+    });
+
+    it('una consulta normal de compromisos NUNCA activa wantsMemory ni llama a retrieveMemory (costo cero en el camino normal)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo pendiente?' });
+        expect(ctx.wantsMemory).toBe(false);
+        expect(mockRetrieveMemory).not.toHaveBeenCalled();
+    });
+});
+
+describe('M-2 FINAL: memoryQueryCardinality (sección 20) -- forma de la pregunta, distinta de freshness', () => {
+    it('H) "¿Por qué sabes que prefiero café?" -> cardinality="provenance"', async () => {
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Por qué sabes que prefiero café?' });
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.memoryQueryCardinality).toBe('provenance');
+    });
+
+    it('G) "¿Qué cambió sobre Proyecto X?" -> cardinality="change_over_time"', async () => {
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué cambió sobre Proyecto X?' });
+        expect(ctx.memoryQueryCardinality).toBe('change_over_time');
+    });
+
+    it('D) "¿Cuándo hablamos de Puerto Montt?" -> cardinality="episodic_search"', async () => {
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuándo hablamos de Puerto Montt?' });
+        expect(ctx.memoryQueryCardinality).toBe('episodic_search');
+    });
+
+    it('F) "¿Qué preferencias mías conoces?" -> cardinality="preference_list"', async () => {
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué preferencias mías conoces?' });
+        expect(ctx.memoryQueryCardinality).toBe('preference_list');
+    });
+
+    it('A) "¿Qué sabes de Alejandra?" -> cardinality="summary"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué sabes de Alejandra?' });
+        expect(ctx.memoryQueryCardinality).toBe('summary');
+    });
+
+    it('B) "¿Dónde vive Alejandra?" -> cardinality="fact_lookup"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vive Alejandra?' });
+        expect(ctx.memoryQueryCardinality).toBe('fact_lookup');
+    });
+
+    it('C) "¿Dónde vivía Alejandra el año pasado?" -> cardinality="history"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vivía Alejandra el año pasado?' });
+        expect(ctx.memoryQueryCardinality).toBe('history');
+    });
+});
+
+describe('M-2: AgentContext.memoryFacts / historicalMemoryFacts -- población y guardas', () => {
+    it('memoryFacts se puebla con lo que retrieveMemory devuelve, cuando isCurrent=true', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({ isCurrent: true })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vive Alejandra?' });
+        expect(ctx.memoryFacts.map((m) => m.id)).toEqual(['mem1']);
+        expect(ctx.historicalMemoryFacts).toEqual([]);
+    });
+
+    it('un registro con isCurrent=false (superseded real) cae en historicalMemoryFacts, nunca en memoryFacts', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({ id: 'old-mem', isCurrent: false, status: 'superseded', objectValue: 'Santiago' })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Dónde vivía Alejandra el año pasado?' });
+        expect(ctx.memoryFacts).toEqual([]);
+        expect(ctx.historicalMemoryFacts.map((m) => m.id)).toEqual(['old-mem']);
+    });
+
+    it('GUARD: un personHint explícito que no resolvió a nadie bloquea la memoria (nunca amplía a "sin filtro de persona")', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué sabes de Alejandra?' });
+        expect(mockRetrieveMemory).not.toHaveBeenCalled();
+    });
+
+    it('MULTI-PERSON NO-LEAKAGE: el subjectPersonId del plan es SIEMPRE el de la persona resuelta para ESTA consulta, nunca otro', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'javiera-id', displayName: 'Javiera', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué sabes de Javiera?' });
+        const [plan] = mockRetrieveMemory.mock.calls[0];
+        expect(plan.subjectPersonId).toBe('javiera-id');
+        expect(plan.subjectPersonId).not.toBe('alejandra-id');
+    });
+});
+
+describe('M-2: dominancia canónica sobre memoria -- integración real con enforceMemoryCanonicalDominance (CASO ENTRENAR)', () => {
+    it('memoria de estado ("proposed") en conflicto con el estado canónico actual ("accepted") del MISMO commitment -> termina en historicalMemoryFacts, nunca en memoryFacts', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'entrenar-1', title: 'Entrenar', status: 'accepted' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({
+            id: 'mem-entrenar', predicate: 'commitment_status:entrenar-1', objectValue: 'proposed',
+            sourceType: 'commitment', sourceId: 'entrenar-1', status: 'active', isCurrent: true,
+        })] as any);
+        // "recuerdo" dispara wantsMemory Y wantsCommitments (commitment_query determinístico ya cubre "qué tengo/compromisos" -- aquí forzamos ambos caminos con un input que activa memoria y trae commitments reales para que la dominancia tenga algo con qué comparar).
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué recuerdo tenemos sobre entrenar?' });
+        expect(ctx.memoryFacts.find((m) => m.id === 'mem-entrenar')).toBeUndefined();
+        expect(ctx.historicalMemoryFacts.find((m) => m.id === 'mem-entrenar')).toBeDefined();
+    });
+
+    it('M-2 ABSOLUTE FINAL (Blocker C): incluso cuando la memoria COINCIDE con el canónico actual, NUNCA queda en memoryFacts -- un predicate canon-owned jamás es una segunda autoridad "actual", ni por coincidencia', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'entrenar-1', title: 'Entrenar', status: 'proposed' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({
+            id: 'mem-entrenar', predicate: 'commitment_status:entrenar-1', objectValue: 'proposed',
+            sourceType: 'commitment', sourceId: 'entrenar-1', status: 'active', isCurrent: true,
+        })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué recuerdo tenemos sobre entrenar?' });
+        expect(ctx.memoryFacts.find((m) => m.id === 'mem-entrenar')).toBeUndefined();
+        expect(ctx.historicalMemoryFacts.find((m) => m.id === 'mem-entrenar')).toBeDefined();
+    });
+
+    it('"¿Cuál es el estado de Entrenar?" -- la verdad actual viene de commitments (canonical), nunca de una memoria commitment_status duplicada', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'entrenar-1', title: 'Entrenar', status: 'accepted' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({
+            id: 'mem-entrenar', predicate: 'commitment_status:entrenar-1', objectValue: 'accepted',
+            sourceType: 'commitment', sourceId: 'entrenar-1', status: 'active', isCurrent: true,
+        })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuál es el estado de entrenar?' });
+        // El estado actual está en ctx.commitments (canónico) -- la memoria
+        // correspondiente NUNCA aparece en memoryFacts, sin importar que
+        // coincida exactamente con el valor canónico.
+        expect(ctx.commitments.find((c) => c.id === 'entrenar-1')?.status).toBe('accepted');
+        expect(ctx.memoryFacts.find((m) => m.id === 'mem-entrenar')).toBeUndefined();
+    });
+
+    it('"¿Cuándo aceptamos Entrenar?" -- consulta histórica/episódica SÍ puede usar la memoria de transición (historicalMemoryFacts)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'entrenar-1', title: 'Entrenar', status: 'accepted' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({
+            id: 'mem-entrenar-accepted', predicate: 'commitment_status:entrenar-1', objectValue: 'accepted', observedAt: '2026-09-07T00:00:00Z',
+            sourceType: 'commitment', sourceId: 'entrenar-1', status: 'active', isCurrent: true,
+        })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuándo aceptamos entrenar?' });
+        // El evento histórico sigue disponible (nunca se pierde la cadena de
+        // transición), sólo nunca se presenta como "la verdad de ahora".
+        const found = ctx.historicalMemoryFacts.find((m) => m.id === 'mem-entrenar-accepted');
+        expect(found).toBeDefined();
+        expect(found?.observedAt).toBe('2026-09-07T00:00:00Z');
     });
 });

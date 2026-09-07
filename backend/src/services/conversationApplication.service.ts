@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
+import { invalidateMemoryForConversationDeletion } from './memory.service';
 
 export async function createConversationWithParticipants(input: {
     creatorUserId: string;
@@ -31,5 +32,19 @@ export async function tombstoneConversation(conversationId: string, actorUserId:
         const status = error.code === '42501' ? 403 : error.code === 'P0002' ? 404 : 500;
         throw new AppError(status === 500 ? 'Unable to delete conversation' : error.message, status);
     }
+
+    // M-2 ABSOLUTE FINAL (Blocker B) — real revocation boundary: una vez que
+    // la conversación se tombstonó de verdad, ninguna memoria derivada de
+    // ella debe seguir presentándose como vigente. Aislado en try/catch --
+    // el borrado real de la conversación YA se confirmó, nunca depende de
+    // que esta limpieza tenga éxito (mismo principio que
+    // canonicalMemoryEvents.service.ts).
+    try {
+        await invalidateMemoryForConversationDeletion(conversationId);
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[PING_MEMORY_TRACE][event_dispatch_failed] tombstoneConversation ya se confirmó -- esta falla nunca la afecta:', err instanceof Error ? err.message : err);
+    }
+
     return data;
 }

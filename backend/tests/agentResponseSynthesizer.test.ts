@@ -27,6 +27,11 @@ function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
         messages: [],
         transcriptions: [],
         attachments: [],
+        wantsMemory: false,
+        memoryFreshness: 'any',
+        memoryFacts: [],
+        historicalMemoryFacts: [],
+        summaries: [],
         canonicalFacts: [],
         provenance: [],
         needsClarification: false,
@@ -1276,5 +1281,98 @@ describe('M-1H: COUNT CONTRACT (sección 10) -- el Core calcula, el modelo nunca
         const response = await synthesizer.synthesize({ input: '¿Cuántos tengo vencidos?', context: ctx });
 
         expect(response.answer).toContain('0');
+    });
+});
+
+// ─── M-2: CANONICAL MEMORY + CONTEXT ARCHITECTURE — síntesis ───────────────
+function memoryFact(id: string, overrides: Partial<Record<string, any>> = {}) {
+    return {
+        id, memoryType: 'semantic' as const, subjectPersonId: null, subjectContactId: null,
+        canonicalText: 'Alejandra vive en Puerto Montt', predicate: 'lives_in', objectValue: 'Puerto Montt',
+        observedAt: '2026-01-01T00:00:00Z', validFrom: null, validUntil: null, status: 'active' as const,
+        isCurrent: true, supersededBy: null, confidence: 1, sensitivity: 'normal' as const, evidenceRefs: [],
+        sourceType: 'message' as const, sourceId: 'msg1', conversationId: null,
+        ...overrides,
+    };
+}
+
+describe('M-2 FINAL: provenance query (sección 18) -- "¿por qué sabes eso?"', () => {
+    it('memoryQueryCardinality="provenance" agrega la instrucción de justificar la fuente al prompt', async () => {
+        const mem = memoryFact('mem1', { canonicalText: 'El usuario prefiere café', observedAt: '2026-03-01T00:00:00Z' });
+        const ctx = baseContext({ evidenceFound: true, memoryFacts: [mem] as any, memoryQueryCardinality: 'provenance' as any });
+        const model = fakeModel(claimPayload([{ text: 'Lo sé porque lo mencionaste el 1 de marzo.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem1' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        await synthesizer.synthesize({ input: '¿Por qué sabes que prefiero café?', context: ctx });
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).toMatch(/provenance question/i);
+    });
+
+    it('sin memoryQueryCardinality="provenance", la instrucción de provenance NUNCA aparece (costo cero fuera de esta forma de pregunta)', async () => {
+        const ctx = baseContext({ evidenceFound: true, commitments: [commitment('cm1')] as any, memoryQueryCardinality: 'fact_lookup' as any });
+        const model = fakeModel(claimPayload([{ text: 'algo', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm1' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        await synthesizer.synthesize({ input: 'x', context: ctx });
+
+        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
+        expect(promptSent).not.toMatch(/provenance question/i);
+    });
+});
+
+describe('M-2: memoria en síntesis -- allowedSourceRefs, boundary de evidencia', () => {
+    it('un memory_record vigente entra en el prompt como sourceType "memory" y es citable', async () => {
+        const mem = memoryFact('mem1');
+        const ctx = baseContext({ evidenceFound: true, memoryFacts: [mem] as any });
+        const model = fakeModel(claimPayload([{ text: 'Alejandra vive en Puerto Montt.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem1' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Dónde vive Alejandra?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.citations).toContainEqual({ sourceType: 'memory', sourceId: 'mem1' });
+    });
+
+    it('citar un memory id que NO está en el contexto se rechaza igual que cualquier otra fuente (boundary de evidencia)', async () => {
+        const ctx = baseContext({ evidenceFound: true, memoryFacts: [memoryFact('mem1')] as any });
+        const model = fakeModel(claimPayload([{ text: 'inventado', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-nunca-recuperado' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Dónde vive Alejandra?', context: ctx });
+
+        expect(response.citations.some((c) => c.sourceId === 'mem-nunca-recuperado')).toBe(false);
+        expect(response.diagnostics?.fallbackReason).toBe('no_supported_claims');
+    });
+});
+
+describe('M-2: enforceMemoryHistoricalDisclosure -- nunca se afirma memoria vieja/en conflicto como verdad actual', () => {
+    it('un claim que cita memoria HISTÓRICA (isCurrent=false) SIEMPRE recibe una aclaración adicional determinística, sin importar cómo lo fraseó el modelo', async () => {
+        const oldMem = memoryFact('mem-old', { isCurrent: false, status: 'superseded', objectValue: 'Santiago', canonicalText: 'Alejandra vivía en Santiago' });
+        const ctx = baseContext({ evidenceFound: true, historicalMemoryFacts: [oldMem] as any });
+        // ADVERSARIAL: el modelo frasea la memoria histórica como si fuera un hecho actual, sin ningún matiz de pasado.
+        const model = fakeModel(claimPayload([{ text: 'Alejandra vive en Santiago.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-old' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Dónde vivía Alejandra el año pasado?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        // El claim original del modelo sobrevive (no se descarta, sección "aditivo nunca destructivo") PERO
+        // el resultado final SIEMPRE incluye la aclaración de que ya no es necesariamente vigente.
+        expect(response.claims.some((c) => /anteriormente|previously/i.test(c.text))).toBe(true);
+    });
+
+    it('un claim que cita memoria VIGENTE (isCurrent=true) nunca recibe la aclaración histórica', async () => {
+        const currentMem = memoryFact('mem-current', { isCurrent: true });
+        const ctx = baseContext({ evidenceFound: true, memoryFacts: [currentMem] as any });
+        const model = fakeModel(claimPayload([{ text: 'Alejandra vive en Puerto Montt.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-current' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Dónde vive Alejandra?', context: ctx });
+
+        expect(response.claims.some((c) => /anteriormente|previously/i.test(c.text))).toBe(false);
+    });
+
+    it('la aclaración histórica nunca interviene cuando no hay memoria histórica en el contexto (costo cero en el camino normal)', async () => {
+        const ctx = baseContext({ evidenceFound: true, commitments: [commitment('cm1')] as any });
+        const model = fakeModel(claimPayload([{ text: 'algo', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm1' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'x', context: ctx });
+
+        expect(response.claims).toHaveLength(1);
     });
 });

@@ -18,7 +18,7 @@ import { z } from 'zod';
 // claim del modelo que citara honestamente una proposal como tal fallaba
 // la validación de schema y degradaba TODA la respuesta al fallback
 // estructurado -- ver retrieval.service.ts#retrieveCommitmentProposals.
-const SOURCE_TYPE_VALUES = ['commitment', 'commitment_proposal', 'commitment_event', 'message', 'transcription', 'attachment', 'person'] as const;
+const SOURCE_TYPE_VALUES = ['commitment', 'commitment_proposal', 'commitment_event', 'message', 'transcription', 'attachment', 'person', 'memory'] as const;
 
 const citationSchema = z.object({
     sourceType: z.enum(SOURCE_TYPE_VALUES),

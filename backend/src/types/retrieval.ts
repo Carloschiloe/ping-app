@@ -16,7 +16,14 @@ export type RetrievalSourceType =
     | 'message'
     | 'transcription'
     | 'attachment'
-    | 'person';
+    | 'person'
+    // M-2 — el propio memory_record es la unidad citable ("¿por qué sabes
+    // eso?" cita el memory_record, cuya evidencia interna -- evidenceRefs --
+    // es procedencia interna, no una segunda capa de citas públicas en esta
+    // entrega). Nunca se reutiliza 'message'/'commitment' para esto aunque
+    // la memoria derive de ahí -- la cita debe distinguir "esto lo sé por
+    // memoria derivada" de "esto es evidencia canónica directa".
+    | 'memory';
 
 // Toda entidad devuelta por Retrieval carga su procedencia. Nunca existe un
 // resultado "derivado" sin referencia — ver M-1A "Provenance".

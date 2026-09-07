@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { toLegacyMessageShape } from '../utils/messageCompat';
+import { invalidateMemoryForDeletedSource } from './memory.service';
 
 export const MESSAGE_API_SELECT = '*, attachments!attachments_message_id_fkey(id, kind, mime_type, size_bytes, duration_ms, original_filename, lifecycle_status, created_at), profiles!sender_id(id, email, full_name, avatar_url), reply_to:reply_to_id(id, content, deleted_at, profiles!sender_id(email, full_name, avatar_url)), message_reactions(*, profiles:user_id(id, email, full_name, avatar_url)), message_receipts(*)';
 
@@ -138,6 +139,18 @@ export async function tombstoneMessage(actorUserId: string, messageId: string) {
     if (error) {
         const status = error.code === '42501' ? 403 : error.code === 'P0002' ? 404 : 500;
         throw new AppError(status === 500 ? 'Unable to delete message' : error.message, status);
+    }
+
+    // M-2 ABSOLUTE FINAL (Blocker B) — real revocation boundary: el mensaje
+    // ya se tombstoneó de verdad; cualquier memoria que lo citaba como
+    // evidencia (primaria o secundaria) se limpia real -- reverse lookup vía
+    // memory_record_evidence, nunca lazy. Aislado en try/catch: el borrado
+    // del mensaje ya se confirmó, nunca depende de esta limpieza.
+    try {
+        await invalidateMemoryForDeletedSource('message', messageId);
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[PING_MEMORY_TRACE][event_dispatch_failed] tombstoneMessage ya se confirmó -- esta falla nunca la afecta:', err instanceof Error ? err.message : err);
     }
 
     const { data, error: fetchError } = await supabaseAdmin

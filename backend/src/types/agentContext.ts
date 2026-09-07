@@ -17,6 +17,7 @@ import type {
     RetrievalTimeRange,
     RetrievalTranscript,
 } from './retrieval';
+import type { MemoryFreshness, MemoryQueryCardinality, RetrievalMemory } from './memory';
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 // `channel` is contextual metadata only — it never changes authorization or
@@ -135,7 +136,7 @@ export interface Interpretation {
 // indiscriminada. Los `params` son un resumen seguro (nunca contenido crudo
 // ni datos ajenos) pensado para tests/diagnostics.
 export interface RetrievalPlanStep {
-    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentProposals' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments' | 'personScopeGuardSkipped';
+    step: 'resolvePerson' | 'retrieveCommitments' | 'retrieveCommitmentProposals' | 'retrieveCommitmentEvents' | 'retrieveMessages' | 'retrieveTranscriptions' | 'retrieveAttachments' | 'retrieveMemory' | 'personScopeGuardSkipped';
     params?: Record<string, unknown>;
 }
 
@@ -275,6 +276,34 @@ export interface AgentContext {
     transcriptions: RetrievalTranscript[];
     attachments: RetrievalAttachment[];
 
+    // M-2 — CANONICAL MEMORY + CONTEXT ARCHITECTURE. true sólo cuando el
+    // input crudo realmente disparó un patrón de consulta de memoria (ver
+    // agentContextBuilder.service.ts#detectMemoryIntent) -- nunca inferido
+    // implícitamente de la sola presencia de `memoryFacts`.
+    wantsMemory: boolean;
+    memoryFreshness: MemoryFreshness;
+    // M-2 FINAL — forma de la pregunta (sección 20), nunca un filtro de
+    // retrieval adicional -- sólo dirige cómo debe frasear/justificar
+    // síntesis (ver agentResponseSynthesizer.service.ts, camino 'provenance').
+    memoryQueryCardinality: MemoryQueryCardinality;
+    // Hechos de memoria VIGENTES (RetrievalMemory.isCurrent===true) -- nunca
+    // incluye superseded/invalidated/candidate (ver memory.service.ts#
+    // retrieveMemory, que ya excluye esos estados en la propia query) ni
+    // nada que la dominancia canónica haya marcado como no-vigente (ver
+    // memory.service.ts#enforceMemoryCanonicalDominance).
+    memoryFacts: RetrievalMemory[];
+    // Hechos de memoria HISTÓRICOS: registros 'superseded' reales, o
+    // registros 'active' que la dominancia canónica anuló en tiempo de
+    // lectura porque la verdad canónica actual ya no coincide (ver
+    // enforceMemoryCanonicalDominance). Síntesis debe frasearlos siempre
+    // como pasado, nunca como estado actual.
+    historicalMemoryFacts: RetrievalMemory[];
+    // Reservado para resúmenes derivados (taxonomía "derived summary",
+    // sección "taxonomía" del ticket M-2) -- sin generación implementada en
+    // esta entrega (es un producto de síntesis en memoria de proceso, no un
+    // estado persistido); siempre [] por ahora, nunca contenido inventado.
+    summaries: string[];
+
     // "Hechos canónicos" mínimos y honestos (sección 6): entidades resueltas
     // con certeza estructural (ej. "Laura -> profile X"), NO un resumen del
     // contenido recuperado. M-1D no tiene una fuente de "facts" propia; esto
@@ -302,4 +331,5 @@ export interface AgentContextBudget {
     messages?: number;
     transcriptions?: number;
     attachments?: number;
+    memory?: number;
 }

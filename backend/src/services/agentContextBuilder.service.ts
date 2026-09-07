@@ -21,6 +21,9 @@ import {
     retrieveAttachments,
     dedupeProvenance,
 } from './retrieval.service';
+import { retrieveMemory } from './memory.service';
+import { enforceMemoryCanonicalDominance } from './canonicalTruthRegistry';
+import type { MemoryFreshness, MemoryQueryCardinality, MemoryQueryPlan, RetrievalMemory } from '../types/memory';
 import {
     LlmInputInterpreter,
     DeterministicInputInterpreter,
@@ -62,6 +65,7 @@ const DEFAULT_BUDGET: Required<AgentContextBudget> = {
     messages: 15,
     transcriptions: 5,
     attachments: 5,
+    memory: 10,
 };
 
 // ─── Timezone (sección 12) — resolveAgentTimezone/timeZoneOffsetMs/
@@ -299,6 +303,70 @@ function filterByProposalFocus(
     });
 }
 
+// ─── M-2 — Memory intent (mismo patrón que classifyQueryCardinality: 100%
+// determinístico, corre siempre, gratis, nunca depende del LLM para decidir
+// si esta consulta es sobre memoria). Cobertura deliberadamente centrada en
+// las 9 preguntas del contrato del ticket (sección "matriz de contrato A-I")
+// -- ampliar la cobertura de frases futuras es una mejora de amplitud de
+// producto, no una corrección de contrato (ver informe de entrega, sección
+// "MemoryQueryPlan").
+const MEMORY_TRIGGER_PATTERN = /qu[eé] (sabes|recuerdas|recuerdo|cambi[oó])|conoces (de|sobre)|d[oó]nde viv|preferencias|por qu[eé] sabes|porque sabes|sigue siendo cierto|cu[aá]ndo (hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos)|recuerdo (tenemos|hay)/;
+const MEMORY_HISTORICAL_PATTERN = /viv[ií]a|antes viv|el a[nñ]o pasado|hace tiempo|anteriormente|sol[ií]a|used to|last year|previously/;
+const MEMORY_CURRENT_PATTERN = /d[oó]nde vive|prefiero|prefiere|actualmente|sigue siendo cierto/;
+const MEMORY_SELF_SUBJECT_PATTERN = /preferencias m[ií]as|sobre m[ií]\b|de m[ií]\b|conmigo|prefiero|por qu[eé] sabes que|porque sabes que/;
+// M-2 FINAL (sección 20) — forma de la pregunta, evaluada en un orden fijo
+// (la primera coincidencia gana) para que una frase que toca varios patrones
+// a la vez ("¿por qué sabes que prefiero café?" toca tanto provenance como
+// preferencia) tenga un resultado determinístico, nunca ambiguo.
+const MEMORY_PROVENANCE_PATTERN = /por qu[eé] sabes|porque sabes/;
+const MEMORY_CHANGE_PATTERN = /qu[eé] cambi[oó]/;
+const MEMORY_EPISODIC_PATTERN = /cu[aá]ndo (hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos)/;
+const MEMORY_PREFERENCE_LIST_PATTERN = /preferencias/;
+const MEMORY_SUMMARY_PATTERN = /qu[eé] sabes|conoces (de|sobre)|recuerdo (tenemos|hay)|qu[eé] recuerdas|qu[eé] recuerdo/;
+
+function detectMemoryQueryCardinality(text: string, freshness: MemoryFreshness): MemoryQueryCardinality {
+    if (MEMORY_PROVENANCE_PATTERN.test(text)) return 'provenance';
+    if (MEMORY_CHANGE_PATTERN.test(text)) return 'change_over_time';
+    if (MEMORY_EPISODIC_PATTERN.test(text)) return 'episodic_search';
+    if (MEMORY_PREFERENCE_LIST_PATTERN.test(text)) return 'preference_list';
+    if (MEMORY_SUMMARY_PATTERN.test(text)) return 'summary';
+    return freshness === 'historical' ? 'history' : 'fact_lookup';
+}
+
+function detectMemoryIntent(rawInput: string): { wantsMemory: boolean; memoryFreshness: MemoryFreshness; subjectIsSelf: boolean; memoryQueryCardinality: MemoryQueryCardinality } {
+    const text = rawInput.toLowerCase();
+    if (!MEMORY_TRIGGER_PATTERN.test(text)) {
+        return { wantsMemory: false, memoryFreshness: 'any', subjectIsSelf: false, memoryQueryCardinality: 'fact_lookup' };
+    }
+    const subjectIsSelf = MEMORY_SELF_SUBJECT_PATTERN.test(text);
+    let memoryFreshness: MemoryFreshness = 'any';
+    if (MEMORY_HISTORICAL_PATTERN.test(text)) memoryFreshness = 'historical';
+    else if (MEMORY_CURRENT_PATTERN.test(text)) memoryFreshness = 'current';
+    const memoryQueryCardinality = detectMemoryQueryCardinality(text, memoryFreshness);
+    return { wantsMemory: true, memoryFreshness, subjectIsSelf, memoryQueryCardinality };
+}
+
+function buildMemoryQueryPlan(
+    ownerUserId: string,
+    subjectPersonId: string | null,
+    topicQuery: string | null,
+    timeRange: RetrievalTimeRange | null,
+    freshness: MemoryFreshness,
+    limit: number,
+): MemoryQueryPlan {
+    return {
+        ownerUserId,
+        subjectPersonId,
+        subjectContactId: null,
+        topicQuery,
+        timeRange,
+        memoryTypes: null,
+        sourceTypes: null,
+        freshness,
+        limit,
+    };
+}
+
 export interface BuildAgentContextOptions {
     interpreter?: AgentInputInterpreter;
     budget?: AgentContextBudget;
@@ -491,6 +559,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // no la única barrera — sección 17: nunca se amplía el scope semántico.
     const personScopeBlocked = interpretation.personHints.length > 0 && !resolvedPersonId;
 
+    // ─── M-2 — Memory query plan ────────────────────────────────────────────
+    // Mismo guard que commitments/messages: un personHint explícito que no
+    // resolvió a nadie nunca se relaja a "memoria sin filtro de persona" --
+    // salvo que la memoria pedida sea sobre el propio actor (subjectIsSelf),
+    // que no depende en absoluto de resolvePerson.
+    const memoryIntentSignal = detectMemoryIntent(input.input);
+    const memorySubjectPersonId = memoryIntentSignal.subjectIsSelf ? input.actorUserId : (resolvedPersonId ?? null);
+    const memoryBlocked = personScopeBlocked && !memoryIntentSignal.subjectIsSelf;
+    const memoryTopicQuery = interpretation.textQuery ?? (interpretation.topicHints?.[0] ?? null);
+
     const canonicalFacts: AgentContext['canonicalFacts'] = people
         .filter((p) => p.resolved && !p.ambiguous)
         .map((p) => ({ type: 'person_resolved' as const, personId: p.resolved!.id, displayName: p.resolved!.displayName }));
@@ -646,8 +724,21 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const [commitmentsOnly, proposalsFill, messages, transcriptions, attachments] = await Promise.all([
-        commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
+    // M-2 — retrieveMemory ya es owner-scoped internamente (nunca depende de
+    // este guard para autorización -- ver memory.service.ts#retrieveMemory,
+    // siempre `.eq('owner_user_id', ...)`); memoryBlocked es sólo el mismo
+    // principio de "nunca ampliar el scope semántico" ya aplicado a
+    // commitments/messages, no una segunda barrera de autorización.
+    const memoryPromise: Promise<RetrievalMemory[]> = memoryIntentSignal.wantsMemory && !memoryBlocked
+        ? (() => {
+            retrievalPlan.push({ step: 'retrieveMemory', params: { subjectPersonId: !!memorySubjectPersonId, freshness: memoryIntentSignal.memoryFreshness, hasTopicQuery: !!memoryTopicQuery } });
+            const plan = buildMemoryQueryPlan(input.actorUserId, memorySubjectPersonId, memoryTopicQuery, timeRange, memoryIntentSignal.memoryFreshness, budget.memory);
+            return retrieveMemory(plan, input.traceId);
+        })()
+        : Promise.resolve<RetrievalMemory[]>([]);
+
+    const [commitmentsOnly, proposalsFill, messages, transcriptions, attachments, memoryFactsRaw] = await Promise.all([
+        commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise, memoryPromise,
     ]);
     const proposalsOnly = proposalsFill.matches;
     // M-1H FINAL — CONTRATO CORREGIDO: authorized candidates -> structured
@@ -661,6 +752,21 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const sortedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, interpretation.wantsOverdueFocus);
     const filteredCommitments = filterByProposalFocus(sortedCommitments, interpretation.proposalFocus, resolvedPersonId);
     const commitments = filteredCommitments.slice(0, budget.commitments);
+
+    // M-2 — INVARIANTE NO NEGOCIABLE: la verdad canónica siempre domina a la
+    // memoria. Se aplica AQUÍ, después de que `commitments` ya es el conjunto
+    // canónico final (filtrado+ordenado+recortado) para esta consulta -- una
+    // memoria de estado de commitment/proposal que ya no coincide con el
+    // estado canónico actual se reclasifica como histórica (isCurrent=false)
+    // sin importar su `status` almacenado. Luego se particiona en
+    // vigentes/históricos para que síntesis nunca tenga que re-derivar esa
+    // distinción por su cuenta.
+    const memoryFactsDominanceApplied = enforceMemoryCanonicalDominance(memoryFactsRaw);
+    const memoryFacts = memoryFactsDominanceApplied.filter((m) => m.isCurrent);
+    const historicalMemoryFacts = memoryFactsDominanceApplied.filter((m) => !m.isCurrent);
+    if (memoryFactsRaw.length > 0) sourcesConsulted.push('retrieveMemory');
+    sourceCounts.memory = memoryFactsRaw.length;
+
     // Sección 12 del ticket (truncation/completeness honesty) — señales
     // DISTINTAS, nunca una sola "truncated" optimista:
     //   - requiredSourceRefsTruncated: ya sabemos con CERTEZA (conteos que
@@ -746,7 +852,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     ]);
 
     const evidenceFound = commitments.length > 0 || resolvedEvents.length > 0 || messages.length > 0
-        || transcriptions.length > 0 || attachments.length > 0;
+        || transcriptions.length > 0 || attachments.length > 0 || memoryFacts.length > 0 || historicalMemoryFacts.length > 0;
 
     // M-1H — REQUIRED SOURCE REFS (secciones 8/9 del ticket): para una
     // consulta exhaustive_list, la respuesta final DEBE cubrir TODOS los
@@ -868,6 +974,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         messages,
         transcriptions,
         attachments,
+        wantsMemory: memoryIntentSignal.wantsMemory,
+        memoryFreshness: memoryIntentSignal.memoryFreshness,
+        memoryQueryCardinality: memoryIntentSignal.memoryQueryCardinality,
+        memoryFacts,
+        historicalMemoryFacts,
+        summaries: [],
         canonicalFacts,
         provenance,
         needsClarification,

@@ -11,8 +11,10 @@ import { vi } from 'vitest';
 export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const cursors: Record<string, number> = {};
     const inserts: Record<string, any[]> = {};
+    const upserts: Record<string, any[]> = {};
     const updates: Record<string, any[]> = {};
     const eqCalls: Record<string, Array<[string, any]>> = {};
+    const inCalls: Record<string, Array<[string, any]>> = {};
     const selectCalls: Record<string, any[]> = {};
     const orCalls: Record<string, string[]> = {};
     const textSearchCalls: Record<string, Array<[string, string, any]>> = {};
@@ -34,6 +36,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
                 (inserts[table] = inserts[table] || []).push(payload);
                 return chain;
             }),
+            upsert: vi.fn((payload: any, options?: any) => {
+                (upserts[table] = upserts[table] || []).push({ payload, options });
+                return chain;
+            }),
             update: vi.fn((payload: any) => {
                 (updates[table] = updates[table] || []).push(payload);
                 return chain;
@@ -44,7 +50,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
                 return chain;
             }),
             neq: vi.fn(() => chain),
-            in: vi.fn(() => chain),
+            in: vi.fn((column: string, value: any) => {
+                (inCalls[table] = inCalls[table] || []).push([column, value]);
+                return chain;
+            }),
             or: vi.fn((filter: string) => {
                 (orCalls[table] = orCalls[table] || []).push(filter);
                 return chain;
@@ -85,8 +94,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
         }),
         // Helpers de inspeccion para aserciones en los tests.
         getInsertCalls: (table: string) => inserts[table] || [],
+        getUpsertCalls: (table: string) => upserts[table] || [],
         getUpdateCalls: (table: string) => updates[table] || [],
         getEqCalls: (table: string) => eqCalls[table] || [],
+        getInCalls: (table: string) => inCalls[table] || [],
         getSelectCalls: (table: string) => selectCalls[table] || [],
         getOrCalls: (table: string) => orCalls[table] || [],
         getTextSearchCalls: (table: string) => textSearchCalls[table] || [],

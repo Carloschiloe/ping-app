@@ -8,6 +8,7 @@ import {
 } from '../utils/authz';
 import { readLegacyAssignedToUserId, readLegacyConversationId, readLegacyDueAt } from '../utils/commitmentCompat';
 import { buildCommitmentProposalVisibilityFilter, getParticipantProposalIds } from '../utils/commitmentVisibility';
+import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
 
 export async function createProposal(userId: string, input: any) {
     const conversationId = readLegacyConversationId(input);
@@ -148,6 +149,32 @@ export async function respondToSharedProposal(
         }
     );
     if (error) throw error;
+
+    // M-2 FINAL — respond_to_commitment_proposal es el único funnel real de
+    // approve/reject/counter_propose sobre proposals compartidas; su jsonb
+    // de retorno ya trae la proposal actualizada y (si la decisión completó
+    // todas las aprobaciones requeridas) el commitment recién creado.
+    if (data?.proposal) {
+        await dispatchCommitmentStatusMemoryEvent({
+            ownerUserId: data.proposal.proposed_by_user_id,
+            sourceType: 'commitment_proposal',
+            sourceId: data.proposal.id,
+            title: data.proposal.title,
+            newStatus: data.proposal.status,
+            conversationId: data.proposal.conversation_id ?? null,
+        });
+    }
+    if (data?.commitment) {
+        await dispatchCommitmentStatusMemoryEvent({
+            ownerUserId: data.commitment.owner_user_id,
+            sourceType: 'commitment',
+            sourceId: data.commitment.id,
+            title: data.commitment.title,
+            newStatus: data.commitment.status,
+            conversationId: data.commitment.conversation_id ?? null,
+        });
+    }
+
     return data;
 }
 
@@ -302,6 +329,21 @@ export async function confirmProposal(userId: string, proposalId: string) {
         p_actor_user_id: userId,
     });
     if (error) throw error;
+
+    // M-2 FINAL — confirm_commitment_proposal devuelve el `commitments` ya
+    // creado (returns public.commitments), no la proposal -- la proposal en
+    // sí SÍ cambió a 'confirmed' dentro de la misma transacción SQL, así que
+    // se registran AMBOS hechos: la proposal terminal (nunca vuelve a ser
+    // 'pending') y el commitment recién nacido con su estado inicial real.
+    await dispatchCommitmentStatusMemoryEvent({
+        ownerUserId: data.owner_user_id, sourceType: 'commitment_proposal', sourceId: proposalId,
+        title: data.title, newStatus: 'confirmed', conversationId: data.conversation_id ?? null,
+    });
+    await dispatchCommitmentStatusMemoryEvent({
+        ownerUserId: data.owner_user_id, sourceType: 'commitment', sourceId: data.id,
+        title: data.title, newStatus: data.status, conversationId: data.conversation_id ?? null,
+    });
+
     return data;
 }
 
@@ -314,6 +356,12 @@ export async function rejectProposal(userId: string, proposalId: string, reason?
         });
     if (error) throw error;
     if (!data) throw new AppError('Pending proposal not found', 404);
+
+    await dispatchCommitmentStatusMemoryEvent({
+        ownerUserId: data.proposed_by_user_id, sourceType: 'commitment_proposal', sourceId: data.id,
+        title: data.title, newStatus: data.status, conversationId: data.conversation_id ?? null,
+    });
+
     return data;
 }
 

@@ -21,6 +21,7 @@ import {
 } from '../utils/commitmentVisibility';
 import { persistSystemMessage } from './messagingApplication.service';
 import { resolveTimeZone } from './date-parser.service';
+import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
 // entornos donde este modulo se importa solo por sus funciones de
@@ -242,6 +243,24 @@ async function applyCommitmentTransition(
         console.error(`[Commitment Service] ${action} update error:`, error);
         throw error;
     }
+
+    // M-2 FINAL — ÚNICO punto de ingesta de memoria para TODO el dominio de
+    // commitments: applyCommitmentTransition es el funnel real que ya usan
+    // las 8 transiciones públicas (accept/reject/counter_propose/resolve/
+    // cancel/reopen/reassign/action_complete) -- un solo call site cierra el
+    // ciclo de dominancia canónica para cualquier transición, no sólo una.
+    // Idempotente incluso cuando `action` no cambia `status` (ej. reassign):
+    // el content_hash de memory.service.ts colapsa el hecho repetido como
+    // "duplicate", nunca como un segundo hecho activo. Nunca puede fallar la
+    // transición canónica ya confirmada (ver canonicalMemoryEvents.service.ts).
+    await dispatchCommitmentStatusMemoryEvent({
+        ownerUserId: data.owner_user_id,
+        sourceType: 'commitment',
+        sourceId: data.id,
+        title: data.title,
+        newStatus: data.status,
+        conversationId: data.conversation_id ?? null,
+    });
 
     return data;
 }
