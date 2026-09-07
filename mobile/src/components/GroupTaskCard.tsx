@@ -555,14 +555,39 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && (isOwner || isAssignee) && !isMeeting && (isProposed || isCounter || isAccepted))) && (
+                        {/*
+                            PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — cierre de raíz
+                            (root cause confirmado por auditoría real): `handlePostpone`
+                            (abajo) es LITERALMENTE el mismo handler que `handleEdit` --
+                            ambos abren el mismo AISuggestionModal con `isEditing=true`
+                            para un commitment plano (isAgreementProposal=false), y
+                            `onConfirmEdit` envía SIEMPRE title+due_at+assigned_to_user_id
+                            juntos (un payload de EDICIÓN genérica, nunca una transición
+                            de lifecycle acotada) a `updateCommitment` -- que el backend
+                            (commitment.service.ts#editCommitment, doblemente forzado por
+                            la RPC `apply_commitment_transition_with_evidence`) sólo
+                            permite al OWNER real, nunca a un mero assignee/participante
+                            (ni siquiera al asignado explícito, mucho menos a cualquiera
+                            incluido sólo por el carve-out "para todos" de `isAssignee`).
+                            Antes este ítem se ofrecía también a `isAssignee`, dejando a
+                            un participante no-creador (ej. Alejandra sobre un
+                            commitment "para todos" que Carlos escribió) abrir un flujo
+                            de edición que el backend iba a rechazar de todas formas --
+                            nunca fue una "contrapropuesta" real. Restringido a `isOwner`
+                            para que el único caso NO-agreement que se ofrece sea el que
+                            realmente puede tener éxito. Una contrapropuesta real de un
+                            participante existe SÓLO para `commitment_proposals`
+                            compartidas (`canRespondToAgreement`, arriba), vía su propia
+                            fila de respuesta -- eso nunca cambia.
+                        */}
+                        {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && isOwner && !isMeeting && (isProposed || isCounter || isAccepted))) && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.separator }]}
                                 onPress={() => { setShowActions(false); handlePostpone(); }}
                             >
                                 <Ionicons name="time" size={24} color="#6366f1" />
                                 <Text style={[styles.menuItemText, theme.isDark && { color: theme.colors.text.primary }]}>
-                                    {isAgreementProposal ? 'Sugerir otro horario' : 'Contraproponer fecha'}
+                                    {isAgreementProposal ? 'Sugerir otro horario' : 'Reprogramar fecha'}
                                 </Text>
                             </TouchableOpacity>
                         )}

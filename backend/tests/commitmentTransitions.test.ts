@@ -35,15 +35,31 @@ describe('computeCommitmentTransition: accept', () => {
         expect(result.event).toEqual({ event_type: 'accepted', previous_status: 'proposed', new_status: 'accepted', payload: { selfAssigned: false } });
     });
 
-    it('un compromiso sin asignado (grupo) puede ser auto-asignado por quien acepta', () => {
-        const result = computeCommitmentTransition({ action: 'accept', actorUserId: OTHER, commitment: snapshot({ assignedToUserId: null }), now: NOW });
-        expect(result.patch.assigned_to_user_id).toBe(OTHER);
+    // PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — JS/RPC PARITY (hallazgo
+    // real, probado contra Postgres local en backend/src/final_closure_validation.ts):
+    // este test históricamente afirmaba que "cualquier participante" (OTHER,
+    // sin relación con el commitment) podía auto-asignarse un ítem sin
+    // asignar mediante accept. Eso NUNCA fue cierto en producción: la única
+    // autoridad real, apply_commitment_transition_with_evidence, exige
+    // owner_user_id=actor O assigned_to_user_id=actor de forma incondicional
+    // -- un actor que no es ninguno de los dos recibe 42501 SIEMPRE, incluso
+    // cuando assigned_to_user_id es null. La función pura ahora exige
+    // exactamente lo mismo que el RPC (nunca ofrece una acción que el
+    // backend real vaya a rechazar).
+    it('el owner puede auto-asignarse un compromiso sin asignar (grupo) mediante accept', () => {
+        const result = computeCommitmentTransition({ action: 'accept', actorUserId: OWNER, commitment: snapshot({ assignedToUserId: null }), now: NOW });
+        expect(result.patch.assigned_to_user_id).toBe(OWNER);
         expect(result.event.payload.selfAssigned).toBe(true);
+    });
+
+    it('un tercero ajeno NO puede auto-asignarse un compromiso sin asignar (paridad real con el RPC, que rechaza con 42501 incluso sin asignado): lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'accept', actorUserId: OTHER, commitment: snapshot({ assignedToUserId: null }), now: NOW }))
+            .toThrow('Only the owner or the assigned user');
     });
 
     it('un usuario que no es el asignado (y hay asignado) NO puede aceptar: lanza 403', () => {
         expect(() => computeCommitmentTransition({ action: 'accept', actorUserId: OTHER, commitment: snapshot(), now: NOW }))
-            .toThrow('Only the assigned user');
+            .toThrow('Only the owner or the assigned user');
     });
 
     it('no se puede aceptar un compromiso ya resuelto (estado invalido): lanza 409', () => {
@@ -78,7 +94,12 @@ describe('computeCommitmentTransition: reject', () => {
 
     it('un tercero ajeno no puede rechazar: lanza 403', () => {
         expect(() => computeCommitmentTransition({ action: 'reject', actorUserId: OTHER, commitment: snapshot(), now: NOW }))
-            .toThrow('Only the assigned user');
+            .toThrow('Only the owner or the assigned user');
+    });
+
+    it('un tercero ajeno tampoco puede rechazar un compromiso sin asignar (paridad real con el RPC): lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'reject', actorUserId: OTHER, commitment: snapshot({ assignedToUserId: null }), now: NOW }))
+            .toThrow('Only the owner or the assigned user');
     });
 });
 
@@ -109,6 +130,16 @@ describe('computeCommitmentTransition: counter_propose', () => {
         expect(() => computeCommitmentTransition({ action: 'counter_propose', actorUserId: OWNER, commitment: snapshot({ status: 'rejected' }), newProposedDueAt: '2026-09-01T10:00:00.000Z', now: NOW }))
             .toThrow(/status "rejected"/);
     });
+
+    // PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — paridad JS/RPC: un tercero
+    // ajeno (ej. un participante de la proposal de origen que aprobó pero
+    // nunca es owner/assignee del commitment materializado) nunca puede
+    // contraproponer, ni siquiera sobre un ítem sin asignar -- mismo
+    // razonamiento que accept/reject arriba.
+    it('un tercero ajeno no puede contraproponer, ni siquiera sobre un compromiso sin asignar: lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'counter_propose', actorUserId: OTHER, commitment: snapshot({ status: 'accepted', assignedToUserId: null }), newProposedDueAt: '2026-09-01T10:00:00.000Z', now: NOW }))
+            .toThrow('Only the owner or the assigned user');
+    });
 });
 
 describe('computeCommitmentTransition: action_complete', () => {
@@ -124,6 +155,11 @@ describe('computeCommitmentTransition: action_complete', () => {
         expect(() => computeCommitmentTransition({ action: 'action_complete', actorUserId: OTHER, commitment: snapshot({ status: 'accepted' }), now: NOW }))
             .toThrow('Only the owner or the assigned user');
     });
+
+    it('un tercero ajeno tampoco puede completar un compromiso sin asignar (paridad real con el RPC): lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'action_complete', actorUserId: OTHER, commitment: snapshot({ status: 'accepted', assignedToUserId: null }), now: NOW }))
+            .toThrow('Only the owner or the assigned user');
+    });
 });
 
 describe('computeCommitmentTransition: resolve', () => {
@@ -137,6 +173,11 @@ describe('computeCommitmentTransition: resolve', () => {
     it('no se puede resolver un compromiso ya cancelado: lanza 409', () => {
         expect(() => computeCommitmentTransition({ action: 'resolve', actorUserId: OWNER, commitment: snapshot({ status: 'cancelled' }), now: NOW }))
             .toThrow(/status "cancelled"/);
+    });
+
+    it('un tercero ajeno no puede resolver, ni siquiera un compromiso sin asignar (paridad real con el RPC): lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'resolve', actorUserId: OTHER, commitment: snapshot({ status: 'accepted', assignedToUserId: null }), now: NOW }))
+            .toThrow('Only the owner or the assigned user');
     });
 });
 
@@ -189,6 +230,11 @@ describe('computeCommitmentTransition: reopen', () => {
         expect(() => computeCommitmentTransition({ action: 'reopen', actorUserId: OWNER, commitment: snapshot({ status: 'proposed' }), now: NOW }))
             .toThrow(/status "proposed"/);
     });
+
+    it('un tercero ajeno no puede reabrir, ni siquiera un compromiso sin asignar (paridad real con el RPC): lanza 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'reopen', actorUserId: OTHER, commitment: snapshot({ status: 'rejected', assignedToUserId: null }), now: NOW }))
+            .toThrow('Only the owner or the assigned user');
+    });
 });
 
 describe('computeCommitmentTransition: reassign', () => {
@@ -236,6 +282,13 @@ describe('computeCommitmentTransition: schedule_follow_up', () => {
             action: 'schedule_follow_up', actorUserId: OWNER, commitment: snapshot({ status: 'accepted' }),
             followUpAt: '2026-07-25T09:00:00.000Z', waitingOnUserId: ASSIGNEE, waitingOnContactId: CONTACT, now: NOW,
         })).toThrow('mutually exclusive');
+    });
+
+    it('un tercero ajeno no puede programar un seguimiento, ni siquiera sobre un compromiso sin asignar (paridad real con el RPC): lanza 403', () => {
+        expect(() => computeCommitmentTransition({
+            action: 'schedule_follow_up', actorUserId: OTHER, commitment: snapshot({ status: 'accepted', assignedToUserId: null }),
+            followUpAt: '2026-07-25T09:00:00.000Z', now: NOW,
+        })).toThrow('Only the owner or the assigned user');
     });
 });
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet, Pressable, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addDays, startOfDay } from 'date-fns';
@@ -17,6 +17,11 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
     const initialDate = item?.due_at ? new Date(item.due_at) : addDays(new Date(), 1);
     const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
     const [showNativePicker, setShowNativePicker] = useState(false);
+    // Android's native picker has no combined "datetime" mode (only
+    // 'date'|'time') -- mismo patrón ya usado en AISuggestionModal.tsx: se
+    // pide la fecha primero, luego se reabre automáticamente en modo 'time'
+    // conservando lo ya elegido. iOS sigue usando 'datetime' en un solo paso.
+    const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
 
     if (!item) return null;
 
@@ -24,6 +29,40 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
         const d = addDays(startOfDay(new Date()), daysOffset);
         d.setHours(hour, 0, 0, 0);
         setSelectedDate(d);
+    };
+
+    const openPicker = () => {
+        setPickerMode('date');
+        setShowNativePicker(true);
+    };
+
+    // @react-native-community/datetimepicker v9: `onChange` está deprecado a
+    // favor de `onValueChange` (siempre trae `date`, nunca opcional) +
+    // `onDismiss` (cancelación/back) como callbacks separados -- ver
+    // node_modules/@react-native-community/datetimepicker/src/index.d.ts.
+    const handlePickerValueChange = (date: Date) => {
+        if (Platform.OS === 'ios') {
+            setSelectedDate(date);
+            setShowNativePicker(false);
+            return;
+        }
+        const next = new Date(selectedDate);
+        if (pickerMode === 'date') {
+            next.setFullYear(date.getFullYear());
+            next.setMonth(date.getMonth());
+            next.setDate(date.getDate());
+            setSelectedDate(next);
+            setShowNativePicker(false);
+            setTimeout(() => {
+                setPickerMode('time');
+                setShowNativePicker(true);
+            }, 100);
+        } else {
+            next.setHours(date.getHours());
+            next.setMinutes(date.getMinutes());
+            setSelectedDate(next);
+            setShowNativePicker(false);
+        }
     };
 
     const handleConfirm = () => {
@@ -63,7 +102,7 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
                 {/* Selected Date Preview */}
                 <TouchableOpacity
                     style={[styles.datePreview, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}
-                    onPress={() => setShowNativePicker(true)}
+                    onPress={openPicker}
                 >
                     <Ionicons name="calendar-outline" size={18} color={theme.colors.accent} />
                     <Text style={[styles.datePreviewText, { color: theme.colors.text.primary }]}>
@@ -75,12 +114,10 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
                 {showNativePicker && (
                     <DateTimePicker
                         value={selectedDate}
-                        mode="datetime"
+                        mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
                         display="default"
-                        onChange={(_, date) => {
-                            setShowNativePicker(false);
-                            if (date) setSelectedDate(date);
-                        }}
+                        onValueChange={(_, date) => handlePickerValueChange(date)}
+                        onDismiss={() => setShowNativePicker(false)}
                     />
                 )}
 

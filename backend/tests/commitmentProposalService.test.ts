@@ -168,3 +168,67 @@ describe('canonical Commitment proposals', () => {
         }]);
     });
 });
+
+// ─── PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — canonical participation exposed via REST ─
+// Root-cause fix: getAgreementProposals/toAgreementView (la respuesta REST
+// real que consumen Compromisos/Hoy en mobile) ahora expone la MISMA
+// participación canónica que ya usaba el Agent (proposalParticipation.ts),
+// nunca una segunda derivación. Dataset EXACTO del ticket: "Entrenar" --
+// Carlos propone y es responsable (ya auto-aprobado por la RPC de creación
+// compartida), Alejandra es participante con respuesta pendiente.
+describe('PARTICIPANT VISIBILITY: getAgreementProposals expone actor_role/actor_can_respond por actor real', () => {
+    const CARLOS = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const ALEJANDRA = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const ENTRENAR = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    function mockEntrenarDataset() {
+        return createSupabaseAdminMock({
+            commitment_proposals: [{
+                data: [{
+                    id: ENTRENAR, title: 'Entrenar', status: 'pending',
+                    proposed_by_user_id: CARLOS, proposed_responsible_user_id: CARLOS,
+                    conversation_id: 'conv-1', agreement_version: 1,
+                    proposer: { id: CARLOS, full_name: 'Carlos', email: 'carlos@x.com', avatar_url: null },
+                    responsible: { id: CARLOS, full_name: 'Carlos', email: 'carlos@x.com', avatar_url: null },
+                }],
+                error: null,
+            }],
+            commitment_proposal_responses: [{
+                data: [
+                    { proposal_id: ENTRENAR, participant_user_id: CARLOS, agreement_version: 1, status: 'approved', proposed_due_at: null, response_note: null, responded_at: '2026-09-01T00:00:00Z', profile: { id: CARLOS, full_name: 'Carlos', email: 'carlos@x.com', avatar_url: null } },
+                    { proposal_id: ENTRENAR, participant_user_id: ALEJANDRA, agreement_version: 1, status: 'pending', proposed_due_at: null, response_note: null, responded_at: null, profile: { id: ALEJANDRA, full_name: 'Alejandra', email: 'alejandra@x.com', avatar_url: null } },
+                ],
+                error: null,
+            }],
+        });
+    }
+
+    it('CARLOS (proposer, ya aprobó): actorRole=proposer, actorHasApproved=true, actorCanRespond=false (waiting_for_others)', async () => {
+        setSupabaseAdminMock(mockEntrenarDataset());
+        const { getAgreementProposals } = await import('../src/services/commitmentProposal.service');
+        const [entrenar] = await getAgreementProposals(CARLOS);
+        expect(entrenar.actor_role).toBe('proposer');
+        expect(entrenar.actor_has_approved).toBe(true);
+        expect(entrenar.actor_can_respond).toBe(false);
+        expect(entrenar.pending_responder_ids).toEqual([ALEJANDRA]);
+        expect(entrenar.pending_responder_names_safe).toEqual(['Alejandra']);
+        expect(entrenar.is_fully_approved).toBe(false);
+    });
+
+    it('ALEJANDRA (participante, respuesta pendiente): actorRole=participant, actorHasApproved=false, actorCanRespond=true (needs_my_response) -- MISMO objeto, semántica distinta por actor', async () => {
+        setSupabaseAdminMock(mockEntrenarDataset());
+        const { getAgreementProposals } = await import('../src/services/commitmentProposal.service');
+        const [entrenar] = await getAgreementProposals(ALEJANDRA);
+        expect(entrenar.actor_role).toBe('participant');
+        expect(entrenar.actor_has_approved).toBe(false);
+        expect(entrenar.actor_can_respond).toBe(true);
+    });
+
+    it('un tercero ajeno (ni proposer/responsible/participante) recibe actorRole=none -- nunca visible en Pendientes de mobile', async () => {
+        setSupabaseAdminMock(mockEntrenarDataset());
+        const { getAgreementProposals } = await import('../src/services/commitmentProposal.service');
+        const OUTSIDER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        const [entrenar] = await getAgreementProposals(OUTSIDER);
+        expect(entrenar.actor_role).toBe('none');
+    });
+});

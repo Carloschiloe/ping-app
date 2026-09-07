@@ -76,12 +76,12 @@ export const COMMITMENT_TRANSITION_TABLE: Record<CommitmentTransitionAction, {
     accept: {
         validFromStatuses: ['proposed', 'counter_proposal'],
         eventType: 'accepted',
-        description: 'El asignado (o cualquier participante si no hay asignado) acepta la propuesta.',
+        description: 'El owner o el asignado aceptan la propuesta (paridad con apply_commitment_transition_with_evidence: nunca un tercero, ni siquiera si no hay asignado).',
     },
     reject: {
         validFromStatuses: ['proposed', 'counter_proposal'],
         eventType: 'rejected',
-        description: 'El asignado (o cualquier participante si no hay asignado) rechaza la propuesta.',
+        description: 'El owner o el asignado rechazan la propuesta (misma paridad que accept).',
     },
     counter_propose: {
         validFromStatuses: ['proposed', 'accepted', 'counter_proposal'],
@@ -160,9 +160,18 @@ function computeAccept(input: CommitmentTransitionInput): CommitmentTransitionRe
     const { commitment, actorUserId } = input;
     assertValidFromStatus('accept', commitment);
 
-    const isAssigneeOrOpen = commitment.assignedToUserId === actorUserId || commitment.assignedToUserId === null;
-    if (!isAssigneeOrOpen) {
-        throw new AppError('Only the assigned user (or anyone, if unassigned) can accept this commitment', 403);
+    // PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — cierre de paridad
+    // JS/RPC (hallazgo real, probado contra Postgres local): la única
+    // autoridad que persiste esta transición es apply_commitment_transition_with_evidence,
+    // cuyo guard SQL exige owner_user_id=actor O assigned_to_user_id=actor,
+    // SIN excepción para assigned_to_user_id NULL. El antiguo carve-out
+    // "isOpenParticipant" (cualquiera puede auto-asignarse un ítem sin
+    // asignar) nunca funcionó en producción: el RPC ya rechazaba con 42501
+    // a cualquier actor que no fuera el owner. Esta función ahora exige
+    // exactamente lo mismo que el RPC -- nunca ofrece una acción que el
+    // backend real vaya a rechazar.
+    if (!actorRole(commitment, actorUserId)) {
+        throw new AppError('Only the owner or the assigned user can accept this commitment', 403);
     }
 
     const patch: Record<string, any> = {
@@ -193,9 +202,8 @@ function computeReject(input: CommitmentTransitionInput): CommitmentTransitionRe
     const { commitment, actorUserId, reason } = input;
     assertValidFromStatus('reject', commitment);
 
-    const isAssigneeOrOpen = commitment.assignedToUserId === actorUserId || commitment.assignedToUserId === null;
-    if (!isAssigneeOrOpen) {
-        throw new AppError('Only the assigned user (or anyone, if unassigned) can reject this commitment', 403);
+    if (!actorRole(commitment, actorUserId)) {
+        throw new AppError('Only the owner or the assigned user can reject this commitment', 403);
     }
 
     return {
@@ -223,8 +231,7 @@ function computeCounterPropose(input: CommitmentTransitionInput): CommitmentTran
     }
 
     const role = actorRole(commitment, actorUserId);
-    const isOpenParticipant = commitment.assignedToUserId === null;
-    if (!role && !isOpenParticipant) {
+    if (!role) {
         throw new AppError('Only the owner or the assigned user can counter-propose a new date', 403);
     }
 
@@ -256,9 +263,7 @@ function computeActionComplete(input: CommitmentTransitionInput): CommitmentTran
     const { commitment, actorUserId } = input;
     assertValidFromStatus('action_complete', commitment);
 
-    const role = actorRole(commitment, actorUserId);
-    const isOpenParticipant = commitment.assignedToUserId === null;
-    if (!role && !isOpenParticipant) {
+    if (!actorRole(commitment, actorUserId)) {
         throw new AppError('Only the owner or the assigned user can mark the action as completed', 403);
     }
 
@@ -277,9 +282,7 @@ function computeResolve(input: CommitmentTransitionInput): CommitmentTransitionR
     const { commitment, actorUserId } = input;
     assertValidFromStatus('resolve', commitment);
 
-    const role = actorRole(commitment, actorUserId);
-    const isOpenParticipant = commitment.assignedToUserId === null;
-    if (!role && !isOpenParticipant) {
+    if (!actorRole(commitment, actorUserId)) {
         throw new AppError('Only the owner or the assigned user can resolve this commitment', 403);
     }
 
@@ -328,9 +331,7 @@ function computeReopen(input: CommitmentTransitionInput): CommitmentTransitionRe
     const { commitment, actorUserId } = input;
     assertValidFromStatus('reopen', commitment);
 
-    const role = actorRole(commitment, actorUserId);
-    const isOpenParticipant = commitment.assignedToUserId === null;
-    if (!role && !isOpenParticipant) {
+    if (!actorRole(commitment, actorUserId)) {
         throw new AppError('Only the owner or the assigned user can reopen this commitment', 403);
     }
 
@@ -405,9 +406,7 @@ function computeScheduleFollowUp(input: CommitmentTransitionInput): CommitmentTr
     const { commitment, actorUserId, followUpAt, nextAction, waitingOnUserId, waitingOnContactId } = input;
     assertValidFromStatus('schedule_follow_up', commitment);
 
-    const role = actorRole(commitment, actorUserId);
-    const isOpenParticipant = commitment.assignedToUserId === null;
-    if (!role && !isOpenParticipant) {
+    if (!actorRole(commitment, actorUserId)) {
         throw new AppError('Only the owner or the assigned user can schedule a follow-up', 403);
     }
 

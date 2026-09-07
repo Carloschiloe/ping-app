@@ -20,6 +20,7 @@ import {
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
+import { isActorRelevantCommitmentItem } from '../utils/commitmentPrimaryAction';
 
 import { TodaySummaryBar } from '../components/hoy/TodaySummaryBar';
 import { OverdueAlert } from '../components/hoy/OverdueAlert';
@@ -247,17 +248,38 @@ export default function TaskDashboardScreen() {
     }, [commitments, selectedDate, statusFilter, typeFilter, ownerFilter, selectedUserId, user?.id]);
 
     // My tasks (mine) vs delegated by me
+    //
+    // PARTICIPANT VISIBILITY — cierre de raíz de la contradicción "1 para
+    // hoy" con agenda vacía: `todayItems` (arriba) alimenta el CONTEO del
+    // header y no filtra por asignación; `myItems`/`delegatedItems` filtran
+    // por el modelo de asignación única (assigned_to_user_id), que una
+    // commitment_proposal compartida nunca satisface para un participante
+    // real (su vínculo vive en agreement_responses, no en
+    // assigned_to_user_id). Mismo fix que InsightsScreen.tsx#pendientesData:
+    // para una proposal se usa `actor_role` (Core-resuelto, ver
+    // commitmentProposal.service.ts#toAgreementView), nunca re-derivado aquí
+    // -- cualquier rol real la mantiene en "mi agenda", igual que ya ocurre
+    // en Compromisos (nunca en la sección colapsada "Esperando de otros",
+    // que es un concepto exclusivo de delegación de commitments planos).
     const myItems = useMemo(() =>
-        todayItems.filter((c: any) => {
-            const isAssigned = c.assigned_to_user_id === user?.id || !c.assigned_to_user_id;
-            const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
-            return isAssigned && !isDelegatedByMe;
-        }), [todayItems, user?.id]);
+        todayItems.filter((c: any) => isActorRelevantCommitmentItem(c, user?.id)),
+        [todayItems, user?.id]);
 
     const delegatedItems = useMemo(() =>
         todayItems.filter((c: any) => {
+            if (c._isAgreementProposal === true) return false;
             return c.owner_user_id === user?.id && c.assigned_to_user_id && c.assigned_to_user_id !== user?.id;
         }), [todayItems, user?.id]);
+
+    // PARTICIPANT VISIBILITY — el header ("N para hoy") y el chequeo de
+    // "agenda vacía" ahora se derivan del MISMO dataset que efectivamente se
+    // renderiza (myItems ∪ delegatedItems), nunca de `todayItems` antes de
+    // la división por rol. Esto cierra la CLASE del bug (count=1, lista
+    // vacía), no sólo el caso puntual de proposals ya corregido arriba: si
+    // en el futuro aparece un tercer sub-conjunto no cubierto por ninguna de
+    // las dos listas, el conteo lo reflejará honestamente en vez de
+    // mostrarse "adelantado" respecto a lo que el usuario realmente ve.
+    const visibleTodayCount = myItems.length + delegatedItems.length;
 
     // Próximo item (closest future due_at >= now strictly)
     const nextItem = useMemo(() => {
@@ -612,7 +634,7 @@ export default function TaskDashboardScreen() {
             >
                 {/* ── RESUMEN ── */}
                 <TodaySummaryBar
-                    totalToday={todayItems.length}
+                    totalToday={visibleTodayCount}
                     overdueCount={overdueItems.length}
                     nextItemTime={nextItemTime}
                     selectedDate={selectedDate}
@@ -638,7 +660,7 @@ export default function TaskDashboardScreen() {
                 )}
 
                 {/* ── AGENDA ── */}
-                {todayItems.length === 0 ? (
+                {visibleTodayCount === 0 ? (
                     renderEmpty()
                 ) : (
                     <View style={[styles.agendaBlock, { backgroundColor: theme.colors.surface }]}>

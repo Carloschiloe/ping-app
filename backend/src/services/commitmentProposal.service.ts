@@ -9,6 +9,7 @@ import {
 import { readLegacyAssignedToUserId, readLegacyConversationId, readLegacyDueAt } from '../utils/commitmentCompat';
 import { buildCommitmentProposalVisibilityFilter, getParticipantProposalIds } from '../utils/commitmentVisibility';
 import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
+import { getProposalParticipationState, type ProposalResponseRow } from '../utils/proposalParticipation';
 
 export async function createProposal(userId: string, input: any) {
     const conversationId = readLegacyConversationId(input);
@@ -178,10 +179,40 @@ export async function respondToSharedProposal(
     return data;
 }
 
-function toAgreementView(proposal: any, responses: any[]) {
+// PARTICIPANT VISIBILITY + ACTOR PERMISSIONS — cierre de raíz: hasta ahora
+// `toAgreementView` (la serialización REAL que consumen Compromisos/Hoy en
+// mobile) nunca exponía la participación del actor -- esa lógica canónica ya
+// existía (proposalParticipation.ts), pero sólo estaba cableada al pipeline
+// del Agent (retrieval.service.ts#toRetrievalCommitmentFromProposal), nunca
+// a esta respuesta REST. Mobile, sin esta señal, sólo podía inferir
+// visibilidad/acciones desde el modelo de asignación única
+// (owner_user_id/assigned_to_user_id) -- el motivo real por el que
+// Alejandra (participante, no asignada) desaparecía de Pendientes/Hoy pese
+// a que el backend SÍ la incluía en la lista. `actorUserId` es SIEMPRE el
+// actor autenticado real (nunca un valor de cliente) -- mismo principio que
+// el resto de esta función.
+function toAgreementView(proposal: any, responses: any[], actorUserId: string) {
     const isRejected = proposal.status === 'rejected';
     const isCounterProposal = proposal.status === 'pending'
         && !!proposal.latest_counterproposal_due_at;
+
+    const responseRows: ProposalResponseRow[] = responses.map((r) => ({
+        participant_user_id: r.participant_user_id,
+        status: r.status,
+    }));
+    const participation = getProposalParticipationState(
+        { proposed_by_user_id: proposal.proposed_by_user_id, proposed_responsible_user_id: proposal.proposed_responsible_user_id, responses: responseRows },
+        actorUserId,
+    );
+    // Nombres seguros a partir del mismo join ya disponible (`response.profile`)
+    // -- nunca se exponen uuids crudos como "nombre", y nunca se hace una
+    // consulta adicional sólo para esto (el join ya trae full_name/email).
+    const nameById = new Map<string, string>();
+    for (const r of responses) {
+        if (r.participant_user_id && r.profile) {
+            nameById.set(r.participant_user_id, r.profile.full_name || r.profile.email || 'Alguien');
+        }
+    }
 
     return {
         id: proposal.id,
@@ -217,6 +248,20 @@ function toAgreementView(proposal: any, responses: any[]) {
             profile: undefined,
         })),
         _isAgreementProposal: true,
+        // CANONICAL PARTICIPATION CONTRACT (Core-resuelto, nunca inferido en
+        // mobile): visibility/actions ya no pueden depender de
+        // owner_user_id/assigned_to_user_id solamente -- estos campos son la
+        // única fuente de verdad real de "¿qué soy yo en esta proposal y qué
+        // puedo hacer?", igual que ya recibe el Agent.
+        actor_role: participation.actorRole,
+        actor_has_approved: participation.actorHasApproved,
+        actor_can_respond: participation.actorCanRespond,
+        pending_responder_ids: participation.pendingResponderIds,
+        pending_responder_names_safe: participation.pendingResponderIds.map((id) => nameById.get(id) || 'Alguien'),
+        approved_responder_ids: participation.approvedResponderIds,
+        rejected_responder_ids: participation.rejectedResponderIds,
+        is_fully_approved: participation.isFullyApproved,
+        requires_more_responses: participation.requiresMoreResponses,
     };
 }
 
@@ -279,7 +324,8 @@ export async function getAgreementProposals(
 
     return proposals.map((proposal: any) => toAgreementView(
         proposal,
-        responsesByProposal.get(proposal.id) || []
+        responsesByProposal.get(proposal.id) || [],
+        userId,
     ));
 }
 

@@ -104,34 +104,32 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             setIsSubmittingCancellation(false);
         }
     };
-    const onDateChange = (event: any, selectedDate?: Date) => {
-        if (event.type === 'dismissed') {
-            setShowPicker(false);
-            return;
-        }
+    // @react-native-community/datetimepicker v9: `onChange` está deprecado a
+    // favor de `onValueChange` (siempre trae `date`, nunca opcional) +
+    // `onDismiss` (cancelación/back) como callbacks separados -- ya no hace
+    // falta inspeccionar `event.type === 'dismissed'` manualmente, eso ahora
+    // es exactamente lo que dispara `onDismiss`.
+    const onDateChange = (selectedDate: Date) => {
+        if (Platform.OS === 'ios') {
+            // In iOS datetime mode, selectedDate has everything
+            onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
+        } else {
+            const currentSelected = new Date(suggestionData.dueAt);
+            if (pickerMode === 'date') {
+                currentSelected.setFullYear(selectedDate.getFullYear());
+                currentSelected.setMonth(selectedDate.getMonth());
+                currentSelected.setDate(selectedDate.getDate());
 
-        if (selectedDate) {
-            if (Platform.OS === 'ios') {
-                // In iOS datetime mode, selectedDate has everything
-                onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
+                setShowPicker(false);
+                setTimeout(() => {
+                    setPickerMode('time');
+                    setShowPicker(true);
+                }, 100);
             } else {
-                const currentSelected = new Date(suggestionData.dueAt);
-                if (pickerMode === 'date') {
-                    currentSelected.setFullYear(selectedDate.getFullYear());
-                    currentSelected.setMonth(selectedDate.getMonth());
-                    currentSelected.setDate(selectedDate.getDate());
-                    
-                    setShowPicker(false);
-                    setTimeout(() => {
-                        setPickerMode('time');
-                        setShowPicker(true);
-                    }, 100);
-                } else {
-                    currentSelected.setHours(selectedDate.getHours());
-                    currentSelected.setMinutes(selectedDate.getMinutes());
-                    setShowPicker(false);
-                    onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
-                }
+                currentSelected.setHours(selectedDate.getHours());
+                currentSelected.setMinutes(selectedDate.getMinutes());
+                setShowPicker(false);
+                onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
             }
         }
     };
@@ -212,9 +210,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
                                         is24Hour={true}
                                         display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                        onChange={(event, date) => {
-                                            if (date) onDateChange(event, date);
-                                        }}
+                                        onValueChange={(_, date) => onDateChange(date)}
+                                        onDismiss={() => setShowPicker(false)}
                                         themeVariant="light"
                                         {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
                                     />

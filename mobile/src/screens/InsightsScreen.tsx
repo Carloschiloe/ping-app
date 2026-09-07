@@ -22,7 +22,7 @@ import {
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
-import { getCommitmentPrimaryAction } from '../utils/commitmentPrimaryAction';
+import { getCommitmentPrimaryAction, isActorRelevantCommitmentItem } from '../utils/commitmentPrimaryAction';
 
 import { CommitmentRow } from '../components/compromisos/CommitmentRow';
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
@@ -288,10 +288,11 @@ export default function InsightsScreen() {
         const list = filteredCommitments.filter((c: any) => {
             const status = normalizeCommitmentStatus(c.status);
             if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
-
-            const isAssignedToMe = c.assigned_to_user_id === user?.id || !c.assigned_to_user_id;
-            const isDelegatedByMe = c.owner_user_id === user?.id && c.assigned_to_user_id !== user?.id;
-            return isAssignedToMe && !isDelegatedByMe;
+            // PARTICIPANT VISIBILITY — canonical cross-surface read-model
+            // (misma función que TaskDashboardScreen.tsx#myItems -- ver
+            // utils/commitmentPrimaryAction.ts#isActorRelevantCommitmentItem,
+            // nunca un filter() ad hoc independiente por pantalla).
+            return isActorRelevantCommitmentItem(c, user?.id);
         });
 
         const now = new Date();
