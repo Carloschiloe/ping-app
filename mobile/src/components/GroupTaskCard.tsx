@@ -21,6 +21,7 @@ import {
     getAgreementSummary,
     type AgreementResponse,
 } from '../utils/agreement';
+import { getProposalActorPresentation } from '../utils/actorPresentation';
 import { AgreementParticipantsList } from './AgreementParticipantsList';
 
 interface GroupTaskCardProps {
@@ -100,13 +101,14 @@ export default function GroupTaskCard({
     const isActionCompletedPendingResolution = computeActionCompletedPendingResolution(commitment);
     const waitingLabel = getWaitingLabel(commitment, user?.id, myContacts || [], groupParticipants);
     const isWaitingOnMe = waitingLabel === 'Te corresponde actuar';
-    const agreementWaitingLabel = isAgreementProposal
-        ? (canRespondToAgreement
-            ? 'Te corresponde responder'
-            : agreementSummary.pending > 0
-                ? `Esperando ${agreementSummary.pending} respuesta${agreementSummary.pending === 1 ? '' : 's'}`
-                : agreementSummary.label)
-        : null;
+    // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 16/19/23 del ticket)
+    // — reutiliza el MISMO helper canónico que CommitmentRow.tsx/
+    // TodayItemRow.tsx, nunca una cuarta redacción independiente ("Te
+    // corresponde responder" vs "Necesita tu respuesta" para el MISMO
+    // actor/estado real era exactamente la inconsistencia cross-surface que
+    // la sección 23 prohíbe).
+    const proposalPresentation = isAgreementProposal ? getProposalActorPresentation(commitment, user?.id) : null;
+    const agreementWaitingLabel = proposalPresentation?.statusLabel ?? null;
 
     const requesterName = commitment.owner?.full_name || (isOwner ? 'Tú' : 'Alguien');
     const assigneeName = (commitment as any)._isEveryoneSummary || !commitment.assigned_to_user_id
@@ -115,7 +117,7 @@ export default function GroupTaskCard({
 
     const responsibilityLabel = `Responsable: ${assigneeName}`;
     const requesterLabel = isAgreementProposal
-        ? (isOwner ? 'Propuesta por ti' : `Propone: ${requesterName}`)
+        ? proposalPresentation!.relationLabel
         : (isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`);
 
     const dueDateStr = commitment.due_at
@@ -417,26 +419,36 @@ export default function GroupTaskCard({
                     {commitment.title}
                 </Text>
                 
-                <View style={styles.footerRow}>
-                    <View style={styles.assigneeInfo}>
-                        <Text style={[styles.assigneeText, theme.isDark && { color: theme.colors.text.secondary }]} numberOfLines={1}>{responsibilityLabel}</Text>
-                        <Text style={[styles.requesterText, theme.isDark && { color: theme.colors.text.muted }]} numberOfLines={1}>{requesterLabel}</Text>
-                    </View>
+                {/* Sección 15 del ticket: "Responsable: ..."/"Propone:
+                    Carlo..." son información semántica PRIMARIA -- nunca
+                    deben elipsarse para dejar espacio a un badge. Antes,
+                    ambas líneas compartían fila horizontal con badgesRow
+                    (statusBadge/activeOperationBadge), que tomaba su ancho
+                    intrínseco primero y dejaba el resto (a veces muy poco)
+                    para el texto con numberOfLines={1}. Ahora el texto va en
+                    su PROPIA columna de ancho completo, con numberOfLines={2}
+                    (nunca 1) -- los badges se muestran DEBAJO, nunca
+                    compitiendo por el mismo ancho horizontal. */}
+                <View style={styles.footerColumn}>
+                    <Text style={[styles.assigneeText, theme.isDark && { color: theme.colors.text.secondary }]} numberOfLines={2}>{responsibilityLabel}</Text>
+                    <Text style={[styles.requesterText, theme.isDark && { color: theme.colors.text.muted }]} numberOfLines={2}>{requesterLabel}</Text>
 
-                    <View style={styles.badgesRow}>
-                        {isActiveOperation && (
-                            <View style={[styles.activeOperationBadge, theme.isDark && { backgroundColor: theme.colors.accentSoft }]}>
-                                <Text style={[styles.activeOperationBadgeText, theme.isDark && { color: theme.colors.accent }]}>EN OPERACION</Text>
+                    {(isActiveOperation || !isCompactOperationCard) && (
+                        <View style={styles.badgesRow}>
+                            {isActiveOperation && (
+                                <View style={[styles.activeOperationBadge, theme.isDark && { backgroundColor: theme.colors.accentSoft }]}>
+                                    <Text style={[styles.activeOperationBadgeText, theme.isDark && { color: theme.colors.accent }]}>EN OPERACION</Text>
+                                </View>
+                            )}
+                            {!isCompactOperationCard && (
+                            <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
+                                    {statusInfo.label}
+                                </Text>
                             </View>
-                        )}
-                        {!isCompactOperationCard && (
-                        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}> 
-                            <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}> 
-                                {statusInfo.label}
-                            </Text>
+                            )}
                         </View>
-                        )}
-                    </View>
+                    )}
                 </View>
 
                 {isRejected && rejectionReason && (
@@ -883,19 +895,14 @@ const styles = StyleSheet.create({
         textDecorationLine: 'line-through',
         color: '#94a3b8',
     },
-    footerRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+    footerColumn: {
+        gap: 2,
     },
     badgesRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-    },
-    assigneeInfo: {
-        flex: 1,
-        minWidth: 0,
+        marginTop: 4,
     },
     assigneeText: {
         fontSize: 12,

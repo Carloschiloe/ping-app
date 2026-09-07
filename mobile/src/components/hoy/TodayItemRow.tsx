@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Alert, Platform, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
-import { getProposalWaitingLabel } from '../../utils/agreement';
+import { getActorPresentation } from '../../utils/actorPresentation';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
 const MEETING_RE = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i;
@@ -38,8 +38,6 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
     const [menuVisible, setMenuVisible] = useState(false);
 
     const status = normalizeCommitmentStatus(c.status);
-    const isMe = !!currentUserId && c.assigned_to_user_id?.toLowerCase() === currentUserId.toLowerCase();
-    const isDelegated = !!currentUserId && c.owner_user_id?.toLowerCase() === currentUserId.toLowerCase() && c.assigned_to_user_id?.toLowerCase() !== currentUserId.toLowerCase();
     const meeting = isMeeting(c);
     const hasConversation = canViewOriginConversation(c);
     const conversationId = resolveConversationId(c);
@@ -51,6 +49,13 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
     const isPast = isCancelled || isResolved;
     const primaryAction = getCommitmentPrimaryAction(c, currentUserId);
     const canRespondToProposal = c._isAgreementProposal === true && primaryAction === 'accept';
+
+    // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 19/23) — misma
+    // presentación canónica que CommitmentRow.tsx, nunca un rowLabel()
+    // independiente ("Mía"/"Encargada") que pudiera decir algo distinto
+    // para la MISMA entidad/actor que Compromisos (sección 23: cross-surface
+    // consistency).
+    const presentation = getActorPresentation(c, currentUserId);
 
     // ─── Primary Action ─────────────────────────────────────────────────────
     // M-1H v5 — getCommitmentPrimaryAction reemplaza el chequeo directo de
@@ -73,17 +78,10 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                 </TouchableOpacity>
             );
         }
-        if (primaryAction === 'waiting') {
-            const waitingLabel = getProposalWaitingLabel(c, currentUserId);
-            const datePassed = isProposalDatePassed(c.due_at);
-            return (
-                <View style={styles.waitingBadge}>
-                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={3}>
-                        {waitingLabel}{datePassed ? '\nFecha propuesta ya pasó' : ''}
-                    </Text>
-                </View>
-            );
-        }
+        // Sección 9/11/12: el statusLabel actor-aware/lifecycle-aware se
+        // muestra como línea propia en la jerarquía principal (ver
+        // statusLine), nunca su propio badge horizontal aquí.
+        if (primaryAction === 'waiting' || primaryAction === 'none') return null;
         if (primaryAction === 'accept') {
             return (
                 <TouchableOpacity
@@ -151,16 +149,6 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
         });
     };
 
-    // ─── Row label ───────────────────────────────────────────────────────────
-    const rowLabel = () => {
-        if (isResolved) return { text: 'Listo', color: theme.colors.success };
-        if (isCancelled) return { text: 'Cancelado', color: theme.colors.text.muted };
-        if (isDelegated) return { text: 'Encargada', color: theme.colors.secondary };
-        if (isMe || !c.assigned_to_user_id) return { text: 'Mía', color: theme.colors.accent };
-        return null;
-    };
-    const label = rowLabel();
-
     return (
         <View style={[
             styles.row,
@@ -179,7 +167,10 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                 isPast && { backgroundColor: theme.colors.border },
             ]} />
 
-            {/* Content */}
+            {/* Content — misma jerarquía vertical que CommitmentRow.tsx
+                (sección 9/23: consistencia entre pantallas para la MISMA
+                entidad/actor): TITLE propio -> metaLine (relación) ->
+                statusLine (actor-aware) -> acciones con ancho completo. */}
             <View style={styles.content}>
                 <View style={styles.titleRow}>
                     <Text
@@ -193,67 +184,77 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                     >
                         {c.title}
                     </Text>
-                    {label && (
-                        <View style={[styles.labelChip, { backgroundColor: `${label.color}15` }]}>
-                            <Text style={[styles.labelText, { color: label.color }]}>{label.text}</Text>
-                        </View>
-                    )}
+                    <TouchableOpacity
+                        onPress={openMenu}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.moreBtn}
+                    >
+                        <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.text.muted} />
+                    </TouchableOpacity>
                 </View>
 
-                {/* Conversation link */}
-                {hasConversation && !isPast && (
-                    <TouchableOpacity onPress={goToChat} style={styles.chatLink}>
-                        <Ionicons name="chatbubble-ellipses-outline" size={11} color={theme.colors.accent} />
-                        <Text style={[styles.chatLinkText, { color: theme.colors.accent }]}>Ver conversación</Text>
-                    </TouchableOpacity>
+                <Text style={[styles.metaLine, { color: theme.colors.text.secondary }]} numberOfLines={1}>
+                    {presentation.relationLabel}
+                </Text>
+
+                {!!presentation.statusLabel && (
+                    <Text style={[styles.statusLine, { color: theme.colors.text.secondary }]} numberOfLines={2}>
+                        {presentation.statusLabel}{presentation.proposalDatePassed ? ' · Fecha propuesta ya pasó' : ''}
+                    </Text>
                 )}
+
+                <View style={styles.actionsRow}>
+                    {renderPrimaryAction()}
+                    {hasConversation && !isPast && (
+                        <TouchableOpacity onPress={goToChat} style={styles.chatLink}>
+                            <Ionicons name="chatbubble-ellipses-outline" size={11} color={theme.colors.accent} />
+                            <Text style={[styles.chatLinkText, { color: theme.colors.accent }]}>Ver conversación</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
 
-            {/* Actions */}
-            <View style={styles.actions}>
-                {renderPrimaryAction()}
-                <TouchableOpacity
-                    onPress={openMenu}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={styles.moreBtn}
-                >
-                    <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.text.muted} />
-                </TouchableOpacity>
-            </View>
-
-            {/* Android menu fallback */}
-            {Platform.OS !== 'ios' && menuVisible && (
-                <TouchableOpacity
-                    style={StyleSheet.absoluteFill}
-                    activeOpacity={1}
-                    onPress={() => setMenuVisible(false)}
-                >
-                    <View style={[styles.androidMenu, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            {/* Sección 17: menú de overflow -- ANTES un View absolutamente
+                posicionado dentro de la propia fila (podía superponerse a la
+                mayoría de la fila en Android angosto, hallazgo físico real).
+                Ahora reutiliza el MISMO primitivo ya probado en
+                GroupTaskCard.tsx: un Modal real, que siempre se pinta por
+                encima de TODO (incluida cualquier fila vecina del FlatList),
+                nunca sujeto al stacking local de esta fila. Nunca se
+                rediseña la navegación -- mismas acciones (Ver conversación /
+                Ver en Compromisos / Proponer otra fecha / Rechazar). */}
+            <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+                <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
+                    <View style={[styles.actionMenu, { backgroundColor: theme.colors.surface }]}>
                         {hasConversation && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); goToChat(); }}>
-                                <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.text.primary} />
+                                <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && onOpenReschedule && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && onReject && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
-                                <Ionicons name="close-circle-outline" size={16} color={theme.colors.danger} />
+                                <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
                             </TouchableOpacity>
                         )}
-                        <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); }}>
-                            <Ionicons name="list-outline" size={16} color={theme.colors.text.primary} />
+                        <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); navigation.navigate('Insights' as any); }}>
+                            <Ionicons name="list-outline" size={18} color={theme.colors.text.primary} />
                             <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver en Compromisos</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
+                            <Ionicons name="close-outline" size={18} color={theme.colors.text.muted} />
+                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cancelar</Text>
+                        </TouchableOpacity>
                     </View>
-                </TouchableOpacity>
-            )}
+                </Pressable>
+            </Modal>
         </View>
     );
 }
@@ -261,8 +262,11 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
 const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 11,
+        // Sección 9/14: contenido ahora es una pila vertical -- alinear al
+        // inicio evita centrar timeCol/typeBar a media altura de un bloque
+        // de 3-4 líneas.
+        alignItems: 'flex-start',
+        paddingVertical: 12,
         borderBottomWidth: StyleSheet.hairlineWidth,
         gap: 10,
     },
@@ -270,6 +274,7 @@ const styles = StyleSheet.create({
         width: 44,
         alignItems: 'flex-end',
         flexShrink: 0,
+        marginTop: 1,
     },
     timeText: {
         fontSize: 12,
@@ -278,9 +283,10 @@ const styles = StyleSheet.create({
     },
     typeBar: {
         width: 3,
-        height: 36,
+        minHeight: 36,
         borderRadius: 2,
         flexShrink: 0,
+        marginTop: 1,
     },
     content: {
         flex: 1,
@@ -291,24 +297,28 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         gap: 6,
     },
+    // Sección 9/14: el título es lo ÚNICO en su línea salvo el botón "..."
+    // -- causa mecánica real del wrap-a-mitad-de-palabra reportado
+    // ("Ver Spid/erman") era competir por ancho con el labelChip.
     title: {
         flex: 1,
-        fontSize: 14,
+        flexShrink: 1,
+        fontSize: 15,
         fontWeight: '600',
-        lineHeight: 19,
+        lineHeight: 20,
     },
     strikethrough: {
         textDecorationLine: 'line-through',
     },
-    labelChip: {
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        flexShrink: 0,
+    // Sección 10/13: relación actor-aware ("Mía"/"Encargado a Alejandra"/
+    // "Carlos propone"), nunca un chip de una palabra ambigua.
+    metaLine: {
+        fontSize: 12,
+        fontWeight: '500',
     },
-    labelText: {
-        fontSize: 10,
-        fontWeight: '700',
+    statusLine: {
+        fontSize: 12,
+        fontWeight: '600',
     },
     chatLink: {
         flexDirection: 'row',
@@ -319,11 +329,12 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '500',
     },
-    actions: {
+    // Sección 9: acciones DEBAJO de título/metadata, nunca al lado.
+    actionsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        flexShrink: 0,
+        gap: 12,
+        marginTop: 2,
     },
     primaryBtn: {
         flexDirection: 'row',
@@ -332,20 +343,11 @@ const styles = StyleSheet.create({
         paddingVertical: 5,
         borderRadius: 6,
         gap: 4,
+        alignSelf: 'flex-start',
     },
     primaryBtnText: {
         fontSize: 12,
         fontWeight: '700',
-    },
-    waitingBadge: {
-        maxWidth: 150,
-        paddingHorizontal: 2,
-    },
-    waitingBadgeText: {
-        fontSize: 11,
-        fontWeight: '600',
-        textAlign: 'right',
-        lineHeight: 14,
     },
     moreBtn: {
         width: 28,
@@ -353,30 +355,31 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    androidMenu: {
-        position: 'absolute',
-        right: 0,
-        top: 32,
-        borderRadius: 8,
-        borderWidth: 1,
-        paddingVertical: 4,
-        zIndex: 100,
-        minWidth: 180,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 6,
+    // Sección 17 del ticket: reemplaza el View absolutamente posicionado
+    // dentro de la fila (podía superponerse a la mayoría de la fila en
+    // Android angosto) por el MISMO Modal real ya usado en GroupTaskCard.tsx
+    // -- se pinta siempre por encima de todo, nunca sujeto al stacking local
+    // de esta fila ni a filas vecinas del FlatList.
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'flex-end',
+    },
+    actionMenu: {
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingVertical: 8,
+        paddingBottom: 24,
     },
     androidMenuItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        gap: 10,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        gap: 12,
     },
     androidMenuText: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '500',
     },
 });

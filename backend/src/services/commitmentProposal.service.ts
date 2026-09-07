@@ -11,6 +11,36 @@ import { buildCommitmentProposalVisibilityFilter, getParticipantProposalIds } fr
 import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
 import { getProposalParticipationState, type ProposalResponseRow } from '../utils/proposalParticipation';
 
+// COMMITMENT UX + ACTOR-AWARE SUGGESTIONS — cierre de idempotencia real
+// (sección 7/25 del ticket): antes de esto, ni createProposal ni
+// createSharedProposal comprobaban si el mensaje de origen YA había
+// producido una proposal -- ni la RPC create_shared_commitment_proposal_with_responses
+// ni create_commitment_proposal_with_evidence tienen ningún guard sobre
+// source_message_id (confirmado leyendo ambas por completo). Esto permitía
+// que un doble-tap del mismo actor, o un tap cruzado entre dos actores
+// distintos (ej. Carlos Y Alejandra tocando "Agendar" sobre el mismo
+// mensaje antes de que cualquiera de los dos confirme), crearan DOS
+// commitment_proposals independientes para el mismo mensaje. La fila de
+// `commitment_proposals` NUNCA se borra al confirmarse (finalize_approved_commitment_proposal
+// sólo actualiza status='confirmed', nunca hace delete) -- así que un único
+// chequeo "¿existe ya una proposal NO rechazada con este source_message_id?"
+// cubre tanto una proposal aún pendiente como una ya confirmada/materializada
+// (solo o compartida), sin necesitar una segunda consulta a `commitments`.
+// Nunca depende sólo de ocultar el botón en mobile (sección 7: "UI hiding
+// alone is insufficient") -- esto es la autoridad real, a nivel de Core.
+async function findExistingProposalForMessage(sourceMessageId: string): Promise<any | null> {
+    const { data, error } = await supabaseAdmin
+        .from('commitment_proposals')
+        .select('*')
+        .eq('source_message_id', sourceMessageId)
+        .neq('status', 'rejected')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    if (error) throw error;
+    return data;
+}
+
 export async function createProposal(userId: string, input: any) {
     const conversationId = readLegacyConversationId(input);
     const sourceMessageId = input.message_id || input.messageId || null;
@@ -36,6 +66,15 @@ export async function createProposal(userId: string, input: any) {
         throw new AppError('A related responsible person requires an authorized conversation', 400);
     }
     if (contactId) await assertOwnContact(userId, contactId);
+
+    // Idempotencia real (sección 7/25): sólo se consulta DESPUÉS de que el
+    // actor ya está autorizado a referenciar este mensaje (assertMessageInConversation
+    // arriba) -- nunca antes, para no filtrar la existencia de una proposal
+    // a alguien fuera de la conversación.
+    if (sourceMessageId) {
+        const existing = await findExistingProposalForMessage(sourceMessageId);
+        if (existing) return existing;
+    }
 
     const sourceKind = input.source_kind
         || input.sourceKind
@@ -83,6 +122,16 @@ export async function createSharedProposal(userId: string, input: any) {
     const sourceMessage = sourceMessageId
         ? await assertMessageInConversation(sourceMessageId, conversationId)
         : null;
+
+    // Idempotencia real (sección 7/25 del ticket) — ver findExistingProposalForMessage
+    // arriba: cierra exactamente el caso físico reportado (Carlos ya generó
+    // la shared proposal; un segundo intento -- de Carlos o de Alejandra --
+    // sobre el mismo mensaje reutiliza la proposal existente en vez de
+    // crear una segunda).
+    if (sourceMessageId) {
+        const existing = await findExistingProposalForMessage(sourceMessageId);
+        if (existing) return existing;
+    }
 
     const requestedResponsibleUserId = readLegacyAssignedToUserId(input);
     const contactId = input.counterparty_contact_id || input.counterpartyContactId || null;
@@ -414,7 +463,43 @@ export async function rejectProposal(userId: string, proposalId: string, reason?
 // POST /commitments is retained as a beta compatibility endpoint. Calling it
 // is the user's explicit confirmation: Proposal is persisted first and only
 // the database transaction below creates Commitment plus its first event.
+//
+// COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 7/25) — createProposal ya
+// puede devolver una proposal REUTILIZADA (idempotencia por source_message_id,
+// ver findExistingProposalForMessage) que puede llegar aquí con
+// status='confirmed' -- confirm_commitment_proposal/finalize_approved_commitment_proposal
+// exigen status='pending' (errcode P0001 "Proposal is not pending") y
+// lanzarían si se le llama dos veces sobre la misma proposal ya
+// materializada. Se detecta ese caso ANTES de reintentar confirmar (y
+// también se cubre la ventana de carrera real donde dos confirmaciones
+// concurrentes llegan casi al mismo tiempo: la RPC usa `for update`, así
+// que la segunda sí lanza P0001 incluso si status era 'pending' al
+// consultarlo aquí) -- en ambos casos se reutiliza el commitment YA
+// materializado (commitments.proposal_id = proposal.id) en vez de
+// propagar el error al usuario.
 export async function createConfirmedCommitment(userId: string, input: any) {
     const proposal = await createProposal(userId, input);
-    return confirmProposal(userId, proposal.id);
+    if (proposal.status === 'confirmed') {
+        return fetchCommitmentByProposalId(proposal.id);
+    }
+    try {
+        return await confirmProposal(userId, proposal.id);
+    } catch (error: any) {
+        if (error?.code === 'P0001') {
+            const existingCommitment = await fetchCommitmentByProposalId(proposal.id);
+            if (existingCommitment) return existingCommitment;
+        }
+        throw error;
+    }
+}
+
+async function fetchCommitmentByProposalId(proposalId: string) {
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select('*')
+        .eq('proposal_id', proposalId)
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new AppError('Proposal was already confirmed but its commitment could not be found', 500);
+    return data;
 }

@@ -174,6 +174,25 @@ const MessageItemComponent = ({
     const meta = item.metadata ?? item.meta ?? {};
     const isSystem = meta?.isSystem;
     const isMe = item.sender_id === user?.id && !isSystem;
+    // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS — hallazgo físico real: el
+    // botón "Agendar" sólo miraba `meta?.suggestedTask`, nunca (a) si el
+    // mensaje ya produjo una proposal/commitment real (`groupTasks` ya se
+    // filtraba por `message_id` unas líneas más abajo para pintar la card,
+    // pero nunca se reutilizaba para decidir si el botón debía seguir
+    // existiendo), ni (b) si el actor actual es quien realmente escribió el
+    // mensaje. Resultado: Alejandra veía "Agendar" bajo el mensaje de
+    // Carlos AL MISMO TIEMPO que la proposal card real ya materializada
+    // (dos caminos de creación compitiendo por la misma intención), y de
+    // haberlo tocado, habría creado una SEGUNDA proposal propuesta por
+    // ELLA -- nunca una respuesta a la de Carlos. Regla de autoría (sección
+    // 3 del ticket): sólo quien escribió el mensaje puede iniciar el
+    // agendado. Regla de materialización (sección 4): una vez que existe
+    // CUALQUIER proposal/commitment para este mensaje, el CTA original deja
+    // de ofrecerse a CUALQUIER actor -- la superficie accionable pasa a ser
+    // exclusivamente la card de abajo (Aceptar/Proponer otra fecha/Rechazar
+    // para el resto, o simplemente verla para el propio autor).
+    const tasksForThisMessage = groupTasks.filter((t: any) => t.message_id === item.id);
+    const canInitiateSuggestion = isMe && tasksForThisMessage.length === 0;
     const quotedPalette = getQuotedMessagePalette(isMe, theme.isDark, theme.colors);
     const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
@@ -612,7 +631,7 @@ const MessageItemComponent = ({
                             })()}
                         </View>
                     )}
-                    {meta?.suggestedTask && (
+                    {meta?.suggestedTask && canInitiateSuggestion && (
                         <TouchableOpacity
                             style={[styles.suggestionChip, isMe && { alignSelf: 'flex-end' }]}
                             onPress={() => {
@@ -631,7 +650,7 @@ const MessageItemComponent = ({
                     <Animated.View style={{ ...StyleSheet.absoluteFill, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
                 )}
             </View>{(() => {
-                const tasks = groupTasks.filter((t: any) => t.message_id === item.id);
+                const tasks = tasksForThisMessage;
                 if (tasks.length === 0) return null;
 
                 const myTask = tasks.find((t: any) => t.assigned_to_user_id === user?.id);

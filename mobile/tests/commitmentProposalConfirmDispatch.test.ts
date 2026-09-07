@@ -378,12 +378,16 @@ describe('M-1H v5: CommitmentRow.tsx / TodayItemRow.tsx usan getCommitmentPrimar
         expect(src).not.toMatch(/if \(status === 'accepted'\)/);
     });
 
-    it('ambos muestran una etiqueta "Esperando" (nunca Confirmar/Completar) cuando primaryAction==="waiting"', () => {
+    it('ambos muestran una etiqueta "Esperando" (nunca Confirmar/Completar) cuando primaryAction==="waiting" -- ahora vía getActorPresentation (COMMITMENT UX + ACTOR-AWARE SUGGESTIONS, sección 19), que internamente reutiliza getProposalWaitingLabel', () => {
         for (const relPath of ['src/components/compromisos/CommitmentRow.tsx', 'src/components/hoy/TodayItemRow.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/primaryAction === 'waiting'/);
-            expect(src).toMatch(/getProposalWaitingLabel/);
+            expect(src).toMatch(/getActorPresentation/);
         }
+        // La reutilización real de getProposalWaitingLabel vive ahora DENTRO
+        // del helper canónico, nunca reimplementada por fila.
+        const helperSrc = readSrc('src/utils/actorPresentation.ts');
+        expect(helperSrc).toMatch(/getProposalWaitingLabel/);
     });
 
     it('CommitmentRow.tsx ya no tiene su propia (cuarta) fórmula de overdue -- usa isCommitmentOverdue canónico', () => {
@@ -552,18 +556,17 @@ describe('M-1H v6: paridad UI-Agent — Compromisos/Hoy/Detalle (dinámico, mism
 });
 
 describe('M-1H v6: paridad UI-Agent — Conversation card (GroupTaskCard.tsx, mecanismo paralelo pre-existente)', () => {
-    // HALLAZGO HONESTO (no un bug de este ticket, documentado a propósito):
-    // GroupTaskCard.tsx NUNCA fue migrado a getProposalParticipationState/
-    // getCommitmentPrimaryAction/getProposalWaitingLabel -- calcula su propio
-    // "agreementWaitingLabel" en paralelo (canRespondToAgreement +
-    // getAgreementSummary). Migrarlo es refactor fuera del alcance de Gap A/
-    // Gap B de este ticket (no está en la lista de archivos autorizados, y
-    // tocar la Conversation card ampliamente usada sin más contexto es un
-    // riesgo no solicitado). Este test certifica que, aunque NO está
-    // unificado, tampoco es CONTRADICTORIO: la misma conclusión semántica
-    // (Carlos espera, Alejandra actúa) se cumple por su propio camino, y
-    // nunca renderiza "vencido" para una proposal (isPast es una prop
-    // externa nunca pasada por su único call site real, MessageItem.tsx).
+    // ACTUALIZACIÓN (COMMITMENT UX + ACTOR-AWARE SUGGESTIONS, sección 16/19):
+    // el hallazgo honesto documentado aquí en el ticket anterior ("GroupTaskCard.tsx
+    // NUNCA fue migrado a los helpers canónicos, calcula su propio
+    // agreementWaitingLabel en paralelo") queda CERRADO por este ticket --
+    // agreementWaitingLabel ahora es literalmente
+    // `getProposalActorPresentation(commitment, user?.id).statusLabel`
+    // (mobile/src/utils/actorPresentation.ts), que a su vez reutiliza
+    // getProposalWaitingLabel (agreement.ts) para el caso "esperando a X" --
+    // nunca una cuarta heurística independiente. canRespondToAgreement sigue
+    // derivándose de la misma fuente de verdad real (agreement_responses),
+    // sin cambios.
     it('canRespondToAgreement usa currentAgreementResponse?.status===\'pending\' -- misma fuente de verdad real (agreement_responses), nunca duplica el estado', () => {
         const src = readSrc('src/components/GroupTaskCard.tsx');
         expect(src).toMatch(/canRespondToAgreement = isAgreementProposal && currentAgreementResponse\?\.status === 'pending'/);
@@ -582,9 +585,10 @@ describe('M-1H v6: paridad UI-Agent — Conversation card (GroupTaskCard.tsx, me
         expect(groupTaskCardUsage).not.toMatch(/isPast=/);
     });
 
-    it('agreementWaitingLabel para quien ya aprobó nunca dice "vencido" -- sólo "Esperando N respuesta(s)" o el label genérico de resumen', () => {
+    it('agreementWaitingLabel ahora reutiliza getProposalActorPresentation (canónico, sección 19) -- nunca su propia fórmula independiente, y nunca dice "vencido" para una proposal', () => {
         const src = readSrc('src/components/GroupTaskCard.tsx');
-        expect(src).toMatch(/`Esperando \$\{agreementSummary\.pending\} respuesta/);
+        expect(src).toMatch(/import \{ getProposalActorPresentation \} from '\.\.\/utils\/actorPresentation'/);
+        expect(src).toMatch(/const agreementWaitingLabel = proposalPresentation\?\.statusLabel \?\? null;/);
         expect(src).not.toMatch(/agreementWaitingLabel[\s\S]{0,120}vencido/i);
     });
 });

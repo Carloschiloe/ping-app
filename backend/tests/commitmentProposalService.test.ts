@@ -232,3 +232,105 @@ describe('PARTICIPANT VISIBILITY: getAgreementProposals expone actor_role/actor_
         expect(entrenar.actor_role).toBe('none');
     });
 });
+
+// ─── COMMITMENT UX + ACTOR-AWARE SUGGESTIONS — idempotencia real por
+// source_message_id (sección 7/25 del ticket): ni create_commitment_proposal_with_evidence
+// ni create_shared_commitment_proposal_with_responses tienen ningún guard
+// sobre source_message_id (confirmado leyendo ambas RPCs completas) -- un
+// doble-tap del mismo actor, o un tap cruzado entre dos actores distintos
+// sobre el mismo mensaje "Agendar", podía crear DOS commitment_proposals
+// independientes referenciando el mismo mensaje. Estos tests certifican el
+// guard real a nivel de servicio (Core), nunca sólo "ocultar el botón".
+describe('COMMITMENT UX: idempotencia real por source_message_id', () => {
+    const CONVERSATION = 'conversation-msg-1';
+    const MESSAGE = 'message-ver-peli';
+    const ALEJANDRA = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    function withMembershipAndMessage(extra: Record<string, any[]> = {}) {
+        return createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION, role: 'member' }, error: null }],
+            messages: [{ data: { id: MESSAGE, conversation_id: CONVERSATION, sender_id: USER, metadata: {}, deleted_at: null }, error: null }],
+            ...extra,
+        });
+    }
+
+    it('createProposal: sin proposal previa para este mensaje -> crea normalmente vía RPC', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: null, error: null }], // findExistingProposalForMessage: nada encontrado
+            'rpc:create_commitment_proposal_with_evidence': [{ data: { id: PROPOSAL, status: 'pending', title: 'ver peli' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await createProposal(USER, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: PROPOSAL, status: 'pending' });
+        expect(mock.getRpcCalls()).toHaveLength(1);
+    });
+
+    it('createProposal: YA existe una proposal no-rechazada para este mensaje -> la reutiliza, NUNCA llama a la RPC de creación (caso físico real: doble tap)', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: { id: PROPOSAL, status: 'pending', title: 'ver peli', source_message_id: MESSAGE }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await createProposal(ALEJANDRA, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: PROPOSAL, status: 'pending' });
+        expect(mock.getRpcCalls()).toEqual([]); // nunca se llamó create_commitment_proposal_with_evidence
+    });
+
+    it('createSharedProposal: YA existe una proposal no-rechazada para este mensaje -> la reutiliza, NUNCA crea una segunda (caso físico real: Carlos y Alejandra tocan "Agendar" sobre el mismo mensaje)', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: { id: PROPOSAL, status: 'pending', title: 'ver peli', source_message_id: MESSAGE, proposed_by_user_id: USER }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createSharedProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await createSharedProposal(ALEJANDRA, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: PROPOSAL, proposed_by_user_id: USER });
+        expect(mock.getRpcCalls()).toEqual([]);
+    });
+
+    it('createSharedProposal: una proposal RECHAZADA para este mensaje no bloquea un nuevo intento real (rejected nunca cuenta como "ya existe")', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: null, error: null }], // .neq('status','rejected') -> el mock no filtra realmente, pero certificamos el camino "no encontrado" -> sí crea
+            'rpc:create_shared_commitment_proposal_with_responses': [{ data: { id: 'new-proposal-2', status: 'pending' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createSharedProposal } = await import('../src/services/commitmentProposal.service');
+        const result = await createSharedProposal(USER, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: 'new-proposal-2' });
+        expect(mock.getRpcCalls()).toHaveLength(1);
+    });
+
+    it('createConfirmedCommitment: la proposal reutilizada YA está confirmada -> reutiliza el commitment materializado, NUNCA reintenta confirmar (evita el 409/P0001 real de finalize_approved_commitment_proposal)', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: { id: PROPOSAL, status: 'confirmed', title: 'ver peli', source_message_id: MESSAGE }, error: null }],
+            commitments: [{ data: { id: 'commitment-1', proposal_id: PROPOSAL, status: 'accepted', title: 'ver peli' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createConfirmedCommitment } = await import('../src/services/commitmentProposal.service');
+        const result = await createConfirmedCommitment(USER, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: 'commitment-1', proposal_id: PROPOSAL });
+        expect(mock.getRpcCalls().find((c) => c.name === 'confirm_commitment_proposal')).toBeUndefined();
+    });
+
+    it('createConfirmedCommitment: carrera real -- confirmProposal lanza P0001 ("Proposal is not pending") -> se recupera devolviendo el commitment ya materializado en vez de propagar el error', async () => {
+        const mock = withMembershipAndMessage({
+            commitment_proposals: [{ data: { id: PROPOSAL, status: 'pending', title: 'ver peli', source_message_id: MESSAGE }, error: null }],
+            'rpc:confirm_commitment_proposal': [{ data: null, error: { code: 'P0001', message: 'Proposal is not pending' } }],
+            commitments: [{ data: { id: 'commitment-1', proposal_id: PROPOSAL, status: 'accepted', title: 'ver peli' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createConfirmedCommitment } = await import('../src/services/commitmentProposal.service');
+        const result = await createConfirmedCommitment(USER, { title: 'ver peli', conversation_id: CONVERSATION, message_id: MESSAGE });
+        expect(result).toMatchObject({ id: 'commitment-1', proposal_id: PROPOSAL });
+    });
+
+    it('sin message_id -> nunca consulta la idempotencia (comportamiento manual sin cambios)', async () => {
+        const mock = createSupabaseAdminMock({
+            'rpc:create_commitment_proposal_with_evidence': [{ data: { id: 'manual-1', status: 'pending' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { createProposal } = await import('../src/services/commitmentProposal.service');
+        await createProposal(USER, { title: 'Tarea manual sin mensaje de origen' });
+        expect(mock.getCalledTables()).not.toContain('commitment_proposals');
+    });
+});

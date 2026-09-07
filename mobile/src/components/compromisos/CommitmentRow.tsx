@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
-import { getProposalWaitingLabel } from '../../utils/agreement';
+import { getActorPresentation } from '../../utils/actorPresentation';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
 interface CommitmentRowProps {
@@ -66,8 +66,6 @@ export function CommitmentRow({
     const [menuVisible, setMenuVisible] = useState(false);
 
     const status = normalizeCommitmentStatus(c.status);
-    const isMe = !!currentUserId && c.assigned_to_user_id?.toLowerCase() === currentUserId.toLowerCase();
-    const isDelegated = !!currentUserId && c.owner_user_id?.toLowerCase() === currentUserId.toLowerCase() && c.assigned_to_user_id?.toLowerCase() !== currentUserId.toLowerCase();
     const isMeeting = c.type === 'meeting' || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(c.title || '');
     const hasConversation = canViewOriginConversation(c);
     const conversationId = resolveConversationId(c);
@@ -84,6 +82,19 @@ export function CommitmentRow({
     // nunca para el caso Carlos (primaryAction==='waiting'), donde "rechazar
     // por Alejandra" sería exactamente el error que este ticket prohíbe.
     const canRespondToProposal = isProposal && primaryAction === 'accept';
+
+    // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 19) — presentación
+    // canónica única, nunca un roleLabel()/waiting-label reimplementado por
+    // pantalla. `contactNameMap` fallback preservado tal cual (mismo lookup
+    // que ya existía) para no regresionar el caso de un commitment delegado
+    // a un contacto externo sin perfil real.
+    const presentation = getActorPresentation(
+        {
+            ...c,
+            assignee: c.assignee || (contactNameMap[c.assigned_to_user_id] ? { full_name: contactNameMap[c.assigned_to_user_id] } : null),
+        },
+        currentUserId,
+    );
 
     const goToChat = () => {
         if (!conversationId) return;
@@ -111,17 +122,11 @@ export function CommitmentRow({
     const renderPrimaryAction = () => {
         if (isFinished) return null;
 
-        if (primaryAction === 'waiting') {
-            const waitingLabel = getProposalWaitingLabel(c, currentUserId);
-            const datePassed = isProposalDatePassed(c.due_at);
-            return (
-                <View style={styles.waitingBadge}>
-                    <Text style={[styles.waitingBadgeText, { color: theme.colors.text.secondary }]} numberOfLines={3}>
-                        {waitingLabel}{datePassed ? '\nFecha propuesta ya pasó' : ''}
-                    </Text>
-                </View>
-            );
-        }
+        // Sección 9/11/12: "waiting" ya no renderiza su propio badge aquí --
+        // el statusLabel actor-aware/lifecycle-aware se muestra como línea
+        // propia en la jerarquía principal (ver statusLine más abajo), nunca
+        // compitiendo por ancho con el título ni con el resto de acciones.
+        if (primaryAction === 'waiting' || primaryAction === 'none') return null;
 
         if (!c.due_at) {
             return (
@@ -199,26 +204,6 @@ export function CommitmentRow({
         }
     };
 
-    // ─── Role / Person Chip ──────────────────────────────────────────────
-    const roleLabel = () => {
-        if (isFinished) {
-            if (status === 'resolved') return { text: 'Resuelto', color: theme.colors.success };
-            if (status === 'cancelled') return { text: 'Cancelado', color: theme.colors.text.muted };
-            return { text: 'Rechazado', color: theme.colors.danger };
-        }
-        if (isDelegated) {
-            const assigneeName = c.assignee?.full_name?.split(' ')[0] || contactNameMap[c.assigned_to_user_id] || 'Otro';
-            return { text: `→ ${assigneeName}`, color: theme.colors.secondary };
-        }
-        if (c.owner_user_id && c.owner_user_id !== currentUserId) {
-            const ownerName = c.owner?.full_name?.split(' ')[0] || 'Asignado';
-            return { text: `← ${ownerName}`, color: theme.colors.accent };
-        }
-        return null;
-    };
-
-    const label = roleLabel();
-
     return (
         <TouchableOpacity
             style={[
@@ -245,7 +230,11 @@ export function CommitmentRow({
                 ]}
             />
 
-            {/* Content */}
+            {/* Content — jerarquía vertical (sección 9 del ticket): TITLE
+                propio (nunca comparte línea con nada que le quite ancho) ->
+                metaLine (relación · cuándo) -> statusLine (actor-aware,
+                sección 10/11/12) -> actionsRow (con ancho completo
+                disponible, nunca comprimida contra el título). */}
             <View style={styles.content}>
                 <View style={styles.titleRow}>
                     <Text
@@ -259,17 +248,26 @@ export function CommitmentRow({
                     >
                         {c.title}
                     </Text>
-                    {label && (
-                        <View style={[styles.labelChip, { backgroundColor: `${label.color}15` }]}>
-                            <Text style={[styles.labelText, { color: label.color }]}>{label.text}</Text>
-                        </View>
-                    )}
+                    <TouchableOpacity onPress={openMenu} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.moreBtn}>
+                        <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.text.muted} />
+                    </TouchableOpacity>
                 </View>
 
-                <View style={styles.subRow}>
-                    <Text style={[styles.timeText, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]}>
-                        {formatWhen(c.due_at)}
+                <Text
+                    style={[styles.metaLine, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]}
+                    numberOfLines={2}
+                >
+                    {presentation.relationLabel} · {formatWhen(c.due_at)}
+                </Text>
+
+                {!!presentation.statusLabel && (
+                    <Text style={[styles.statusLine, { color: theme.colors.text.secondary }]} numberOfLines={2}>
+                        {presentation.statusLabel}{presentation.proposalDatePassed ? ' · Fecha propuesta ya pasó' : ''}
                     </Text>
+                )}
+
+                <View style={styles.actionsRow}>
+                    {renderPrimaryAction()}
                     {hasConversation && (
                         <TouchableOpacity onPress={goToChat} style={styles.chatLink}>
                             <Ionicons name="chatbubble-ellipses-outline" size={11} color={theme.colors.accent} />
@@ -279,55 +277,54 @@ export function CommitmentRow({
                 </View>
             </View>
 
-            {/* Actions */}
-            <View style={styles.actions}>
-                {renderPrimaryAction()}
-                <TouchableOpacity onPress={openMenu} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.moreBtn}>
-                    <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.text.muted} />
-                </TouchableOpacity>
-            </View>
-
-            {/* Android menu fallback */}
-            {Platform.OS !== 'ios' && menuVisible && (
-                <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setMenuVisible(false)}>
-                    <View style={[styles.androidMenu, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            {/* Sección 17 del ticket: reemplaza el View absolutamente
+                posicionado (podía superponerse a la fila) por el mismo
+                Modal real ya probado en GroupTaskCard.tsx/TodayItemRow.tsx
+                -- se pinta siempre por encima de todo. */}
+            <Modal visible={Platform.OS !== 'ios' && menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+                <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
+                    <View style={[styles.actionMenu, { backgroundColor: theme.colors.surface }]}>
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenDetail(c); }}>
-                            <Ionicons name="information-circle-outline" size={16} color={theme.colors.text.primary} />
+                            <Ionicons name="information-circle-outline" size={18} color={theme.colors.text.primary} />
                             <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver detalle</Text>
                         </TouchableOpacity>
                         {!isProposal && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                                <Ionicons name="calendar-outline" size={16} color={theme.colors.text.primary} />
+                                <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
                             </TouchableOpacity>
                         )}
                         {hasConversation && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); goToChat(); }}>
-                                <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.text.primary} />
+                                <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && onReject && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
-                                <Ionicons name="close-circle-outline" size={16} color={theme.colors.danger} />
+                                <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
                             </TouchableOpacity>
                         )}
                         {onCancel && !isFinished && !isProposal && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
-                                <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                                <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Archivar / Cancelar</Text>
                             </TouchableOpacity>
                         )}
+                        <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
+                            <Ionicons name="close-outline" size={18} color={theme.colors.text.muted} />
+                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cancelar</Text>
+                        </TouchableOpacity>
                     </View>
-                </TouchableOpacity>
-            )}
+                </Pressable>
+            </Modal>
         </TouchableOpacity>
     );
 }
@@ -335,54 +332,67 @@ export function CommitmentRow({
 const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
+        // Sección 9/14: el contenido ahora es una pila vertical (título ->
+        // metaLine -> statusLine -> acciones) que puede crecer más alto que
+        // el bar/moreBtn -- alinear al inicio evita que el indicatorBar
+        // quede centrado a media altura de un bloque de 3-4 líneas.
+        alignItems: 'flex-start',
+        paddingVertical: 12,
         paddingHorizontal: 16,
         borderBottomWidth: StyleSheet.hairlineWidth,
         gap: 10,
     },
     indicatorBar: {
         width: 3,
-        height: 38,
+        // Altura fija reemplazada por 'stretch' vía alignSelf implícito
+        // (View sin height explícita, alineada dentro de un row
+        // flex-start) no es viable en RN sin flex:1 en el padre -- se deja
+        // una altura mínima razonable para una fila de 1 línea; filas más
+        // altas (proposals con metaLine+statusLine+acciones) simplemente
+        // dejan la barra más corta que el contenido, nunca al revés.
+        minHeight: 38,
         borderRadius: 2,
         flexShrink: 0,
+        marginTop: 1,
     },
     content: {
         flex: 1,
-        gap: 2,
+        gap: 3,
     },
     titleRow: {
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: 6,
     },
+    // Sección 9/14 del ticket: el título es la ÚNICA cosa en su línea salvo
+    // el botón "..." (28x28, flexShrink:0) -- nunca comparte ancho con un
+    // person-chip ni con un badge de estado, causa mecánica real del
+    // wrap-a-mitad-de-palabra ("Levanta/rse") reportado en la certificación
+    // física. `flexShrink: 1` explícito (además de flex:1) para que RN
+    // nunca intente medir el texto a su ancho intrínseco completo antes de
+    // encogerlo -- necesario en Android para envolver por palabra completa.
     title: {
         flex: 1,
-        fontSize: 14,
+        flexShrink: 1,
+        fontSize: 15,
         fontWeight: '600',
-        lineHeight: 19,
+        lineHeight: 20,
     },
     strikethrough: {
         textDecorationLine: 'line-through',
     },
-    labelChip: {
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        flexShrink: 0,
-    },
-    labelText: {
-        fontSize: 10,
-        fontWeight: '700',
-    },
-    subRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    timeText: {
-        fontSize: 11,
+    // Sección 10/13: "Carlos propone · Hoy 18:00" -- relación + cuándo en
+    // una sola línea secundaria, nunca un arrow-glyph ambiguo ("← Carlos").
+    metaLine: {
+        fontSize: 12,
         fontWeight: '500',
+    },
+    // Sección 10/11: "Necesita tu respuesta" / "Esperando a Alejandra" --
+    // línea propia, con el ancho COMPLETO de la fila disponible (nunca los
+    // 150px que tenía el badge horizontal antiguo).
+    statusLine: {
+        fontSize: 12,
+        fontWeight: '600',
     },
     chatLink: {
         flexDirection: 'row',
@@ -393,11 +403,13 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '500',
     },
-    actions: {
+    // Sección 9: fila de acciones DEBAJO del título/metadata, nunca al
+    // lado -- el botón primario ya no compite por ancho con el título.
+    actionsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        flexShrink: 0,
+        gap: 12,
+        marginTop: 2,
     },
     primaryBtn: {
         flexDirection: 'row',
@@ -406,20 +418,11 @@ const styles = StyleSheet.create({
         paddingVertical: 5,
         borderRadius: 6,
         gap: 4,
+        alignSelf: 'flex-start',
     },
     primaryBtnText: {
         fontSize: 12,
         fontWeight: '700',
-    },
-    waitingBadge: {
-        maxWidth: 150,
-        paddingHorizontal: 2,
-    },
-    waitingBadgeText: {
-        fontSize: 11,
-        fontWeight: '600',
-        textAlign: 'right',
-        lineHeight: 14,
     },
     moreBtn: {
         width: 28,
@@ -427,30 +430,26 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    androidMenu: {
-        position: 'absolute',
-        right: 16,
-        top: 36,
-        borderRadius: 8,
-        borderWidth: 1,
-        paddingVertical: 4,
-        zIndex: 100,
-        minWidth: 180,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 6,
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'flex-end',
+    },
+    actionMenu: {
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingVertical: 8,
+        paddingBottom: 24,
     },
     androidMenuItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        gap: 10,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        gap: 12,
     },
     androidMenuText: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '500',
     },
 });
