@@ -16,10 +16,12 @@ import * as contactController from '../controllers/contact.controller';
 import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
 import * as agentController from '../controllers/agent.controller';
+import * as agentPlanController from '../controllers/agentPlan.controller';
 import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentRequestSchema } from '../schemas/agentRequest.schema';
+import { agentPlanRequestSchema } from '../schemas/agentPlanRequest.schema';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -260,6 +262,22 @@ router.post(
     agentRateLimiter,
     validateRequest(agentRequestSchema),
     agentController.respond,
+);
+
+// Ping Agent Planning (M-3) — READ-ONLY planning preview, structurally
+// separate from /agent/respond so the minimal, already-certified
+// AgentPublicResponse contract (types/agent.ts) is never polluted with plan
+// fields (sección 38 del ticket M-3: "prefer clear separation if response
+// contract becomes polluted"). No execution endpoint exists — this only
+// ever returns a dry-run AgentPlan (draft/needs_clarification/
+// ready_for_authorization), never a side effect. Same rate limiter as
+// /agent/respond: up to 1 LLM call per request (objective interpretation).
+router.post(
+    '/agent/plan',
+    requireAuth,
+    agentRateLimiter,
+    validateRequest(agentPlanRequestSchema),
+    agentPlanController.plan,
 );
 
 // Insights

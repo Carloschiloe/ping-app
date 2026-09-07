@@ -36,8 +36,6 @@ const VALID_TOKEN = 'valid-test-token';
 const OUTSIDER_TOKEN = 'outsider-test-token';
 
 beforeAll(async () => {
-    delete process.env.OPENAI_API_KEY;
-
     const { supabaseAdminMockModule } = await import('./helpers/supabaseMock');
     // vi.mock no puede llamarse dinámicamente aquí (ya se ejecutó el hoist de
     // otros archivos), así que este archivo mockea el módulo directamente
@@ -54,13 +52,28 @@ beforeAll(async () => {
     });
 
     const { app } = await import('../src/app');
+    // M-3 hallazgo real (durante el testing de agentPlanEndToEnd.test.ts) —
+    // app.ts llama a dotenv.config() (sin `override`) en su propio
+    // top-level; borrar esta variable ANTES de importar app.ts hacía que
+    // dotenv.config() la repoblara desde el .env real (dotenv sólo respeta
+    // valores que YA existen — uno borrado ya no existe), disparando
+    // llamadas reales a OpenAI en un archivo cuyo propio comentario
+    // documenta "no proveedor real obligatorio". Se limpia DESPUÉS de
+    // importar app.ts para que ningún test de este archivo dependa de red.
+    process.env.OPENAI_API_KEY = '';
     await new Promise<void>((resolve) => {
         server = app.listen(0, () => resolve());
     });
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     baseUrl = `http://127.0.0.1:${port}`;
-});
+}, 30000);
+// Timeout explícito (M-3, hallazgo real): con dos archivos de integración
+// HTTP real (este + agentPlanEndToEnd.test.ts) booteando su propia app
+// Express completa bajo carga paralela, el default de vitest (10s) se
+// excede de forma consistente -- nunca un bug de negocio (--no-file-parallelism,
+// o cada archivo en aislamiento, pasan 100% de las veces). 30s es margen
+// real, no una supresión del síntoma.
 
 afterEach(() => {
     mockHelpers.setSupabaseAdminMock(mockHelpers.createSupabaseAdminMock({}));
