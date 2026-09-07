@@ -1139,3 +1139,142 @@ describe('M-1E: cost control', () => {
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS"
+// (sección 17 del ticket): Ejecución B del hallazgo físico real -- con 3
+// proposals válidas dentro del budget, el modelo mencionó sólo 1. Estos
+// tests certifican enforceExhaustiveCoverage con el dataset EXACTO del
+// ticket: "ir a Puerto Montt", "ver peli", "Entrenar" (las 3 esperando a
+// Alejandra).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H: enforceExhaustiveCoverage (sección 17) -- dataset real "Puerto Montt / ver peli / Entrenar"', () => {
+    const puertoMontt = proposal('pr-puertomontt', { title: 'ir a Puerto Montt', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+    const verPeli = proposal('pr-verpeli', { title: 'ver peli', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+    const entrenar = proposal('pr-entrenar', { title: 'Entrenar', actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+    const allThree = [puertoMontt, verPeli, entrenar];
+    const requiredSourceRefs = allThree.map((p) => p.provenance);
+    // citations son AgentCitation puro ({sourceType, sourceId}) -- provenance
+    // de una proposal trae además `commitmentId`, así que se compara aparte.
+    const requiredCitations = allThree.map((p) => ({ sourceType: p.provenance.sourceType, sourceId: p.provenance.sourceId }));
+
+    function exhaustiveContext() {
+        return baseContext({
+            evidenceFound: true,
+            queryCardinality: 'exhaustive_list' as any,
+            proposalFocus: 'waiting_for_others' as any,
+            requiredSourceRefs: requiredSourceRefs as any,
+            requiredSourceRefsTruncated: false as any,
+            commitments: allThree as any,
+            provenance: requiredSourceRefs as any,
+        });
+    }
+
+    it('el modelo menciona sólo 1 de 3 -- la respuesta final igual cubre las 3', async () => {
+        const model = fakeModel(claimPayload([{ text: '"ir a Puerto Montt" está esperando la respuesta de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-puertomontt' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando confirmación?', context: exhaustiveContext() });
+
+        expect(response.answer).toContain('Puerto Montt');
+        expect(response.answer).toContain('ver peli');
+        expect(response.answer).toContain('Entrenar');
+        expect(response.citations).toEqual(expect.arrayContaining(requiredCitations));
+    });
+
+    it('el modelo menciona 2 de 3 -- la respuesta final igual cubre las 3', async () => {
+        const model = fakeModel(claimPayload([
+            { text: '"ir a Puerto Montt" está esperando la respuesta de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-puertomontt' }] },
+            { text: '"ver peli" está esperando la respuesta de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-verpeli' }] },
+        ]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando confirmación?', context: exhaustiveContext() });
+
+        expect(response.answer).toContain('Puerto Montt');
+        expect(response.answer).toContain('ver peli');
+        expect(response.answer).toContain('Entrenar');
+        expect(response.citations).toEqual(expect.arrayContaining(requiredCitations));
+    });
+
+    it('el modelo menciona las 3 honestamente -- enforceExhaustiveCoverage no agrega nada (no hay omisión que cerrar)', async () => {
+        const model = fakeModel(claimPayload([{
+            text: '"ir a Puerto Montt", "ver peli" y "Entrenar" están esperando la respuesta de Alejandra.',
+            sourceRefs: [
+                { sourceType: 'commitment_proposal', sourceId: 'pr-puertomontt' },
+                { sourceType: 'commitment_proposal', sourceId: 'pr-verpeli' },
+                { sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' },
+            ],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando confirmación?', context: exhaustiveContext() });
+
+        expect(response.claims).toHaveLength(1); // ningún claim canónico agregado -- el modelo ya cubrió todo
+        expect(response.citations).toEqual(expect.arrayContaining(requiredCitations));
+    });
+
+    it('el modelo inventa un cuarto item -- se rechaza (nunca en allowedSourceRefs), las 3 reales igual quedan cubiertas', async () => {
+        const model = fakeModel(claimPayload([
+            { text: '"ir a Puerto Montt" está esperando la respuesta de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-puertomontt' }] },
+            { text: 'También tienes "Comprar regalo" esperando respuesta.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-inventado-no-existe' }] },
+        ]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando confirmación?', context: exhaustiveContext() });
+
+        expect(response.answer).not.toContain('Comprar regalo'); // claim con ref inventada, descartado por validateClaimsAgainstAllowedRefs
+        expect(response.citations).not.toContainEqual({ sourceType: 'commitment_proposal', sourceId: 'pr-inventado-no-existe' });
+        expect(response.answer).toContain('Puerto Montt');
+        expect(response.answer).toContain('ver peli');
+        expect(response.answer).toContain('Entrenar');
+    });
+
+    it('nunca interviene para queryCardinality != exhaustive_list (focused_lookup no exige cobertura del dominio)', async () => {
+        const ctx = baseContext({
+            evidenceFound: true,
+            queryCardinality: 'focused_lookup' as any,
+            requiredSourceRefs: requiredSourceRefs as any,
+            commitments: allThree as any,
+            provenance: requiredSourceRefs as any,
+        });
+        const model = fakeModel(claimPayload([{ text: '"ir a Puerto Montt" está esperando la respuesta de Alejandra.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: 'pr-puertomontt' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué pasó con Puerto Montt?', context: ctx });
+
+        expect(response.answer).not.toContain('ver peli');
+        expect(response.answer).not.toContain('Entrenar');
+    });
+});
+
+describe('M-1H: COUNT CONTRACT (sección 10) -- el Core calcula, el modelo nunca cuenta manualmente', () => {
+    it('queryCardinality=count nunca llama al modelo -- respuesta 100% determinística', async () => {
+        const model = fakeModel('{}');
+        const ctx = baseContext({
+            evidenceFound: true,
+            queryCardinality: 'count' as any,
+            proposalFocus: 'waiting_for_others' as any,
+            countResult: 3 as any,
+            commitments: [] as any,
+        });
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Cuántos estoy esperando?', context: ctx });
+
+        expect(model.synthesize).not.toHaveBeenCalled();
+        expect(response.answer).toContain('3');
+        expect(response.status).toBe('answered');
+    });
+
+    it('proposalFocus=waiting_for_others frasea "esperando" en vez de un genérico "resultados"', async () => {
+        const ctx = baseContext({ evidenceFound: true, queryCardinality: 'count' as any, proposalFocus: 'waiting_for_others' as any, countResult: 3 as any });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({ input: '¿Cuántas proposals estoy esperando?', context: ctx });
+
+        expect(response.answer.toLowerCase()).toContain('esperando');
+        expect(response.answer).toContain('3');
+    });
+
+    it('countResult=0 nunca produce un answer roto ("0 resultados" es válido)', async () => {
+        const ctx = baseContext({ evidenceFound: false, queryCardinality: 'count' as any, countResult: 0 as any });
+        const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
+        const response = await synthesizer.synthesize({ input: '¿Cuántos tengo vencidos?', context: ctx });
+
+        expect(response.answer).toContain('0');
+    });
+});

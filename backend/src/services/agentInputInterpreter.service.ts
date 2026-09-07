@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 export interface InterpreterContext {
@@ -52,7 +52,25 @@ function wordBounded(alternatives: string): RegExp {
 const COMMITMENT_KEYWORDS = wordBounded('promet[íi]\\w*|promise[ds]?|pendientes?|pending|tareas?|tasks?|compromisos?|commitments?|debo|owe');
 const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|archivos?|files?|adjuntos?|attachments?|mandaron|enviaron|sent');
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
-const RECALL_KEYWORDS = wordBounded('hablamos|habl[óo]\\w*|dijiste|dijo|dijeron|dice|dicen|decidimos|pas[óo]\\w*|talked?|said|says?|told|happened|discussed|decided');
+// M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B) — "háblame de X"/
+// "cuéntame sobre X" son la MISMA familia semántica que "hablamos de X"/
+// "qué pasó con X" (recall de un tema/evento puntual, nunca un listado) --
+// extensión de la familia RECALL ya existente y probada, no un keyword
+// aislado nuevo (sección 14: nunca un parche local sin diseño).
+const RECALL_KEYWORDS = wordBounded('hablamos|habl[óo]\\w*|h[áa]blame\\s+de|cu[ée]ntame\\s+sobre|dijiste|dijo|dijeron|dice|dicen|decidimos|pas[óo]\\w*|talked?|said|says?|told|happened|discussed|decided');
+// M-1H (ticket "DETERMINISTIC QUERY SEMANTICS", sección 5) — señal
+// determinística para queryCardinality='count': "¿cuántos...?"/"how many
+// ...?". Deliberadamente pequeño, mismo principio que el resto de estos
+// conjuntos -- un extractor de superficie, nunca la semántica final (la
+// semántica vive en el enum QueryCardinality).
+const COUNT_KEYWORDS = wordBounded('cu[áa]nt[oa]s|how many');
+// M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B, sección 11 caso I) —
+// señal determinística para queryCardinality='summary': "resume mis
+// compromisos"/"summarize my commitments". Distinta de exhaustive_list a
+// propósito -- una consulta de resumen no exige cobertura item-por-item
+// (ver enforceExhaustiveCoverage en agentResponseSynthesizer.service.ts,
+// que sólo actúa sobre 'exhaustive_list').
+const SUMMARY_KEYWORDS = wordBounded('res[úu]me\\w*|resumen|summarize|summary');
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 const OPEN_STATUS_KEYWORDS = wordBounded('pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved');
 const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
@@ -94,7 +112,7 @@ const STOPWORDS = new Set([
     'le', 'me', 'te', 'nos', 'se', 'lo', 'la', 'los', 'las', 'el', 'un', 'una', 'unos', 'unas',
     'de', 'del', 'al', 'a', 'con', 'sobre', 'en', 'para', 'por',
     'the', 'a', 'an', 'of', 'to', 'for', 'in', 'on', 'about', 'with',
-    'hablamos', 'habló', 'hablo', 'dijiste', 'dijo', 'dijeron', 'dice', 'dicen', 'decidimos', 'pasó', 'paso',
+    'hablamos', 'habló', 'hablo', 'háblame', 'cuéntame', 'dijiste', 'dijo', 'dijeron', 'dice', 'dicen', 'decidimos', 'pasó', 'paso',
     'talked', 'talk', 'said', 'say', 'says', 'told', 'happened', 'discussed', 'decided',
     'prometí', 'prometi', 'promise', 'promised', 'pendiente', 'pendientes', 'pending', 'tengo', 'have', 'this', 'esta', 'este',
     'hola', 'hello', 'hi', 'hey', 'buenas',
@@ -133,6 +151,20 @@ const STOPWORDS = new Set([
     // frases como "¿Qué propuestas esperan mi respuesta?".
     'espera', 'esperan', 'esperas', 'esperamos',
     'siguen', 'debo',
+    // M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B/sección 10) — mismo
+    // residuo que "pendiente"/"propuestas" arriba: "compromiso(s)" ya está
+    // capturado estructuralmente por COMMITMENT_KEYWORDS (intent), nunca
+    // debe sobrevivir como topicQuery ("¿Qué compromisos tengo sobre
+    // viaje?" -> topicQuery="viaje", nunca "compromisos viaje").
+    'compromiso', 'compromisos', 'commitment', 'commitments',
+    // M-1H.1 (ticket "CANONICAL TOPIC RETRIEVAL PARITY", sección 15) — mismo
+    // principio: una frase temporal ("esta semana", "el mes pasado") ya
+    // queda capturada estructuralmente en `timeExpression`/`timeRange`
+    // (extractTimeExpression/resolveTimeExpression) -- las palabras sueltas
+    // que la componen nunca deben sobrevivir como residuo del topicQuery
+    // (ej. "¿Qué compromisos tengo esta semana sobre viaje?" ->
+    // topicQuery="viaje", nunca "semana viaje").
+    'semana', 'semanas', 'mes', 'meses', 'pasada', 'pasado', 'week', 'weeks', 'month', 'months', 'last', 'ago', 'días', 'dias', 'days',
 ]);
 
 // M-1D.3 — un textQuery cuyos tokens son TODOS lenguaje de control/intención
@@ -178,6 +210,20 @@ const CONFIRMATION_CONTROL_WORDS = wordBounded(
 function stripConfirmationControlWords(text: string): string {
     const pattern = new RegExp(CONFIRMATION_CONTROL_WORDS.source, 'giu');
     return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B) — mismo mecanismo que
+// stripConfirmationControlWords: "cuántos"/"how many"/"resume"/"summary" ya
+// están capturados estructuralmente en queryCardinality (count/summary) --
+// nunca deben sobrevivir como textQuery. Sin esto, "¿Cuántos compromisos
+// vencidos tengo?" filtraría por texto="Cuántos" y el count real de Core
+// terminaría contando sobre cero resultados falsos.
+function stripCardinalityControlWords(text: string): string {
+    let cleaned = text;
+    for (const kw of [COUNT_KEYWORDS, SUMMARY_KEYWORDS]) {
+        cleaned = cleaned.replace(new RegExp(kw.source, 'giu'), ' ');
+    }
+    return cleaned.replace(/\s+/g, ' ').trim();
 }
 
 // M-1G.3 — hallazgo real de staging (M-1G-S2/M-1G.2, caso "Entrenar"): esta
@@ -292,6 +338,61 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     return { type: 'general_context', confidence: 0.3 };
 }
 
+// M-1H (ticket "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER
+// CONTRACTS", sección 5) — clasificación DETERMINÍSTICA de cardinalidad,
+// calculada por el Core a partir de señales YA normalizadas (nunca
+// re-confiando en el juicio libre del LLM para esto). Orden de chequeo
+// deliberado, específico -> general:
+//   1. "¿cuántos...?" siempre gana -- el usuario pide un número, no una
+//      lista ni un lookup, sin importar de qué se trate el número.
+//   2/3. proposalFocus/wantsOverdueFocus ya son señales de "listame todo lo
+//      que corresponde a esta categoría" -- inherentemente exhaustivas.
+//   4. intent='recall' es por definición sobre UN tema/evento puntual
+//      ("¿qué pasó con X?") -- nunca exige cobertura de todo el dominio.
+//   5. Un commitment_query genérico (sin ninguna de las señales de arriba)
+//      sigue siendo una lista ("¿qué pendientes tengo?").
+//   6. document_search/message_search/person_query son búsquedas puntuales
+//      por diseño (M-1B/M-1C ya las tratan como top-N relevante, no como
+//      "todo el universo").
+export function classifyQueryCardinality(
+    input: string,
+    signals: { intent: AgentIntentType; proposalFocus: ProposalFocus; wantsOverdueFocus: boolean },
+): QueryCardinality {
+    if (COUNT_KEYWORDS.test(input)) return 'count';
+    // M-1H (bloqueo B) — "resume mis compromisos" pide una síntesis, nunca
+    // una lista item-por-item ni un número; se revisa antes que
+    // proposalFocus/wantsOverdueFocus/commitment_query genéricos a
+    // propósito (misma prioridad conceptual que count: la FORMA de la
+    // pregunta domina sobre el dominio del que habla).
+    if (SUMMARY_KEYWORDS.test(input)) return 'summary';
+    // M-1H (bloqueo B, sección 9: "specific target/topic lookup ->
+    // focused_lookup" tiene prioridad conceptual sobre "proposal/status/
+    // list scope") — lenguaje de recall ("¿qué pasó con X?", "háblame de
+    // X"/"cuéntame sobre X") es sobre UN tema/evento puntual sin importar
+    // qué otra palabra co-ocurra (ej. "compromiso" en "¿qué pasó con el
+    // compromiso del regalo?"). Se revisa el texto DIRECTAMENTE con
+    // RECALL_KEYWORDS, no sólo `signals.intent`, porque classifyIntent
+    // prioriza COMMITMENT_KEYWORDS sobre RECALL_KEYWORDS por razones ya
+    // establecidas (M-1D) que este ticket no toca -- "compromiso" gana la
+    // clasificación de `intent`, pero la FORMA de la pregunta (recall)
+    // sigue siendo la señal correcta para cardinalidad.
+    if (RECALL_KEYWORDS.test(input)) return 'focused_lookup';
+    if (signals.proposalFocus !== null) return 'exhaustive_list';
+    if (signals.wantsOverdueFocus) return 'exhaustive_list';
+    if (signals.intent === 'recall') return 'focused_lookup';
+    // Un commitment_query genérico sigue siendo un listado ("¿qué
+    // compromisos tengo?", "¿qué compromisos tengo sobre viaje?" -- un
+    // topic real NO convierte una lista en un lookup puntual, ver sección
+    // 10 del ticket). Los casos que SÍ son lookup puntual sobre un
+    // commitment específico ya se desvían a intent='recall' arriba (verbo
+    // "pasó"/"háblame de") -- no hay, en el contrato exigido, un caso de
+    // commitment_query genérico que deba ser focused_lookup sin pasar por
+    // esa señal.
+    if (signals.intent === 'commitment_query') return 'exhaustive_list';
+    if (signals.intent === 'document_search' || signals.intent === 'message_search' || signals.intent === 'person_query') return 'focused_lookup';
+    return 'unknown';
+}
+
 function extractPersonHints(input: string): string[] {
     const hints = new Set<string>();
     for (const pattern of [PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER, PENDING_RESPONSE_PERSON_CUE]) {
@@ -302,6 +403,27 @@ function extractPersonHints(input: string): string[] {
         }
     }
     return Array.from(hints);
+}
+
+// M-1H — "explicit person mention" contract (ticket "DETERMINISTIC QUERY
+// SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS"): hallazgo físico real -- el LLM
+// primario (LlmInputInterpreter) alucinó `personHints:["Alejandra"]` para
+// "¿Qué estoy esperando confirmación?", un input que NUNCA menciona a
+// Alejandra, disparando resolvePerson/needs_clarification sobre una persona
+// inexistente en el texto. `personHints` del LLM es juicio libre del modelo
+// -- nunca autoritativo por sí solo (ya documentado arriba) -- pero hasta
+// ahora nada verificaba que el nombre sugerido REALMENTE apareciera en el
+// input crudo antes de usarlo para resolver/filtrar. Chequeo deliberadamente
+// simple (substring, case-insensitive) -- ni NLP ni matching difuso: si el
+// LLM inventa un nombre que ni siquiera aparece como texto en el input, no
+// hay "referencia real detectada" que justifique tratarlo como scope
+// estructural (sección 4 del ticket). Un nombre real y verdaderamente
+// presente en el texto siempre sobrevive este chequeo, sin importar qué
+// patrón lo detectó (regex determinístico o juicio del LLM).
+export function isPersonHintGroundedInInput(hint: string, rawInput: string): boolean {
+    const normalizedHint = hint.trim().toLowerCase();
+    if (!normalizedHint) return false;
+    return rawInput.toLowerCase().includes(normalizedHint);
 }
 
 function extractTimeExpression(input: string): string | null {
@@ -347,6 +469,8 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     // tras remover "esperando" de "esperando confirmación") nunca deben
     // sobrevivir como textQuery -- ver stripConfirmationControlWords.
     cleaned = stripConfirmationControlWords(cleaned);
+    // M-1H (bloqueo B): "cuántos"/"resume" ya capturados en queryCardinality.
+    cleaned = stripCardinalityControlWords(cleaned);
     const tokens = cleaned
         .replace(/[¿?¡!.,;:]/g, ' ')
         .split(/\s+/)
@@ -543,7 +667,9 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // M-1H v7: misma red de seguridad que arriba (extractTextQuery) -- el
     // modelo no siempre sigue la instrucción de nunca repetir
     // "confirmación"/"aceptar"/"aprobar" sueltos en textQuery.
-    const finalTextQuery = proposalCleanedTextQuery ? stripConfirmationControlWords(proposalCleanedTextQuery) : null;
+    const confirmationCleanedTextQuery = proposalCleanedTextQuery ? stripConfirmationControlWords(proposalCleanedTextQuery) : null;
+    // M-1H (bloqueo B): misma red de seguridad para "cuántos"/"resume".
+    const finalTextQuery = confirmationCleanedTextQuery ? stripCardinalityControlWords(confirmationCleanedTextQuery) : null;
     const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
     return {

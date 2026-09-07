@@ -494,7 +494,19 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         expect(p.rejectionReason).toBe('no aplica');
     });
 
-    it('con textQuery presente devuelve [] sin consultar ninguna tabla -- commitment_proposals no tiene search_tsv (sin FTS)', async () => {
+    // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE") —
+    // commitment_proposals AHORA tiene columna search_tsv real (ver
+    // supabase/migrations/20260907010000_commitment_proposal_full_text_retrieval.sql),
+    // mismo mecanismo que commitments. Estos tests, como los de
+    // retrieveCommitments más abajo en este archivo, certifican el
+    // CONTRATO (qué se le pide a Postgres), no el matching SQL real -- eso
+    // se validó DIRECTAMENTE contra una instancia local real de Postgres
+    // (supabase start + supabase db reset con la migración aplicada,
+    // consultas .textSearch reales confirmando "entrenar"->sólo Entrenar,
+    // "Puerto Montt"->sólo esa, "confirmacion" sin tilde -> matchea
+    // "Confirmación" con tilde), documentado en el reporte de entrega --
+    // ningún mock puede simular fielmente un índice GIN real.
+    it('aplica textSearch sobre search_tsv con config ping_text (mismo contrato que retrieveCommitments)', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],
             commitment_proposals: [{ data: [proposalRow()], error: null }],
@@ -502,9 +514,62 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         setSupabaseAdminMock(mock);
         const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
 
+        await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'entrenar' }, 20);
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'entrenar', { type: 'websearch', config: 'ping_text' }]]);
+    });
+
+    it('sin textQuery no llama textSearch (compatibilidad hacia atrás)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitmentProposals({ actorUserId: 'u1' }, 20);
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([]);
+    });
+
+    it('pasa el textQuery LITERAL a textSearch -- sin agregar ":*" ni transformar el término', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'Puerto Montt' }, 20);
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'Puerto Montt', { type: 'websearch', config: 'ping_text' }]]);
+    });
+
+    it('con textQuery, el resultado que Postgres ya matcheó se rankea (rankCommitments) sin perder el item', async () => {
+        // Simula lo que Postgres YA devolvería filtrado por FTS real -- el
+        // dataset de este mock es "lo que sobrevivió al índice", no input
+        // crudo sin filtrar.
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ title: 'Entrenar' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
         const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'entrenar' }, 20);
-        expect(result).toEqual([]);
-        expect(mock.getCalledTables()).toEqual([]);
+        expect(result).toHaveLength(1);
+        expect(result[0].title).toBe('Entrenar');
+    });
+
+    it('overfetch: con textQuery (y sin offset -- camino de un solo tiro), pide un fetchLimit MAYOR que el limit final solicitado (mismo mecanismo que retrieveCommitments)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'entrenar' }, 10);
+        const chain = mainProposalsChain(mock);
+        const requestedLimit = chain.limit.mock.calls[0][0];
+        expect(requestedLimit).toBeGreaterThan(10);
     });
 
     // M-1H v5: retrieveCommitmentProposals ahora hace un fetch ADICIONAL de
@@ -584,6 +649,131 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
 
         await expect(retrieveCommitmentProposals({ actorUserId: 'u1' }, 20)).resolves.toEqual([]);
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // M-1H FINAL — dataset real del ticket (secciones 9/10/25/26): Entrenar /
+    // ver peli / Puerto Montt, las 3 esperando a Alejandra. Con FTS real,
+    // este archivo (mock de Supabase) certifica el CONTRATO -- el término
+    // literal correcto llega a `.textSearch`, sin transformación de idioma/
+    // acentos en el código de aplicación -- nunca el matching en sí, que ya
+    // fue validado DIRECTAMENTE contra una instancia local real de Postgres
+    // (ver comentario de cabecera de este describe): "entrenar" devolvió
+    // sólo Entrenar, "Puerto Montt" sólo esa, "confirmacion" (sin tilde)
+    // matcheó "Confirmación" -- exactamente el mismo dataset que aquí.
+    // ═══════════════════════════════════════════════════════════════════════
+    describe('sección 9/10/25/26: contrato de topic query para el dataset real (Entrenar/ver peli/Puerto Montt)', () => {
+        it('sección 9: "Entrenar" -> textSearch recibe el término exacto', async () => {
+            const mock = createSupabaseAdminMock({
+                commitment_proposal_responses: [{ data: [], error: null }],
+                commitment_proposals: [{ data: [proposalRow({ id: 'pr-entrenar', title: 'Entrenar' })], error: null }],
+            });
+            setSupabaseAdminMock(mock);
+            const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+            const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'Entrenar' }, 20);
+            expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'Entrenar', { type: 'websearch', config: 'ping_text' }]]);
+            expect(result.map((p) => p.id)).toEqual(['pr-entrenar']);
+        });
+
+        it('sección 10: "Puerto Montt" -> textSearch recibe la frase completa, sin partirla', async () => {
+            const mock = createSupabaseAdminMock({
+                commitment_proposal_responses: [{ data: [], error: null }],
+                commitment_proposals: [{ data: [proposalRow({ id: 'pr-puertomontt', title: 'ir a Puerto Montt' })], error: null }],
+            });
+            setSupabaseAdminMock(mock);
+            const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+            const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'Puerto Montt' }, 20);
+            expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'Puerto Montt', { type: 'websearch', config: 'ping_text' }]]);
+            expect(result.map((p) => p.id)).toEqual(['pr-puertomontt']);
+        });
+
+        it('"peli" -> textSearch recibe el término, resultado preserva el shape/id de la proposal ya filtrada por Postgres', async () => {
+            const mock = createSupabaseAdminMock({
+                commitment_proposal_responses: [{ data: [], error: null }],
+                commitment_proposals: [{ data: [proposalRow({ id: 'pr-verpeli', title: 'ver peli' })], error: null }],
+            });
+            setSupabaseAdminMock(mock);
+            const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+            const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'peli' }, 20);
+            expect(result.map((p) => p.id)).toEqual(['pr-verpeli']);
+        });
+    });
+
+    it('sección 11: topic list query -- Postgres ya devuelve sólo los 5 matches de "viaje"; ranking/dedup preserva los 5 sin pérdida', async () => {
+        const viajeMatches = Array.from({ length: 5 }, (_, i) => proposalRow({ id: `pr-viaje-${i}`, title: `Planear viaje ${i}` }));
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: viajeMatches, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'viaje' }, 10);
+        expect(result).toHaveLength(5);
+        expect(result.every((p) => p.id.startsWith('pr-viaje-'))).toBe(true);
+    });
+
+    it('sección 8G/26: topic + person combinados -- ambos filtros se piden a SQL (or() de persona, textSearch de topic)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ id: 'pr-match', title: 'Planear viaje', proposed_responsible_user_id: 'alejandra-id' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'viaje', personId: 'alejandra-id' }, 20);
+        const chain = mainProposalsChain(mock);
+        expect(chain.or).toHaveBeenCalledWith('proposed_responsible_user_id.eq.alejandra-id,proposed_by_user_id.eq.alejandra-id');
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'viaje', { type: 'websearch', config: 'ping_text' }]]);
+        expect(result.map((p) => p.id)).toEqual(['pr-match']);
+    });
+
+    it('sección 8F: topic + timeRange combinados -- ambos se piden a SQL (gte/lte de fecha, textSearch de topic)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{
+                data: [proposalRow({ id: 'pr-match', title: 'Planear viaje', due_at: '2026-09-10T00:00:00Z' })],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'viaje', timeRange: { from: '2026-09-01T00:00:00Z', to: '2026-09-30T00:00:00Z' } }, 20);
+        const chain = mainProposalsChain(mock);
+        expect(chain.gte).toHaveBeenCalledWith('due_at', '2026-09-01T00:00:00Z');
+        expect(chain.lte).toHaveBeenCalledWith('due_at', '2026-09-30T00:00:00Z');
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'viaje', { type: 'websearch', config: 'ping_text' }]]);
+        expect(result.map((p) => p.id)).toEqual(['pr-match']);
+    });
+
+    it('multilingual (sección 28): un topic en inglés se pasa a textSearch sin ninguna transformación/lógica específica de idioma', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ id: 'pr-trip', title: 'Plan the trip to Chiloé' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'trip' }, 20);
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'trip', { type: 'websearch', config: 'ping_text' }]]);
+        expect(result.map((p) => p.id)).toEqual(['pr-trip']);
+    });
+
+    it('accent/case (sección 9): "confirmacion" (sin tilde) se pasa LITERAL a textSearch -- el fold de acentos vive en el índice GIN de Postgres (unaccent + ping_text), nunca en JS', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: [proposalRow({ id: 'pr-conf', title: 'Reunión de Confirmación' })], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'confirmacion' }, 20);
+        expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'confirmacion', { type: 'websearch', config: 'ping_text' }]]);
+        expect(result.map((p) => p.id)).toEqual(['pr-conf']);
     });
 });
 

@@ -79,6 +79,22 @@ export type AmbiguityHintType = 'unresolved_pronoun' | 'time_ambiguous' | 'topic
 // commitments+proposals).
 export type ProposalFocus = 'waiting_for_others' | 'needs_my_response' | 'pending_response_from_person' | null;
 
+// M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
+// clasificación estructurada de CARDINALIDAD (sección 5 del ticket) --
+// cuántos items reales corresponde devolver, decidido por el Core, nunca
+// dejado a que el modelo de síntesis "elija" arbitrariamente cuántos
+// mencionar. Ver agentInputInterpreter.service.ts#classifyQueryCardinality.
+//   - 'exhaustive_list': la respuesta DEBE cubrir todos los items válidos
+//     dentro del budget (ver AgentContext.requiredSourceRefs) -- "¿qué
+//     estoy esperando?", "¿qué tengo vencido?", "¿qué falta que acepte X?".
+//   - 'focused_lookup': una consulta sobre UN target puntual (ej. "¿qué
+//     pasó con Entrenar?") -- nunca exige cobertura exhaustiva del dominio.
+//   - 'count': el número lo calcula el Core, el modelo sólo lo redacta (ver
+//     AgentContext.countResult).
+//   - 'summary'/'unknown': reservados para clasificación futura más fina;
+//     hoy se tratan igual que 'focused_lookup' (sin requiredSourceRefs).
+export type QueryCardinality = 'exhaustive_list' | 'focused_lookup' | 'summary' | 'count' | 'unknown';
+
 export interface Interpretation {
     intent: AgentIntentType;
     intentConfidence: number;
@@ -194,6 +210,63 @@ export interface AgentContext {
     intent: AgentIntent;
     // M-1G.1: ver Interpretation.wantsOverdueFocus.
     wantsOverdueFocus: boolean;
+    // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 1/3)
+    // — señal canónica EXPLÍCITA del AgentQueryPlan: true sólo si el input
+    // crudo realmente contiene una referencia textual a una persona (ver
+    // agentInputInterpreter.service.ts#isPersonHintGroundedInInput). Cuando
+    // es false, NINGÚN personHint sugerido por el LLM pudo introducir scope
+    // -- ver `entities.people`, siempre [] en ese caso.
+    explicitPersonMention: boolean;
+    // M-1H — ver ProposalFocus arriba. Propagado a AgentContext (no sólo a
+    // Interpretation) para que la síntesis pueda frasear correctamente una
+    // respuesta de queryCardinality='count' (sección 10 del ticket) sin
+    // tener que re-derivarlo de texto libre.
+    proposalFocus: ProposalFocus;
+    // M-1H — ver QueryCardinality arriba. Calculado por el Core
+    // (agentContextBuilder.service.ts#classifyQueryCardinality lógica),
+    // nunca por el modelo de síntesis.
+    queryCardinality: QueryCardinality;
+    // M-1H — sólo no-vacío cuando queryCardinality='exhaustive_list': el
+    // subconjunto EXACTO de `provenance` que la respuesta final DEBE citar
+    // (sección 8/9 del ticket). Es un subconjunto de `provenance`/
+    // `allowedSourceRefs` de síntesis, nunca una fuente nueva de evidencia.
+    // La síntesis (enforceExhaustiveCoverage) agrega un claim determinístico
+    // por cada ref de esta lista que el modelo omitió.
+    requiredSourceRefs: RetrievalProvenance[];
+    // M-1H — true cuando, DESPUÉS del filtro estructural (proposalFocus),
+    // había más items válidos que los que el budget final devolvió (sección
+    // 19: nunca afirmar implícitamente que una lista está completa si no lo
+    // está). Calculado POST-filtro (ver "M-1H FINAL ARCHITECTURE GATE",
+    // bloqueo A) -- ya no es una aproximación pre-filtro.
+    requiredSourceRefsTruncated: boolean;
+    // M-1H (ticket "FINAL ARCHITECTURE GATE", sección 5) — true cuando el
+    // total real es CONOCIDO con certeza (ninguna fuente de retrieval
+    // saturó su propia ventana de overfetch); false cuando alguna fuente
+    // devolvió exactamente su límite y por lo tanto podría haber MÁS
+    // candidatos más allá de esa ventana que nunca se llegaron a pedir.
+    // `requiredSourceRefsTruncated=false` sólo es una afirmación honesta de
+    // completitud cuando ESTE campo es también true -- nunca se reporta
+    // "no truncado" cuando en realidad no se sabe.
+    requiredSourceRefsTruncationKnown: boolean;
+    // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 12)
+    // — metadata honesta de completitud del bucle de paginación de
+    // proposalFocus (ver agentContextBuilder.service.ts#fillProposalFocusMatches).
+    // Ausentes/irrelevantes cuando proposalFocus es null (un solo fetch,
+    // topic/status/person/time ya exactos vía SQL real).
+    //   - proposalFocusScannedCount: filas de commitment_proposals
+    //     efectivamente escaneadas (nunca "asumidas").
+    //   - proposalFocusSourceExhausted: true si se llegó al final real de
+    //     la tabla (una página devolvió menos filas de las pedidas).
+    //   - proposalFocusSafetyCapReached: true si se cortó por el techo
+    //     explícito (PROPOSAL_FOCUS_SAFETY_CAP), nunca silenciosamente.
+    proposalFocusScannedCount?: number;
+    proposalFocusSourceExhausted?: boolean;
+    proposalFocusSafetyCapReached?: boolean;
+    // M-1H — sólo presente cuando queryCardinality='count': el conteo
+    // calculado por el Core sobre `commitments` ya filtrado. El modelo de
+    // síntesis nunca cuenta manualmente (sección 10 del ticket) -- ver
+    // agentResponseSynthesizer.service.ts, camino de respuesta determinística.
+    countResult?: number;
     entities: AgentContextEntities;
 
     commitments: RetrievalCommitment[];

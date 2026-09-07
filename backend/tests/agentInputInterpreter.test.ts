@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LlmInputInterpreter, DeterministicInputInterpreter, type AgentInputModel, type AgentInputModelRequest } from '../src/services/agentInputInterpreter.service';
+import {
+    LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
+    type AgentInputModel, type AgentInputModelRequest,
+} from '../src/services/agentInputInterpreter.service';
 
 // M-1D.1 — LlmInputInterpreter. TODOS los tests usan un `AgentInputModel`
 // fake (sección 34: nunca una llamada real al proveedor). Estos tests
@@ -918,5 +921,96 @@ describe('M-1H v7: NO depender del LLM (sección 9) — el mismo saneamiento det
         const interpreter = new LlmInputInterpreter({ model });
         const r = await interpreter.interpret('¿Qué estoy esperando confirmación sobre el viaje?', {});
         expect(r.textQuery).toBe('viaje');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS"
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('M-1H: isPersonHintGroundedInInput (sección 4) -- explicit person mention, ground truth', () => {
+    it('un nombre literalmente presente en el input está "grounded"', () => {
+        expect(isPersonHintGroundedInInput('Alejandra', '¿Qué falta que acepte Alejandra?')).toBe(true);
+    });
+
+    it('un nombre AUSENTE del input (alucinado por el LLM) no está grounded -- caso real del hallazgo físico', () => {
+        expect(isPersonHintGroundedInInput('Alejandra', '¿Qué estoy esperando confirmación?')).toBe(false);
+    });
+
+    it('case-insensitive: "alejandra" (minúscula) sigue grounded contra "Alejandra" en el input', () => {
+        expect(isPersonHintGroundedInInput('alejandra', '¿Qué falta que acepte Alejandra?')).toBe(true);
+    });
+
+    it('un hint vacío o sólo espacios nunca está grounded', () => {
+        expect(isPersonHintGroundedInInput('', 'cualquier texto')).toBe(false);
+        expect(isPersonHintGroundedInInput('   ', 'cualquier texto')).toBe(false);
+    });
+});
+
+describe('M-1H: classifyQueryCardinality (sección 5/24) -- los 8 casos mínimos del contract test matrix', () => {
+    it.each([
+        ['¿Qué estoy esperando?', 'commitment_query', 'waiting_for_others', false, 'exhaustive_list'],
+        ['¿Qué estoy esperando confirmación?', 'commitment_query', 'waiting_for_others', false, 'exhaustive_list'],
+        ['¿Qué tengo por aceptar?', 'commitment_query', 'needs_my_response', false, 'exhaustive_list'],
+        ['¿Qué falta que acepte Alejandra?', 'commitment_query', 'pending_response_from_person', false, 'exhaustive_list'],
+        ['¿Qué tengo vencido?', 'commitment_query', null, true, 'exhaustive_list'],
+        ['¿Qué pasó con entrenar?', 'recall', null, false, 'focused_lookup'],
+        ['¿Cuántos tengo vencidos?', 'commitment_query', null, true, 'count'],
+        ['¿Qué estoy esperando sobre viaje?', 'commitment_query', 'waiting_for_others', false, 'exhaustive_list'],
+    ] as const)('%s -> %s', (input, intent, proposalFocus, wantsOverdueFocus, expected) => {
+        expect(classifyQueryCardinality(input, { intent, proposalFocus, wantsOverdueFocus })).toBe(expected);
+    });
+
+    it('"¿cuántos...?" siempre gana sobre proposalFocus/wantsOverdueFocus -- el usuario pide un número, no una lista', () => {
+        expect(classifyQueryCardinality('¿Cuántas propuestas estoy esperando?', { intent: 'commitment_query', proposalFocus: 'waiting_for_others', wantsOverdueFocus: false })).toBe('count');
+    });
+
+    it('document_search/message_search/person_query son focused_lookup por diseño (búsquedas puntuales, nunca "todo el dominio")', () => {
+        expect(classifyQueryCardinality('¿me mandaron un contrato?', { intent: 'document_search', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+        expect(classifyQueryCardinality('busca el mensaje del viaje', { intent: 'message_search', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+        expect(classifyQueryCardinality('¿quién es Laura?', { intent: 'person_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+    });
+
+    it('general_context sin ninguna señal -> unknown', () => {
+        expect(classifyQueryCardinality('hola', { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false })).toBe('unknown');
+    });
+});
+
+describe('M-1H: bloqueo B ("FINAL ARCHITECTURE GATE") -- generic commitment_query ya NO equivale siempre a exhaustive_list', () => {
+    it.each([
+        ['¿Qué compromisos tengo?', 'commitment_query', null, false, 'exhaustive_list'],
+        ['¿Qué tengo pendiente?', 'commitment_query', null, false, 'exhaustive_list'],
+        ['¿Qué pasó con el compromiso del regalo?', 'commitment_query', null, false, 'focused_lookup'],
+        ['Háblame de Entrenar', 'recall', null, false, 'focused_lookup'],
+        ['¿Qué compromisos tengo sobre viaje?', 'commitment_query', null, false, 'exhaustive_list'],
+        ['¿Cuántos compromisos vencidos tengo?', 'commitment_query', null, true, 'count'],
+        ['Resume mis compromisos de esta semana', 'commitment_query', null, false, 'summary'],
+    ] as const)('%s -> %s', (input, intent, proposalFocus, wantsOverdueFocus, expected) => {
+        expect(classifyQueryCardinality(input, { intent, proposalFocus, wantsOverdueFocus })).toBe(expected);
+    });
+
+    it('lenguaje de recall gana sobre proposalFocus/wantsOverdueFocus adversarial (sección 9: "specific target lookup" pesa más que "proposal/status scope")', () => {
+        // El propio texto tiene "pasó" (recall real) -- aunque el modelo
+        // adversarial afirme wantsOverdueFocus/proposalFocus, la FORMA de
+        // la pregunta (lookup puntual) sigue ganando.
+        expect(classifyQueryCardinality('¿Qué pasó con el compromiso del regalo?', { intent: 'commitment_query', proposalFocus: 'waiting_for_others', wantsOverdueFocus: true })).toBe('focused_lookup');
+    });
+
+    it('DeterministicInputInterpreter: "Háblame de X" -> intent=recall (extensión de la familia RECALL ya existente, no un intent nuevo)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Háblame de Entrenar', {});
+        expect(r.intent).toBe('recall');
+        expect(r.textQuery).toBeNull(); // "háblame" nunca sobrevive como topic
+    });
+
+    it('DeterministicInputInterpreter: "Resume mis compromisos" nunca deja "compromiso(s)" como textQuery residual', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué compromisos tengo sobre viaje?', {});
+        expect(r.textQuery).toBe('viaje');
+    });
+
+    it('DeterministicInputInterpreter: "¿Cuántos...?"/"Resume..." nunca dejan su propio verbo/pregunta como textQuery residual', async () => {
+        const count = await new DeterministicInputInterpreter().interpret('¿Cuántos compromisos vencidos tengo?', {});
+        const summary = await new DeterministicInputInterpreter().interpret('Resume mis compromisos', {});
+        expect(count.textQuery).toBeNull();
+        expect(summary.textQuery).toBeNull();
     });
 });

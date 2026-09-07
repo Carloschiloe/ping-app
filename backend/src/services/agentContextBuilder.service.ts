@@ -21,7 +21,14 @@ import {
     retrieveAttachments,
     dedupeProvenance,
 } from './retrieval.service';
-import { LlmInputInterpreter, fallbackInterpretation, type AgentInputInterpreter } from './agentInputInterpreter.service';
+import {
+    LlmInputInterpreter,
+    DeterministicInputInterpreter,
+    fallbackInterpretation,
+    isPersonHintGroundedInInput,
+    classifyQueryCardinality,
+    type AgentInputInterpreter,
+} from './agentInputInterpreter.service';
 import type {
     AgentCapabilityGap,
     AgentContext,
@@ -30,11 +37,19 @@ import type {
     AgentClarification,
     Interpretation,
     ProposalFocus,
+    QueryCardinality,
     RetrievalPlanStep,
 } from '../types/agentContext';
-import type { PersonResolutionResult, RetrievalCommitment, RetrievalTimeRange } from '../types/retrieval';
+import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
+// [PING_PROPOSAL_TRACE] TEMPORARY (ticket "M-1H: DETERMINISTIC QUERY
+// SEMANTICS") — instrumentación de diagnóstico para certificar
+// físicamente el contrato de normalización determinística
+// (personHints/proposalFocus/queryCardinality) y de cobertura exhaustiva.
+// Retirar junto con [PING_OVERDUE_TRACE] en un ticket separado una vez
+// certificado (ver sección 22 del ticket).
+import { traceProposal } from '../utils/overdueTrace';
 import { resolveAgentTimezone, timeZoneOffsetMs, startOfDayInZone } from '../utils/timezone';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
 
@@ -144,15 +159,21 @@ async function safeInterpret(interpreter: AgentInputInterpreter, input: string, 
 // (explícitamente prohibido en el ticket): ambas fuentes ya llegan con el
 // MISMO shape (RetrievalCommitment, entityType honesto) y se combinan bajo
 // el MISMO criterio de orden ya certificado para commitments solo
-// (orderByOverdueFirst: due_at asc / si no: created_at desc), recortadas al
-// mismo budget único. La precedencia "canonical commitment gana sobre su
-// proposal" no requiere lógica extra aquí: retrieveCommitmentProposals ya
-// excluye status='confirmed' en el query (dedupe en la fuente) — una
-// proposal materializada simplemente deja de existir en el segundo array.
+// (orderByOverdueFirst: due_at asc / si no: created_at desc). La
+// precedencia "canonical commitment gana sobre su proposal" no requiere
+// lógica extra aquí: retrieveCommitmentProposals ya excluye status=
+// 'confirmed' en el query (dedupe en la fuente) — una proposal
+// materializada simplemente deja de existir en el segundo array.
+//
+// M-1H (ticket "M-1H FINAL ARCHITECTURE GATE", bloqueo A) — YA NO recorta al
+// budget aquí. Hallazgo real del gate: recortar ANTES de filterByProposalFocus
+// podía dejar 0 resultados aunque existieran N válidos, simplemente porque el
+// budget conservó ítems que el filtro de proposalFocus iba a descartar de
+// todos modos. El budget final se aplica DESPUÉS del filtro estructural (ver
+// buildAgentContext) — sólo concatena y ordena, nunca trunca.
 function mergeCommitmentSources(
     commitments: RetrievalCommitment[],
     proposals: RetrievalCommitment[],
-    limit: number,
     orderByOverdueFirst: boolean,
 ): RetrievalCommitment[] {
     const merged = [...commitments, ...proposals];
@@ -160,11 +181,90 @@ function mergeCommitmentSources(
         if (orderByOverdueFirst) {
             const aTime = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
             const bTime = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
-            return aTime - bTime;
+            // Tiebreaker explícito (sección 4 del ticket "STAGING
+            // PUBLICATION"): mismo criterio (id ASC) que el ORDER BY real
+            // de retrieveCommitmentProposals/retrieveCommitments -- nunca
+            // depender implícitamente de que Array.prototype.sort sea
+            // estable (lo es desde ES2019, pero un tiebreaker explícito no
+            // depende de esa garantía del lenguaje para ser correcto ni de
+            // que un futuro cambio de implementación la preserve).
+            return aTime !== bTime ? aTime - bTime : a.id.localeCompare(b.id);
         }
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        const aCreated = new Date(a.createdAt).getTime();
+        const bCreated = new Date(b.createdAt).getTime();
+        return aCreated !== bCreated ? bCreated - aCreated : a.id.localeCompare(b.id);
     });
-    return merged.slice(0, limit);
+    return merged;
+}
+
+// M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo A/sección 3) — Opción B:
+// overfetch RAZONADO, nunca "limit=1000" ciego. `proposalFocus` es el ÚNICO
+// filtro estructurado que NO se puede empujar a la query SQL de
+// retrieveCommitmentProposals (depende de actorHasApproved/pendingResponderIds,
+// derivados de un JOIN contra commitment_proposal_responses que ya calcula
+// esa función -- la DECISIÓN de filtrar vive en Core, no en SQL). status/
+// person/time/topic SÍ ya se empujan a SQL como parámetros directos (Opción
+// A, ya vigente, topic real vía search_tsv desde M-1H FINAL) -- esto sólo
+// cubre la excepción real.
+//
+// M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", secciones
+// 11-15) — reemplazó el overfetch de multiplicador fijo (M-1H, 10x/techo
+// 200: "puede optimizar, NUNCA es contrato de correctness"). Un
+// multiplicador fijo puede fallar con un dataset real más grande que la
+// ventana (300, 1000 filas -- ver tests adversariales).
+//
+// M-1H FINAL CERTIFICATION (ticket "STAGING PUBLICATION", secciones 1/2/6)
+// — auditoría posterior descartó la primera implementación (paginación
+// multi-request, por offset y luego por keyset): `commitment_proposals.due_at`
+// es mutable en producción (respond_to_commitment_proposal con
+// decision='counter_propose' hace `update ... set due_at = ...`) y una
+// prueba empírica directa contra Postgres real demostró que keyset
+// tampoco es inmune -- si una fila TODAVÍA no alcanzada cambia su due_at a
+// un valor anterior al cursor ya consumido, esa fila queda permanentemente
+// fuera de las páginas restantes de esa request. Ninguna paginación
+// multi-request puede resolver eso sin snapshot/transacción explícita.
+//
+// Solución real: UN solo fetch atómico (`rawOrder`, ver
+// retrieval.service.ts) hasta el safety cap -- una única sentencia SQL ve
+// una snapshot MVCC consistente por garantía real de Postgres (no una
+// suposición), inmune tanto a inserciones como a mutaciones concurrentes
+// durante la misma request. `proposalFocus` sigue sin poder empujarse a
+// SQL (depende de participación calculada vía JOIN que retrieveCommitmentProposals
+// ya resuelve) -- se filtra en JS sobre el array ya completo. status/
+// person/time/topic sí se empujan a SQL como siempre (topic real vía
+// search_tsv desde M-1H FINAL). PROPOSAL_FOCUS_SAFETY_CAP (1000 filas) es
+// deliberadamente el mismo orden de magnitud que el propio test
+// adversarial de 1000 filas del ticket -- un límite real, probado,
+// divulgado en la metadata de completitud (nunca presentado como "no hay
+// más" cuando en realidad se cortó por este cap).
+const PROPOSAL_FOCUS_SAFETY_CAP = 1000;
+
+interface ProposalFocusFillResult {
+    matches: RetrievalCommitment[];
+    scannedCount: number;
+    sourceExhausted: boolean;
+    safetyCapReached: boolean;
+}
+
+async function fillProposalFocusMatches(
+    baseInput: Parameters<typeof retrieveCommitmentProposals>[0],
+    proposalFocus: ProposalFocus,
+    resolvedPersonId: string | undefined,
+    targetCount: number,
+): Promise<ProposalFocusFillResult> {
+    const rows = await retrieveCommitmentProposals({ ...baseInput, rawOrder: true }, PROPOSAL_FOCUS_SAFETY_CAP);
+    const scannedCount = rows.length;
+    const sourceExhausted = scannedCount < PROPOSAL_FOCUS_SAFETY_CAP;
+    const matches = filterByProposalFocus(rows, proposalFocus, resolvedPersonId);
+    // safetyCapReached es verdad SÓLO cuando la razón real de no poder
+    // confirmar completitud fue el cap -- nunca cuando ya se encontraron
+    // suficientes matches dentro de lo escaneado (aunque el conteo
+    // escaneado coincida numéricamente con el cap por casualidad del
+    // dataset real, ver test adversarial de 1000 filas con matches
+    // distribuidos hasta la fila 900).
+    const foundEnough = matches.length >= targetCount;
+    const safetyCapReached = !sourceExhausted && !foundEnough;
+    return { matches, scannedCount, sourceExhausted, safetyCapReached };
 }
 
 // M-1H v6 (Gap B del final proposal lifecycle gate, secciones 8/9/11): el
@@ -221,8 +321,108 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const timezoneSource: 'input' | 'fallback' = input.timezone?.trim() && timezone === input.timezone.trim() ? 'input' : 'fallback';
     const conversationId = input.conversationId; // ÚNICA fuente de conversationId — nunca el intérprete.
 
-    const interpretation = await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
+    const rawInterpretation = await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
+
+    // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
+    // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
+    // Hallazgo físico real: el intérprete primario (LlmInputInterpreter)
+    // alucinó personHints=["Alejandra"] y/o proposalFocus incorrecto para
+    // "¿Qué estoy esperando confirmación?" -- un input sin ninguna mención
+    // real de persona -- disparando needs_clarification sobre una persona
+    // inexistente en el texto (Ejecución A del ticket). El intérprete
+    // determinístico (sin red, sin I/O -- correr siempre es gratis) se
+    // ejecuta AQUÍ incondicionalmente, sin importar cuál sea `interpreter`
+    // primario, y sus señales estructuradas SIEMPRE ganan sobre lo que haya
+    // dicho el LLM, en cualquier dirección (ni el LLM puede "activar" una
+    // señal que el determinístico no ve en el texto -- ver personHints --
+    // ni "apagar" una que el determinístico SÍ detecta -- ver proposalFocus/
+    // intent/wantsOverdueFocus). Esto es la implementación práctica de un
+    // "query plan canónico" (sección 20): en vez de una clase nueva, las
+    // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
+    // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
+    const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    // Sección 4: un personHint (de CUALQUIER intérprete) sólo cuenta como
+    // scope estructural real si el nombre efectivamente aparece como texto
+    // en el input crudo -- nunca "porque el LLM lo dijo". Esto reemplaza
+    // confiar ciegamente en `rawInterpretation.personHints`.
+    const explicitPersonHints = rawInterpretation.personHints.filter((hint) => isPersonHintGroundedInInput(hint, input.input));
+    // Sección 3: cuando el determinístico detecta proposalFocus (waiting_for_
+    // others/needs_my_response/pending_response_from_person), el LLM no
+    // puede contradecirlo -- ni con un valor distinto, ni alegando
+    // ambigüedad/apagando la recuperación de commitments, ni clasificando la
+    // consulta como otra cosa. Deliberadamente ACOTADO a proposalFocus (no a
+    // "cualquier intent distinto de general_context"): un intent confiado
+    // pero AJENO a esta clase de consulta (ej. document_search/recall/
+    // person_query, cada uno con su propio dominio ya certificado aparte)
+    // nunca debe verse forzado a wantsCommitments=true sólo por ser
+    // "distinto de general_context" -- eso rompía document_search real
+    // (hallazgo durante la implementación, cubierto por un test dedicado
+    // más abajo: "coreHasConfidentSignal no debe forzar wantsCommitments
+    // para intents ajenos a commitments").
+    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
+    const interpretation: Interpretation = {
+        ...rawInterpretation,
+        personHints: explicitPersonHints,
+        proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
+        intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
+        // Una vez que el Core tiene autoridad total sobre esta consulta
+        // (proposalFocus confiado), el textQuery correcto es exactamente el
+        // que produce el extractor determinístico sobre el MISMO input crudo
+        // -- ya endurecido específicamente para este dominio (control
+        // language de confirmación/aceptación/aprobación, ver
+        // stripConfirmationControlWords). Nunca se confía en un textQuery
+        // sugerido por el LLM para un dominio que el Core ya resolvió.
+        textQuery: commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery,
+        topicHints: commitmentSignalConfident
+            ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
+            : rawInterpretation.topicHints,
+        intentConfidence: commitmentSignalConfident
+            ? Math.max(deterministicSignals.intentConfidence, rawInterpretation.intentConfidence)
+            : rawInterpretation.intentConfidence,
+        // Un "vencido" literal en el texto nunca puede ser suprimido por el
+        // LLM (falso negativo, causa raíz real de M-1G) -- pero si el
+        // determinístico no lo detecta y el LLM sí lo sugiere para una
+        // frase que el regex no cubre, se mantiene (nunca se resta señal,
+        // sólo se garantiza un piso).
+        wantsOverdueFocus: deterministicSignals.wantsOverdueFocus || rawInterpretation.wantsOverdueFocus,
+        // Cuando el Core ya tiene una lectura estructurada confiada de
+        // proposalFocus, una alucinación de ambigüedad del LLM
+        // (needs_clarification sobre una consulta que en realidad es clara)
+        // queda descartada.
+        ambiguityHints: commitmentSignalConfident ? [] : rawInterpretation.ambiguityHints,
+        // Si el Core acaba de decidir que esto SÍ es una consulta de
+        // proposalFocus (pese a que el LLM haya dicho wantsCommitments
+        // false -- una alucinación correlacionada plausible), la
+        // recuperación de commitments no puede quedar apagada.
+        wantsCommitments: commitmentSignalConfident ? true : rawInterpretation.wantsCommitments,
+    };
+    const queryCardinality: QueryCardinality = classifyQueryCardinality(input.input, {
+        intent: interpretation.intent,
+        proposalFocus: interpretation.proposalFocus,
+        wantsOverdueFocus: interpretation.wantsOverdueFocus,
+    });
     const timeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+
+    // [PING_PROPOSAL_TRACE] TEMPORARY — captura RAW vs NORMALIZED para poder
+    // comparar dos ejecuciones idénticas del mismo input (sección 2 del
+    // ticket). Gated en proposalFocus/queryCardinality para no ensuciar
+    // logs de requests sin relación con esta clase de consulta.
+    if (interpretation.proposalFocus !== null || queryCardinality === 'exhaustive_list' || queryCardinality === 'count') {
+        traceProposal(input.traceId, 'INTERPRETATION', {
+            rawIntent: rawInterpretation.intent,
+            rawProposalFocus: rawInterpretation.proposalFocus,
+            rawPersonHints: rawInterpretation.personHints,
+            rawTextQuery: rawInterpretation.textQuery,
+            rawSource: rawInterpretation.source,
+            deterministicIntent: deterministicSignals.intent,
+            deterministicProposalFocus: deterministicSignals.proposalFocus,
+            normalizedIntent: interpretation.intent,
+            normalizedProposalFocus: interpretation.proposalFocus,
+            normalizedPersonHints: interpretation.personHints,
+            normalizedTextQuery: interpretation.textQuery,
+            queryCardinality,
+        });
+    }
 
     // [PING_OVERDUE_TRACE] TEMPORARY — sólo emite si la consulta interpretada
     // resulta overdue-focused, para no ensuciar logs de requests normales.
@@ -303,7 +503,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         retrievalPlan.push({ step: 'personScopeGuardSkipped', params: { personHints: interpretation.personHints } });
     }
 
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked
+    // M-1H FINAL (sección 29, performance) — cuando proposalFocus está
+    // activo, un commitment canónico SIEMPRE queda excluido por
+    // filterByProposalFocus (sólo commitment_proposal tiene concepto de
+    // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
+    // ciento por ciento desperdiciada. Nunca cambia el resultado final,
+    // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
+    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -353,21 +559,35 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "¿Alejandra está pendiente aquí?" ocurre DESPUÉS, vía
     // pendingResponderIds (ver filterByProposalFocus arriba).
     const proposalsPersonId = interpretation.proposalFocus === 'pending_response_from_person' ? undefined : resolvedPersonId;
-    const commitmentProposalsPromise = interpretation.wantsCommitments && !personScopeBlocked
+    const baseProposalInput = {
+        actorUserId: input.actorUserId,
+        conversationId,
+        personId: proposalsPersonId,
+        statuses: interpretation.statusHints ?? undefined,
+        timeRange: timeRange ?? undefined,
+        query: interpretation.textQuery ?? undefined,
+        orderByOverdueFirst: interpretation.wantsOverdueFocus,
+        now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
+    };
+    // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", secciones
+    // 11-15) — cuando hay proposalFocus, un solo fetch con multiplicador
+    // fijo NUNCA es una garantía de correctness (puede haber más candidatos
+    // reales que cualquier ventana razonada, ver tests adversariales de
+    // 300/1000 filas) -- se pagina hasta llenar el budget final, agotar la
+    // fuente, o topar con un safety cap explícito y divulgado (ver
+    // fillProposalFocusMatches arriba). Sin proposalFocus, topic/status/
+    // person/time ya son exactos vía SQL (FTS real desde esta misma
+    // entrega) -- un solo fetch basta, sin pérdida posible.
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus } });
-            return retrieveCommitmentProposals({
-                actorUserId: input.actorUserId,
-                conversationId,
-                personId: proposalsPersonId,
-                statuses: interpretation.statusHints ?? undefined,
-                timeRange: timeRange ?? undefined,
-                query: interpretation.textQuery ?? undefined,
-                orderByOverdueFirst: interpretation.wantsOverdueFocus,
-                now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
-            }, budget.commitments);
+            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
+            if (interpretation.proposalFocus !== null) {
+                return fillProposalFocusMatches(baseProposalInput, interpretation.proposalFocus, resolvedPersonId, budget.commitments);
+            }
+            return retrieveCommitmentProposals(baseProposalInput, budget.commitments)
+                .then((matches): ProposalFocusFillResult => ({ matches, scannedCount: matches.length, sourceExhausted: true, safetyCapReached: false }));
         })()
-        : Promise.resolve([]);
+        : Promise.resolve<ProposalFocusFillResult>({ matches: [], scannedCount: 0, sourceExhausted: true, safetyCapReached: false });
 
     const messagesPromise = interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
@@ -426,13 +646,34 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const [commitmentsOnly, proposalsOnly, messages, transcriptions, attachments] = await Promise.all([
+    const [commitmentsOnly, proposalsFill, messages, transcriptions, attachments] = await Promise.all([
         commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise,
     ]);
-    const mergedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, budget.commitments, interpretation.wantsOverdueFocus);
-    // M-1H v6 (Gap B): filtro determinístico POST-merge/budget -- nunca
-    // decidido por el LLM, ver filterByProposalFocus arriba.
-    const commitments = filterByProposalFocus(mergedCommitments, interpretation.proposalFocus, resolvedPersonId);
+    const proposalsOnly = proposalsFill.matches;
+    // M-1H FINAL — CONTRATO CORREGIDO: authorized candidates -> structured
+    // semantic filter -> canonical sort -> global budget -> requiredSourceRefs.
+    // mergeCommitmentSources sólo concatena+ordena (nunca trunca);
+    // proposalsOnly ya viene filtrada por proposalFocus PÁGINA A PÁGINA (ver
+    // fillProposalFocusMatches) -- aplicar filterByProposalFocus de nuevo
+    // aquí es idempotente (mismo predicado puro por fila) y se mantiene por
+    // uniformidad/defensa en profundidad, nunca cambia el resultado. El
+    // budget final se aplica DESPUÉS del filtro, nunca antes.
+    const sortedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, interpretation.wantsOverdueFocus);
+    const filteredCommitments = filterByProposalFocus(sortedCommitments, interpretation.proposalFocus, resolvedPersonId);
+    const commitments = filteredCommitments.slice(0, budget.commitments);
+    // Sección 12 del ticket (truncation/completeness honesty) — señales
+    // DISTINTAS, nunca una sola "truncated" optimista:
+    //   - requiredSourceRefsTruncated: ya sabemos con CERTEZA (conteos que
+    //     de verdad observamos) que hay más items válidos que los que el
+    //     budget final devolvió.
+    //   - requiredSourceRefsTruncationKnown: falso SÓLO cuando la única
+    //     razón de detenerse fue un safety cap explícito (nunca porque
+    //     "hay más que el budget" en sí sea incierto -- eso siempre se sabe
+    //     con certeza una vez que se observó el conteo real). Cuando
+    //     proposalFocus no aplica, topic/status/person/time ya son exactos
+    //     vía SQL real -- siempre conocido.
+    const requiredSourceRefsTruncated = filteredCommitments.length > commitments.length;
+    const requiredSourceRefsTruncationKnown = !proposalsFill.safetyCapReached;
     // [PING_OVERDUE_TRACE] TEMPORARY — retrieved commitments trace (máx 20).
     // Post-merge a propósito (M-1H): el trace debe reflejar lo que el Agent
     // realmente evalúa, no sólo la tabla `commitments`.
@@ -448,6 +689,31 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 dueAt: c.dueAt,
                 createdAt: c.createdAt,
                 sourceRef: c.provenance?.sourceId ?? null,
+            })),
+        });
+    }
+    // [PING_PROPOSAL_TRACE] TEMPORARY — retrieval input + merge/budget +
+    // proposal filter result (sección 2 del ticket).
+    if (interpretation.proposalFocus !== null) {
+        traceProposal(input.traceId, 'RETRIEVAL_AND_FILTER', {
+            commitmentsOnlyCount: commitmentsOnly.length,
+            proposalsOnlyCount: proposalsOnly.length,
+            proposalsScannedCount: proposalsFill.scannedCount,
+            proposalsSourceExhausted: proposalsFill.sourceExhausted,
+            proposalsSafetyCapReached: proposalsFill.safetyCapReached,
+            sortedBeforeFilterCount: sortedCommitments.length,
+            afterProposalFilterCount: filteredCommitments.length,
+            afterFinalBudgetCount: commitments.length,
+            requiredSourceRefsTruncated,
+            requiredSourceRefsTruncationKnown,
+            proposalFocus: interpretation.proposalFocus,
+            resolvedPersonId: resolvedPersonId ?? null,
+            items: commitments.slice(0, 20).map((c) => ({
+                safeTitle: traceSafeTitle(c.title),
+                entityType: c.entityType,
+                actorHasApproved: c.actorHasApproved ?? null,
+                actorCanRespond: c.actorCanRespond ?? null,
+                isFullyApproved: c.isFullyApproved ?? null,
             })),
         });
     }
@@ -481,6 +747,37 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     const evidenceFound = commitments.length > 0 || resolvedEvents.length > 0 || messages.length > 0
         || transcriptions.length > 0 || attachments.length > 0;
+
+    // M-1H — REQUIRED SOURCE REFS (secciones 8/9 del ticket): para una
+    // consulta exhaustive_list, la respuesta final DEBE cubrir TODOS los
+    // items en `commitments` (ya filtrado por proposalFocus y recortado al
+    // budget) -- nunca dejar que el modelo de síntesis "elija" arbitrariamente
+    // un subconjunto. `requiredSourceRefs` es un SUBCONJUNTO de `provenance`,
+    // nunca una fuente nueva de evidencia (invariante: requiredSourceRefs ⊆
+    // provenance ⊆ allowedSourceRefs de síntesis).
+    const requiredSourceRefs: RetrievalProvenance[] = queryCardinality === 'exhaustive_list'
+        ? commitments.map((c) => c.provenance)
+        : [];
+    // requiredSourceRefsTruncated/requiredSourceRefsTruncationKnown ya se
+    // calcularon arriba, DESPUÉS del filtro estructural y ANTES/DESPUÉS del
+    // budget final respectivamente (ver comentario junto a su cómputo) --
+    // reflejan honestamente el conjunto que de verdad importa para
+    // exhaustive_list, no una aproximación pre-filtro.
+    // M-1H — COUNT CONTRACT (sección 10): el Core calcula el número, el
+    // modelo de síntesis nunca cuenta manualmente (ver
+    // agentResponseSynthesizer.service.ts, camino de respuesta determinística
+    // para queryCardinality='count').
+    const countResult = queryCardinality === 'count' ? commitments.length : undefined;
+
+    if (interpretation.proposalFocus !== null || queryCardinality === 'exhaustive_list' || queryCardinality === 'count') {
+        traceProposal(input.traceId, 'REQUIRED_SOURCE_REFS', {
+            queryCardinality,
+            requiredCount: requiredSourceRefs.length,
+            requiredSourceRefsTruncated,
+            requiredSourceRefsTruncationKnown,
+            countResult: countResult ?? null,
+        });
+    }
 
     // topic_too_broad (sección 20): general_context sin ninguna evidencia y
     // sin ningún hint (ni persona ni texto ni tiempo) — la query no dio
@@ -550,6 +847,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         timezone,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
+        explicitPersonMention: explicitPersonHints.length > 0,
+        proposalFocus: interpretation.proposalFocus,
+        queryCardinality,
+        requiredSourceRefs,
+        requiredSourceRefsTruncated,
+        requiredSourceRefsTruncationKnown,
+        proposalFocusScannedCount: interpretation.proposalFocus !== null ? proposalsFill.scannedCount : undefined,
+        proposalFocusSourceExhausted: interpretation.proposalFocus !== null ? proposalsFill.sourceExhausted : undefined,
+        proposalFocusSafetyCapReached: interpretation.proposalFocus !== null ? proposalsFill.safetyCapReached : undefined,
+        countResult,
         entities: {
             people,
             timeRange,

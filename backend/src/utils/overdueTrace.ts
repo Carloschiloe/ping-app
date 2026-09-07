@@ -30,4 +30,23 @@ export function traceOverdue(traceId: string | undefined, label: string, data: R
     }
 }
 
+// [PING_PROPOSAL_TRACE] TEMPORARY (ticket "M-1H: DETERMINISTIC QUERY
+// SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS", sección 22) — mismo mecanismo y
+// mismas garantías de privacidad que traceOverdue arriba, para certificar
+// físicamente el contrato de normalización determinística (RAW LLM
+// interpretation vs NORMALIZED, personHints/proposalFocus/queryCardinality,
+// requiredSourceRefs, y las decisiones de síntesis) en las dos ejecuciones
+// reales reportadas del mismo input. Retirar junto con [PING_OVERDUE_TRACE]
+// en un ticket separado una vez certificado.
+export function traceProposal(traceId: string | undefined, label: string, data: Record<string, unknown>): void {
+    if (!traceId) return;
+    try {
+        // eslint-disable-next-line no-console
+        console.log(`[PING_PROPOSAL_TRACE][${traceId}][${label}]`, JSON.stringify(data));
+    } catch {
+        // eslint-disable-next-line no-console
+        console.log(`[PING_PROPOSAL_TRACE][${traceId}][${label}] (unserializable payload)`);
+    }
+}
+
 export { safeTitle as traceSafeTitle };

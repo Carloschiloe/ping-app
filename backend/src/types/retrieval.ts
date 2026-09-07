@@ -203,6 +203,39 @@ export interface RetrieveContextInput {
     // creación — sólo se usa cuando la consulta es específicamente sobre
     // vencidos (ver agentContextBuilder.service.ts, Interpretation.wantsOverdueFocus).
     orderByOverdueFirst?: boolean;
+    // M-1H FINAL CERTIFICATION (ticket "STAGING PUBLICATION", sección 1/2/6)
+    // — hallazgo real durante el audit: KEYSET pagination por página fue
+    // implementada primero y luego DESCARTADA tras una prueba empírica
+    // directa contra Postgres real: `commitment_proposals.due_at` es
+    // mutable en producción (respond_to_commitment_proposal con
+    // decision='counter_propose' hace
+    // `update commitment_proposals set due_at = ...`) -- si una fila
+    // TODAVÍA no alcanzada por la paginación cambia su due_at a un valor
+    // ANTERIOR al cursor ya consumido, esa fila queda permanentemente fuera
+    // de las páginas restantes de ESA request (comprobado con un UPDATE
+    // real entre dos fetches: la fila mutada desapareció de la página
+    // siguiente). El keyset resuelve inserciones concurrentes y reordenamiento
+    // por OFFSET, pero NO mutación del propio valor de orden de una fila
+    // aún no vista -- ninguna paginación multi-request puede resolver eso
+    // sin snapshot/transacción explícita.
+    //
+    // Solución real adoptada: UN solo fetch atómico (`rawOrder`, ver abajo)
+    // hasta el safety cap, en vez de N fetches paginados -- una única
+    // sentencia SQL ve una snapshot MVCC consistente de Postgres por
+    // definición (garantía real de Postgres, no una suposición), inmune
+    // TANTO a inserciones como a mutaciones concurrentes durante la misma
+    // request. `agentContextBuilder.service.ts#fillProposalFocusMatches`
+    // ya no pagina en absoluto -- pide hasta PROPOSAL_FOCUS_SAFETY_CAP filas
+    // en una sola llamada y filtra/acumula en JS sobre ese array ya
+    // completo y consistente.
+    //
+    // `rawOrder=true` le dice a retrieveCommitmentProposals que devuelva
+    // filas en el orden canónico SQL (due_at/created_at + id tiebreaker)
+    // hasta `limit`, SIN el post-proceso de rank+slice por relevancia
+    // textual (ese post-proceso es para "mejores N por relevancia" con un
+    // límite pequeño -- no aplica cuando el límite ES el safety cap y el
+    // resultado se va a filtrar por proposalFocus en JS de todos modos).
+    rawOrder?: boolean;
     limits?: RetrievalLimits;
     messageWindow?: RetrievalMessageWindow;
     attachmentKinds?: ('image' | 'video' | 'audio' | 'document')[];

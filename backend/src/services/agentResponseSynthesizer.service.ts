@@ -44,6 +44,11 @@ import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
     if (context.needsClarification) return 'needs_clarification';
     if (!context.evidenceFound && context.capabilityGaps.length > 0) return 'capability_gap';
+    // M-1H (ticket "DETERMINISTIC QUERY SEMANTICS", sección 10) — un conteo
+    // de 0 es una respuesta VÁLIDA y ya conocida con certeza estructural
+    // ("no tienes ninguno"), nunca "no encontré nada relacionado" (esa
+    // plantilla es para cuando ni siquiera se pudo evaluar la pregunta).
+    if (context.queryCardinality === 'count') return 'answered';
     if (!context.evidenceFound) return 'no_evidence';
     return 'answered';
 }
@@ -458,6 +463,73 @@ export function enforceProposalLifecycleTruth(claims: AgentClaim[], context: Age
     return out;
 }
 
+// ─── Exhaustive coverage guard (M-1H, ticket "DETERMINISTIC QUERY SEMANTICS
+// & EXHAUSTIVE ANSWER CONTRACTS", secciones 6-9) ────────────────────────────
+// Hallazgo físico real (Ejecución B del ticket): con 3 proposals válidas
+// dentro del budget para "¿Qué estoy esperando confirmación?", el modelo
+// mencionó sólo 1 -- las otras 2 simplemente desaparecieron de la respuesta,
+// pese a tener soporte real. `validateClaimsAgainstAllowedRefs` sólo protege
+// contra CITAR algo no autorizado; nunca exige que el modelo cubra TODO lo
+// autorizado. Esta guarda cierra esa clase de omisión arbitraria para
+// consultas exhaustive_list (nunca para focused_lookup/count/summary, donde
+// exigir cobertura total no tiene sentido semántico) -- mismo patrón
+// aditivo-nunca-destructivo que enforceCanonicalDominance/
+// enforceOverdueDisclosure/enforceProposalLifecycleTruth: nunca quita un
+// claim válido del modelo, sólo AGREGA un claim canónico determinístico por
+// cada ref requerida que el modelo omitió. Garantiza la invariante de la
+// sección 9: requiredSourceRefs ⊆ response.citations ⊆ allowedSourceRefs.
+export function enforceExhaustiveCoverage(claims: AgentClaim[], context: AgentContext, evidence: SerializedEvidence, language: 'es' | 'en'): AgentClaim[] {
+    if (context.queryCardinality !== 'exhaustive_list' || context.requiredSourceRefs.length === 0) return claims;
+
+    const citedIds = new Set(claims.flatMap((c) => c.sourceRefs.map((r) => `${r.sourceType}:${r.sourceId}`)));
+    const missing = context.requiredSourceRefs.filter((ref) => !citedIds.has(`${ref.sourceType}:${ref.sourceId}`));
+    if (missing.length === 0) return claims;
+
+    const additions: AgentClaim[] = [];
+    for (const required of missing) {
+        // Nunca citar fuera del boundary de evidencia ya serializado
+        // (M-1E.1) -- si el budget de síntesis (MAX_SYNTHESIS_CONTEXT_CHARS,
+        // distinto del budget de retrieval) recortó esta ref antes de
+        // llegar al modelo, no hay forma honesta de citarla igual.
+        const allowedRef = evidence.allowedSourceRefs.find((r) => r.sourceType === required.sourceType && r.sourceId === required.sourceId);
+        if (!allowedRef) continue;
+        const commitment = context.commitments.find((c) => c.id === required.sourceId);
+        if (!commitment) continue;
+        additions.push(
+            commitment.entityType === 'commitment_proposal'
+                ? buildProposalTruthClaim(commitment, allowedRef, language)
+                : buildCanonicalStatusClaim(commitment, allowedRef, language),
+        );
+    }
+    return additions.length > 0 ? [...claims, ...additions] : claims;
+}
+
+// M-1H — COUNT CONTRACT (sección 10 del ticket): para queryCardinality=
+// 'count', el número lo calcula el Core (context.countResult, ver
+// agentContextBuilder.service.ts) -- el modelo de síntesis NUNCA cuenta
+// manualmente. Mismo patrón que las otras 3 plantillas determinísticas
+// (needs_clarification/no_evidence/capability_gap más abajo): cero riesgo de
+// alucinación numérica, cero costo/latencia de un llamado al modelo para un
+// hecho que el Core ya conoce con certeza estructural.
+function buildCountResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const count = context.countResult ?? 0;
+    let answer: string;
+    if (context.proposalFocus === 'waiting_for_others') {
+        answer = language === 'es'
+            ? (count === 1 ? 'Estás esperando 1 respuesta.' : `Estás esperando ${count} respuestas.`)
+            : (count === 1 ? 'You are waiting on 1 response.' : `You are waiting on ${count} responses.`);
+    } else if (context.proposalFocus === 'needs_my_response' || context.proposalFocus === 'pending_response_from_person') {
+        answer = language === 'es'
+            ? (count === 1 ? 'Tienes 1 propuesta pendiente de respuesta.' : `Tienes ${count} propuestas pendientes de respuesta.`)
+            : (count === 1 ? 'You have 1 proposal pending a response.' : `You have ${count} proposals pending a response.`);
+    } else {
+        answer = language === 'es'
+            ? (count === 1 ? 'Tienes 1 resultado.' : `Tienes ${count} resultados.`)
+            : (count === 1 ? 'You have 1 result.' : `You have ${count} results.`);
+    }
+    return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
+}
+
 function assembleAnswerFromClaims(claims: AgentClaim[], language: 'es' | 'en'): string {
     if (claims.length === 0) {
         return language === 'es'
@@ -659,6 +731,13 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         if (status === 'capability_gap') {
             return this.withDiagnostics(buildCapabilityGapResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
+        // M-1H — COUNT CONTRACT (sección 10 del ticket "DETERMINISTIC QUERY
+        // SEMANTICS"): un cuarto camino 100% determinístico, igual de
+        // barato/seguro que los 3 de arriba -- el modelo nunca cuenta
+        // manualmente, el Core ya conoce el número con certeza estructural.
+        if (status === 'answered' && context.queryCardinality === 'count') {
+            return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
 
         // status === 'answered': única rama que invoca al modelo. La
         // allowlist se calcula UNA vez, después del recorte por budget, y se
@@ -760,10 +839,15 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // cuando el usuario preguntó específicamente por vencidos — ver
         // enforceOverdueDisclosure.
         const withOverdueDisclosure = enforceOverdueDisclosure(withCanonicalDominance, evidence, context.wantsOverdueFocus, language);
-        // M-1H v7: última guarda determinística antes de ensamblar -- nunca
-        // permite que un claim con lenguaje de vencimiento sobreviva citando
-        // una commitment_proposal (ver enforceProposalLifecycleTruth arriba).
-        const finalClaims = enforceProposalLifecycleTruth(withOverdueDisclosure, context, language);
+        // M-1H v7: nunca permite que un claim con lenguaje de vencimiento
+        // sobreviva citando una commitment_proposal (ver
+        // enforceProposalLifecycleTruth arriba).
+        const withProposalTruth = enforceProposalLifecycleTruth(withOverdueDisclosure, context, language);
+        // M-1H (ticket "DETERMINISTIC QUERY SEMANTICS"): última guarda --
+        // para una consulta exhaustive_list, garantiza que TODO item
+        // requerido esté citado, agregando un claim canónico por cada uno
+        // que el modelo omitió (ver enforceExhaustiveCoverage arriba).
+        const finalClaims = enforceExhaustiveCoverage(withProposalTruth, context, evidence, language);
 
         const answer = assembleAnswerFromClaims(finalClaims, language);
         return {

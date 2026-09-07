@@ -156,6 +156,17 @@ export function hasExactPhrase(text: string | null | undefined, query: string): 
     return text.toLowerCase().includes(query.trim().toLowerCase());
 }
 
+// M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 7) —
+// M-1H.1's JS-side `matchesTopic`/`normalizeTopicText` bounded-window topic
+// matcher lived here. It's been REMOVED, not just superseded: with real
+// `search_tsv` now on `commitment_proposals` (see
+// supabase/migrations/20260907010000_commitment_proposal_full_text_retrieval.sql),
+// topic matching for proposals is exact, indexed Postgres FTS -- the same
+// mechanism commitments already use, not a JS approximation. A bounded
+// candidate window can never be a correctness-equivalent substitute for a
+// real index once the table can hold more matching rows than any reasoned
+// fetch limit.
+
 // ─── Personas (sección 7) ───────────────────────────────────────────────────
 // Estrategia mínima, sin LLM: id directo primero; si no, coincidencia EXACTA
 // normalizada de nombre/email/teléfono, acotada al universo que el actor ya
@@ -478,20 +489,34 @@ function toRetrievalCommitmentFromProposal(
 // buildCommitmentProposalVisibilityFilter se aplica siempre con AND,
 // ningún filtro adicional amplía visibilidad.
 //
-// Limitación conocida y deliberada (sección 19 del ticket: "no migración a
-// ciegas"): commitment_proposals NO tiene columna search_tsv (confirmado
-// contra supabase/migrations/20260728180000_canonical_commitment_beta.sql
-// — la tabla nunca la creó). Con `query` (texto libre) presente, esta
-// función NO aplica FTS y devuelve [] en vez de arriesgar un filtro
-// incorrecto o traer de más sin relevancia textual real. El camino
-// wantsOverdueFocus (sin texto, ya garantizado por M-1G.3) no se ve
-// afectado por esta limitación.
+// M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 7) —
+// commitment_proposals ahora tiene columna search_tsv real (ver
+// supabase/migrations/20260907010000_commitment_proposal_full_text_retrieval.sql),
+// mismo mecanismo/config que commitments -- topic matching es FTS real vía
+// índice GIN, nunca una aproximación en JS (la versión anterior de esto,
+// M-1H.1, quedó completamente reemplazada, no sólo complementada).
 export async function retrieveCommitmentProposals(input: RetrieveContextInput, limit: number): Promise<RetrievalCommitment[]> {
     const textQuery = input.query?.trim();
-    if (textQuery) return [];
 
     const participantProposalIds = await getParticipantProposalIds(input.actorUserId);
     const visibilityFilter = buildCommitmentProposalVisibilityFilter(input.actorUserId, participantProposalIds);
+
+    // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 7)
+    // — commitment_proposals AHORA tiene columna search_tsv real (ver
+    // supabase/migrations/20260907010000_commitment_proposal_full_text_retrieval.sql),
+    // mismo config 'ping_text'/unaccent que commitments. El matching de
+    // topic es EXACTO a nivel de índice GIN -- ya no depende de una ventana
+    // acotada en JS (M-1H.1, ahora reemplazado). El overfetch de abajo
+    // sigue existiendo SOLO para el mismo motivo que en retrieveCommitments:
+    // el ranking final (estructura + relevancia textual) se decide en JS
+    // (rankCommitments), nunca únicamente por el "order by" SQL -- nunca
+    // para compensar un matching incompleto. `rawOrder` (ver
+    // fillProposalFocusMatches) pide un fetch literal hasta `limit` sin ese
+    // post-proceso -- el llamador ya sabe que va a filtrar por proposalFocus
+    // en JS de todos modos.
+    const fetchLimit = input.rawOrder
+        ? limit
+        : (textQuery ? overfetchLimit(limit, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER) : limit);
 
     let query = supabaseAdmin
         .from('commitment_proposals')
@@ -502,13 +527,30 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     query = input.orderByOverdueFirst
         ? query.order('due_at', { ascending: true, nullsFirst: false })
         : query.order('created_at', { ascending: false });
-    query = query.limit(limit);
+    // Tiebreaker estable (sección 4/11 del ticket) -- determinismo cuando
+    // varias filas comparten el mismo due_at/created_at exacto (probado
+    // directamente contra Postgres real, ver reporte de entrega).
+    query = query.order('id', { ascending: true });
+    // M-1H FINAL CERTIFICATION (sección 1/2/6 del ticket) — UN solo fetch
+    // atómico hasta `limit` (nunca paginación multi-request/offset/keyset
+    // -- ver comentario extenso en types/retrieval.ts#rawOrder sobre por
+    // qué se descartó keyset: `due_at` es mutable en producción y una
+    // prueba empírica directa contra Postgres demostró que una fila podía
+    // saltarse si su due_at cambiaba a un valor anterior al cursor DURANTE
+    // la paginación). Una única sentencia SQL ve una snapshot MVCC
+    // consistente por garantía real de Postgres -- inmune a inserciones Y
+    // mutaciones concurrentes durante la misma request, sin necesitar
+    // cursor ni transacción explícita.
+    query = query.limit(fetchLimit);
 
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
     if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
     if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    // Topic real vía FTS, empujado a SQL (sección 6/7 del ticket) -- mismo
+    // operador/config que retrieveCommitments, nunca un ILIKE/JS fallback.
+    if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
     // El filtro canónico de status (proposed/accepted/counter_proposal/etc)
     // no mapea 1:1 a los 3 valores reales de esta tabla -- se aplica DESPUÉS
     // del mapeo (en JS, sobre el status YA derivado), nunca en SQL contra
@@ -549,7 +591,15 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
         const wanted = new Set(input.statuses);
         rows = rows.filter((r) => wanted.has(r.status));
     }
-    return rows;
+    // Fetch crudo para proposalFocus (sección 11 del ticket): el llamador
+    // (fillProposalFocusMatches) va a filtrar por participación en JS de
+    // todos modos -- nunca se re-rankea ni recorta aquí. Fuera de ese
+    // camino, mismo patrón que retrieveCommitments: con texto, el ranking
+    // final (estructura + relevancia) se decide en JS sobre el conjunto YA
+    // correctamente matcheado por FTS real en SQL.
+    if (input.rawOrder) return rows;
+    if (textQuery) rows = rankCommitments(rows, input);
+    return rows.slice(0, limit);
 }
 
 // ─── Ranking (sección 16) ────────────────────────────────────────────────────

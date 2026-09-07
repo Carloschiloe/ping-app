@@ -1233,3 +1233,672 @@ describe('AUDIT (sección 23): persona + overdue — ambos filtros aplican junto
         expect(ctx.commitments).toEqual([]); // personScopeBlocked -- retrieveCommitments nunca debió ejecutarse con scope ampliado
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
+// hallazgo físico real -- DOS ejecuciones de "¿Qué estoy esperando
+// confirmación?" con el MISMO input produjeron resultados distintos porque
+// el LLM primario podía alterar el scope estructural (personHints
+// alucinados -> needs_clarification sobre una persona inexistente) y la
+// síntesis podía omitir items arbitrariamente. Esta sección certifica que,
+// sin importar QUÉ devuelva el intérprete primario (mockeado aquí con
+// salidas adversariales reales), el Core SIEMPRE normaliza al mismo
+// resultado -- "el LLM puede sugerir, el Core decide" (sección 0/3).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H: adversarial interpreter tests (sección 16) -- normalización SIEMPRE idéntica para "¿Qué estoy esperando confirmación?"', () => {
+    const INPUT = '¿Qué estoy esperando confirmación?';
+
+    async function runAdversarial(overrides: Partial<Record<string, any>>) {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const interpreter = mockInterpreter(interpretationFixture(overrides));
+        return withDeterministicInterpreter({ actorUserId: 'u1', input: INPUT }, { interpreter });
+    }
+
+    function expectNormalized(ctx: Awaited<ReturnType<typeof runAdversarial>>) {
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.entities.topics).toEqual([]); // textQuery normalizado a null -> topics vacío
+        expect(ctx.entities.people).toEqual([]); // personHints normalizado a []
+        expect(ctx.explicitPersonMention).toBe(false);
+        expect(ctx.needsClarification).toBe(false);
+    }
+
+    it('A) el modelo alucina personHints=["Alejandra"] (ausente del texto) -> personHints=[], nunca resolvePerson', async () => {
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', personHints: ['Alejandra'] });
+        expectNormalized(ctx);
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+    });
+
+    it('B) el modelo devuelve proposalFocus=pending_response_from_person (incorrecto, sin persona real) -> waiting_for_others', async () => {
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: 'pending_response_from_person', personHints: ['Alejandra'] });
+        expectNormalized(ctx);
+    });
+
+    it('C) el modelo devuelve proposalFocus=null -> el Core lo re-deriva a waiting_for_others de todos modos', async () => {
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: null });
+        expectNormalized(ctx);
+    });
+
+    it('D) el modelo repite textQuery="confirmación" -> normalizado a null, topics=[]', async () => {
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', textQuery: 'confirmación', topicHints: ['confirmación'] });
+        expectNormalized(ctx);
+    });
+
+    it('E) el modelo alucina ambigüedad (ambiguityHints=["unresolved_pronoun"]) sobre una consulta clara -> needsClarification=false', async () => {
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', ambiguityHints: ['unresolved_pronoun'] });
+        expectNormalized(ctx);
+    });
+
+    it('F) el modelo clasifica intent=general_context (y apaga wantsCommitments) -> commitment_query + retrieval SÍ se ejecuta', async () => {
+        const ctx = await runAdversarial({ intent: 'general_context', proposalFocus: null, wantsCommitments: false });
+        expectNormalized(ctx);
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalled(); // wantsCommitments forzado a true, la recuperación sí corrió
+    });
+
+    it('G) wrong cardinality: el "intérprete" intenta smuggle un campo queryCardinality directo -- no existe ningún canal para que el LLM lo fije, el Core siempre lo recalcula desde intent/proposalFocus/wantsOverdueFocus ya normalizados', async () => {
+        // queryCardinality NO es un campo de Interpretation -- no hay forma
+        // real de que un LLM/mock lo "envíe". Esto certifica exactamente
+        // ESO: aunque el objeto de interpretación cargue un campo extra con
+        // ese nombre (ignorado por el schema/tipo real), el resultado final
+        // sigue siendo el correcto, calculado 100% por Core.
+        const ctx = await runAdversarial({ intent: 'commitment_query', proposalFocus: 'waiting_for_others', queryCardinality: 'focused_lookup' } as any);
+        expectNormalized(ctx); // queryCardinality real sigue siendo 'exhaustive_list', nunca 'focused_lookup'
+    });
+
+    it('REPEATED QUERY DETERMINISM (sección 15/23): 20 corridas con salidas adversariales distintas producen exactamente la misma semántica normalizada', async () => {
+        const adversarialVariants: Array<Partial<Record<string, any>>> = [
+            { intent: 'commitment_query', proposalFocus: 'waiting_for_others', personHints: [] },
+            { intent: 'commitment_query', proposalFocus: 'pending_response_from_person', personHints: ['Alejandra'] },
+            { intent: 'commitment_query', proposalFocus: null },
+            { intent: 'commitment_query', proposalFocus: 'waiting_for_others', textQuery: 'confirmación' },
+            { intent: 'commitment_query', proposalFocus: 'waiting_for_others', ambiguityHints: ['unresolved_pronoun'] },
+            { intent: 'general_context', proposalFocus: null, wantsCommitments: false },
+        ];
+        for (let i = 0; i < 20; i += 1) {
+            const variant = adversarialVariants[i % adversarialVariants.length];
+            const ctx = await runAdversarial(variant);
+            expectNormalized(ctx);
+        }
+    });
+});
+
+// M-1H — regresión encontrada DURANTE la implementación de la sección 16: la
+// primera versión de "commitmentSignalConfident" usaba "cualquier intent
+// distinto de general_context", lo que forzaba wantsCommitments=true incluso
+// para document_search real -- rompiendo la guarda existente de M-1D
+// ("document_search NUNCA incluye retrieveCommitments en el plan"). Fijado
+// acotando la señal SOLO a proposalFocus. Test dedicado para que esta clase
+// de regresión nunca vuelva a colarse en silencio.
+describe('M-1H: la normalización determinística NUNCA fuerza wantsCommitments para intents ajenos a proposalFocus', () => {
+    it('"¿Me mandaron algún contrato?" (document_search real) sigue sin ejecutar retrieveCommitments/retrieveCommitmentProposals', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'document_search', wantsCommitments: false, wantsAttachments: true }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Me mandaron algún contrato?', conversationId: 'conv-1' }, { interpreter });
+
+        expect(ctx.intent.type).toBe('document_search');
+        const steps = ctx.retrievalPlan.map((s) => s.step);
+        expect(steps).not.toContain('retrieveCommitments');
+        expect(steps).not.toContain('retrieveCommitmentProposals');
+    });
+});
+
+describe('M-1H FINAL (sección 29, performance): proposalFocus nunca pide commitments canónicos -- siempre excluidos por filterByProposalFocus, pedirlos sería tráfico desperdiciado', () => {
+    it('"¿Qué estoy esperando?" -- retrieveCommitments NUNCA se llama (sólo retrieveCommitmentProposals)', async () => {
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué estoy esperando?' });
+
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(mockRetrieveCommitments).not.toHaveBeenCalled();
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalled();
+    });
+
+    it('"¿Qué compromisos tengo?" (sin proposalFocus) -- retrieveCommitments SÍ se llama normalmente', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo?' });
+
+        expect(ctx.proposalFocus).toBeNull();
+        expect(mockRetrieveCommitments).toHaveBeenCalled();
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — CONTRACT TEST MATRIX (sección 24 del ticket): los 8 casos mínimos,
+// certificados end-to-end con el intérprete REAL (sin mock), verificando
+// queryCardinality + proposalFocus + person scope + topicQuery +
+// requiredSourceRefs para cada uno.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H: CONTRACT TEST MATRIX (sección 24) -- 8 casos mínimos, intérprete real', () => {
+    const CARLOS = 'u1';
+    const waitingProposal = (id: string, title: string) => proposalFixture({ id, title, actorHasApproved: true, actorCanRespond: false, pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false });
+
+    it('A) "¿Qué estoy esperando?" -> exhaustive_list, waiting_for_others, sin persona, sin tema, requiredSourceRefs cubre todo lo devuelto', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([waitingProposal('pr-a', 'A'), waitingProposal('pr-b', 'B')] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(ctx.entities.people).toEqual([]);
+        expect(ctx.entities.topics).toEqual([]);
+        expect(ctx.requiredSourceRefs).toEqual(ctx.commitments.map((c) => c.provenance));
+        expect(ctx.requiredSourceRefs).toHaveLength(2);
+    });
+
+    it('B) "¿Qué estoy esperando confirmación?" -> mismo contrato exacto que A (la robustez lingüística no cambia la cardinalidad)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([waitingProposal('pr-a', 'A')] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando confirmación?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+
+    it('C) "¿Qué tengo por aceptar?" -> exhaustive_list, needs_my_response', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([proposalFixture({ id: 'pr-c', actorHasApproved: false, actorCanRespond: true, isFullyApproved: false })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo por aceptar?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBe('needs_my_response');
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+
+    it('D) "¿Qué falta que acepte Alejandra?" -> exhaustive_list, pending_response_from_person, persona resuelta', async () => {
+        const ALEJANDRA = 'alejandra-id';
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: ALEJANDRA, displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([proposalFixture({ id: 'pr-d', actorHasApproved: true, actorCanRespond: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBe('pending_response_from_person');
+        expect(ctx.entities.people).toHaveLength(1);
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+
+    it('E) "¿Qué tengo vencido?" -> exhaustive_list vía wantsOverdueFocus (proposalFocus null)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-e', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBeNull();
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+
+    it('F) "¿Qué pasó con entrenar?" -> focused_lookup, requiredSourceRefs vacío (nunca exige cobertura del dominio completo)', async () => {
+        // Título en minúscula deliberadamente (misma limitación conocida y
+        // ya documentada del cue "con/de/sobre/a <Nombre Propio>" -- "con
+        // Entrenar" capitalizado colisionaría con el heurístico de persona,
+        // fuera de alcance de este ticket, ver M-1G.3/M-1H v7).
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-f', title: 'entrenar' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué pasó con entrenar?' });
+
+        expect(ctx.intent.type).toBe('recall');
+        expect(ctx.queryCardinality).toBe('focused_lookup');
+        expect(ctx.requiredSourceRefs).toEqual([]);
+    });
+
+    it('G) "¿Cuántos tengo vencidos?" -> count, countResult calculado por el Core', async () => {
+        mockRetrieveCommitments.mockResolvedValue([
+            commitmentFixture({ id: 'cm-g1', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' }),
+            commitmentFixture({ id: 'cm-g2', status: 'accepted', dueAt: '2026-06-05T00:00:00Z' }),
+        ] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Cuántos tengo vencidos?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.queryCardinality).toBe('count');
+        expect(ctx.countResult).toBe(2);
+        expect(ctx.requiredSourceRefs).toEqual([]); // count nunca exige cobertura de citas, sólo el número
+    });
+
+    it('H) "¿Qué estoy esperando sobre viaje?" -> exhaustive_list, waiting_for_others, topicQuery="viaje" preservado', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([waitingProposal('pr-viaje', 'Planear viaje')] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando sobre viaje?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje' }), expect.any(Number));
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — "FINAL ARCHITECTURE GATE" bloqueo A: filter DEBE preceder al budget
+// global. Contrato corregido: authorized candidates -> structured semantic
+// filter -> canonical sort -> global budget -> requiredSourceRefs. Dataset
+// EXACTO del gate (sección 6): 20 proposals, las primeras 10 según el orden
+// inicial (más recientes -- createdAt desc es el orden real para "¿Qué
+// estoy esperando?") NO matchean waiting_for_others, las 10 siguientes SÍ.
+// Con el bug real (budget ANTES del filtro), el resultado sería 0 -- nunca
+// aceptable.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H: filter-before-budget (sección 6/7 del ticket "FINAL ARCHITECTURE GATE")', () => {
+    const CARLOS = 'u1';
+
+    function nonWaitingProposal(i: number) {
+        return proposalFixture({
+            id: `pr-nonwaiting-${i}`, title: `No waiting ${i}`,
+            createdAt: `2026-09-05T${String(10 + i).padStart(2, '0')}:00:00Z`, // más reciente -- ordena PRIMERO (desc)
+            actorHasApproved: false, actorCanRespond: true, isFullyApproved: false, // needs_my_response, no waiting_for_others
+        });
+    }
+    function waitingProposal(i: number) {
+        return proposalFixture({
+            id: `pr-waiting-${i}`, title: `Waiting ${i}`,
+            createdAt: `2026-08-01T${String(10 + i).padStart(2, '0')}:00:00Z`, // más antigua -- ordena DESPUÉS
+            actorHasApproved: true, actorCanRespond: false, isFullyApproved: false, // waiting_for_others real
+        });
+    }
+
+    it('sección 6: 20 proposals (10 no-matching más recientes + 10 matching más antiguas), budget=10 -> 10 waiting, NUNCA 0', async () => {
+        const nonWaiting = Array.from({ length: 10 }, (_, i) => nonWaitingProposal(i));
+        const waiting = Array.from({ length: 10 }, (_, i) => waitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([...nonWaiting, ...waiting] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(10);
+        expect(ctx.commitments.every((c) => c.id.startsWith('pr-waiting-'))).toBe(true);
+        expect(ctx.requiredSourceRefs).toHaveLength(10);
+        // El overfetch debe haber pedido MÁS que el budget de 10 a retrieval
+        // -- si no, el mock nunca podría haber devuelto los 20 en un
+        // escenario real (esto certifica que agentContextBuilder realmente
+        // pide un pool mayor, no sólo que el mock "coopera").
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.anything(), expect.any(Number));
+        const [, requestedLimit] = mockRetrieveCommitmentProposals.mock.calls[0];
+        expect(requestedLimit).toBeGreaterThan(10);
+    });
+
+    it('sección 7: mixed sources -- 10 commitments canónicos + 10 proposals no-matching + 10 proposals matching, budget=10 -> exactamente las 10 matching, sin ruido de otras fuentes', async () => {
+        const canonicalCommitments = Array.from({ length: 10 }, (_, i) => commitmentFixture({ id: `cm-${i}`, title: `Canonical ${i}`, createdAt: `2026-09-05T${String(10 + i).padStart(2, '0')}:00:00Z` }));
+        const nonWaiting = Array.from({ length: 10 }, (_, i) => nonWaitingProposal(i));
+        const waiting = Array.from({ length: 10 }, (_, i) => waitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue(canonicalCommitments as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([...nonWaiting, ...waiting] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(10);
+        expect(ctx.commitments.every((c) => c.id.startsWith('pr-waiting-'))).toBe(true); // ni canonical ni non-waiting se colaron
+    });
+
+    it('truncation honesty (sección 5): más de 10 matches reales -> requiredSourceRefsTruncated=true Y requiredSourceRefsTruncationKnown=true (la ventana de retrieval no se saturó)', async () => {
+        const waiting = Array.from({ length: 15 }, (_, i) => waitingProposal(i)); // 15 matches reales, budget=10
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue(waiting as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(10);
+        expect(ctx.requiredSourceRefsTruncated).toBe(true);
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true); // 15 < proposalsRetrievalLimit (100) -- se conoce el total real
+    });
+
+    it('truncation honesty: encontrar MÁS que el budget en la primera página -- truncated=true Y truncationKnown=true (observado directamente, no una suposición)', async () => {
+        // 100 matches reales en una sola página ya confirma con certeza que
+        // hay más que el budget de 10 -- no hace falta agotar la fuente
+        // para saber ESO con confianza (a diferencia del caso de safety cap
+        // de abajo, donde SÍ queda una duda real).
+        const waiting = Array.from({ length: 100 }, (_, i) => waitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue(waiting as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(10);
+        expect(ctx.requiredSourceRefsTruncated).toBe(true);
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true);
+    });
+
+    it('truncation honesty (sección 12): safety cap alcanzado ANTES de llenar el budget o agotar la fuente -> requiredSourceRefsTruncationKnown=false (nunca afirmar completitud sin saberlo)', async () => {
+        // 1000 proposals topic-matching, NINGUNA cumple waiting_for_others
+        // (todas actorHasApproved=false) -- el bucle de paginación escanea
+        // hasta el safety cap (1000 filas) sin encontrar NINGÚN match y sin
+        // agotar la fuente (hay exactamente 1000, pero el mock no revela si
+        // hay una fila 1001 -- el cap corta primero).
+        const dataset = Array.from({ length: 1000 }, (_, i) => nonWaitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        pagedMock(dataset);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toEqual([]); // ningún match real dentro de lo escaneado
+        expect(ctx.proposalFocusScannedCount).toBe(1000);
+        expect(ctx.proposalFocusSourceExhausted).toBe(false); // el mock nunca devolvió una página incompleta -- no sabemos si la tabla realmente termina en 1000
+        expect(ctx.proposalFocusSafetyCapReached).toBe(true);
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(false); // no se puede afirmar "no hay más" -- el cap cortó la búsqueda, no el agotamiento real de la fuente
+    });
+
+    it('sin truncamiento real: menos matches que el budget -> truncated=false Y truncationKnown=true', async () => {
+        const waiting = Array.from({ length: 3 }, (_, i) => waitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue(waiting as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(3);
+        expect(ctx.requiredSourceRefsTruncated).toBe(false);
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true);
+    });
+
+    // Helper que simula un source real con UN SOLO fetch atómico hasta
+    // `reqLimit` (M-1H FINAL CERTIFICATION, secciones 1/2/6: nunca
+    // paginación multi-request -- ver auditoría de concurrencia en el
+    // reporte de entrega). `dataset` debe estar pre-ordenado exactamente
+    // como lo devolvería el ORDER BY real (created_at DESC, id ASC).
+    function pagedMock(dataset: any[]) {
+        mockRetrieveCommitmentProposals.mockImplementation(async (_reqInput: any, reqLimit: number) => dataset.slice(0, reqLimit));
+    }
+
+    it('sección 14 (300-row adversarial, OBLIGATORIO): filas 1-100 NO waiting, filas 101-110 SÍ -- budget=10 devuelve exactamente esas 10, NUNCA 0', async () => {
+        const dataset = [
+            ...Array.from({ length: 100 }, (_, i) => nonWaitingProposal(i)),
+            ...Array.from({ length: 10 }, (_, i) => waitingProposal(100 + i)),
+            ...Array.from({ length: 190 }, (_, i) => nonWaitingProposal(200 + i)), // relleno hasta 300 -- no debe afectar el resultado
+        ];
+        expect(dataset).toHaveLength(300);
+        mockRetrieveCommitments.mockResolvedValue([]);
+        pagedMock(dataset);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 10 } } as any);
+
+        expect(ctx.commitments).toHaveLength(10);
+        expect(ctx.commitments.every((c) => c.id.startsWith('pr-waiting-'))).toBe(true);
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(
+            Array.from({ length: 10 }, (_, i) => `pr-waiting-${100 + i}`).sort(),
+        );
+        // M-1H FINAL CERTIFICATION: un solo fetch atómico (nunca paginación
+        // multi-request, ver auditoría de concurrencia) trae las 300 filas
+        // topic/status/person/time-ya-filtradas en una sola sentencia SQL
+        // -- MVCC garantiza consistencia sin necesitar cursor.
+        expect(ctx.proposalFocusScannedCount).toBe(300);
+        expect(ctx.proposalFocusSourceExhausted).toBe(true); // 300 < safety cap (1000) -- se sabe que es el total real
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true); // encontró el budget completo con certeza, sin tocar el safety cap
+    });
+
+    it('sección 15 (1000-row adversarial, OBLIGATORIO): matches distribuidos en 150/340/500/700/900 -- pagina hasta llenar el budget, nunca esconde la pérdida', async () => {
+        const matchPositions = new Set([150, 340, 500, 700, 900]);
+        const dataset = Array.from({ length: 1000 }, (_, i) =>
+            matchPositions.has(i) ? waitingProposal(i) : nonWaitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        pagedMock(dataset);
+
+        // Budget=5 -- exactamente el número de matches reales distribuidos;
+        // el bucle debe seguir paginando hasta encontrarlos todos (no se
+        // detiene arbitrariamente en la primera página vacía de matches).
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 5 } } as any);
+
+        expect(ctx.commitments).toHaveLength(5);
+        expect(ctx.commitments.map((c) => c.id).sort()).toEqual(
+            [150, 340, 500, 700, 900].map((i) => `pr-waiting-${i}`).sort(),
+        );
+        // El último match real está en la fila 900 -- debió escanear al
+        // menos hasta ahí (10 páginas de 100) para encontrar el 5to match,
+        // nunca "esconder" que tuvo que paginar de verdad.
+        expect(ctx.proposalFocusScannedCount).toBeGreaterThanOrEqual(901);
+        expect(ctx.proposalFocusSourceExhausted).toBe(false); // encontró el budget completo antes de llegar a la fila 1000
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true); // encontrado con certeza, nunca cortado por el safety cap
+    });
+
+    it('sección 15b: 1000 filas, CERO matches reales -- agota la fuente exactamente en 1000, sourceExhausted=true (nunca confundido con safety cap)', async () => {
+        const dataset = Array.from({ length: 1000 }, (_, i) => nonWaitingProposal(i));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        // Mock que SÍ revela el fin real de la tabla: una página final más
+        // corta que pageSize (999 en vez de 1000 exactos) para distinguir
+        // "la fuente se agotó" de "el safety cap cortó justo en el límite".
+        const shortDataset = dataset.slice(0, 999);
+        pagedMock(shortDataset);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 5 } } as any);
+
+        expect(ctx.commitments).toEqual([]);
+        expect(ctx.proposalFocusScannedCount).toBe(999);
+        expect(ctx.proposalFocusSourceExhausted).toBe(true);
+        expect(ctx.proposalFocusSafetyCapReached).toBe(false);
+        expect(ctx.requiredSourceRefsTruncationKnown).toBe(true); // se agotó la fuente real -- se sabe con certeza que no hay más
+    });
+
+    it('sección 4 (STAGING PUBLICATION): tie-breaker estable -- 15 proposals con createdAt IDÉNTICO, todas waiting -- ninguna se pierde ni se duplica, orden final determinístico por id', async () => {
+        // Mismo createdAt exacto para las 15 -- sin el tiebreaker explícito
+        // de id en mergeCommitmentSources, el orden final dependería de la
+        // estabilidad implícita de Array.sort (correcta desde ES2019, pero
+        // nunca declarada como contrato). Certificado también directamente
+        // contra Postgres real (15 filas con created_at idéntico, 3 páginas
+        // de keyset sin overlap/gap) -- ver reporte de entrega.
+        const tied = Array.from({ length: 15 }, (_, i) => waitingProposal(0)).map((p, i) => ({ ...p, id: `pr-tied-${String(i).padStart(2, '0')}`, createdAt: '2026-08-01T10:00:00Z' }));
+        mockRetrieveCommitments.mockResolvedValue([]);
+        pagedMock(tied);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' }, { budget: { commitments: 15 } } as any);
+
+        expect(ctx.commitments).toHaveLength(15);
+        const ids = ctx.commitments.map((c) => c.id);
+        expect(new Set(ids).size).toBe(15); // nunca duplicados
+        expect(ids).toEqual([...ids].sort()); // orden determinístico por id (tiebreaker explícito)
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H — "FINAL ARCHITECTURE GATE" bloqueo B, sección 11: CONTRACT MATRIX
+// EXPANDIDA (9 casos), certificados end-to-end con intérprete REAL.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H: CONTRACT MATRIX EXPANDIDA (sección 11) -- distingue list vs lookup vs count vs summary', () => {
+    const CARLOS = 'u1';
+
+    it('A) "¿Qué compromisos tengo?" -> exhaustive_list', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-a' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué compromisos tengo?' });
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+    });
+
+    it('B) "¿Qué tengo pendiente?" -> exhaustive_list', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-b' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo pendiente?' });
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+    });
+
+    it('C) "¿Qué estoy esperando?" -> exhaustive_list (ya certificado, incluido aquí por completitud de la matriz)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando?' });
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+    });
+
+    it('D) "¿Qué falta que acepte Alejandra?" -> exhaustive_list (ya certificado, incluido aquí por completitud)', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra?' });
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+    });
+
+    it('E) "¿Qué pasó con el compromiso del regalo?" -> focused_lookup (nunca exhaustive_list pese a contener "compromiso")', async () => {
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-regalo', title: 'regalo' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué pasó con el compromiso del regalo?' });
+
+        expect(ctx.queryCardinality).toBe('focused_lookup');
+        expect(ctx.requiredSourceRefs).toEqual([]);
+    });
+
+    it('F) "Háblame de Entrenar" -> focused_lookup', async () => {
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: 'Háblame de entrenar' }); // minúscula -- ver limitación conocida de "de <Nombre Propio>"
+
+        expect(ctx.intent.type).toBe('recall');
+        expect(ctx.queryCardinality).toBe('focused_lookup');
+        expect(ctx.requiredSourceRefs).toEqual([]);
+    });
+
+    it('G) "¿Qué compromisos tengo sobre viaje?" -> exhaustive_list + topicQuery="viaje" (nunca "compromisos viaje")', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué compromisos tengo sobre viaje?' });
+
+        expect(ctx.queryCardinality).toBe('exhaustive_list');
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje' }), expect.any(Number));
+        expect(ctx.requiredSourceRefs).toHaveLength(1);
+    });
+
+    it('H) "¿Cuántos compromisos vencidos tengo?" -> count, countResult correcto, textQuery nunca contamina la query real', async () => {
+        mockRetrieveCommitments.mockResolvedValue([
+            commitmentFixture({ id: 'cm-h1', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' }),
+            commitmentFixture({ id: 'cm-h2', status: 'accepted', dueAt: '2026-06-05T00:00:00Z' }),
+        ] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Cuántos compromisos vencidos tengo?', now: '2026-09-05T12:00:00Z' });
+
+        expect(ctx.queryCardinality).toBe('count');
+        expect(ctx.countResult).toBe(2);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: undefined }), expect.any(Number));
+    });
+
+    it('I) "Resume mis compromisos de esta semana" -> summary, requiredSourceRefs vacío (nunca exige cobertura item-por-item)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-i' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: 'Resume mis compromisos de esta semana' });
+
+        expect(ctx.queryCardinality).toBe('summary');
+        expect(ctx.requiredSourceRefs).toEqual([]);
+    });
+
+    it('REPEATED QUERY DETERMINISM (sección 13): "¿Qué pasó con el compromiso del regalo?" permanece focused_lookup bajo 20 variaciones adversariales del LLM', async () => {
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-regalo', title: 'regalo' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const adversarialVariants: Array<Partial<Record<string, any>>> = [
+            { intent: 'recall', proposalFocus: null },
+            { intent: 'commitment_query', proposalFocus: null }, // el modelo cree que es un listado -- el Core no debe seguirlo
+            { intent: 'commitment_query', proposalFocus: 'waiting_for_others' }, // adversarial: intenta forzar exhaustive_list
+            { intent: 'general_context', proposalFocus: null },
+            { intent: 'recall', proposalFocus: null, textQuery: 'compromiso regalo' },
+            { intent: 'recall', proposalFocus: null, ambiguityHints: ['unresolved_pronoun'] },
+        ];
+        for (let i = 0; i < 20; i += 1) {
+            const variant = adversarialVariants[i % adversarialVariants.length];
+            const interpreter = mockInterpreter(interpretationFixture(variant));
+            const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué pasó con el compromiso del regalo?' }, { interpreter });
+            expect(ctx.queryCardinality).toBe('focused_lookup');
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M-1H.1 — "CANONICAL TOPIC RETRIEVAL PARITY": composición Core-side de
+// topic + filtros estructurados. retrieveCommitments/retrieveCommitmentProposals
+// están mockeados en este archivo (certifica CONTRATO, no matching SQL/JS
+// real -- eso vive en retrievalService.test.ts) -- estos tests certifican
+// que ninguna combinación de proposalFocus/overdue/time/person con un
+// topicQuery presente desactiva silenciosamente una entity type válida.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-1H.1: topic + structured filters (sección 8) -- ninguna combinación desactiva una entity type válida', () => {
+    const CARLOS = 'u1';
+    const topicProposal = (id: string, overrides: Partial<Record<string, any>> = {}) => proposalFixture({ id, title: 'Planear viaje', ...overrides });
+
+    it('A) topic only -- "¿Qué compromisos tengo sobre viaje?"', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué compromisos tengo sobre viaje?' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-viaje']);
+    });
+
+    it('B) topic + waiting_for_others -- "¿Qué estoy esperando sobre viaje?"', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([topicProposal('pr-viaje', { actorHasApproved: true, actorCanRespond: false, isFullyApproved: false })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué estoy esperando sobre viaje?' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+    });
+
+    it('C) topic + needs_my_response -- "¿Qué tengo por aceptar sobre viaje?"', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([topicProposal('pr-viaje', { actorHasApproved: false, actorCanRespond: true, isFullyApproved: false })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo por aceptar sobre viaje?' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+        expect(ctx.proposalFocus).toBe('needs_my_response');
+    });
+
+    it('D) topic + pending_response_from_person -- "¿Qué falta que acepte Alejandra sobre viaje?"', async () => {
+        const ALEJANDRA = 'alejandra-id';
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: ALEJANDRA, displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([topicProposal('pr-viaje', { actorHasApproved: true, actorCanRespond: false, pendingResponderIds: [ALEJANDRA], pendingResponderNamesSafe: ['Alejandra'], isFullyApproved: false })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué falta que acepte Alejandra sobre viaje?' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+        expect(ctx.proposalFocus).toBe('pending_response_from_person');
+    });
+
+    it('E) topic + overdue commitments -- "¿Qué tengo vencido sobre viaje?"', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué tengo vencido sobre viaje?', now: '2026-09-05T12:00:00Z' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-viaje']);
+    });
+
+    it('F) topic + time range -- "¿Qué compromisos tengo esta semana sobre viaje?" (timeRange se resuelve y se pasa junto al topic)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué compromisos tengo esta semana sobre viaje?', now: '2026-09-08T12:00:00Z' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-viaje']);
+        expect(ctx.entities.timeRange).not.toBeNull();
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje', timeRange: expect.anything() }), expect.any(Number));
+    });
+
+    it('G) topic + person -- "¿Qué compromisos tengo con Alejandra sobre viaje?"', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({ actorUserId: CARLOS, input: '¿Qué compromisos tengo con Alejandra sobre viaje?' });
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-viaje']);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje', personId: 'alejandra-id' }), expect.any(Number));
+    });
+});
+
+describe('M-1H.1: mixed-entity topic (sección 12) -- commitments Y proposals con el mismo tema, sin bias por source type', () => {
+    it('3 commitments + 2 proposals con topic "viaje" -- las 5 entidades aparecen, provenance correcta por tipo', async () => {
+        const commitments = Array.from({ length: 3 }, (_, i) => commitmentFixture({
+            id: `cm-viaje-${i}`, title: `Viaje commitment ${i}`, provenance: { sourceType: 'commitment' as const, sourceId: `cm-viaje-${i}` },
+        }));
+        const proposals = Array.from({ length: 2 }, (_, i) => proposalFixture({
+            id: `pr-viaje-${i}`, title: `Viaje proposal ${i}`, actorHasApproved: true, actorCanRespond: false, isFullyApproved: false,
+            provenance: { sourceType: 'commitment_proposal' as const, sourceId: `pr-viaje-${i}`, commitmentId: null },
+        }));
+        mockRetrieveCommitments.mockResolvedValue(commitments as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue(proposals as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo sobre viaje?' });
+
+        expect(ctx.commitments).toHaveLength(5);
+        const byType = { commitment: ctx.commitments.filter((c) => c.entityType === 'commitment'), commitment_proposal: ctx.commitments.filter((c) => c.entityType === 'commitment_proposal') };
+        expect(byType.commitment).toHaveLength(3);
+        expect(byType.commitment_proposal).toHaveLength(2);
+        expect(ctx.provenance.filter((p) => p.sourceType === 'commitment')).toHaveLength(3);
+        expect(ctx.provenance.filter((p) => p.sourceType === 'commitment_proposal')).toHaveLength(2);
+    });
+});
+
+describe('M-1H.1: "topic must remain topic" (sección 15) -- lenguaje estructural nunca contamina el topicQuery', () => {
+    it('"¿Qué estoy esperando confirmación sobre viaje?" -> proposalFocus=waiting_for_others, topicQuery="viaje" exacto, nunca "confirmación viaje"', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([proposalFixture({ id: 'pr-viaje', title: 'Planear viaje', actorHasApproved: true, actorCanRespond: false, isFullyApproved: false })] as any);
+
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué estoy esperando confirmación sobre viaje?' });
+
+        expect(ctx.proposalFocus).toBe('waiting_for_others');
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje' }), expect.any(Number));
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['pr-viaje']);
+    });
+});
