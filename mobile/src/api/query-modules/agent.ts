@@ -5,6 +5,8 @@
 import { useMutation } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { apiClient, ApiError } from '../client';
+import { API_URL, getAuthHeaders } from '../client';
+import { File } from 'expo-file-system';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 
 // M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
@@ -38,8 +40,9 @@ export interface AgentRespondResult {
 }
 
 export interface AgentRespondInput {
-    input: string;
+    input?: string;
     conversationId?: string;
+    voiceInputToken?: string;
 }
 
 // Sección 10 del ticket: locale real del dispositivo, nunca forzado a
@@ -62,14 +65,99 @@ export function getDeviceLocale(): string {
 // requireAuth en el backend); channel="mobile" es sólo metadata; timezone/
 // locale son los reales del dispositivo, nunca hardcodeados.
 export function buildAgentRequestBody(input: AgentRespondInput): Record<string, unknown> {
+    if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
     const body: Record<string, unknown> = {
-        input: input.input.trim(),
+        input: input.input?.trim(),
         channel: 'mobile',
         timezone: getDeviceTimeZone(),
         locale: getDeviceLocale(),
     };
     if (input.conversationId) body.conversationId = input.conversationId;
     return body;
+}
+
+export interface AgentVoiceTranscriptResult {
+    status: 'final';
+    transcript: {
+        transcriptId: string;
+        audioRef: string;
+        text: string;
+        language: string | null;
+        confidence: number | null;
+        provider: string;
+        observedAt: string;
+        source: 'agent_voice';
+    };
+    voiceInputToken: string;
+    tokenExpiresAt: string;
+    agentSessionId: string;
+}
+
+export interface AgentVoiceCaptureRequest {
+    uri: string;
+    mimeType: 'audio/m4a' | 'audio/mp4' | 'audio/aac' | 'audio/mpeg' | 'audio/wav';
+    durationMs: number;
+    capturedAt: string;
+    voiceSessionId: string;
+    deviceSessionId: string;
+    conversationId?: string;
+    currentCommitmentId?: string;
+    signal?: AbortSignal;
+}
+
+export function buildAgentVoiceTranscriptionUrl(input: Omit<AgentVoiceCaptureRequest, 'uri' | 'mimeType'>): string {
+    const params: Record<string, string> = {
+        durationMs: String(Math.round(input.durationMs)),
+        capturedAt: input.capturedAt,
+        voiceSessionId: input.voiceSessionId,
+        deviceSessionId: input.deviceSessionId,
+        surface: 'mobile_voice',
+        locale: getDeviceLocale(),
+        timezone: getDeviceTimeZone(),
+        activeScreen: 'agent_preview',
+        consent: 'explicit_user_action',
+    };
+    if (input.conversationId) params.currentConversationId = input.conversationId;
+    if (input.currentCommitmentId) params.currentCommitmentId = input.currentCommitmentId;
+    const query = Object.entries(params).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
+    return `${API_URL.replace(/\/$/, '')}/agent/voice/transcribe?${query}`;
+}
+
+export function parseAgentVoiceTranscript(raw: unknown): AgentVoiceTranscriptResult {
+    if (!raw || typeof raw !== 'object') throw new Error('invalid_voice_transcript_shape');
+    const value = raw as AgentVoiceTranscriptResult;
+    if (value.status !== 'final'
+        || !value.transcript
+        || typeof value.transcript.transcriptId !== 'string'
+        || typeof value.transcript.audioRef !== 'string'
+        || typeof value.transcript.text !== 'string'
+        || !value.transcript.text.trim()
+        || value.transcript.source !== 'agent_voice'
+        || typeof value.voiceInputToken !== 'string'
+        || typeof value.agentSessionId !== 'string') {
+        throw new Error('invalid_voice_transcript_shape');
+    }
+    return value;
+}
+
+export async function transcribeAgentVoice(input: AgentVoiceCaptureRequest): Promise<AgentVoiceTranscriptResult> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(buildAgentVoiceTranscriptionUrl(input), {
+        method: 'POST',
+        headers: { Authorization: headers.Authorization, 'Content-Type': input.mimeType },
+        body: new File(input.uri),
+        signal: input.signal,
+    });
+    const responseText = await response.text();
+    let raw: unknown;
+    try { raw = responseText ? JSON.parse(responseText) : null; } catch { raw = null; }
+    if (!response.ok) {
+        const code = raw && typeof raw === 'object' && typeof (raw as any).error === 'string'
+            ? (raw as any).error
+            : response.status === 413 ? 'audio_too_large' : 'transcription_failed';
+        throw new ApiError(code, response.status, false);
+    }
+    return parseAgentVoiceTranscript(raw);
 }
 
 const VALID_STATUSES = new Set<string>(['answered', 'needs_clarification', 'no_evidence', 'capability_gap']);

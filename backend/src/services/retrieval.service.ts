@@ -402,6 +402,22 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     return textQuery ? rankCommitments(rows, input).slice(0, limit) : rows;
 }
 
+// M-5: resolve an already-typed session referent without broad text search.
+// The canonical visibility filter remains authoritative; a context ID can
+// only narrow the actor's scope and can never grant access.
+export async function retrieveVisibleCommitmentById(actorUserId: string, commitmentId: string): Promise<RetrievalCommitment | null> {
+    const participantProposalIds = await getParticipantProposalIds(actorUserId);
+    const visibilityFilter = buildCommitmentVisibilityFilter(actorUserId, participantProposalIds);
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select(COMMITMENT_SELECT)
+        .eq('id', commitmentId)
+        .or(visibilityFilter)
+        .maybeSingle();
+    if (error) throw new AppError(error.message, 500);
+    return data ? toRetrievalCommitment(data) : null;
+}
+
 // ─── M-1H — Commitment proposals (hallazgo real de staging, caso "Entrenar") ─
 // La UI real (InsightsScreen.tsx) siempre mezcló GET /commitments +
 // GET /commitment-proposals — el Agent sólo consultaba la primera. Esta

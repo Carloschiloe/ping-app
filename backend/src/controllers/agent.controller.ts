@@ -9,6 +9,7 @@ import { toPublicAgentResponse } from '../types/agent';
 import { AppError } from '../utils/AppError';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { generateTraceId } from '../utils/overdueTrace';
+import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 
 export const respond = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -17,14 +18,24 @@ export const respond = async (req: Request, res: Response): Promise<void> => {
         // declara userId/actorUserId/tenantId, así que un cliente que los
         // mande los pierde en el parseo antes de llegar aquí.
         const actorUserId = req.user!.id;
-        const { input, conversationId, channel, locale, timezone } = req.body;
-
         // [PING_OVERDUE_TRACE] TEMPORARY — sólo genera un id corto por
         // request; el trace real sólo se emite más abajo del pipeline si la
         // consulta interpretada resulta ser overdue-focused (ver
         // overdueTrace.ts). Cero costo/ruido para requests normales.
         const traceId = generateTraceId();
-        const response = await runAgent({ actorUserId, input, conversationId, channel, locale, timezone, traceId });
+        const resolved = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
+        const envelope = resolved.envelope;
+        const response = await runAgent({
+            actorUserId,
+            input: envelope.content,
+            conversationId: envelope.conversationId ?? undefined,
+            channel: envelope.surface,
+            locale: envelope.locale ?? undefined,
+            timezone: envelope.timeZone ?? undefined,
+            traceId: envelope.provenance.traceId,
+            inputEnvelope: envelope,
+            contextReferents: resolved.referents,
+        });
 
         // Secciones 16-17: no_evidence/capability_gap/needs_clarification son
         // respuestas VÁLIDAS del agente, no errores — siempre HTTP 200 junto

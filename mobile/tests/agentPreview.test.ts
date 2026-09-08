@@ -10,6 +10,18 @@ vi.mock('expo-localization', () => ({
     getLocales: vi.fn(() => [{ languageTag: 'es-CL', languageCode: 'es', regionCode: 'CL' }]),
 }));
 
+// M-5 — query-modules/agent.ts ahora importa `File` de expo-file-system
+// (transcribeAgentVoice) -- ese módulo carga expo-modules-core, un native
+// module que no resuelve bajo el vitest de este repo (sin jest-expo/native,
+// ver vitest.config.ts). Este archivo nunca ejercita transcribeAgentVoice,
+// pero SÍ importa el mismo módulo de agent.ts, así que necesita el mismo
+// stub mínimo que expo-localization arriba para poder cargar.
+vi.mock('expo-file-system', () => ({
+    File: class MockFile {
+        constructor(public uri: string) {}
+    },
+}));
+
 // No se usa `importOriginal` (dispara un parse error en este pipeline de
 // vitest/rollup al re-analizar client.ts) -- se redefine `ApiError` con la
 // MISMA forma exacta que src/api/client.ts (message/status/resultUnknown),

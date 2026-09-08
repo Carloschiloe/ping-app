@@ -51,7 +51,7 @@ export type ConversationsStackParamList = {
     // M-1G — preview interna del nuevo Agent read-only. `conversationId`
     // opcional: ausente = Agent global (sin scope), presente = Agent
     // scoped a esa conversación (sección 8 del ticket).
-    AgentPreview: { conversationId?: string } | undefined;
+    AgentPreview: { conversationId?: string; currentCommitmentId?: string } | undefined;
     QuickCapture: undefined;
 };
 

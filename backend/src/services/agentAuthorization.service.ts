@@ -11,6 +11,7 @@ import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
+import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
@@ -32,6 +33,8 @@ export interface AuthorizePlanInput {
     requestedStepIds: string[];
     confirm: boolean;
     strongConfirm?: boolean;
+    inputEnvelope?: AgentInputEnvelope;
+    contextReferents?: ContextReferent[];
 }
 
 export type AuthorizePlanResult =
@@ -67,6 +70,8 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
         timezone: input.timezone,
         now,
         traceId: input.traceId,
+        inputEnvelope: input.inputEnvelope,
+        contextReferents: input.contextReferents,
     };
 
     // Re-planifica desde cero, con el estado canónico ACTUAL -- nunca se

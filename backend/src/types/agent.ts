@@ -4,6 +4,7 @@
 // (tomorrow) maps to/from — the Core (buildAgentContext/synthesizeAgentResponse)
 // never sees these types directly.
 import type { AgentChannel } from './agentContext';
+import type { AgentInputEnvelope, ContextReferent } from './agentInput';
 import type { AgentCitation, AgentFollowUp, AgentResponse, AgentResponseDiagnostics, AgentResponseStatus } from './agentResponse';
 
 // ─── Orchestrator input (sección 3) — ya resuelto por el caller (controller
@@ -20,6 +21,8 @@ export interface AgentOrchestratorInput {
     now?: string;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
+    inputEnvelope?: AgentInputEnvelope;
+    contextReferents?: ContextReferent[];
 }
 
 // Diagnostics del orquestador — envuelve (no reemplaza) los de M-1E, agrega

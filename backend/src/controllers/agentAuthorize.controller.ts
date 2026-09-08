@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { authorizePlan, revokeAuthorization } from '../services/agentAuthorization.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
+import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 
 const uuidParam = z.string().uuid();
 
@@ -18,12 +19,25 @@ const FAILURE_STATUS: Record<string, number> = {
 export const authorize = async (req: Request, res: Response): Promise<void> => {
     try {
         const actorUserId = req.user!.id;
-        const { input, conversationId, channel, locale, timezone, planDigest, stepIds, confirm, strongConfirm } = req.body;
+        const { planDigest, stepIds, confirm, strongConfirm } = req.body;
         const traceId = generateTraceId();
+        const resolved = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
+        const envelope = resolved.envelope;
 
         const result = await authorizePlan({
-            actorUserId, input, conversationId, channel, locale, timezone,
-            planDigest, requestedStepIds: stepIds, confirm, strongConfirm, traceId,
+            actorUserId,
+            input: envelope.content,
+            conversationId: envelope.conversationId ?? undefined,
+            channel: envelope.surface,
+            locale: envelope.locale ?? undefined,
+            timezone: envelope.timeZone ?? undefined,
+            planDigest,
+            requestedStepIds: stepIds,
+            confirm,
+            strongConfirm,
+            traceId: envelope.provenance.traceId,
+            inputEnvelope: envelope,
+            contextReferents: resolved.referents,
         });
 
         if (!result.ok) {

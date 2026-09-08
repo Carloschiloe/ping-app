@@ -7,14 +7,25 @@ import { runAgentPlanning } from '../services/agentPlanOrchestrator.service';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
+import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 
 export const plan = async (req: Request, res: Response): Promise<void> => {
     try {
         const actorUserId = req.user!.id;
-        const { input, conversationId, channel, locale, timezone } = req.body;
-
         const traceId = generateTraceId();
-        const result = await runAgentPlanning({ actorUserId, input, conversationId, channel, locale, timezone, traceId });
+        const resolved = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
+        const envelope = resolved.envelope;
+        const result = await runAgentPlanning({
+            actorUserId,
+            input: envelope.content,
+            conversationId: envelope.conversationId ?? undefined,
+            channel: envelope.surface,
+            locale: envelope.locale ?? undefined,
+            timezone: envelope.timeZone ?? undefined,
+            traceId: envelope.provenance.traceId,
+            inputEnvelope: envelope,
+            contextReferents: resolved.referents,
+        });
 
         // Sección 9/44: draft/needs_clarification/ready_for_authorization son
         // TODAS respuestas válidas del planner (nunca un error) — siempre

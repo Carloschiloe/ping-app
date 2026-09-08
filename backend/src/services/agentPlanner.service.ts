@@ -8,7 +8,7 @@
 // (resolvePerson, retrieveCommitments, retrieveCommitmentProposals,
 // parseDateFromText) to ground a plan that a future M-4 would execute.
 import { randomUUID } from 'crypto';
-import { resolvePerson, retrieveCommitments, retrieveCommitmentProposals } from './retrieval.service';
+import { resolvePerson, retrieveCommitments, retrieveCommitmentProposals, retrieveVisibleCommitmentById } from './retrieval.service';
 import { parseDateFromText, resolveTimeZone } from './date-parser.service';
 import { retrieveMemory } from './memory.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../utils/commitmentTransitions';
@@ -25,6 +25,7 @@ import type {
     SideEffectClass,
 } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
+import type { ContextReferent } from '../types/agentInput';
 
 export interface AgentPlannerInput {
     objective: AgentObjective;
@@ -33,6 +34,7 @@ export interface AgentPlannerInput {
     now: Date;
     timezone?: string;
     traceId?: string;
+    contextReferents?: ContextReferent[];
 }
 
 interface DraftOutcome {
@@ -311,13 +313,36 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
 
 async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
     const hint = objective.targetEntities.entityHints[0];
-    if (!hint) {
-        return { steps: [], blockingAmbiguities: [{ field: 'targetEntity', kind: 'blocking', reason: 'No identifiqué a qué compromiso o propuesta te refieres.' }] };
+    const weakReferentHint = !hint || /^(?:lo|la|eso|esto|ella|[ée]l)$/iu.test(hint.trim());
+    let resolvedFromContext = false;
+    let candidates: RetrievalCommitment[];
+    if (weakReferentHint) {
+        const referents = (input.contextReferents || []).filter((referent) =>
+            referent.actorScope === input.actorUserId
+            && referent.canonicalEntityType === 'commitment'
+            && referent.confidence >= 0.9
+            && Date.parse(referent.expiresAt) > input.now.getTime()
+        );
+        const ids = [...new Set(referents.map((referent) => referent.canonicalEntityId))];
+        if (ids.length !== 1) {
+            return { steps: [], blockingAmbiguities: [{
+                field: 'targetEntity',
+                kind: 'blocking',
+                reason: ids.length > 1
+                    ? 'Hay más de un referente actual posible; necesito que nombres el compromiso.'
+                    : 'No identifiqué a qué compromiso o propuesta te refieres.',
+            }] };
+        }
+        const referenced = await retrieveVisibleCommitmentById(input.actorUserId, ids[0]);
+        candidates = referenced ? [referenced] : [];
+        resolvedFromContext = true;
+    } else {
+        candidates = await resolveEntityHint(input.actorUserId, hint);
     }
-
-    const candidates = await resolveEntityHint(input.actorUserId, hint);
     if (candidates.length === 0) {
-        return { steps: [], blockingAmbiguities: [], failureMode: 'entity_not_found', failureMessage: `No encontré ningún compromiso o propuesta que coincida con "${hint}".` };
+        return { steps: [], blockingAmbiguities: [], failureMode: 'entity_not_found', failureMessage: resolvedFromContext
+            ? 'El compromiso referido ya no está disponible o autorizado.'
+            : `No encontré ningún compromiso o propuesta que coincida con "${hint}".` };
     }
     if (candidates.length > 1) {
         return {
@@ -332,6 +357,8 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
     const isProposal = entity.entityType === 'commitment_proposal';
     const isShared = isEntityShared(entity);
     const sourceRefs = [{ sourceType: entity.entityType, sourceId: entity.id }];
+    const entityResolutionSource = resolvedFromContext ? 'canonical_context' as const : 'entity_resolution' as const;
+    const sourceSpan = hint || undefined;
 
     if (objective.objectiveType === 'respond_to_existing_proposal') {
         if (!isProposal) {
@@ -346,7 +373,7 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
             operation: `${decision === 'approve' ? 'Aceptar' : decision === 'reject' ? 'Rechazar' : 'Contraproponer'} "${entity.title}"`,
             args: { proposalId: entity.id, decision, proposedDueAt: null },
             expectedEffect: `Tu respuesta (${decision}) quedará registrada en "${entity.title}".`,
-            isShared, sourceUtteranceSpan: hint, resolvedFrom: 'entity_resolution', canonicalSourceRefs: sourceRefs,
+            isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
         });
         return { steps: [step], blockingAmbiguities: [] };
     }
@@ -371,7 +398,7 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
                 operation: `Contraproponer nueva fecha para "${entity.title}"`,
                 args: { proposalId: entity.id, decision: 'counter_propose', proposedDueAt: parsed.date.toISOString() },
                 expectedEffect: `Se propondrá una nueva fecha para "${entity.title}", pendiente de que la otra parte responda.`,
-                isShared, sourceUtteranceSpan: hint, resolvedFrom: 'entity_resolution', canonicalSourceRefs: sourceRefs,
+                isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
             });
             return { steps: [step], blockingAmbiguities: [] };
         }
@@ -389,8 +416,8 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
             expectedEffect: dateFromMemory
                 ? `"${entity.title}" se moverá a una fecha inferida de tu memoria ("${dateFromMemory.canonicalText}"), no de esta solicitud directamente.`
                 : `"${entity.title}" pasará a tener una nueva fecha propuesta.`,
-            isShared, sourceUtteranceSpan: hint,
-            resolvedFrom: dateFromMemory ? 'memory' : 'entity_resolution',
+            isShared, sourceUtteranceSpan: sourceSpan,
+            resolvedFrom: dateFromMemory ? 'memory' : entityResolutionSource,
             canonicalSourceRefs: dateFromMemory ? [...sourceRefs, { sourceType: 'memory', sourceId: dateFromMemory.memoryId }] : sourceRefs,
         });
         if (dateFromMemory) {
@@ -415,7 +442,7 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         operation: `Completar "${entity.title}"`,
         args: { commitmentId: entity.id, resolutionResult: objective.desiredOutcome || 'Completado desde el planner.' },
         expectedEffect: `"${entity.title}" quedará marcado como resuelto.`,
-        isShared, sourceUtteranceSpan: hint, resolvedFrom: 'entity_resolution', canonicalSourceRefs: sourceRefs,
+        isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
     });
     return { steps: [step], blockingAmbiguities: [] };
 }

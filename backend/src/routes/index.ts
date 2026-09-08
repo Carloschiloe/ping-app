@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import { requireAuth } from '../middleware/auth';
 import * as messageController from '../controllers/message.controller';
 import * as commitmentController from '../controllers/commitment.controller';
@@ -19,6 +19,7 @@ import * as agentController from '../controllers/agent.controller';
 import * as agentPlanController from '../controllers/agentPlan.controller';
 import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
 import * as agentExecuteController from '../controllers/agentExecute.controller';
+import * as agentVoiceController from '../controllers/agentVoice.controller';
 import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
@@ -26,6 +27,8 @@ import { agentRequestSchema } from '../schemas/agentRequest.schema';
 import { agentPlanRequestSchema } from '../schemas/agentPlanRequest.schema';
 import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
 import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
+import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
+import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -63,6 +66,14 @@ const agentRateLimiter = rateLimit({
 // (agent_executions unique + digest binding), este límite es defensa en
 // profundidad adicional, no el mecanismo primario.
 const agentExecutionRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+});
+
+const agentVoiceRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 10,
     standardHeaders: true,
@@ -275,6 +286,16 @@ router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage)
 // Rate limit propio (más estricto que el global de app.ts) porque cada
 // request puede disparar hasta 2 llamadas a un LLM (sección 22/29) — keyed
 // por usuario autenticado, nunca por IP sola, ya que requireAuth corre antes.
+router.post(
+    '/agent/voice/transcribe',
+    requireAuth,
+    agentVoiceRateLimiter,
+    raw({ type: () => true, limit: MAX_AGENT_VOICE_BYTES + 1024 }),
+    agentVoiceController.agentVoiceRawBodyError,
+    validateRequest(agentVoiceTranscriptionRequestSchema),
+    agentVoiceController.transcribe,
+);
+
 router.post(
     '/agent/respond',
     requireAuth,

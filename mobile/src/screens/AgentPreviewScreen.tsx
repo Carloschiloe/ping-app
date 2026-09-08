@@ -2,7 +2,7 @@
 // Coexiste con PingAIScreen (legacy, /ai/ask) sin reemplazarlo. Historial
 // SOLO en estado local de esta pantalla -- nunca ai_messages, nunca DB
 // nueva (sección 6/23 del ticket).
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -19,6 +19,10 @@ import {
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
 import type { AgentPreviewScreenProps } from '../navigation/types';
+import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
+import type { AgentVoiceTranscriptResult } from '../api/query-modules/agent';
+import { formatRecordingDuration } from '../utils/audioRecording';
+import { voiceStatusCopy } from '../utils/voiceSession';
 
 // Sección 17 del ticket: staging puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
@@ -33,6 +37,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const [inputText, setInputText] = useState('');
     const [isSlow, setIsSlow] = useState(false);
     const [citationsSheetFor, setCitationsSheetFor] = useState<AgentChatMessage | null>(null);
+    const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
+    const [voiceError, setVoiceError] = useState<string | null>(null);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
     // pantalla es más corto, y en dispositivos con inset superior grande
@@ -46,6 +52,33 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { mutate: respond, isPending } = useAgentRespond();
+
+    const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
+        setInputText(result.transcript.text);
+        setVoiceDraft({
+            text: result.transcript.text,
+            token: result.voiceInputToken,
+            confidence: result.transcript.confidence,
+        });
+        setVoiceError(null);
+    }, []);
+
+    const handleVoiceFailure = useCallback((code: string) => {
+        const message = code === 'permission_denied' ? 'El micrófono no fue autorizado.'
+            : code === 'permission_blocked' ? 'El micrófono está bloqueado. Puedes habilitarlo en Ajustes.'
+                : code === 'audio_too_large' ? 'La grabación supera el límite permitido.'
+                    : code === 'unsupported_audio' ? 'Este formato de audio no es compatible.'
+                        : code === 'provider_unavailable' || code === 'Network request failed' ? 'La transcripción no está disponible sin conexión.'
+                            : 'No se pudo transcribir el audio. Inténtalo nuevamente.';
+        setVoiceError(message);
+    }, []);
+
+    const voice = useAgentVoiceInput({
+        conversationId,
+        currentCommitmentId: route.params?.currentCommitmentId,
+        onTranscriptReady: handleTranscriptReady,
+        onFailure: handleVoiceFailure,
+    });
 
     useEffect(() => {
         isMountedRef.current = true;
@@ -62,25 +95,33 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const sendInput = (rawInput: string) => {
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending)) return;
+        const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
         setInputText('');
+        setVoiceDraft(null);
+        setVoiceError(null);
         setIsSlow(false);
         slowTimerRef.current = setTimeout(() => {
             if (isMountedRef.current) setIsSlow(true);
         }, SLOW_REQUEST_COPY_DELAY_MS);
 
-        respond({ input: trimmed, conversationId }, {
+        if (matchingVoiceDraft) voice.markSubmitted();
+        respond(matchingVoiceDraft
+            ? { voiceInputToken: matchingVoiceDraft.token }
+            : { input: trimmed, conversationId }, {
             onSuccess: (result) => {
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
+                if (matchingVoiceDraft) voice.markFinished();
                 setMessages((prev) => appendAgentMessage(prev, result));
             },
             onError: (error) => {
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
+                if (matchingVoiceDraft) voice.markFinished(true);
                 setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed));
             },
         });
@@ -90,6 +131,14 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const handleRetry = (retryInput: string) => sendInput(retryInput);
     const handleStarterPress = (starter: string) => setInputText(starter);
     const handleFollowUpOptionPress = (option: AgentFollowUpOption) => setInputText(option.label);
+    const handleInputChange = (value: string) => {
+        if (voiceDraft && value !== voiceDraft.text) {
+            setVoiceDraft(null);
+            voice.reset();
+        }
+        setInputText(value);
+    };
+    const voiceCopy = voiceStatusCopy(voice.state);
 
     const styles = React.useMemo(() => createStyles(theme), [theme]);
 
@@ -188,27 +237,97 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     </View>
                 )}
 
-                <View style={styles.inputContainer}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Escribe tu pregunta…"
-                        placeholderTextColor={theme.colors.text.muted}
-                        value={inputText}
-                        onChangeText={setInputText}
-                        multiline
-                        maxLength={2000}
-                        editable={!isPending}
-                    />
-                    <TouchableOpacity
-                        style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
-                        onPress={handleSend}
-                        disabled={!canSendInput(inputText, isPending)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Enviar"
-                    >
-                        <Ionicons name="send" size={20} color={theme.colors.white} />
-                    </TouchableOpacity>
-                </View>
+                {(voiceCopy || voiceError) && voice.state !== 'capturing' && voice.state !== 'listening' && (
+                    <View style={styles.voiceStatusRow}>
+                        <Text style={[styles.voiceStatusText, voiceError && styles.voiceErrorText]} numberOfLines={2}>
+                            {voiceError || voiceCopy}
+                        </Text>
+                        {(voice.permission === 'blocked' || voice.permission === 'restricted') && voiceError && (
+                            <TouchableOpacity onPress={voice.openSettings} accessibilityRole="button" accessibilityLabel="Abrir ajustes">
+                                <Text style={styles.voiceSettingsLink}>Ajustes</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+
+                {voice.state === 'listening' || voice.state === 'capturing' ? (
+                    <View style={styles.inputContainer}>
+                        <TouchableOpacity
+                            style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]}
+                            onPress={voice.cancel}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancelar grabación"
+                        >
+                            <Ionicons name="trash-outline" size={22} color={theme.colors.danger} />
+                        </TouchableOpacity>
+                        <View style={styles.recordingStatus}>
+                            <View style={styles.recordingPulse}>
+                                <Ionicons name="mic" size={19} color={theme.colors.white} />
+                            </View>
+                            <View style={styles.recordingCopy}>
+                                <Text style={styles.recordingTitle}>{voice.state === 'listening' ? 'Preparando…' : 'Escuchando…'}</Text>
+                                <Text style={styles.recordingHint}>Toca para terminar</Text>
+                            </View>
+                            <Text style={styles.recordingTime}>{formatRecordingDuration(voice.durationMs)}</Text>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.sendBtn}
+                            onPress={voice.stop}
+                            disabled={voice.state !== 'capturing'}
+                            accessibilityRole="button"
+                            accessibilityLabel="Detener grabación"
+                        >
+                            <Ionicons name="checkmark" size={20} color={theme.colors.white} />
+                        </TouchableOpacity>
+                    </View>
+                ) : voice.state === 'transcribing' ? (
+                    <View style={styles.inputContainer}>
+                        <ActivityIndicator size="small" color={theme.colors.info} />
+                        <Text style={styles.transcribingText}>Transcribiendo…</Text>
+                        <TouchableOpacity
+                            style={styles.mediaBtn}
+                            onPress={voice.cancel}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancelar transcripción"
+                        >
+                            <Ionicons name="close" size={22} color={theme.colors.text.secondary} />
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View style={styles.inputContainer}>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Escribe tu pregunta…"
+                            placeholderTextColor={theme.colors.text.muted}
+                            value={inputText}
+                            onChangeText={handleInputChange}
+                            multiline
+                            maxLength={2000}
+                            editable={!isPending}
+                        />
+                        {inputText.trim() ? (
+                            <TouchableOpacity
+                                style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
+                                onPress={handleSend}
+                                disabled={!canSendInput(inputText, isPending)}
+                                accessibilityRole="button"
+                                accessibilityLabel="Enviar"
+                            >
+                                <Ionicons name="send" size={20} color={theme.colors.white} />
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity
+                                style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
+                                onPress={voice.start}
+                                disabled={isPending}
+                                accessibilityRole="button"
+                                accessibilityLabel="Grabar pregunta por voz"
+                            >
+                                <Ionicons name="mic" size={20} color={theme.colors.white} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
             </KeyboardAvoidingView>
 
             <Modal visible={!!citationsSheetFor} transparent animationType="fade" onRequestClose={() => setCitationsSheetFor(null)}>
@@ -297,6 +416,38 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
             alignItems: 'center', justifyContent: 'center',
         },
         sendBtnDisabled: { backgroundColor: theme.colors.text.muted },
+        mediaBtn: {
+            width: 40, height: 40, borderRadius: 20,
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: theme.colors.surfaceMuted, marginRight: 8,
+        },
+
+        voiceStatusRow: {
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: 16, paddingBottom: 6, gap: 8,
+        },
+        voiceStatusText: { flex: 1, fontSize: 12, color: theme.colors.text.secondary, fontStyle: 'italic' },
+        voiceErrorText: { color: theme.colors.danger, fontStyle: 'normal' },
+        voiceSettingsLink: { fontSize: 12, color: theme.colors.info, fontWeight: '700' },
+
+        recordingStatus: {
+            flex: 1, minHeight: 40, borderRadius: 20, paddingHorizontal: 10, marginRight: 8,
+            flexDirection: 'row', alignItems: 'center', gap: 9,
+            backgroundColor: theme.isDark ? '#2b1b20' : '#fff1f2',
+            borderWidth: 1, borderColor: theme.isDark ? '#7f1d1d' : '#fecdd3',
+        },
+        recordingPulse: {
+            width: 28, height: 28, borderRadius: 14,
+            alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.danger,
+        },
+        recordingCopy: { flex: 1 },
+        recordingTitle: { color: theme.colors.text.primary, fontSize: 13, fontWeight: '700' },
+        recordingHint: { color: theme.colors.text.muted, fontSize: 10, marginTop: 1 },
+        recordingTime: {
+            minWidth: 42, color: theme.colors.danger, fontSize: 14, fontWeight: '800',
+            fontVariant: ['tabular-nums'], textAlign: 'right',
+        },
+        transcribingText: { flex: 1, marginLeft: 10, fontSize: 13, color: theme.colors.text.secondary },
 
         loadingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 8 },
         loadingText: { marginLeft: 8, fontSize: 13, color: theme.colors.text.secondary, fontStyle: 'italic' },

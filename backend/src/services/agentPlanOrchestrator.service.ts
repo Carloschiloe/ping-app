@@ -18,6 +18,8 @@ import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
 import { tracePlan } from '../utils/planTrace';
 import type { AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
+import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
+import { LOW_CONFIDENCE_ACTION_THRESHOLD } from './agentVoice.service';
 
 export interface AgentPlanOrchestratorInput {
     actorUserId: string;
@@ -28,6 +30,8 @@ export interface AgentPlanOrchestratorInput {
     timezone?: string;
     now?: Date;
     traceId?: string;
+    inputEnvelope?: AgentInputEnvelope;
+    contextReferents?: ContextReferent[];
 }
 
 export interface RunAgentPlanningOptions {
@@ -55,6 +59,40 @@ function humanReadableSummaryFor(steps: AgentPlanStep[], failureMessage?: string
 export async function runAgentPlanning(input: AgentPlanOrchestratorInput, options: RunAgentPlanningOptions = {}): Promise<AgentPlan> {
     const planId = `plan-${randomUUID()}`;
     const now = input.now ?? new Date();
+    if (
+        input.inputEnvelope?.modality === 'voice'
+        && input.inputEnvelope.provenance.confidence !== null
+        && input.inputEnvelope.provenance.confidence < LOW_CONFIDENCE_ACTION_THRESHOLD
+    ) {
+        const objective = {
+            objectiveType: 'unsupported' as const,
+            targetEntities: { personHints: [], entityHints: [] },
+            constraints: {},
+            desiredOutcome: input.input,
+            timeConstraints: { rawHint: null },
+            actor: input.actorUserId,
+            sourceUtterance: input.input,
+            confidence: input.inputEnvelope.provenance.confidence,
+            ambiguities: [{ field: 'transcript', kind: 'blocking' as const, reason: 'La transcripción tiene baja confianza y debe revisarse.' }],
+            source: 'deterministic' as const,
+        };
+        const plan: AgentPlan = {
+            planId,
+            objective,
+            status: 'needs_clarification',
+            steps: [],
+            requiredConfirmations: [],
+            unresolvedInputs: [{ field: 'transcript', question: 'Revisa la transcripción antes de planificar esta acción.' }],
+            riskSummary: riskSummaryFor([]),
+            canExecute: false,
+            createdAt: now.toISOString(),
+            validation: { valid: true, issues: [] },
+            humanReadableSummary: 'Necesito que revises la transcripción antes de continuar.',
+            traceId: input.traceId,
+        };
+        tracePlan(input.traceId, 'VOICE_LOW_CONFIDENCE_BLOCKED', { status: plan.status, canExecute: false });
+        return plan;
+    }
     const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
 
     const objective = await objectiveInterpreter.interpret(input.input, {
@@ -72,6 +110,7 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         now,
         timezone: input.timezone,
         traceId: input.traceId,
+        contextReferents: input.contextReferents,
     };
 
     const draft = await planObjective(plannerInput);
