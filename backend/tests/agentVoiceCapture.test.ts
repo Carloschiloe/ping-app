@@ -98,6 +98,58 @@ describe('transcribeAgentVoiceCapture — input validation (sección 9: strict, 
     });
 });
 
+describe('transcribeAgentVoiceCapture — MIME type compatibility (real recorder outputs)', () => {
+    it('iOS native format (audio/m4a) -> accepted', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/m4a' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('Android native format (audio/m4a) -> accepted', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/m4a' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('standard MPEG-4 audio MIME (audio/mp4) -> accepted and normalized to .m4a extension', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/mp4' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('raw AAC (audio/aac) -> accepted', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/aac' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('MP3 (audio/mpeg) -> accepted', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/mpeg' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('WAV (audio/wav) -> accepted', async () => {
+        const result = await transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/wav' }), { provider: fakeProvider(), now });
+        expect(result.transcript.text).toBe('Qué tengo hoy');
+    });
+
+    it('unsupported audio type (audio/ogg) -> rejected honestly', async () => {
+        await expect(transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/ogg' }), { provider: fakeProvider(), now }))
+            .rejects.toMatchObject({ code: 'unsupported_audio', statusCode: 415 });
+    });
+
+    it('unsupported audio type (audio/webm) -> rejected honestly', async () => {
+        await expect(transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/webm' }), { provider: fakeProvider(), now }))
+            .rejects.toMatchObject({ code: 'unsupported_audio', statusCode: 415 });
+    });
+
+    it('generic audio/* -> rejected (not in allowlist)', async () => {
+        await expect(transcribeAgentVoiceCapture(baseInput({ mimeType: 'audio/*' }), { provider: fakeProvider(), now }))
+            .rejects.toMatchObject({ code: 'unsupported_audio', statusCode: 415 });
+    });
+
+    it('application/octet-stream -> rejected (not in allowlist)', async () => {
+        await expect(transcribeAgentVoiceCapture(baseInput({ mimeType: 'application/octet-stream' }), { provider: fakeProvider(), now }))
+            .rejects.toMatchObject({ code: 'unsupported_audio', statusCode: 415 });
+    });
+});
+
 describe('transcribeAgentVoiceCapture — temporary audio lifecycle (sección 3/8: nunca un archivo huérfano)', () => {
     it('camino feliz: produce transcript + envelope + voiceInputToken firmado, y borra el archivo temporal', async () => {
         const before = orphanVoiceTempFiles();

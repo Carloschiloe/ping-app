@@ -142,10 +142,14 @@ export function parseAgentVoiceTranscript(raw: unknown): AgentVoiceTranscriptRes
 
 export async function transcribeAgentVoice(input: AgentVoiceCaptureRequest): Promise<AgentVoiceTranscriptResult> {
     const headers = await getAuthHeaders();
+    const localResponse = await fetch(input.uri);
+    if (!localResponse.ok) throw new Error('No se pudo leer el archivo de audio local.');
+    const body = await localResponse.arrayBuffer();
+    if (body.byteLength === 0) throw new Error('El archivo de audio está vacío.');
     const response = await fetch(buildAgentVoiceTranscriptionUrl(input), {
         method: 'POST',
         headers: { Authorization: headers.Authorization, 'Content-Type': input.mimeType },
-        body: new File(input.uri),
+        body,
         signal: input.signal,
     });
     const responseText = await response.text();
