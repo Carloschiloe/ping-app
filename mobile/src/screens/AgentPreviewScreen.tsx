@@ -2,7 +2,7 @@
 // Coexiste con PingAIScreen (legacy, /ai/ask) sin reemplazarlo. Historial
 // SOLO en estado local de esta pantalla -- nunca ai_messages, nunca DB
 // nueva (sección 6/23 del ticket).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -10,19 +10,28 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useAgentRespond, type AgentFollowUpOption } from '../api/query-modules/agent';
-import { mapAgentErrorMessage } from '../api/query-modules/agent';
 import {
-    AGENT_SUGGESTED_STARTERS, appendAgentMessage, appendErrorMessage, appendUserMessage,
+    mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
+    type AgentFollowUpOption, type AgentVoiceTranscriptResult,
+} from '../api/query-modules/agent';
+import { ApiError } from '../api/client';
+import {
+    AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
+    appendExecutionMessage, appendUserMessage,
     canSendInput, describeCitationsSummary, describeCitationTypes, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
 import type { AgentPreviewScreenProps } from '../navigation/types';
 import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
-import type { AgentVoiceTranscriptResult } from '../api/query-modules/agent';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { voiceStatusCopy } from '../utils/voiceSession';
+import {
+    authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
+    isAgentTurnBusy, reduceAgentTurnUi,
+} from '../utils/agentTurnState';
+import { AgentPlanCard } from '../components/agent/AgentPlanCard';
+import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
 
 // Sección 17 del ticket: staging puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
@@ -39,6 +48,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const [citationsSheetFor, setCitationsSheetFor] = useState<AgentChatMessage | null>(null);
     const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
     const [voiceError, setVoiceError] = useState<string | null>(null);
+    const [turnState, dispatchTurn] = useReducer(reduceAgentTurnUi, initialAgentTurnUiState);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
     // pantalla es más corto, y en dispositivos con inset superior grande
@@ -50,8 +60,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const listRef = useRef<FlatList>(null);
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const confirmationInFlightRef = useRef(false);
 
-    const { mutate: respond, isPending } = useAgentRespond();
+    const { mutate: submitTurn, isPending: isTurnPending } = useAgentTurn();
+    const { mutateAsync: authorizePlan, isPending: isAuthorizePending } = useAgentAuthorize();
+    const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
+    const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
         setInputText(result.transcript.text);
@@ -96,8 +110,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending)) return;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
+        const source = matchingVoiceDraft
+            ? { voiceInputToken: matchingVoiceDraft.token }
+            : { input: trimmed, conversationId };
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
+        dispatchTurn({ type: 'SUBMIT', source, sourceText: trimmed });
         setInputText('');
         setVoiceDraft(null);
         setVoiceError(null);
@@ -107,21 +125,21 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
         }, SLOW_REQUEST_COPY_DELAY_MS);
 
         if (matchingVoiceDraft) voice.markSubmitted();
-        respond(matchingVoiceDraft
-            ? { voiceInputToken: matchingVoiceDraft.token }
-            : { input: trimmed, conversationId }, {
+        submitTurn(source, {
             onSuccess: (result) => {
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished();
-                setMessages((prev) => appendAgentMessage(prev, result));
+                dispatchTurn({ type: 'TURN_RESULT', result, source, sourceText: trimmed });
+                setMessages((prev) => appendAgentTurnMessage(prev, result));
             },
             onError: (error) => {
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished(true);
+                dispatchTurn({ type: 'FAIL', message: mapAgentErrorMessage(error), status: error instanceof ApiError ? error.status : null });
                 setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed));
             },
         });
@@ -129,14 +147,52 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
 
     const handleSend = () => sendInput(inputText);
     const handleRetry = (retryInput: string) => sendInput(retryInput);
-    const handleStarterPress = (starter: string) => setInputText(starter);
-    const handleFollowUpOptionPress = (option: AgentFollowUpOption) => setInputText(option.label);
+    const handleStarterPress = (starter: string) => handleInputChange(starter);
+    const handleFollowUpOptionPress = (option: AgentFollowUpOption) => handleInputChange(option.label);
     const handleInputChange = (value: string) => {
+        if (turnState.phase === 'plan_ready') dispatchTurn({ type: 'SOURCE_EDITED' });
         if (voiceDraft && value !== voiceDraft.text) {
             setVoiceDraft(null);
             voice.reset();
         }
         setInputText(value);
+    };
+
+    const handlePlanFailure = (error: unknown) => {
+        confirmationInFlightRef.current = false;
+        const code = error instanceof ApiError ? error.code : undefined;
+        const message = code === 'plan_changed'
+            ? 'El plan cambió. Revísalo nuevamente antes de confirmar.'
+            : error instanceof ApiError && (error.status === 403 || error.status === 422)
+                ? 'No puedo ejecutar ese plan con tu permiso o con el estado actual.'
+                : mapAgentErrorMessage(error);
+        dispatchTurn({ type: 'FAIL', message, failureCode: code, status: error instanceof ApiError ? error.status : null });
+    };
+
+    const handleConfirmPlan = async () => {
+        const pending = turnState.pendingPlan;
+        if (!pending || !canConfirmAgentPlan(turnState) || confirmationInFlightRef.current) return;
+        confirmationInFlightRef.current = true;
+        dispatchTurn({ type: 'CONFIRM' });
+        try {
+            const { execution } = await authorizeThenExecuteAgentPlan(pending, {
+                authorize: (pendingPlan) => authorizePlan({ source: pendingPlan.source, turn: pendingPlan.turn }),
+                execute: executePlan,
+                onAuthorized: (authorization) => {
+                dispatchTurn({ type: 'AUTHORIZED', authorization });
+                },
+            });
+            confirmationInFlightRef.current = false;
+            dispatchTurn({ type: 'EXECUTION_RESULT', execution });
+            setMessages((prev) => appendExecutionMessage(prev, execution, pending.turn.presentation));
+        } catch (error) {
+            handlePlanFailure(error);
+        }
+    };
+
+    const handleCancelPlan = () => {
+        if (turnState.phase !== 'plan_ready') return;
+        dispatchTurn({ type: 'CANCEL_PLAN' });
     };
     const voiceCopy = voiceStatusCopy(voice.state);
 
@@ -145,11 +201,37 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const renderItem = ({ item }: { item: AgentChatMessage }) => {
         const isUser = item.role === 'user';
         const citationsSummary = describeCitationsSummary(item.citations);
+        const isPlanCard = !!item.planPresentation && !!item.rawPlan;
+        const isExecutionCard = !!item.executionResult && !!item.executionPresentation;
+        const isActivePlan = isPlanCard
+            && turnState.pendingPlan?.turn.plan.planId === item.rawPlan?.plan.planId
+            && ['plan_ready', 'authorizing', 'executing'].includes(turnState.phase);
 
         return (
             <View style={[styles.messageRow, isUser ? styles.userRow : styles.agentRow]}>
-                <View style={[styles.bubble, isUser ? styles.userBubble : styles.agentBubble, item.error && styles.errorBubble]}>
-                    <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
+                <View style={[
+                    styles.bubble,
+                    isUser ? styles.userBubble : styles.agentBubble,
+                    (isPlanCard || isExecutionCard) && styles.richCardBubble,
+                    item.error && styles.errorBubble,
+                ]}>
+                    {isPlanCard ? (
+                        <AgentPlanCard
+                            presentation={item.planPresentation!}
+                            active={isActivePlan}
+                            busy={turnState.phase === 'authorizing' || turnState.phase === 'executing'}
+                            onConfirm={handleConfirmPlan}
+                            onCancel={handleCancelPlan}
+                        />
+                    ) : isExecutionCard ? (
+                        <AgentExecutionCard result={item.executionResult!} presentation={item.executionPresentation!} />
+                    ) : (
+                        <>
+                            {item.isClarification && <Text style={styles.turnLabel}>Necesito aclarar algo</Text>}
+                            {item.isUnsupported && <Text style={styles.turnLabel}>Esta acción aún no está disponible</Text>}
+                            <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
+                        </>
+                    )}
 
                     {!isUser && item.followUp?.options && item.followUp.options.length > 0 && (
                         <View style={styles.optionsRow}>
@@ -193,7 +275,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                 </TouchableOpacity>
                 <View style={styles.headerInfo}>
                     <Text style={styles.title}>Nuevo Agent</Text>
-                    <Text style={styles.subtitle}>Preview interna · read-only</Text>
+                    <Text style={styles.subtitle}>Preview interna · confirma antes de actuar</Text>
                 </View>
                 <View style={styles.headerBtn} />
             </View>
@@ -207,7 +289,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     <View style={styles.emptyState}>
                         <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
                         <Text style={styles.emptySubtitle}>
-                            Puede consultar tus compromisos, mensajes y documentos. Todavía no puede crear ni modificar nada.
+                            Consulta tu información o prepara una acción. Ping sólo actuará después de mostrarte el plan y pedir tu confirmación.
                         </Text>
                         <View style={styles.startersWrap}>
                             {AGENT_SUGGESTED_STARTERS.map((starter) => (
@@ -233,7 +315,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                 {isPending && (
                     <View style={styles.loadingRow}>
                         <ActivityIndicator size="small" color={theme.colors.info} />
-                        <Text style={styles.loadingText}>{isSlow ? 'Sigo buscando…' : 'Pensando…'}</Text>
+                        <Text style={styles.loadingText}>
+                            {turnState.phase === 'authorizing' ? 'Confirmando el plan…'
+                                : turnState.phase === 'executing' ? 'Ejecutando y verificando…'
+                                    : isSlow ? 'Sigo buscando…' : 'Pensando…'}
+                        </Text>
                     </View>
                 )}
 
@@ -371,12 +457,14 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
         userRow: { justifyContent: 'flex-end' },
 
         bubble: { maxWidth: '85%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
+        richCardBubble: { width: '94%', maxWidth: '94%', padding: 0, backgroundColor: 'transparent' },
         agentBubble: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4 },
         userBubble: { backgroundColor: theme.colors.info, borderBottomRightRadius: 4 },
         errorBubble: { backgroundColor: theme.isDark ? '#3a1f1f' : '#fee2e2', borderWidth: 1, borderColor: theme.colors.danger },
 
         messageText: { fontSize: 15, color: theme.colors.bubbleTextThem, lineHeight: 20 },
         userMessageText: { color: theme.colors.white },
+        turnLabel: { color: theme.colors.info, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 5 },
 
         optionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 6 },
         optionChip: {

@@ -278,6 +278,7 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     }
 
     let responsiblePersonId: string | null = null;
+    let responsibleDisplayName: string | null = null;
     const responsibleHint = personal ? null : objective.constraints.responsibleHint;
     if (responsibleHint) {
         const result = await resolvePersonHint(input.actorUserId, responsibleHint, input.conversationId);
@@ -291,11 +292,14 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
             };
         }
         responsiblePersonId = result.resolved.id;
+        responsibleDisplayName = result.resolved.displayName;
     }
 
     const step = buildStep({
         toolId: 'create_commitment',
-        operation: `Crear compromiso "${title}"`,
+        operation: responsibleDisplayName
+            ? `Proponer compromiso "${title}" a ${responsibleDisplayName}`
+            : `Crear compromiso "${title}"`,
         args: { title, dueAt: parsed.date.toISOString(), responsiblePersonId, conversationId: input.conversationId ?? null },
         expectedEffect: dateFromMemory
             ? `Se creará "${title}" usando una fecha inferida de tu memoria ("${dateFromMemory.canonicalText}"), no de esta solicitud directamente.`

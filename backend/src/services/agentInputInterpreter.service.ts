@@ -98,7 +98,26 @@ const FALTA_WAITING_KEYWORDS = wordBounded('falta por confirmar|falta que (?:me 
 // modificar/borrar), ES+EN, deliberadamente pequeño y genérico (mismo
 // principio que el resto de estos conjuntos). Nunca confundir con verbos de
 // recall ("hablamos", "dijo") ya cubiertos por RECALL_KEYWORDS.
-const WRITE_ACTION_KEYWORDS = wordBounded('crea|crear|agenda|agendar|cancela|cancelar|env[ií]a\\w*|enviar|modifica|modificar|cambia|cambiar|borra|borrar|elimina|eliminar|create|schedule|cancel|send|modify|delete|remove');
+// M-6 — extendido con las familias de verbos que agentObjectiveInterpreter.
+// service.ts (M-3) ya reconoce como acciones planificables (mover/reprogramar,
+// comunicar, completar, aceptar/rechazar, recordatorio personal) más un
+// disparador genérico ("haz"/"hazme"): sin esto, `isWriteActionRequest`
+// (la señal que M-6 usa para enrutar a planificación en vez de responder)
+// nunca se activaba para "Mueve X", "Dile a X...", "Completa X", "Acepta X",
+// "Recuérdame X" ni pedidos genuinamente fuera de alcance ("Haz mis
+// impuestos") — cada uno de esos caía silenciosamente en el pipeline de
+// sólo-lectura en vez de llegar al planner (que sí sabe, correctamente,
+// decir "no puedo planificar eso todavía").
+const WRITE_ACTION_KEYWORDS = wordBounded(
+    'crea|crear|agenda|agendar|programa\\w*|cancela|cancelar|env[ií]a\\w*|enviar|modifica|modificar|cambia|cambiar|'
+    + 'mueve\\w*|reprogram\\w*|posp\\w*|borra|borrar|elimina|eliminar|'
+    + 'dile|avisa\\w*|av[íi]sale|cu[ée]ntale|comun[íi]cale|preg[úu]ntale|pregunta\\w*|'
+    + 'completa\\w*|termina\\w*|marca\\w*|'
+    + 'acept[oa]\\w*|aprueba\\w*|apruebo|rechaz\\w*|'
+    + 'recu[ée]rdame|haz(?:me)?|'
+    + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
+    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
+);
 const CLOSED_STATUS_KEYWORDS = wordBounded('resuelt[oa]s?|resolved|cerrad[oa]s?|closed|cancelad[oa]s?|cancelled|canceled|rechazad[oa]s?|rejected');
 const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|tell me about');
 

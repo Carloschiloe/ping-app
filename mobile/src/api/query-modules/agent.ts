@@ -220,3 +220,280 @@ export function useAgentRespond() {
         },
     });
 }
+
+// ─── M-6: Unified Agent Turn (POST /agent/turn) ──────────────────────────────
+// Single entry point. Core decides: response | plan | clarification | unsupported.
+// Mobile renders based on kind discriminator — NO semantic routing heuristics.
+
+export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
+
+export interface AgentTurnResponse {
+    kind: 'response';
+    response: AgentRespondResult;
+}
+
+export interface AgentPlanStepPresentation {
+    stepId: string;
+    toolId: string;
+    headline: string;
+    effectDescription: string;
+    targetLabel?: string;
+    recipientLabel?: string;
+    contentPreview?: string;
+    dateLabel?: string;
+    riskLabel?: string;
+    confirmationLabel: string;
+    cancelLabel: string;
+    requiresExplicitConfirmation: boolean;
+    phase: 'immediate' | 'conditional';
+    conditionLabel?: string;
+}
+
+export interface AgentPlanPresentation {
+    headline: string;
+    summary: string;
+    effectDescription: string;
+    targetLabel?: string;
+    dateLabel?: string;
+    riskLabel?: string;
+    confirmationLabel: string;
+    cancelLabel: string;
+    stepPresentations: AgentPlanStepPresentation[];
+    requiresExplicitConfirmation: boolean;
+    expiresAt: string;
+    planId: string;
+    planDigest: string;
+    objectiveType: string;
+}
+
+export interface AgentTurnPlan {
+    kind: 'plan';
+    plan: {
+        planId: string;
+        status: string;
+        objectiveType: string;
+        humanReadableSummary: string;
+        steps: Array<{
+            stepId: string;
+            toolId: string;
+            operation: string;
+            dependsOn: string[];
+            expectedEffect: string;
+            sideEffectClass: string;
+            riskLevel: 'low' | 'medium' | 'high';
+            confirmationRequirement: string;
+            conditionDescription: string;
+        }>;
+        canExecute: boolean;
+        clarification?: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+        failureMode?: string;
+        failureMessage?: string;
+        planDigest?: string;
+    };
+    presentation: AgentPlanPresentation;
+}
+
+export interface AgentTurnClarification {
+    kind: 'clarification';
+    questions: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+    partialResponse?: AgentRespondResult;
+}
+
+export interface AgentTurnUnsupported {
+    kind: 'unsupported';
+    reason: string;
+    supportedExamples?: string[];
+}
+
+export type AgentTurnResult =
+    | AgentTurnResponse
+    | AgentTurnPlan
+    | AgentTurnClarification
+    | AgentTurnUnsupported;
+
+export interface AgentTurnInput {
+    input?: string;
+    voiceInputToken?: string;
+    conversationId?: string;
+}
+
+export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string, unknown> {
+    if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
+    const body: Record<string, unknown> = {
+        input: input.input?.trim(),
+        channel: 'mobile',
+        timezone: getDeviceTimeZone(),
+        locale: getDeviceLocale(),
+    };
+    if (input.conversationId) body.conversationId = input.conversationId;
+    return body;
+}
+
+export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
+    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_turn_shape');
+    const obj = raw as Record<string, unknown>;
+    if (obj.kind === 'response') {
+        parseAgentResponse(obj.response);
+    } else if (obj.kind === 'plan') {
+        const plan = obj.plan as Record<string, unknown> | undefined;
+        const presentation = obj.presentation as Record<string, unknown> | undefined;
+        if (!plan || !presentation
+            || typeof plan.planId !== 'string'
+            || plan.status !== 'ready_for_authorization'
+            || typeof plan.planDigest !== 'string'
+            || !Array.isArray(plan.steps)
+            || plan.steps.length === 0
+            || presentation.planId !== plan.planId
+            || presentation.planDigest !== plan.planDigest
+            || typeof presentation.confirmationLabel !== 'string'
+            || presentation.requiresExplicitConfirmation !== true
+            || !Array.isArray(presentation.stepPresentations)) {
+            throw new Error('invalid_agent_turn_shape');
+        }
+    } else if (obj.kind === 'clarification') {
+        if (!Array.isArray(obj.questions) || obj.questions.some((question) => (
+            !question || typeof question !== 'object' || typeof (question as Record<string, unknown>).question !== 'string'
+        ))) throw new Error('invalid_agent_turn_shape');
+    } else if (obj.kind === 'unsupported') {
+        if (typeof obj.reason !== 'string') throw new Error('invalid_agent_turn_shape');
+    } else {
+        throw new Error('invalid_agent_turn_shape');
+    }
+    // The backend returns the full discriminated union — we trust the shape
+    return obj as unknown as AgentTurnResult;
+}
+
+export function useAgentTurn() {
+    return useMutation({
+        mutationFn: async (input: AgentTurnInput): Promise<AgentTurnResult> => {
+            const body = buildAgentTurnRequestBody(input);
+            const raw = await apiClient.post('/agent/turn', body);
+            return parseAgentTurnResult(raw);
+        },
+    });
+}
+
+// Type guards for discriminated union
+export function isAgentTurnResponse(result: AgentTurnResult): result is AgentTurnResponse {
+    return result.kind === 'response';
+}
+
+export function isAgentTurnPlan(result: AgentTurnResult): result is AgentTurnPlan {
+    return result.kind === 'plan';
+}
+
+export function isAgentTurnClarification(result: AgentTurnResult): result is AgentTurnClarification {
+    return result.kind === 'clarification';
+}
+
+export function isAgentTurnUnsupported(result: AgentTurnResult): result is AgentTurnUnsupported {
+    return result.kind === 'unsupported';
+}
+
+// M-4 authorization/execution contracts consumed by the M-6 surface.
+export interface AgentAuthorizationResult {
+    authorizationId: string;
+    status: 'authorized';
+    expiresAt: string;
+    authorizedStepIds: string[];
+    confirmationLevel: string;
+}
+
+export type AgentExecutionFailureCode =
+    | 'authorization_missing'
+    | 'authorization_expired'
+    | 'authorization_revoked'
+    | 'authorization_mismatch'
+    | 'plan_changed'
+    | 'tool_not_executable'
+    | 'not_authorized'
+    | 'invalid_lifecycle'
+    | 'entity_changed'
+    | 'condition_not_met'
+    | 'idempotent_replay'
+    | 'verification_failed'
+    | 'transient_failure'
+    | 'policy_blocked';
+
+export interface AgentExecutionStepResult {
+    stepId: string;
+    toolId: string;
+    status: 'pending' | 'running' | 'succeeded' | 'failed_retryable' | 'failed_terminal' | 'skipped_condition' | 'blocked' | 'cancelled';
+    failureCode?: AgentExecutionFailureCode;
+    createdEntityRefs: Array<{ entityType: string; entityId: string }>;
+    updatedEntityRefs: Array<{ entityType: string; entityId: string }>;
+    messageSent: boolean;
+    verified: boolean;
+    idempotentReplay: boolean;
+    waitingOn?: string;
+}
+
+export interface AgentExecutionResult {
+    authorizationId: string;
+    status: 'done' | 'partially_done' | 'waiting' | 'blocked' | 'needs_reauthorization' | 'failed';
+    executedSteps: AgentExecutionStepResult[];
+    failedSteps: AgentExecutionStepResult[];
+    waitingSteps: AgentExecutionStepResult[];
+    createdEntityRefs: Array<{ entityType: string; entityId: string }>;
+    updatedEntityRefs: Array<{ entityType: string; entityId: string }>;
+    messagesSent: number;
+    requiresFurtherAuthorization: boolean;
+    humanReadableSummary: string;
+}
+
+export function buildAgentAuthorizationRequestBody(source: AgentTurnInput, turn: AgentTurnPlan): Record<string, unknown> {
+    return {
+        ...buildAgentTurnRequestBody(source),
+        planDigest: turn.plan.planDigest,
+        stepIds: turn.plan.steps.map((step) => step.stepId),
+        confirm: true,
+    };
+}
+
+export function parseAgentAuthorization(raw: unknown): AgentAuthorizationResult {
+    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_authorization_shape');
+    const value = raw as Record<string, unknown>;
+    if (typeof value.authorizationId !== 'string'
+        || value.status !== 'authorized'
+        || typeof value.expiresAt !== 'string'
+        || !Array.isArray(value.authorizedStepIds)
+        || value.authorizedStepIds.some((id) => typeof id !== 'string')
+        || typeof value.confirmationLevel !== 'string') {
+        throw new Error('invalid_agent_authorization_shape');
+    }
+    return value as unknown as AgentAuthorizationResult;
+}
+
+export function parseAgentExecution(raw: unknown): AgentExecutionResult {
+    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_execution_shape');
+    const value = raw as Record<string, unknown>;
+    const validStatuses = new Set(['done', 'partially_done', 'waiting', 'blocked', 'needs_reauthorization', 'failed']);
+    if (typeof value.authorizationId !== 'string'
+        || typeof value.status !== 'string'
+        || !validStatuses.has(value.status)
+        || !Array.isArray(value.executedSteps)
+        || !Array.isArray(value.failedSteps)
+        || !Array.isArray(value.waitingSteps)
+        || typeof value.humanReadableSummary !== 'string') {
+        throw new Error('invalid_agent_execution_shape');
+    }
+    return value as unknown as AgentExecutionResult;
+}
+
+export function useAgentAuthorize() {
+    return useMutation({
+        mutationFn: async ({ source, turn }: { source: AgentTurnInput; turn: AgentTurnPlan }): Promise<AgentAuthorizationResult> => {
+            const raw = await apiClient.post('/agent/authorize', buildAgentAuthorizationRequestBody(source, turn));
+            return parseAgentAuthorization(raw);
+        },
+    });
+}
+
+export function useAgentExecute() {
+    return useMutation({
+        mutationFn: async (authorizationId: string): Promise<AgentExecutionResult> => {
+            const raw = await apiClient.post('/agent/execute', { authorizationId });
+            return parseAgentExecution(raw);
+        },
+    });
+}

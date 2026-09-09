@@ -17,6 +17,7 @@ import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
 import * as agentController from '../controllers/agent.controller';
 import * as agentPlanController from '../controllers/agentPlan.controller';
+import * as agentTurnController from '../controllers/agentTurn.controller';
 import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
@@ -25,6 +26,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentRequestSchema } from '../schemas/agentRequest.schema';
 import { agentPlanRequestSchema } from '../schemas/agentPlanRequest.schema';
+import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
 import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
 import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
@@ -318,6 +320,18 @@ router.post(
     agentRateLimiter,
     validateRequest(agentPlanRequestSchema),
     agentPlanController.plan,
+);
+
+// Ping Agent Turn (M-6) — unified entry point. Core decides deterministically:
+// read-only → response, action → plan, ambiguous → clarification.
+// Mobile MUST NOT contain semantic routing heuristics.
+// Same rate limiter as /agent/respond: up to 2 LLM calls (interpret + synthesize/plan).
+router.post(
+    '/agent/turn',
+    requireAuth,
+    agentRateLimiter,
+    validateRequest(agentTurnRequestSchema),
+    agentTurnController.turn,
 );
 
 // Ping Agent Authorization + Execution (M-4) — the ONLY endpoints in the

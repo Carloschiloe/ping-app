@@ -3,6 +3,12 @@
 // chatKeyboard.ts / profile.ts — kept separate so it's testable without a
 // React Native renderer (this repo's mobile tests never render components).
 import type { AgentCitation, AgentFollowUp, AgentRespondResult, AgentResponseStatus } from '../api/query-modules/agent';
+import type {
+    AgentExecutionResult,
+    AgentPlanPresentation,
+    AgentTurnPlan,
+    AgentTurnResult,
+} from '../api/query-modules/agent';
 
 export interface AgentChatMessage {
     id: string;
@@ -16,6 +22,15 @@ export interface AgentChatMessage {
     // The exact input that produced this message, kept ONLY on error
     // entries so "Reintentar" can resend it without guessing.
     retryInput?: string;
+
+    // M-6: extended fields for conversational Agent UX
+    planPresentation?: AgentPlanPresentation;
+    rawPlan?: AgentTurnPlan;
+    isClarification?: boolean;
+    clarificationQuestions?: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+    isUnsupported?: boolean;
+    executionResult?: AgentExecutionResult;
+    executionPresentation?: AgentPlanPresentation;
 }
 
 let idCounter = 0;
@@ -42,6 +57,39 @@ export function appendAgentMessage(messages: AgentChatMessage[], result: AgentRe
 
 export function appendErrorMessage(messages: AgentChatMessage[], text: string, retryInput: string): AgentChatMessage[] {
     return [...messages, { id: nextId('e'), role: 'agent', text, createdAt: Date.now(), error: true, retryInput }];
+}
+
+export function appendAgentTurnMessage(messages: AgentChatMessage[], result: AgentTurnResult): AgentChatMessage[] {
+    if (result.kind === 'response') return appendAgentMessage(messages, result.response);
+    if (result.kind === 'plan') {
+        return [...messages, {
+            id: nextId('plan'), role: 'agent', text: result.presentation.summary,
+            createdAt: Date.now(), planPresentation: result.presentation, rawPlan: result,
+        }];
+    }
+    if (result.kind === 'clarification') {
+        const text = result.questions.map((question) => question.question).filter(Boolean).join('\n')
+            || 'Necesito una aclaración antes de continuar.';
+        return [...messages, {
+            id: nextId('clarify'), role: 'agent', text, createdAt: Date.now(),
+            isClarification: true, clarificationQuestions: result.questions,
+        }];
+    }
+    return [...messages, {
+        id: nextId('unsupported'), role: 'agent', text: result.reason, createdAt: Date.now(),
+        isUnsupported: true,
+    }];
+}
+
+export function appendExecutionMessage(
+    messages: AgentChatMessage[],
+    result: AgentExecutionResult,
+    presentation: AgentPlanPresentation,
+): AgentChatMessage[] {
+    return [...messages, {
+        id: nextId('execution'), role: 'agent', text: '', createdAt: Date.now(),
+        executionResult: result, executionPresentation: presentation,
+    }];
 }
 
 // Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca

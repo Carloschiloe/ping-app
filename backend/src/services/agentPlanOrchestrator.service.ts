@@ -17,7 +17,7 @@ import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type
 import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
 import { tracePlan } from '../utils/planTrace';
-import type { AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
+import type { AgentObjective, AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 import { LOW_CONFIDENCE_ACTION_THRESHOLD } from './agentVoice.service';
 
@@ -36,6 +36,7 @@ export interface AgentPlanOrchestratorInput {
 
 export interface RunAgentPlanningOptions {
     objectiveInterpreter?: AgentObjectiveInterpreter;
+    resolvedObjective?: AgentObjective;
 }
 
 function riskSummaryFor(steps: AgentPlanStep[]): AgentPlan['riskSummary'] {
@@ -95,7 +96,7 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
     }
     const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
 
-    const objective = await objectiveInterpreter.interpret(input.input, {
+    const objective = options.resolvedObjective ?? await objectiveInterpreter.interpret(input.input, {
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
     });

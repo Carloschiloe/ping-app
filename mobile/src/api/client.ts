@@ -12,7 +12,8 @@ export class ApiError extends Error {
     constructor(
         message: string,
         public readonly status: number | null,
-        public readonly resultUnknown: boolean
+        public readonly resultUnknown: boolean,
+        public readonly code?: string,
     ) {
         super(message);
         this.name = 'ApiError';
@@ -67,11 +68,13 @@ export const apiClient = {
 
         if (!response.ok) {
             let errorMsg = `Error POST ${url} (${response.status})`;
+            let errorCode: string | undefined;
             try {
                 const errorJson = JSON.parse(responseText);
                 errorMsg = errorJson.error || errorMsg;
+                errorCode = typeof errorJson.failureCode === 'string' ? errorJson.failureCode : undefined;
             } catch { }
-            throw new ApiError(errorMsg, response.status, false);
+            throw new ApiError(errorMsg, response.status, false, errorCode);
         }
 
         try {
