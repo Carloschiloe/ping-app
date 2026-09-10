@@ -1,6 +1,7 @@
 import { apiClient } from '../api/client';
 import { supabase } from './supabase';
 import { createClientMessageId } from '../utils/synchronization';
+import { File } from 'expo-file-system';
 
 export type PrivateFileResourceType = 'message' | 'profile' | 'conversation';
 export type PrivateFileUploadPurpose =
@@ -114,14 +115,42 @@ export async function requestPrivateFileUploadUrl(
     return null;
 }
 
+// Canonical cross-platform local-URI reader (sección: "one canonical
+// cross-platform upload adapter"). MUST be used for every locally-picked
+// media asset, regardless of platform or picker source, because the URI
+// scheme a picker returns is not uniform:
+// - iOS (expo-image-picker/expo-document-picker) always returns a real
+//   `file://` path.
+// - Android can ALSO return a `file://` path, but for assets sourced from
+//   an external ContentProvider (the system Photo Picker, Google Photos,
+//   Files app, or any "browse the file system" flow) it returns a
+//   `content://` (SAF) URI instead — expo-image-picker's own type docs
+//   note this directly ("On Android, the ID is unavailable when the user
+//   selects a photo by directly browsing file system").
+// React Native's `fetch()`/XHR polyfill does not reliably read `content://`
+// URIs (silently truncated/empty bodies, especially for larger payloads
+// like video) — this is a long-documented Android-only gap, never
+// encountered by anything that only ever reads from the app's OWN sandbox
+// (e.g. the voice recorder's output, always a real file:// path it wrote
+// itself). expo-file-system's native `File` class reads through the native
+// module (Android's ContentResolver for `content://`, plain filesystem
+// access for `file://`) instead of the JS fetch polyfill, so this single
+// implementation is correct on both platforms and for both URI schemes —
+// no `Platform.OS` branch needed anywhere that calls it.
+async function readLocalMediaBytes(uri: string): Promise<ArrayBuffer> {
+    try {
+        return await new File(uri).arrayBuffer();
+    } catch {
+        throw new Error('No se pudo leer el archivo seleccionado.');
+    }
+}
+
 async function uploadToSignedPrivatePath(
     uri: string,
     mimeType: string,
     access: PrivateFileUploadAccess
 ) {
-    const localResponse = await fetch(uri);
-    if (!localResponse.ok) throw new Error('No se pudo leer el archivo seleccionado.');
-    const body = await localResponse.arrayBuffer();
+    const body = await readLocalMediaBytes(uri);
     if (body.byteLength === 0) throw new Error('El archivo seleccionado está vacío.');
 
     const { error } = await supabase.storage

@@ -5,13 +5,38 @@ vi.mock('../src/api/client', () => ({
         post: vi.fn(),
     },
 }));
+
+let uploadToSignedUrlMock: ReturnType<typeof vi.fn>;
 vi.mock('../src/lib/supabase', () => ({
     supabase: {
         storage: {
             from: vi.fn(() => ({
-                uploadToSignedUrl: vi.fn().mockResolvedValue({ error: null }),
+                uploadToSignedUrl: (...args: unknown[]) => uploadToSignedUrlMock(...args),
             })),
         },
+    },
+}));
+
+// Canonical cross-platform reader: expo-file-system's native `File` class,
+// which (per its own type docs) reads both `file://` and `content://` URIs
+// through the native module — unlike the RN fetch polyfill, which cannot
+// reliably read Android `content://` (SAF) URIs. Mocked here with a real
+// `.arrayBuffer()` implementation so tests exercise the actual adapter
+// contract instead of a legacy `fetch(uri)` stub.
+let mockFileBytesByUri: Map<string, ArrayBuffer>;
+let mockFileShouldThrow: Set<string>;
+vi.mock('expo-file-system', () => ({
+    File: class MockFile {
+        uri: string;
+        constructor(uri: string) {
+            this.uri = uri;
+        }
+        async arrayBuffer(): Promise<ArrayBuffer> {
+            if (mockFileShouldThrow.has(this.uri)) {
+                throw new Error('native read failure');
+            }
+            return mockFileBytesByUri.get(this.uri) ?? new Uint8Array([1, 2, 3]).buffer;
+        }
     },
 }));
 
@@ -30,10 +55,9 @@ describe('private file mobile preparation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearPrivateFileReadCache();
-        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-            ok: true,
-            arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
-        }));
+        mockFileBytesByUri = new Map();
+        mockFileShouldThrow = new Set();
+        uploadToSignedUrlMock = vi.fn().mockResolvedValue({ error: null });
     });
 
     it('resuelve lectura por recurso sin aceptar bucket ni object_path del cliente', async () => {
@@ -188,5 +212,176 @@ describe('private file mobile preparation', () => {
             '/attachments/77777777-7777-4777-8777-777777777777/read-url',
             {}
         );
+    });
+
+    describe('canonical cross-platform upload adapter (Android content:// root cause fix)', () => {
+        function mockAttachmentIntent(objectPathSuffix: string) {
+            vi.mocked(apiClient.post)
+                .mockResolvedValueOnce({
+                    attachmentId: '99999999-9999-4999-8999-999999999999',
+                    upload: {
+                        bucket: 'chat-media',
+                        objectPath: `conversations/c/attachments/u/${objectPathSuffix}`,
+                        signedUrl: 'https://signed.invalid/upload',
+                        token: 'temporary-token',
+                    },
+                    expiresAt: '2099-01-01T00:00:00.000Z',
+                })
+                .mockResolvedValueOnce({ lifecycleStatus: 'uploaded' });
+        }
+
+        it('sube una imagen desde una URI Android content:// (SAF) sin usar fetch', async () => {
+            const uri = 'content://com.android.providers.media.documents/document/image%3A123';
+            const bytes = new Uint8Array([10, 20, 30, 40]).buffer;
+            mockFileBytesByUri.set(uri, bytes);
+            mockAttachmentIntent('photo.jpg');
+
+            const result = await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'image/jpeg',
+                'photo.jpg'
+            );
+
+            expect(result).toEqual({
+                attachmentId: '99999999-9999-4999-8999-999999999999',
+                mimeType: 'image/jpeg',
+                fileName: 'photo.jpg',
+            });
+            expect(uploadToSignedUrlMock).toHaveBeenCalledWith(
+                'conversations/c/attachments/u/photo.jpg',
+                'temporary-token',
+                bytes,
+                { contentType: 'image/jpeg' }
+            );
+        });
+
+        it('sube un video desde una URI Android content:// (SAF) sin usar fetch', async () => {
+            const uri = 'content://com.android.providers.media.documents/document/video%3A456';
+            const bytes = new Uint8Array(2048).buffer;
+            mockFileBytesByUri.set(uri, bytes);
+            mockAttachmentIntent('clip.mp4');
+
+            const result = await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'clip.mp4'
+            );
+
+            expect(result.attachmentId).toBe('99999999-9999-4999-8999-999999999999');
+            expect(uploadToSignedUrlMock).toHaveBeenCalledWith(
+                'conversations/c/attachments/u/clip.mp4',
+                'temporary-token',
+                bytes,
+                { contentType: 'video/mp4' }
+            );
+        });
+
+        it('mantiene el comportamiento existente para iOS file:// en imagen y video', async () => {
+            const imageUri = 'file:///var/mobile/Containers/Data/Application/x/photo.jpg';
+            const videoUri = 'file:///var/mobile/Containers/Data/Application/x/clip.mov';
+            const imageBytes = new Uint8Array([1, 1, 1]).buffer;
+            const videoBytes = new Uint8Array([2, 2, 2]).buffer;
+            mockFileBytesByUri.set(imageUri, imageBytes);
+            mockFileBytesByUri.set(videoUri, videoBytes);
+
+            mockAttachmentIntent('photo.jpg');
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                imageUri,
+                'image/jpeg',
+                'photo.jpg'
+            );
+            expect(uploadToSignedUrlMock).toHaveBeenNthCalledWith(
+                1,
+                'conversations/c/attachments/u/photo.jpg',
+                'temporary-token',
+                imageBytes,
+                { contentType: 'image/jpeg' }
+            );
+
+            mockAttachmentIntent('clip.mov');
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                videoUri,
+                'video/quicktime',
+                'clip.mov'
+            );
+            expect(uploadToSignedUrlMock).toHaveBeenNthCalledWith(
+                2,
+                'conversations/c/attachments/u/clip.mov',
+                'temporary-token',
+                videoBytes,
+                { contentType: 'video/quicktime' }
+            );
+        });
+
+        it('preserva MIME type y nombre de archivo exactos a través del adaptador, sin importar el esquema de URI', async () => {
+            const uri = 'content://media/external/video/media/789';
+            mockFileBytesByUri.set(uri, new Uint8Array([9, 9]).buffer);
+            mockAttachmentIntent('recuerdo.mp4');
+
+            const result = await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'recuerdo.mp4'
+            );
+
+            expect(result.mimeType).toBe('video/mp4');
+            expect(result.fileName).toBe('recuerdo.mp4');
+            expect(apiClient.post).toHaveBeenNthCalledWith(
+                1,
+                '/attachments/upload-intents',
+                expect.objectContaining({
+                    mimeType: 'video/mp4',
+                    originalFilename: 'recuerdo.mp4',
+                })
+            );
+        });
+
+        it('produce el mismo contrato de subida (bucket, objectPath, token, contentType) para content:// y file://', async () => {
+            const androidUri = 'content://com.android.providers.media.documents/document/image%3A1';
+            const iosUri = 'file:///var/mobile/x/image.jpg';
+            const sameBytes = new Uint8Array([5, 5, 5]).buffer;
+            mockFileBytesByUri.set(androidUri, sameBytes);
+            mockFileBytesByUri.set(iosUri, sameBytes);
+
+            mockAttachmentIntent('shared.jpg');
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                androidUri,
+                'image/jpeg',
+                'shared.jpg'
+            );
+            const androidCallArgs = uploadToSignedUrlMock.mock.calls[0];
+
+            mockAttachmentIntent('shared.jpg');
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                iosUri,
+                'image/jpeg',
+                'shared.jpg'
+            );
+            const iosCallArgs = uploadToSignedUrlMock.mock.calls[1];
+
+            expect(androidCallArgs).toEqual(iosCallArgs);
+        });
+
+        it('rechaza la subida si la lectura nativa del archivo local falla (URI content:// inválida/revocada)', async () => {
+            const uri = 'content://com.android.providers.media.documents/document/image%3Adeleted';
+            mockFileShouldThrow.add(uri);
+            mockAttachmentIntent('gone.jpg');
+
+            await expect(uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'image/jpeg',
+                'gone.jpg'
+            )).rejects.toThrow('No se pudo leer el archivo seleccionado.');
+
+            expect(uploadToSignedUrlMock).not.toHaveBeenCalled();
+        });
     });
 });
