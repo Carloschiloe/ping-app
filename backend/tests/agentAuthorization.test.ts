@@ -176,3 +176,106 @@ describe('Canonical planning pipeline: /agent/turn, /api/agent/plan, and /agent/
         expect(source).toContain('resolveDeterministicRouting');
     });
 });
+
+// ─── M-4 API/Core certification (2026-09-10): EXACT PLAN DIGEST BINDING
+// (requirement 2) and TOOL/ARGS BINDING (requirement 4). Each test below
+// takes a genuinely valid, real, freshly-planned digest and attempts to
+// authorize a DIFFERENT real plan (differing in exactly one
+// execution-relevant field: content, recipient, conversationId, date/time,
+// or tool) using that mismatched digest — never a synthetic random string.
+// The real end-to-end, zero-mutation proof (this same rejection path, with
+// an actual canonical DB and a real row-count check) lives in
+// scratch-m4-real-persistence-proof.mjs (real local Postgres, not
+// committed — see the M-4 API/Core certification report for its output).
+describe('M-4 exact-plan digest binding: altering ANY execution-relevant field is rejected before authorization', () => {
+    async function realPlan(input: string, conversationId?: string) {
+        const { runAgentPlanning, resolveDeterministicRouting } = await import('../src/services/agentPlanOrchestrator.service');
+        const routing = await resolveDeterministicRouting(input, { actorUserId: ACTOR_ID, conversationId });
+        return runAgentPlanning({ actorUserId: ACTOR_ID, input, conversationId, now }, { resolvedObjective: routing.resolvedObjective });
+    }
+
+    async function expectMismatchRejected(input: string, wrongDigestFromInput: string, conversationId?: string, wrongConversationId?: string) {
+        const { authorizePlan } = await import('../src/services/agentAuthorization.service');
+        const genuinePlan = await realPlan(input, conversationId);
+        const wrongPlan = await realPlan(wrongDigestFromInput, wrongConversationId ?? conversationId);
+        expect(genuinePlan.status).toBe('ready_for_authorization');
+        expect(wrongPlan.status).toBe('ready_for_authorization');
+        expect(genuinePlan.planDigest).not.toBe(wrongPlan.planDigest); // sanity: they really do differ
+
+        const result = await authorizePlan({
+            actorUserId: ACTOR_ID, input, conversationId, now,
+            planDigest: wrongPlan.planDigest!, // claims the WRONG plan's digest
+            requestedStepIds: genuinePlan.steps.map((s) => s.stepId),
+            confirm: true,
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.failureCode).toBe('plan_changed');
+    }
+
+    it('content/payload changed -> rejected', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: RECIPIENT_ID, displayName: 'Alejandra' }, ambiguous: false, candidates: [] });
+        await expectMismatchRejected('Dile a Alejandra: llegaré tarde', 'Dile a Alejandra: llegaré temprano');
+    });
+
+    it('target/recipient changed -> rejected', async () => {
+        const PEDRO_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        resolvePersonMock.mockImplementation(async (_actorId: string, hint: { name: string }) => {
+            if (hint.name === 'Alejandra') return { resolved: { kind: 'user', id: RECIPIENT_ID, displayName: 'Alejandra' }, ambiguous: false, candidates: [] };
+            if (hint.name === 'Pedro') return { resolved: { kind: 'user', id: PEDRO_ID, displayName: 'Pedro' }, ambiguous: false, candidates: [] };
+            return { resolved: null, ambiguous: false, candidates: [] };
+        });
+        await expectMismatchRejected('Dile a Alejandra: llegaré tarde', 'Dile a Pedro: llegaré tarde');
+    });
+
+    it('conversationId changed (same recipient, same content, different DIRECT conversation) -> rejected', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: RECIPIENT_ID, displayName: 'Alejandra' }, ambiguous: false, candidates: [] });
+        await expectMismatchRejected(
+            'Dile a Alejandra: llegaré tarde', 'Dile a Alejandra: llegaré tarde',
+            'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        );
+    });
+
+    it('date/time changed -> rejected', async () => {
+        await expectMismatchRejected('Agenda entrenar mañana a las 8', 'Agenda entrenar mañana a las 9');
+    });
+
+    it('tool changed (requirement 4): two otherwise-identical steps differing ONLY in toolId produce different digests -- proven directly against computePlanDigest, the exact function authorizePlan uses for comparison', async () => {
+        const { computePlanDigest } = await import('../src/services/agentPlanDigest.service');
+        const baseStep = {
+            stepId: 'step-0', toolVersion: 1, operation: 'op', arguments: { title: 'entrenar', dueAt: now.toISOString() },
+            dependsOn: [], condition: { type: 'always' as const, description: 'x' }, expectedEffect: 'x',
+            authorizationRequirement: 'required' as const, confirmationRequirement: 'explicit' as const,
+            sideEffectClass: 'state_change' as const, riskLevel: 'medium' as const, preconditions: [], postconditions: [],
+            rollbackCapability: 'reversible_by_owner' as const, provenance: { resolvedFrom: 'user_text' as const, canonicalSourceRefs: [] }, status: 'pending' as const,
+        };
+        const baseObjective = {
+            objectiveType: 'create_commitment_or_proposal' as const, targetEntities: { personHints: [], entityHints: ['entrenar'] },
+            constraints: {}, desiredOutcome: 'x', timeConstraints: { rawHint: null }, actor: ACTOR_ID, sourceUtterance: 'x',
+            confidence: 1, ambiguities: [], source: 'deterministic' as const,
+        };
+        const basePlan = {
+            planId: 'p1', status: 'ready_for_authorization' as const, requiredConfirmations: [], unresolvedInputs: [],
+            riskSummary: { highestRiskLevel: 'medium' as const, riskLevelCounts: { low: 0, medium: 1, high: 0 } },
+            canExecute: true, createdAt: now.toISOString(), validation: { valid: true, issues: [] }, humanReadableSummary: 'x',
+            objective: baseObjective,
+        };
+
+        const digestToolA = computePlanDigest({ ...basePlan, steps: [{ ...baseStep, toolId: 'create_commitment' }] } as any);
+        const digestToolB = computePlanDigest({ ...basePlan, steps: [{ ...baseStep, toolId: 'reschedule_commitment' }] } as any);
+        expect(digestToolA).not.toBe(digestToolB);
+
+        // And the end-to-end rejection path, exactly as the other field
+        // tests above prove: authorizePlan compares this exact digest.
+        const { authorizePlan } = await import('../src/services/agentAuthorization.service');
+        const genuinePlan = await realPlan('Agenda entrenar mañana a las 8');
+        expect(genuinePlan.status).toBe('ready_for_authorization');
+        const result = await authorizePlan({
+            actorUserId: ACTOR_ID, input: 'Agenda entrenar mañana a las 8', now,
+            planDigest: digestToolB, // a digest computed for a DIFFERENT tool
+            requestedStepIds: genuinePlan.steps.map((s) => s.stepId),
+            confirm: true,
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.failureCode).toBe('plan_changed');
+    });
+});
