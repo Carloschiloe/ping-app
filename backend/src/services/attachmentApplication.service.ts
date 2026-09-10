@@ -3,12 +3,11 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertConversationParticipant } from '../utils/authz';
 import {
+    MAX_MESSAGE_ATTACHMENT_BYTES,
     PRIVATE_FILE_BUCKET,
     PRIVATE_FILE_READ_TTL_SECONDS,
     validatePrivateFileUploadReference,
 } from './privateFile.service';
-
-const MAX_MESSAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 const messageAttachmentMimeTypes = new Set([
     'image/jpeg',

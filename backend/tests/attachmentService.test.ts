@@ -15,6 +15,7 @@ import {
     createMessageAttachmentUploadIntent,
     registerLegacyMessageAttachment,
 } from '../src/services/attachmentApplication.service';
+import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../src/services/privateFile.service';
 
 const actor = '11111111-1111-4111-8111-111111111111';
 const conversation = '22222222-2222-4222-8222-222222222222';
@@ -113,6 +114,68 @@ describe('Message Attachment Core application boundary', () => {
                 p_verified_size_bytes: 128,
             }),
         });
+    });
+
+    it('CANONICAL VIDEO SIZE POLICY: acepta un adjunto justo bajo el máximo canónico (50MB), no el límite viejo de 20MB', async () => {
+        // Real physical evidence: a 2-minute recorded video measured ~32.8MB
+        // (~2.1 Mbps average bitrate). The previous 20MB cap rejected this
+        // normal case; the canonical policy (MAX_MESSAGE_ATTACHMENT_BYTES,
+        // owned by privateFile.service.ts, mirrored by the Storage bucket's
+        // file_size_limit and the DB constraint/RPC guard) must accept it.
+        const justUnderMax = MAX_MESSAGE_ATTACHMENT_BYTES - 1;
+        const videoObjectPath = `conversations/${conversation}/attachments/${actor}/clip.mp4`;
+        const db = createSupabaseAdminMock({
+            attachments: [{ data: attachment({ mime_type: 'video/mp4', object_path: videoObjectPath }), error: null }],
+            conversation_participants: [
+                { data: { conversation_id: conversation, role: 'member' }, error: null },
+                { data: { conversation_id: conversation, role: 'member' }, error: null },
+            ],
+            conversations: [{ data: { id: conversation, deleted_at: null }, error: null }],
+            'rpc:complete_message_attachment': [{
+                data: attachment({ kind: 'video', mime_type: 'video/mp4', lifecycle_status: 'uploaded', size_bytes: justUnderMax }),
+                error: null,
+            }],
+        });
+        const storage = createSupabaseStorageMock({
+            list: {
+                data: [{ name: 'clip.mp4', metadata: { size: justUnderMax, mimetype: 'video/mp4' } }],
+                error: null,
+            },
+        });
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        const completed = await completeMessageAttachment(actor, attachmentId);
+
+        expect(completed).toMatchObject({ lifecycleStatus: 'uploaded', sizeBytes: justUnderMax });
+        expect(db.getRpcCalls().at(-1)?.args).toEqual(
+            expect.objectContaining({ p_verified_size_bytes: justUnderMax })
+        );
+    });
+
+    it('CANONICAL VIDEO SIZE POLICY: rechaza un adjunto por encima del máximo canónico (50MB), antes del RPC', async () => {
+        const overMax = MAX_MESSAGE_ATTACHMENT_BYTES + 1;
+        const bigVideoObjectPath = `conversations/${conversation}/attachments/${actor}/big.mp4`;
+        const db = createSupabaseAdminMock({
+            attachments: [{ data: attachment({ mime_type: 'video/mp4', object_path: bigVideoObjectPath }), error: null }],
+            conversation_participants: [
+                { data: { conversation_id: conversation, role: 'member' }, error: null },
+                { data: { conversation_id: conversation, role: 'member' }, error: null },
+            ],
+            conversations: [{ data: { id: conversation, deleted_at: null }, error: null }],
+        });
+        const storage = createSupabaseStorageMock({
+            list: {
+                data: [{ name: 'big.mp4', metadata: { size: overMax, mimetype: 'video/mp4' } }],
+                error: null,
+            },
+        });
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(completeMessageAttachment(actor, attachmentId))
+            .rejects.toMatchObject({ statusCode: 400, message: 'Private file size is not allowed' });
+        expect(db.getRpcCalls()).toHaveLength(0);
     });
 
     it('persiste duracion de audio como metadata verificable del intent', async () => {

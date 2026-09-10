@@ -31,6 +31,7 @@ import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.sc
 import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
+import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -106,6 +107,23 @@ router.get('/health', async (req, res) => {
     } catch (error: any) {
         res.status(500).json({ ok: false, error: 'Database connection failed' });
     }
+});
+
+// Canonical app config/capabilities. Currently exposes only the
+// message-attachment size policy: backend is the single authoritative
+// owner of MAX_MESSAGE_ATTACHMENT_BYTES (privateFile.service.ts, itself
+// consumed by attachmentApplication.service.ts and the DB verification
+// path). Mobile fetches this for preflight UX only — it never becomes the
+// source of truth; post-upload backend/Storage verification remains
+// authoritative even if a client holds a stale/never-fetched value. Kept
+// deliberately separate from /health, which is a narrow DB-connectivity
+// probe consumed by deploy tooling, not product configuration.
+router.get('/config', (req, res) => {
+    res.json({
+        limits: {
+            maxMessageAttachmentBytes: MAX_MESSAGE_ATTACHMENT_BYTES,
+        },
+    });
 });
 
 // Push

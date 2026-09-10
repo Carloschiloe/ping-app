@@ -6,6 +6,7 @@ import {
     PrivateMessageAttachment,
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
+import { getAppConfig } from '../lib/appConfig';
 
 // Canonical cross-platform draft for a locally selected/captured media asset,
 // frozen before any upload/attachment/message side effect. One shape for
@@ -33,6 +34,52 @@ export type LocalMediaDraft = {
 
 function isVideoAsset(asset: any): boolean {
     return asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+}
+
+// Rejects an oversized asset BEFORE any network call (no upload-intent
+// request, no local byte read, no Storage upload) only when BOTH the
+// asset's declared size AND the canonical policy limit are known numbers.
+// asset.fileSize is nullable on both platforms (some providers don't
+// populate it), and the canonical limit can itself be "unknown"
+// (maxMessageAttachmentBytes: null — see appConfig.ts) if this is the
+// first-ever check and the backend was unreachable. In either unknown
+// case, this preflight cannot block — a false local rejection would be
+// worse than letting the existing post-upload backend/Storage checks
+// (the real, authoritative enforcement) be the final safety net. It never
+// silently bypasses the policy when both values ARE known.
+//
+// The limit itself is NOT a locally-invented constant: it comes from
+// getAppConfig() (mobile/src/lib/appConfig.ts), which fetches/caches the
+// canonical policy from GET /config — backend's single authoritative source
+// (privateFile.service.ts's MAX_MESSAGE_ATTACHMENT_BYTES). This check is
+// UX-only: the backend/Storage post-upload verification is what actually
+// enforces the policy, so a stale or unreachable config value here can only
+// ever produce an inaccurate/absent local message, never bypass the real
+// limit.
+async function exceedsSizePolicy(sizeBytes: unknown): Promise<boolean> {
+    if (typeof sizeBytes !== 'number') return false;
+    const { limits } = await getAppConfig();
+    if (limits.maxMessageAttachmentBytes === null) return false;
+    return sizeBytes > limits.maxMessageAttachmentBytes;
+}
+
+function formatMegabytes(bytes: number): string {
+    return Math.round(bytes / (1024 * 1024)).toString();
+}
+
+// Only meaningful to call once exceedsSizePolicy() has already confirmed a
+// known numeric limit was exceeded — if the policy were unknown, that
+// preflight would never have rejected in the first place, so this always
+// has a real number to report by the time it runs.
+async function buildTooLargeMessage(): Promise<string> {
+    const { limits } = await getAppConfig();
+    if (limits.maxMessageAttachmentBytes === null) {
+        // Defensive fallback for the (should-be-unreachable) case where the
+        // policy became unknown between the reject decision and this call
+        // — e.g. cache cleared concurrently. Still never invents a number.
+        return 'No se pudo validar el tamaño del archivo. Se verificará al enviarlo.';
+    }
+    return `El archivo es demasiado grande para enviarlo (máximo ${formatMegabytes(limits.maxMessageAttachmentBytes)} MB).`;
 }
 
 // Domain-facing failure message for the send flow. The real backend/storage
@@ -164,6 +211,10 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
             if (result.canceled || !result.assets || result.assets.length === 0) return;
 
             const asset = result.assets[0];
+            if (await exceedsSizePolicy(asset.size)) {
+                Alert.alert('No se pudo enviar', await buildTooLargeMessage());
+                return;
+            }
             setSendingMedia(true);
             const prepared = asset.mimeType?.startsWith('image/')
                 ? await prepareImage(asset)
@@ -192,7 +243,17 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
     // pre-send preview (no upload yet); everything else keeps sending
     // immediately, unchanged. Camera and gallery both call this — no
     // duplicated per-source business logic.
+    //
+    // The size preflight runs here, before the draft is even built for
+    // video (so an unsendable asset never reaches the preview screen — a
+    // preview implies "this can be sent") and before any upload attempt for
+    // images. When the size is unknown, this cannot block; the post-upload
+    // backend/Storage checks remain the final safety net either way.
     const routeSelectedAsset = async (asset: any) => {
+        if (await exceedsSizePolicy(asset.fileSize)) {
+            Alert.alert('No se pudo enviar', await buildTooLargeMessage());
+            return;
+        }
         if (isVideoAsset(asset)) {
             onVideoDraft(buildDraftFromAsset(asset));
             return;
@@ -249,6 +310,12 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
     };
 
     const pickMediaSource = () => {
+        // Fire-and-forget pre-warm: by the time the user actually picks/
+        // captures something, the canonical config is likely already
+        // cached, so the real preflight check below doesn't have to wait on
+        // a network round-trip. Never blocks the menu, never throws
+        // (getAppConfig always resolves — see appConfig.ts).
+        void getAppConfig();
         Alert.alert(
             'Enviar archivo',
             '¿Qué quieres enviar?',

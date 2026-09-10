@@ -87,7 +87,10 @@ incluye `RESTORE-AND-VERIFY.md` para validarlo primero en un proyecto aislado.
 Resultado esperado:
 
 - `chat-media.public = false`;
-- límite específico de 20 MiB;
+- límite específico de 50 MiB (52428800 bytes) — política canónica de
+  tamaño de adjuntos, ver `MAX_MESSAGE_ATTACHMENT_BYTES` en
+  `backend/src/services/privateFile.service.ts` y la migración
+  `20260910010000_message_attachment_size_policy.sql`;
 - MIME types explícitos;
 - acceso directo de `anon` y `authenticated` cerrado;
 - backend como único emisor autorizado de firmas;

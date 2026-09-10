@@ -37,8 +37,9 @@ vi.mock('expo-image-picker', () => ({
     MediaTypeOptions: { All: 'All', Images: 'Images', Videos: 'Videos' },
 }));
 
+const getDocumentAsync = vi.fn();
 vi.mock('expo-document-picker', () => ({
-    getDocumentAsync: vi.fn(),
+    getDocumentAsync: (...args: unknown[]) => getDocumentAsync(...args),
 }));
 
 vi.mock('expo-image-manipulator', () => ({
@@ -49,6 +50,16 @@ vi.mock('expo-image-manipulator', () => ({
 const uploadPrivateMessageAttachment = vi.fn();
 vi.mock('../src/lib/privateFiles', () => ({
     uploadPrivateMessageAttachment: (...args: unknown[]) => uploadPrivateMessageAttachment(...args),
+}));
+
+// Canonical size policy now comes ONLY from getAppConfig() (mobile/src/lib/
+// appConfig.ts), never a locally-invented constant in useMediaPicker.ts —
+// see the size-policy describe block below, which sets this mock's return
+// value explicitly per test to prove the preflight actually consumes it
+// (rather than a hardcoded number that happens to match).
+const getAppConfig = vi.fn();
+vi.mock('../src/lib/appConfig', () => ({
+    getAppConfig: (...args: unknown[]) => getAppConfig(...args),
 }));
 
 import { useMediaPicker, LocalMediaDraft } from '../src/hooks/useMediaPicker';
@@ -161,6 +172,11 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
         vi.clearAllMocks();
         requestCameraPermissionsAsync.mockResolvedValue({ status: 'granted' });
         requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        // Some fixtures below set fileSize/size — the preflight only calls
+        // getAppConfig() when a size is present, so a default resolved
+        // value is needed here even though this block isn't testing the
+        // size policy itself.
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: 50 * 1024 * 1024 } });
     });
 
     function buildPicker() {
@@ -385,5 +401,226 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
         expect(onVideoDraft).not.toHaveBeenCalled();
         expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
         expect(onMediaSent).toHaveBeenCalledWith(expect.objectContaining({ text: 'Imagen' }));
+    });
+});
+
+describe('useMediaPicker — canonical size policy consumed from getAppConfig() (never a locally-invented constant)', () => {
+    const onMediaSent = vi.fn();
+    const setSendingMedia = vi.fn();
+    const onVideoDraft = vi.fn();
+
+    // Deliberately NOT the real 50MB — proves the preflight actually reads
+    // whatever getAppConfig() returns, rather than happening to match a
+    // hardcoded number baked into useMediaPicker.ts.
+    const MOCK_MAX_BYTES = 10 * 1024 * 1024;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        requestCameraPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: MOCK_MAX_BYTES } });
+    });
+
+    function buildPicker() {
+        return useMediaPicker({ conversationId: 'conv-1', onMediaSent, setSendingMedia, onVideoDraft });
+    }
+
+    it('video con fileSize por encima del máximo devuelto por getAppConfig se rechaza ANTES de construir el draft o llamar a la red', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{
+                type: 'video',
+                uri: 'file:///huge.mp4',
+                mimeType: 'video/mp4',
+                fileName: 'huge.mp4',
+                fileSize: MOCK_MAX_BYTES + 1,
+            }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(getAppConfig).toHaveBeenCalled();
+        expect(onVideoDraft).not.toHaveBeenCalled();
+        expect(uploadPrivateMessageAttachment).not.toHaveBeenCalled();
+        expect(Alert.alert).toHaveBeenCalledWith(
+            'No se pudo enviar',
+            expect.stringContaining('demasiado grande')
+        );
+    });
+
+    it('el mensaje de rechazo refleja el número real devuelto por getAppConfig, en MB', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ type: 'video', uri: 'file:///huge.mp4', mimeType: 'video/mp4', fileName: 'huge.mp4', fileSize: MOCK_MAX_BYTES + 1 }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(Alert.alert).toHaveBeenCalledWith('No se pudo enviar', expect.stringContaining('10 MB'));
+    });
+
+    it('video de galería con fileSize por encima del máximo también se rechaza antes del draft', async () => {
+        launchImageLibraryAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{
+                type: 'video',
+                uri: 'content://media/external/video/media/999',
+                mimeType: 'video/mp4',
+                fileName: 'huge.mp4',
+                fileSize: MOCK_MAX_BYTES + 1,
+            }],
+        });
+        const { openGallery } = buildPicker();
+
+        await openGallery();
+
+        expect(onVideoDraft).not.toHaveBeenCalled();
+    });
+
+    it('video con fileSize justo bajo el máximo devuelto por getAppConfig crea el draft normalmente', async () => {
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{
+                type: 'video',
+                uri: 'file:///ok.mp4',
+                mimeType: 'video/mp4',
+                fileName: 'ok.mp4',
+                fileSize: MOCK_MAX_BYTES - 1,
+            }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(onVideoDraft).toHaveBeenCalledTimes(1);
+    });
+
+    it('cuando fileSize es desconocido (undefined), el preflight nunca bloquea ni consulta la red — el draft se crea igual', async () => {
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ type: 'video', uri: 'file:///unknown-size.mp4', mimeType: 'video/mp4', fileName: 'clip.mp4' }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(onVideoDraft).toHaveBeenCalledTimes(1);
+        // No conocer el tamaño significa que no hay nada que comparar — el
+        // preflight no necesita ni debe golpear la red sólo para descartar.
+        expect(getAppConfig).not.toHaveBeenCalled();
+    });
+
+    it('imagen con fileSize por encima del máximo también se rechaza antes de subir', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ type: 'image', uri: 'file:///huge.jpg', width: 4000, height: 3000, fileSize: MOCK_MAX_BYTES + 1 }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('photo');
+
+        expect(uploadPrivateMessageAttachment).not.toHaveBeenCalled();
+        expect(Alert.alert).toHaveBeenCalledWith(
+            'No se pudo enviar',
+            expect.stringContaining('demasiado grande')
+        );
+    });
+
+    it('documento con size por encima del máximo se rechaza antes de subir, sin llamar a manipulateAsync/upload', async () => {
+        const { Alert } = await import('react-native');
+        getDocumentAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ uri: 'file:///huge.pdf', mimeType: 'application/pdf', name: 'huge.pdf', size: MOCK_MAX_BYTES + 1 }],
+        });
+        const { openDocumentPicker } = buildPicker();
+
+        await openDocumentPicker();
+
+        expect(uploadPrivateMessageAttachment).not.toHaveBeenCalled();
+        expect(Alert.alert).toHaveBeenCalledWith(
+            'No se pudo enviar',
+            expect.stringContaining('demasiado grande')
+        );
+    });
+
+    it('documento bajo el máximo se envía normalmente', async () => {
+        getDocumentAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ uri: 'file:///doc.pdf', mimeType: 'application/pdf', name: 'doc.pdf', size: 1024 }],
+        });
+        uploadPrivateMessageAttachment.mockResolvedValue({ attachmentId: 'a', mimeType: 'application/pdf', fileName: 'doc.pdf' });
+        const { openDocumentPicker } = buildPicker();
+
+        await openDocumentPicker();
+
+        expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
+    });
+
+    it('un backend con política distinta (stale/desactualizado en mobile) no puede ser sobrepasado: si getAppConfig devuelve un límite MÁS BAJO que lo que el mobile cacheaba antes, el nuevo límite (más estricto) se respeta', async () => {
+        // Simula que el backend bajó el límite real — mobile SIEMPRE re-lee
+        // getAppConfig() en el momento del preflight (no confía en un valor
+        // congelado), así que un límite más estricto se aplica de inmediato.
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: 1024 } });
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ type: 'video', uri: 'file:///clip.mp4', mimeType: 'video/mp4', fileName: 'clip.mp4', fileSize: 2048 }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(onVideoDraft).not.toHaveBeenCalled();
+    });
+
+    it('política desconocida (maxMessageAttachmentBytes: null): el preflight NUNCA rechaza localmente, aunque el asset declare un tamaño enorme', async () => {
+        // getAppConfig() puede legítimamente resolver a "unknown" (primera
+        // consulta y backend inalcanzable) — appConfig.ts nunca inventa un
+        // número en ese caso, y useMediaPicker.ts debe tratarlo igual que
+        // "no bloquear": dejar pasar al draft/upload, donde el backend real
+        // sigue siendo la autoridad final.
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: null } });
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{
+                type: 'video',
+                uri: 'file:///huge-but-unvalidatable.mp4',
+                mimeType: 'video/mp4',
+                fileName: 'huge.mp4',
+                fileSize: 500 * 1024 * 1024, // 500MB — would be rejected under any real policy
+            }],
+        });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(onVideoDraft).toHaveBeenCalledTimes(1);
+    });
+
+    it('política desconocida NO puede evadir la aplicación real del backend: el envío igual llega a uploadPrivateMessageAttachment, donde el backend/Storage aplican el límite verdadero', async () => {
+        // Este test certifica el contrato completo de "no bypass": una
+        // política local desconocida sólo desactiva la validación LOCAL —
+        // no desactiva ni omite la llamada real de subida, que es donde el
+        // backend (completeMessageAttachment) y Storage (file_size_limit)
+        // aplican el límite verdadero de forma independiente del cliente.
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: null } });
+        uploadPrivateMessageAttachment.mockResolvedValue({ attachmentId: 'a', mimeType: 'video/mp4', fileName: 'clip.mp4' });
+        launchCameraAsync.mockResolvedValue({
+            canceled: false,
+            assets: [{ type: 'video', uri: 'file:///clip.mp4', mimeType: 'video/mp4', fileName: 'clip.mp4', fileSize: 500 * 1024 * 1024 }],
+        });
+        const { openCamera, sendMediaDraft } = buildPicker();
+
+        await openCamera('video');
+        const [draft] = onVideoDraft.mock.calls[0];
+        await sendMediaDraft(draft);
+
+        // El intento real de subida SÍ ocurrió — el backend real es quien
+        // decide, no una validación local que no pudo evaluarse.
+        expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
     });
 });

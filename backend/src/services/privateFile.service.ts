@@ -10,6 +10,32 @@ import { AppError } from '../utils/AppError';
 export const PRIVATE_FILE_BUCKET = 'chat-media';
 export const PRIVATE_FILE_READ_TTL_SECONDS = 60;
 
+// Canonical message-attachment size policy — the single authoritative
+// owner. Must stay <= the Storage bucket's own file_size_limit (chat-media,
+// see supabase/storage/chat-media-private.sql, the reproducible
+// provisioning record) and is mirrored by:
+// - the create_message_attachment_intent / complete_message_attachment DB
+//   guards (supabase/migrations/20260910010000_message_attachment_size_policy.sql),
+// - attachmentApplication.service.ts (imports this constant instead of
+//   redefining it),
+// - GET /config (backend/src/routes/index.ts), which mobile fetches via
+//   getAppConfig() (mobile/src/lib/appConfig.ts) for preflight UX only —
+//   mobile does NOT hold its own independently-defined numeric constant.
+//   Post-upload verification here remains authoritative regardless of
+//   whatever value a client's config cache holds.
+//
+// Chosen from real physical evidence: a 2-minute (videoMaxDuration=120)
+// recorded video measured ~32.8MB (~2.1 Mbps average bitrate). This is a
+// SINGLE observed sample, not a guarantee that every 2-minute recording
+// fits under this cap — bitrate varies with device, resolution, and scene
+// motion, so a longer or higher-motion clip can still exceed it. 50MB gives
+// real headroom over that one sample without inviting multi-minute uploads
+// on weak connections; it does not claim every possible 2-minute capture
+// will pass. Previously this was 20MB, independently duplicated across 5+
+// call sites with no shared owner, which was strictly smaller than the one
+// real sample already measured.
+export const MAX_MESSAGE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
 export const privateFileResourceTypes = ['message', 'profile', 'conversation'] as const;
 export type PrivateFileResourceType = typeof privateFileResourceTypes[number];
 
@@ -35,7 +61,6 @@ const allowedMimeTypes = new Set([
 ]);
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-const MAX_MESSAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 type StoredReference = {
     bucket: string;

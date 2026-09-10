@@ -22,7 +22,17 @@ values (
     'chat-media',
     'chat-media',
     false,
-    20971520,
+    -- Canonical message-attachment size policy. Single source of truth:
+    -- backend/src/services/privateFile.service.ts's
+    -- MAX_MESSAGE_ATTACHMENT_BYTES (50 * 1024 * 1024 = 52428800), mirrored
+    -- by the DB check constraint/RPC guard in
+    -- supabase/migrations/20260910010000_message_attachment_size_policy.sql.
+    -- Raised from the original 20971520 (20 MiB) after real physical
+    -- evidence showed a normal 2-minute recorded video (~32.8MB) exceeded
+    -- it. Keep this literal in sync with that constant and migration
+    -- whenever the policy changes — this script is the reproducible record
+    -- of the bucket's provisioned state, not merely a one-time setup.
+    52428800,
     array[
         'image/jpeg',
         'image/png',
