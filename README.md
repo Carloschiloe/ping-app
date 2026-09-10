@@ -48,15 +48,16 @@ Milestones documented:
 
 - Global recipient resolution fix: `19f5fd8e692d4fa25402f3d5cc1b39bd0d1d8fb9`
 - Agent navigation system introduced in: `38e3f2c1fd0e122fd679f8f84560e2c6e2684681`
+- M-6 physical iPhone certification staging commit: `930eca0`
 
 - **M-1 — Retrieval and context:** authorization-aware structured retrieval, identity resolution, context building, and evidence-backed agent responses.
 - **M-2 — Memory:** evidence-linked memory ingestion/retrieval with sensitivity, freshness, invalidation, and canonical-fact dominance.
 - **M-3 — Planning:** objective interpretation, deterministic resolution, `AgentPlan`, validation, digest, and clarification/authorization-ready states.
 - **M-4 — Authorization and execution:** exact-plan binding, expiring/revocable authorizations, idempotent step claiming, tool executors, verification, and audit records.
 - **M-5 — Voice:** real mobile capture/transcription and editable transcript feeding the same Agent pipeline. Physical iPhone voice certification passed.
-- **M-6 — Conversational Agent UX:** unified `/agent/turn`, Core-owned presentation, mobile plan confirmation, authorization, execution, and truthful result cards deployed to staging.
+- **M-6 — Conversational Agent UX:** unified `/agent/turn`, Core-owned presentation, mobile plan confirmation, authorization, execution, and truthful result cards — DEPLOYED TO STAGING AND PHYSICALLY CERTIFIED ON IPHONE.
 
-The global named-recipient fix (commit `19f5fd8e`) is deployed: one canonical person plus one authorized exact DIRECT conversation can become a `send_message` plan without a current chat context. Final real-iPhone M-6 retest remains separate and pending; deployment is not physical certification.
+The global named-recipient fix (commit `19f5fd8e`) is deployed: one canonical person plus one authorized exact DIRECT conversation can become a `send_message` plan without a current chat context. M-6 physical certification (staging commit `930eca0`): global Agent Preview send_message reached PlanCard confirmation, authorize → execute → verify completed, and exactly one real message was delivered; the voice recorder lifecycle retest (record → background → return) also passed with no crash and no zombie microphone. Android voice remains future/non-blocking. Production is untouched.
 
 Backend regression at this state: **1127 passing**. Published M-6 mobile baseline: **564 passing**.
 

@@ -201,7 +201,7 @@ Mobile owns interaction and presentation state. TanStack Query coordinates serve
 - **M-3:** Added objective interpretation, deterministic planner steps, ToolRegistry-aware validation, plan status and digest. Planning remains side-effect free.
 - **M-4:** Added exact-plan authorization, policy, expiry/revocation, atomic/idempotent execution, tool executors, verification and audit results.
 - **M-5:** Added agent voice capture/transcription/provenance and editable transcript reuse of AgentTurn. Physical iPhone voice capture passed.
-- **M-6:** Unified conversational response/plan/clarification routing and Core presentation with Mobile confirmation/execution UX. Global recipient-to-DIRECT resolution is deployed; final physical M-6 retest remains pending.
+- **M-6:** Unified conversational response/plan/clarification routing and Core presentation with Mobile confirmation/execution UX. Global recipient-to-DIRECT resolution is deployed. DEPLOYED TO STAGING AND PHYSICALLY CERTIFIED ON IPHONE (staging commit `930eca0`); Android voice remains future/non-blocking. Production is untouched.
 
 ## Change rule
 
