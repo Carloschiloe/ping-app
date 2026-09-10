@@ -183,7 +183,13 @@ async function uploadToSignedPrivatePath(
             message: error.message,
             name: (error as { name?: string }).name,
         });
-        throw new Error(`No se pudo subir el archivo de forma segura: ${error.message}`, { cause: error });
+        // The real Storage error is preserved as `cause` (for anything
+        // upstream that wants structured detail — dev tooling, tests) and
+        // already logged above with safe diagnostics. The thrown message
+        // itself stays a safe, domain-facing string: it must never become
+        // the permanent user-facing text, since a Storage API error can
+        // describe internal shape not meant for end users.
+        throw new Error('No se pudo subir el archivo de forma segura.', { cause: error });
     }
 }
 

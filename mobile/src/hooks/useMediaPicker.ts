@@ -11,19 +11,43 @@ import {
 // frozen before any upload/attachment/message side effect. One shape for
 // camera capture and gallery selection — no separate business logic per
 // source. `kind` drives presentation (only 'video' is currently gated
-// behind a pre-send preview); `size`/`durationMs` are best-effort, since not
-// every picker/provider populates them.
+// behind a pre-send preview); `size` is best-effort, since not every
+// picker/provider populates it.
+//
+// `durationMs` is intentionally NOT part of this draft. The backend's
+// duration_ms contract is audio-only (see attachmentApplication.service.ts
+// and the create_message_attachment_intent RPC, which rejects any duration
+// metadata on a non-audio attachment with "Audio duration is invalid",
+// HTTP 400). expo-image-picker reports asset.duration for every video
+// asset, so forwarding it unconditionally made every video upload-intent
+// request hit that guard. Video has no duration-display feature anywhere in
+// the app, so there is nothing to preserve here — the fix is to never
+// collect it for video, not to relax the audio-only DB invariant.
 export type LocalMediaDraft = {
     uri: string;
     kind: 'image' | 'video';
     mimeType: string;
     fileName: string;
     size?: number;
-    durationMs?: number;
 };
 
 function isVideoAsset(asset: any): boolean {
     return asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+}
+
+// Domain-facing failure message for the send flow. The real backend/storage
+// error (status, code, exact validation message) is preserved internally —
+// logged via console.warn for dev/staging diagnostics, and still carried on
+// the thrown error itself for anything upstream that wants it — but it must
+// never become the permanent user-facing string: an arbitrary internal
+// message (a Postgres exception, a Storage API error, a Zod validation
+// detail) is not something a user can act on, and some of those messages
+// could describe internal shape in ways not meant for end users.
+const MEDIA_SEND_FAILURE_MESSAGE = 'El archivo no se subió. Inténtalo nuevamente.';
+
+function logMediaSendFailure(error: unknown) {
+    const message = error instanceof Error ? error.message : 'unknown';
+    console.warn('[MediaPicker] Private upload failed', { message });
 }
 
 function buildDraftFromAsset(asset: any): LocalMediaDraft {
@@ -34,7 +58,6 @@ function buildDraftFromAsset(asset: any): LocalMediaDraft {
         mimeType: asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg'),
         fileName: asset.fileName || (isVideo ? 'video.mp4' : 'imagen.jpg'),
         size: typeof asset.fileSize === 'number' ? asset.fileSize : undefined,
-        durationMs: typeof asset.duration === 'number' ? asset.duration : undefined,
     };
 }
 
@@ -93,16 +116,14 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
             });
         } catch (error) {
             // The underlying failure (empty local read, Supabase Storage
-            // rejection, or backend size-cap rejection) is already logged with
-            // safe diagnostics (URI scheme, mimeType, byte length, HTTP
-            // status/error code — never tokens/signed URLs/bytes) inside
-            // privateFiles.ts. Surfacing error.message here (instead of a
-            // fixed generic string) is what makes that real, classified
-            // failure visible to the user/QA instead of masking every distinct
-            // cause behind one identical alert.
-            const message = error instanceof Error ? error.message : 'unknown';
-            console.warn('[MediaPicker] Private upload failed', { message });
-            Alert.alert('No se pudo enviar', message || 'El archivo no se subió. Inténtalo nuevamente.');
+            // rejection, backend validation rejection, etc.) is logged with
+            // safe diagnostics for dev/staging (URI scheme, mimeType, byte
+            // length, HTTP status/error code — never tokens/signed URLs/
+            // bytes) inside privateFiles.ts and here. The user only ever
+            // sees the safe domain-facing message below — the real internal
+            // message is not something a user can act on.
+            logMediaSendFailure(error);
+            Alert.alert('No se pudo enviar', MEDIA_SEND_FAILURE_MESSAGE);
         } finally {
             setSendingMedia(false);
         }
@@ -119,17 +140,15 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
                 conversationId,
                 draft.uri,
                 draft.mimeType,
-                draft.fileName,
-                draft.durationMs
+                draft.fileName
             );
             onMediaSent({
                 text: draft.kind === 'video' ? 'Video' : 'Imagen',
                 attachment,
             });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'unknown';
-            console.warn('[MediaPicker] Private upload failed', { message });
-            Alert.alert('No se pudo enviar', message || 'El archivo no se subió. Inténtalo nuevamente.');
+            logMediaSendFailure(error);
+            Alert.alert('No se pudo enviar', MEDIA_SEND_FAILURE_MESSAGE);
         } finally {
             setSendingMedia(false);
         }

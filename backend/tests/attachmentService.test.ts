@@ -144,6 +144,72 @@ describe('Message Attachment Core application boundary', () => {
         });
     });
 
+    it('VIDEO UPLOAD INTENT 400 root cause, defense in depth: el servicio rechaza explícitamente durationMs para un kind distinto de audio, nunca lo descarta en silencio', async () => {
+        // The public schema (createUploadIntentSchema) already rejects this
+        // combination before any real HTTP request reaches this service. This
+        // test exercises the service's own defense-in-depth guard directly
+        // (bypassing the schema, as a future/internal caller might), proving
+        // it fails loudly — an AppError — instead of silently stripping
+        // durationMs into empty metadata the way the pre-fix code did.
+        const db = createSupabaseAdminMock({});
+        setSupabaseAdminMock(db);
+
+        await expect(createMessageAttachmentUploadIntent({
+            actorUserId: actor,
+            conversationId: conversation,
+            mimeType: 'video/mp4',
+            originalFilename: 'clip.mp4',
+            clientUploadId,
+            // expo-image-picker's asset.duration for a recorded/gallery video —
+            // this is the exact payload shape that used to reproduce the 400
+            // via a completely different, silent path (metadata.audio wrapped
+            // then rejected by the DB). It must now be rejected explicitly,
+            // at this boundary, with no RPC call made at all.
+            durationMs: 4230,
+        })).rejects.toMatchObject({ statusCode: 400, message: 'durationMs is only accepted for audio attachments' });
+
+        expect(db.getRpcCalls()).toHaveLength(0);
+    });
+
+    it('working photo intent (sin durationMs) sigue siendo aceptado con p_metadata vacío tras el fix', async () => {
+        const db = createSupabaseAdminMock({
+            'rpc:create_message_attachment_intent': [
+                { data: attachment({ kind: 'image', mime_type: 'image/jpeg', original_filename: 'photo.jpg' }), error: null },
+            ],
+        });
+        setSupabaseAdminMock(db);
+
+        await createMessageAttachmentUploadIntent({
+            actorUserId: actor,
+            conversationId: conversation,
+            mimeType: 'image/jpeg',
+            originalFilename: 'photo.jpg',
+            clientUploadId,
+        });
+
+        expect(db.getRpcCalls()[0].args.p_metadata).toEqual({});
+    });
+
+    it('working video intent sin durationMs sigue siendo aceptado con p_metadata vacío', async () => {
+        const db = createSupabaseAdminMock({
+            'rpc:create_message_attachment_intent': [
+                { data: attachment({ kind: 'video', mime_type: 'video/mp4', original_filename: 'clip.mp4' }), error: null },
+            ],
+        });
+        setSupabaseAdminMock(db);
+
+        await createMessageAttachmentUploadIntent({
+            actorUserId: actor,
+            conversationId: conversation,
+            mimeType: 'video/mp4',
+            originalFilename: 'clip.mp4',
+            clientUploadId,
+        });
+
+        expect(db.getRpcCalls()[0].args.p_metadata).toEqual({});
+        expect(db.getRpcCalls()[0].args.p_kind).toBe('video');
+    });
+
     it('lee por attachment_id y nunca acepta bucket/path del cliente', async () => {
         const db = createSupabaseAdminMock({
             'rpc:authorize_message_attachment_read': [{

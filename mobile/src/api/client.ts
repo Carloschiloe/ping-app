@@ -71,7 +71,16 @@ export const apiClient = {
             let errorCode: string | undefined;
             try {
                 const errorJson = JSON.parse(responseText);
-                errorMsg = errorJson.error || errorMsg;
+                // Two response shapes exist across the backend: some
+                // controllers respond directly with { error: '...' }, while
+                // requests that flow through validateRequest/AppError/
+                // globalErrorHandler (e.g. Zod validation failures, most
+                // AppError throws) respond with { status, message, requestId,
+                // errors? }. Only reading `error` silently discarded the
+                // second shape's real message/validation detail, collapsing
+                // every such failure into the generic fallback below —
+                // preserve whichever field the backend actually sent.
+                errorMsg = errorJson.message || errorJson.error || errorMsg;
                 errorCode = typeof errorJson.failureCode === 'string' ? errorJson.failureCode : undefined;
             } catch { }
             throw new ApiError(errorMsg, response.status, false, errorCode);

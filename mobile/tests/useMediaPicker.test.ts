@@ -182,13 +182,17 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
 
         await openCamera('video');
 
+        // durationMs NO forma parte del draft: el contrato duration_ms del
+        // backend es exclusivo de audio (create_message_attachment_intent
+        // rechaza cualquier duración en un adjunto no-audio con "Audio
+        // duration is invalid", HTTP 400) — ver useMediaPicker.ts. asset.duration
+        // (aquí 4200) debe ser ignorado, no reenviado.
         expect(onVideoDraft).toHaveBeenCalledWith({
             uri: 'file:///var/mobile/clip.mov',
             kind: 'video',
             mimeType: 'video/quicktime',
             fileName: 'clip.mov',
             size: undefined,
-            durationMs: 4200,
         });
         // Ningún upload/mensaje debe dispararse todavía — cero side effects
         // hasta que el usuario confirme el envío desde el preview.
@@ -196,7 +200,7 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
         expect(onMediaSent).not.toHaveBeenCalled();
     });
 
-    it('seleccionar un video de galería (Android content:// o file://) también crea el mismo draft canónico', async () => {
+    it('seleccionar un video de galería (Android content:// o file://) también crea el mismo draft canónico, sin durationMs', async () => {
         launchImageLibraryAsync.mockResolvedValue({
             canceled: false,
             assets: [{
@@ -218,7 +222,6 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
             mimeType: 'video/mp4',
             fileName: 'VID_20260910.mp4',
             size: 15_000_000,
-            durationMs: 30000,
         });
         expect(uploadPrivateMessageAttachment).not.toHaveBeenCalled();
     });
@@ -260,12 +263,11 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
         expect(setSendingMedia).not.toHaveBeenCalled();
     });
 
-    it('Send (sendMediaDraft) dispara exactamente un intento de upload desde el draft congelado', async () => {
+    it('Send (sendMediaDraft) dispara exactamente un intento de upload desde el draft congelado, sin durationMs (contrato audio-only del backend)', async () => {
         uploadPrivateMessageAttachment.mockResolvedValue({
             attachmentId: 'att-video-1',
             mimeType: 'video/mp4',
             fileName: 'clip.mp4',
-            durationMs: 4200,
         });
         const { sendMediaDraft } = buildPicker();
         const draft: LocalMediaDraft = {
@@ -273,19 +275,23 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
             kind: 'video',
             mimeType: 'video/mp4',
             fileName: 'clip.mp4',
-            durationMs: 4200,
         };
 
         await sendMediaDraft(draft);
 
         expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
+        // Exactamente 4 argumentos: uploadPrivateMessageAttachment nunca
+        // recibe un 5º argumento (durationMs) para video — ese metadata es
+        // audio-only en el backend (create_message_attachment_intent RPC) y
+        // reenviarlo para video producía el HTTP 400 en
+        // /attachments/upload-intents ("Audio duration is invalid").
         expect(uploadPrivateMessageAttachment).toHaveBeenCalledWith(
             'conv-1',
             'file:///clip.mp4',
             'video/mp4',
-            'clip.mp4',
-            4200
+            'clip.mp4'
         );
+        expect(uploadPrivateMessageAttachment.mock.calls[0]).toHaveLength(4);
         expect(onMediaSent).toHaveBeenCalledWith(
             expect.objectContaining({ text: 'Video' })
         );
@@ -307,8 +313,7 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
             'conv-1',
             'file:///var/mobile/Containers/Data/clip.mov',
             'video/quicktime',
-            'clip.mov',
-            undefined
+            'clip.mov'
         );
     });
 
@@ -328,15 +333,15 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
             'conv-1',
             'content://com.android.providers.media.documents/document/video%3A123',
             'video/mp4',
-            'VID.mp4',
-            undefined
+            'VID.mp4'
         );
     });
 
-    it('un fallo de upload real (no genérico) se propaga como mensaje de error clasificado, no como alerta fija', async () => {
+    it('un fallo real de upload muestra siempre el mensaje de dominio seguro al usuario, nunca el detalle interno crudo', async () => {
         const { Alert } = await import('react-native');
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         uploadPrivateMessageAttachment.mockRejectedValue(
-            new Error('No se pudo subir el archivo de forma segura: Payload too large')
+            new Error('No se pudo subir el archivo de forma segura.', { cause: { message: 'Payload too large', status: 413 } })
         );
         const { sendMediaDraft } = buildPicker();
         const draft: LocalMediaDraft = {
@@ -348,10 +353,23 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
 
         await sendMediaDraft(draft);
 
+        // UX: el usuario ve siempre el mismo mensaje de dominio seguro, no un
+        // mensaje interno/backend arbitrario.
         expect(Alert.alert).toHaveBeenCalledWith(
             'No se pudo enviar',
+            'El archivo no se subió. Inténtalo nuevamente.'
+        );
+        expect(Alert.alert).not.toHaveBeenCalledWith(
+            expect.anything(),
             expect.stringContaining('Payload too large')
         );
+        // Diagnóstico: el detalle real se preserva internamente (logged),
+        // nunca perdido — solo no se le muestra al usuario.
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[MediaPicker] Private upload failed',
+            expect.objectContaining({ message: 'No se pudo subir el archivo de forma segura.' })
+        );
+        warnSpy.mockRestore();
     });
 
     it('imagen: el flujo directo (sin draft) permanece verde tras introducir el draft de video', async () => {

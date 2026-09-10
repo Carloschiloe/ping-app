@@ -409,20 +409,30 @@ describe('private file mobile preparation', () => {
             expect(uploadedBody.byteLength).toBe(18 * 1024 * 1024);
         });
 
-        it('no swallow: un fallo real de Supabase Storage propaga el mensaje de error real, no uno genérico fijo', async () => {
+        it('un fallo real de Supabase Storage lanza un mensaje de dominio seguro, preservando el error real como cause', async () => {
             const uri = 'file:///clip.mp4';
             mockFileBytesByUri.set(uri, new Uint8Array([1, 2, 3]).buffer);
             mockAttachmentIntent('clip.mp4');
-            uploadToSignedUrlMock.mockResolvedValue({
-                error: { message: 'Payload too large', name: 'StorageApiError' },
-            });
+            const storageError = { message: 'Payload too large', name: 'StorageApiError' };
+            uploadToSignedUrlMock.mockResolvedValue({ error: storageError });
 
-            await expect(uploadPrivateMessageAttachment(
-                '33333333-3333-4333-8333-333333333333',
-                uri,
-                'video/mp4',
-                'clip.mp4'
-            )).rejects.toThrow(/Payload too large/);
+            try {
+                await uploadPrivateMessageAttachment(
+                    '33333333-3333-4333-8333-333333333333',
+                    uri,
+                    'video/mp4',
+                    'clip.mp4'
+                );
+                expect.unreachable();
+            } catch (error) {
+                // El mensaje lanzado es seguro/genérico — no expone el detalle
+                // interno de Storage directamente al llamador/UI.
+                expect((error as Error).message).toBe('No se pudo subir el archivo de forma segura.');
+                expect((error as Error).message).not.toContain('Payload too large');
+                // El error real se preserva internamente vía cause — no se
+                // pierde, solo no se propaga como texto de cara al usuario.
+                expect((error as Error).cause).toBe(storageError);
+            }
         });
 
         it('una subida exitosa no emite ningún diagnóstico (sin logging permanente/ruidoso en el camino feliz)', async () => {

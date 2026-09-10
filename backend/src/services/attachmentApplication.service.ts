@@ -129,6 +129,19 @@ export async function createMessageAttachmentUploadIntent(input: {
     const originalFilename = sanitizeFilename(input.originalFilename);
     const objectPath = `conversations/${input.conversationId}/attachments/${input.actorUserId}/${randomUUID()}.${extensionForMimeType(input.mimeType)}`;
 
+    // duration_ms is an audio-only contract end to end: the public schema
+    // (createUploadIntentSchema) already rejects any request carrying
+    // durationMs for a non-audio mimeType before this service runs, and the
+    // create_message_attachment_intent RPC independently rejects any
+    // non-audio kind carrying a duration at the database layer ("Audio
+    // duration is invalid"). This is defense-in-depth, not the primary
+    // gate: if durationMs somehow reaches this service for a non-audio kind
+    // (a future/internal caller bypassing the public schema), fail loudly
+    // instead of silently discarding it — audio duration metadata must
+    // never be dropped without the caller knowing.
+    if (input.durationMs !== undefined && kind !== 'audio') {
+        throw new AppError('durationMs is only accepted for audio attachments', 400);
+    }
     const metadata = input.durationMs === undefined
         ? input.metadata || {}
         : {
