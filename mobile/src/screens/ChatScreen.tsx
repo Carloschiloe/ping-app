@@ -52,6 +52,7 @@ import {
     orderMessagesForForward,
 } from '../utils/messageActions';
 import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
+import { resolveMediaTapPresentation } from '../utils/messagePresentation';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { getMessageFocusDecision } from '../utils/messageFocus';
@@ -537,13 +538,24 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             return;
                         }
                         if (msg?._resolvedMediaUrl) {
-                            const mimeType = msg?.meta?.attachment?.mimeType || '';
-                            if (mimeType.startsWith('image/')) {
-                                setViewerMedia({ url: msg._resolvedMediaUrl, type: 'image' });
-                            } else if (mimeType.startsWith('video/')) {
-                                setViewerMedia({ url: msg._resolvedMediaUrl, type: 'video' });
+                            // Canonical attachment MIME lives at msg.attachment.mimeType
+                            // (see messageCompat.ts toLegacyMessageListShape) for server-
+                            // confirmed messages; the offline queue mapping in
+                            // useChatMessages.ts additionally mirrors it under
+                            // meta.attachment.mimeType before the message round-trips.
+                            // Reading only meta.attachment here made every confirmed
+                            // attachment (image included) fall through to
+                            // Linking.openURL on the raw signed Storage URL instead of
+                            // the in-app viewer — masked for images (Safari renders a
+                            // JPEG fine) but visibly broken for video.
+                            const mimeType = msg?.attachment?.mimeType || msg?.meta?.attachment?.mimeType || '';
+                            const presentation = resolveMediaTapPresentation(msg._resolvedMediaUrl, mimeType);
+                            if (presentation.kind === 'image') {
+                                setViewerMedia({ url: presentation.url, type: 'image' });
+                            } else if (presentation.kind === 'video') {
+                                setViewerMedia({ url: presentation.url, type: 'video' });
                             } else {
-                                Linking.openURL(msg._resolvedMediaUrl);
+                                Linking.openURL(presentation.url);
                             }
                             return;
                         }

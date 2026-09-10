@@ -112,14 +112,32 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
         await uploadAndSendMedia(result.assets[0]);
     };
 
-    const openCamera = async () => {
+    // Canonical camera capture contract: the mode requested by the user MUST be
+    // passed explicitly as a single mediaTypes entry, never as a combined
+    // ['images', 'videos']/MediaTypeOptions.All request. This is a proven native
+    // contract difference, not a style choice:
+    // - Android's native camera launch (expo-image-picker's CameraContract.kt)
+    //   maps mediaTypes to exactly ONE MediaStore intent action
+    //   (ACTION_IMAGE_CAPTURE or ACTION_VIDEO_CAPTURE). When both image and video
+    //   are requested, its own resolution rule collapses to ACTION_IMAGE_CAPTURE
+    //   ("ALL" falls through to the `else` branch of that intent-action `when`),
+    //   so the camera never enters video-record mode, no recording timer ever
+    //   starts, and the returned asset is honestly classified as an image
+    //   (because it genuinely IS one) — never actually a capture bug on the
+    //   classification side.
+    // - iOS's UIImagePickerController DOES support a combined mediaTypes array
+    //   with a native in-sheet toggle, but requesting a single explicit type
+    //   here still launches directly into the correct mode with no extra tap,
+    //   and keeps both platforms on one shared call shape — no Platform.OS
+    //   branch needed.
+    const openCamera = async (mode: 'photo' | 'video' = 'photo') => {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
             Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara.');
             return;
         }
         const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: mode === 'video' ? ['videos'] : ['images'],
             quality: 0.7,
             videoMaxDuration: 120,
         });
@@ -132,7 +150,8 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
             'Enviar archivo',
             '¿Qué quieres enviar?',
             [
-                { text: '📷 Cámara (Foto o Video)', onPress: () => openCamera() },
+                { text: '📷 Tomar foto', onPress: () => openCamera('photo') },
+                { text: '🎥 Grabar video', onPress: () => openCamera('video') },
                 { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
                 { text: '📄 Documento PDF', onPress: () => openDocumentPicker() },
                 { text: 'Cancelar', style: 'cancel' },
