@@ -166,12 +166,8 @@ function isEntityShared(entity: RetrievalCommitment): boolean {
 // this repo's own deterministic colon/quote fast paths and the LLM
 // interpreter's `verbatimMessageHint`) may only claim a literal substring
 // exists in `sourceUtterance` — never a position, never replacement text.
-// Core proves that claim itself, entirely with JavaScript's own string
-// search: `indexOf`/`slice` are correct by construction for UTF-16 text —
-// including surrogate-pair/emoji payloads — because the boundary is always
-// wherever the engine actually finds the matched substring, never a
-// manually computed or externally supplied index. Invariants, all of them
-// pure substring-location logic:
+// Core proves that claim itself. Invariants, all of them pure
+// substring-location logic:
 //   - a candidate must exist (no candidate -> unsafe, never a text
 //     fallback to desiredOutcome);
 //   - `verbatimText` must be non-empty;
@@ -187,36 +183,150 @@ function isEntityShared(entity: RetrievalCommitment): boolean {
 //     paraphrased, truncated — none of those are ever a real substring
 //     match) is rejected by the same "not found" path, no separate
 //     translation-detection logic needed;
-//   - Core computes start/end ITSELF from the located match (UTF-16
-//     code-unit offsets, by construction of `indexOf`/`slice`) and freezes
-//     content via `sourceUtterance.slice(start, end)` — never the
+//   - Core computes start/end ITSELF from the located match — always as
+//     UTF-16 code-unit indices/boundaries into the JS string object
+//     (never encoded bytes; JS strings have no byte representation until
+//     something explicitly encodes them, which never happens here) — and
+//     freezes content via `sourceUtterance.slice(start, end)` — never the
 //     proposer's own string instance.
+//
+// Real-staging root cause (M-6 physical retest, 2026-09-10): gpt-4o-mini,
+// even explicitly instructed to copy the message "VERBATIM ... same
+// wording, and punctuation", reliably capitalizes the first letter when it
+// presents what it perceives as a standalone quoted message — e.g. for
+// "Dile a Alejandra que llegaré tarde" the model proposed "Llegaré tarde"
+// (capital L) while the literal source substring, mid-sentence, is
+// lowercase "llegaré tarde". An exact-case `indexOf` never finds that, so
+// every real natural-phrasing candidate silently failed to locate.
+//
+// FOLLOW-UP FIX (Unicode-safe localization, this revision): the first
+// version of the case-insensitive fallback computed
+// `haystack.toLowerCase().indexOf(needle.toLowerCase())` and then reused
+// that index directly against the ORIGINAL (non-lowercased) string. That
+// is unsafe: Unicode case conversion is not guaranteed to preserve UTF-16
+// length — e.g. "İ" (U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE)
+// lowercases to "i" + COMBINING DOT ABOVE (2 code units instead of 1). An
+// index found in a lowercased copy can therefore point at the wrong
+// position — or split a surrogate pair / combining sequence — once
+// reapplied to the original string. The rule going forward: every index or
+// boundary ever passed to `sourceUtterance.slice()` MUST be derived
+// directly from `sourceUtterance` itself (or a region sliced from it),
+// never measured against a lowercased/normalized copy.
+//
+// localizeCandidate() below enforces this in two ordered passes:
+//   1) EXACT match first (`String.prototype.indexOf`) — the fast, always-
+//      correct path; every boundary comes straight from the original
+//      string, no transformation involved at all.
+//   2) Only if no exact match exists: a Unicode-aware case-insensitive
+//      fallback that walks the ORIGINAL string's own grapheme clusters
+//      (`Intl.Segmenter`, which reports `index`/`segment` pairs computed
+//      against the real string) and compares them to the candidate's
+//      grapheme clusters ONE GRAPHEME AT A TIME using case-insensitive
+//      string equality. Because each comparison is between two short,
+//      already-extracted grapheme strings — never a measurement of a
+//      lowercased copy's length or index — a length-changing case fold
+//      (İ-class characters, ß, etc.) can only ever make that one grapheme
+//      pair compare unequal (safe: the match attempt correctly fails);
+//      it can never desynchronize the boundaries, which are taken
+//      straight from `Intl.Segmenter`'s original-string segmentation the
+//      whole time.
+// Neither pass ever changes what gets sent: `content` is always re-sliced
+// from the untouched, original-case `sourceUtterance` at the boundaries
+// localizeCandidate found — never from the candidate's own casing. This
+// does not weaken the verbatim contract's real guarantees (no paraphrase,
+// no translation, no reordering, no invented words, no addressing overlap,
+// no ambiguous match — all still reject exactly as before); it only stops
+// rejecting an otherwise-correct match over letter case.
+interface TextSpan { start: number; end: number }
+
+function graphemeSpans(text: string): { text: string; start: number; end: number }[] {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const spans: { text: string; start: number; end: number }[] = [];
+    for (const seg of segmenter.segment(text)) {
+        // seg.index and seg.segment are both computed by the engine
+        // directly against `text` — this is the ONLY place original-string
+        // boundaries are ever established.
+        spans.push({ text: seg.segment, start: seg.index, end: seg.index + seg.segment.length });
+    }
+    return spans;
+}
+
+function graphemeEqualsCaseInsensitive(a: string, b: string): boolean {
+    if (a === b) return true;
+    // Value-equality check only — the (possibly length-changing) result of
+    // toLowerCase()/toUpperCase() is never used as an index or an offset,
+    // only compared for equality against another short string. A grapheme
+    // whose case fold changes length (İ, ß, ...) simply fails to compare
+    // equal here rather than corrupting any boundary.
+    return a.toLowerCase() === b.toLowerCase() || a.toUpperCase() === b.toUpperCase();
+}
+
+// Every returned span's start/end is taken directly from `haystack`'s own
+// indices (via String.prototype.indexOf for the exact pass, via
+// Intl.Segmenter's original-string segmentation for the fallback pass) —
+// never derived from a transformed copy's length or position.
+function findOccurrences(haystack: string, needle: string): TextSpan[] {
+    if (needle.length === 0) return [];
+
+    const exact: TextSpan[] = [];
+    for (let from = 0; ;) {
+        const idx = haystack.indexOf(needle, from);
+        if (idx === -1) break;
+        exact.push({ start: idx, end: idx + needle.length });
+        from = idx + 1;
+    }
+    if (exact.length > 0) return exact; // exact match always takes precedence — see header comment
+
+    const haystackGraphemes = graphemeSpans(haystack);
+    const needleGraphemes = graphemeSpans(needle).map((g) => g.text);
+    if (needleGraphemes.length === 0) return [];
+
+    const fallback: TextSpan[] = [];
+    for (let i = 0; i + needleGraphemes.length <= haystackGraphemes.length; i++) {
+        let matched = true;
+        for (let j = 0; j < needleGraphemes.length; j++) {
+            if (!graphemeEqualsCaseInsensitive(haystackGraphemes[i + j].text, needleGraphemes[j])) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            fallback.push({ start: haystackGraphemes[i].start, end: haystackGraphemes[i + needleGraphemes.length - 1].end });
+        }
+    }
+    return fallback;
+}
+
+export type CommunicateContentRejectionReason = 'no_candidate' | 'empty_text' | 'recipient_not_in_source' | 'not_found' | 'ambiguous' | 'empty_after_trim';
+
 function validateCommunicateContent(
     sourceUtterance: string,
     personHint: string,
     candidate: MessageContentCandidate | null | undefined,
-): { safe: boolean; content: string | null } {
-    if (!candidate) return { safe: false, content: null };
+): { safe: boolean; content: string | null; reason: CommunicateContentRejectionReason | null } {
+    if (!candidate) return { safe: false, content: null, reason: 'no_candidate' };
     const verbatimText = candidate.verbatimText;
-    if (typeof verbatimText !== 'string' || verbatimText.length === 0) return { safe: false, content: null };
+    if (typeof verbatimText !== 'string' || verbatimText.length === 0) return { safe: false, content: null, reason: 'empty_text' };
 
     const addressingIdx = sourceUtterance.indexOf(personHint);
-    if (addressingIdx === -1) return { safe: false, content: null };
+    if (addressingIdx === -1) return { safe: false, content: null, reason: 'recipient_not_in_source' };
     const addressingEnd = addressingIdx + personHint.length;
 
     // Confine the search to the region strictly after the recipient's own
     // name — this is what makes "overlaps recipient addressing" structurally
-    // impossible rather than merely checked after the fact.
+    // impossible rather than merely checked after the fact. `validRegion` is
+    // a direct slice of `sourceUtterance`, so every span findOccurrences
+    // returns is still expressed in ORIGINAL-string-compatible coordinates
+    // once offset by `addressingEnd`.
     const validRegion = sourceUtterance.slice(addressingEnd);
-    const firstMatch = validRegion.indexOf(verbatimText);
-    if (firstMatch === -1) return { safe: false, content: null }; // absent, translated, or paraphrased
-    const secondMatch = validRegion.indexOf(verbatimText, firstMatch + 1);
-    if (secondMatch !== -1) return { safe: false, content: null }; // ambiguous — 2+ safe occurrences
+    const matches = findOccurrences(validRegion, verbatimText);
+    if (matches.length === 0) return { safe: false, content: null, reason: 'not_found' }; // absent, translated, or paraphrased
+    if (matches.length > 1) return { safe: false, content: null, reason: 'ambiguous' }; // 2+ safe occurrences
 
-    const start = addressingEnd + firstMatch;
-    const end = start + verbatimText.length; // UTF-16 code-unit offsets, by construction — see header comment
+    const start = addressingEnd + matches[0].start;
+    const end = addressingEnd + matches[0].end; // UTF-16 code-unit indices, always original-source-derived — see header comment
     const content = sourceUtterance.slice(start, end).trim();
-    return content ? { safe: true, content } : { safe: false, content: null };
+    return content ? { safe: true, content, reason: null } : { safe: false, content: null, reason: 'empty_after_trim' };
 }
 
 async function planCommunicate(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
@@ -259,6 +369,19 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
         // — clarification/non-ready — never a silent fallback to
         // desiredOutcome.
         const validated = validateCommunicateContent(objective.sourceUtterance, hint, objective.communicateContentCandidate);
+        // Structured, non-sensitive observability (sección 40: ids/counts/
+        // booleans/enum labels only — never the message text/candidate text
+        // itself) so a real staging failure can be diagnosed from logs
+        // instead of guessed at: candidate_validated + rejection_reason are
+        // exactly what distinguishes "no candidate proposed at all" from
+        // "a candidate was proposed but Core's independent location check
+        // rejected it", which is what a purely binary needs_clarification
+        // outcome could never tell us apart.
+        tracePlan(input.traceId, 'COMMUNICATE_CONTENT_VALIDATED', {
+            candidate_validated: validated.safe,
+            rejection_reason: validated.reason,
+            extraction_mode: objective.communicateContentCandidate?.extractionMode ?? null,
+        });
         if (!validated.safe || !validated.content) {
             blockingAmbiguities.push({
                 field: 'messageContent',

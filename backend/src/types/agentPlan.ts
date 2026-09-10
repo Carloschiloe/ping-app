@@ -112,12 +112,13 @@ export interface AgentObjectiveAmbiguity {
 // `sourceUtterance`. It is only a candidate: agentPlanner.service.ts (Core)
 // is the sole place that turns it into executable
 // `send_message.arguments.content`, and it does so by independently
-// locating that EXACT string inside the real `sourceUtterance` with
-// JavaScript's own string search (`indexOf`/`slice`, correct by
-// construction for UTF-16 — including surrogate-pair/emoji text — because
-// the boundary is always wherever the matched substring actually falls,
-// never a manually computed index) and validating uniqueness/region/non-
-// emptiness — never by trusting a position.
+// locating that string inside the real `sourceUtterance` — an exact
+// `indexOf`/`slice` match first, falling back to a Unicode-aware
+// case-insensitive comparison ONLY when exact fails (see
+// agentPlanner.service.ts#findOccurrences for why every resulting index/
+// boundary is always derived from the original `sourceUtterance` itself,
+// never from a lowercased/normalized copy) — and validating uniqueness/
+// region/non-emptiness — never by trusting a position the proposer supplied.
 export interface MessageContentCandidate {
     verbatimText: string;
     extractionMode: 'delimiter_colon' | 'delimiter_quote' | 'semantic_verbatim';

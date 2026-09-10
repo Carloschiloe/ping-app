@@ -141,7 +141,7 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         objective.communicateContentCandidate = await proposeSemanticContentCandidate(objective.sourceUtterance, {
             actorUserId: input.actorUserId,
             conversationId: input.conversationId,
-        }, { model: options.semanticContentModel });
+        }, { model: options.semanticContentModel, traceId: input.traceId });
     }
 
     const plannerInput: AgentPlannerInput = {
