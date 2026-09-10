@@ -198,8 +198,8 @@ Mobile owns interaction and presentation state. TanStack Query coordinates serve
 
 - **M-1:** Built authorization-aware structured/full-text retrieval, deterministic interpretation, AgentContext, response synthesis, read-only orchestration, and initial Mobile Agent Preview. Evidence and ambiguity are explicit.
 - **M-2:** Added evidence-linked memory with safe ingestion, sensitivity, freshness, invalidation and canonical dominance. Memory informs but never silently overrules current facts.
-- **M-3:** Added objective interpretation, deterministic planner steps, ToolRegistry-aware validation, plan status and digest. Planning remains side-effect free.
-- **M-4:** Added exact-plan authorization, policy, expiry/revocation, atomic/idempotent execution, tool executors, verification and audit results.
+- **M-3:** Added objective interpretation, deterministic planner steps, ToolRegistry-aware validation, plan status and digest. Planning remains side-effect free. PHYSICALLY CERTIFIED ON IPHONE (staging commit `02d4aa4`).
+- **M-4:** Added exact-plan authorization, policy, expiry/revocation, atomic/idempotent execution, tool executors, verification and audit results. CORE WRITE FLOW PHYSICALLY CERTIFIED ON IPHONE (staging commit `02d4aa4`): send_message and create_commitment each verified end-to-end (no write before explicit confirmation, one confirmation → authorize → execute → verify, truthful terminal result, canonical state matches). Replay/idempotency and exact-plan digest binding remain API/Core contract certification items, not claimed as physically re-verified per tool.
 - **M-5:** Added agent voice capture/transcription/provenance and editable transcript reuse of AgentTurn. Physical iPhone voice capture passed.
 - **M-6:** Unified conversational response/plan/clarification routing and Core presentation with Mobile confirmation/execution UX. Global recipient-to-DIRECT resolution is deployed. DEPLOYED TO STAGING AND PHYSICALLY CERTIFIED ON IPHONE (staging commit `930eca0`); Android voice remains future/non-blocking. Production is untouched.
 
