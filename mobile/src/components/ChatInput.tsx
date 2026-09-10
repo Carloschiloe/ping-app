@@ -25,7 +25,18 @@ interface ChatInputProps {
     onFocus?: () => void;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({
+// Imperative handle so the composer's focus/keyboard state can be
+// relinquished BEFORE a native fullscreen surface (camera, gallery,
+// document picker) is presented from outside this component — see
+// useMediaPicker.ts's blurComposer usage. React Native's TextInput exposes
+// both as real imperative methods on its native element (isFocused(),
+// blur()); this is not new API surface, just exposing it to the parent.
+export type ChatInputHandle = {
+    isComposerFocused: () => boolean;
+    blurComposer: () => void;
+};
+
+export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     text,
     onTextChange,
     onSend,
@@ -42,11 +53,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onCancelAudio,
     onUploadAudio,
     onFocus,
-}) => {
+}, ref) => {
     const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [showActions, setShowActions] = React.useState(false);
+    const inputRef = React.useRef<TextInput>(null);
+
+    React.useImperativeHandle(ref, () => ({
+        isComposerFocused: () => inputRef.current?.isFocused() ?? false,
+        blurComposer: () => inputRef.current?.blur(),
+    }), []);
 
     const handlePickMedia = React.useCallback(() => {
         setShowActions(false);
@@ -139,6 +156,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </View>
                 ) : (
                     <TextInput
+                        ref={inputRef}
                         style={styles.input}
                         placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
                         placeholderTextColor={theme.colors.text.muted}
@@ -175,7 +193,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </View>
         </View>
     );
-};
+});
+ChatInput.displayName = 'ChatInput';
 
 const createStyles = (theme: any) => StyleSheet.create({
     inputContainer: {

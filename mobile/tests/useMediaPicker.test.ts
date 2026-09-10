@@ -18,10 +18,32 @@
 // immediately — no upload/attachment/message write happens until the
 // caller's preview explicitly calls sendMediaDraft(). Photo/document flows
 // are unchanged and still send immediately.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+// PING — CAMERA OPENS WITH CHAT KEYBOARD OVER IT: the canonical
+// native-media launch boundary (openCamera/openGallery/openDocumentPicker)
+// must blur the composer TextInput and wait for the real keyboardDidHide
+// event (not a guessed delay) before presenting any native fullscreen
+// surface. This mock Keyboard lets tests control exactly when that event
+// fires, so the dismiss-and-wait contract can be proven deterministically.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const keyboardDismiss = vi.fn();
+let keyboardDidHideListeners: Array<() => void> = [];
+const keyboardAddListener = vi.fn((event: string, handler: () => void) => {
+    if (event === 'keyboardDidHide') keyboardDidHideListeners.push(handler);
+    return { remove: vi.fn(() => {
+        keyboardDidHideListeners = keyboardDidHideListeners.filter((h) => h !== handler);
+    }) };
+});
+function fireKeyboardDidHide() {
+    [...keyboardDidHideListeners].forEach((handler) => handler());
+}
 
 vi.mock('react-native', () => ({
     Alert: { alert: vi.fn() },
+    Keyboard: {
+        dismiss: (...args: unknown[]) => keyboardDismiss(...args),
+        addListener: (...args: [string, () => void]) => keyboardAddListener(...args),
+    },
 }));
 
 const requestCameraPermissionsAsync = vi.fn();
@@ -622,5 +644,166 @@ describe('useMediaPicker — canonical size policy consumed from getAppConfig() 
         // El intento real de subida SÍ ocurrió — el backend real es quien
         // decide, no una validación local que no pudo evaluarse.
         expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('useMediaPicker — canonical native-media launch boundary: composer debe perder foco/cerrar teclado ANTES de cualquier superficie nativa', () => {
+    const onMediaSent = vi.fn();
+    const setSendingMedia = vi.fn();
+    const onVideoDraft = vi.fn();
+    const isComposerFocused = vi.fn();
+    const blurComposer = vi.fn();
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        keyboardDidHideListeners = [];
+        requestCameraPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: 50 * 1024 * 1024 } });
+    });
+
+    afterEach(() => {
+        keyboardDidHideListeners = [];
+    });
+
+    function buildPicker() {
+        return useMediaPicker({
+            conversationId: 'conv-1',
+            onMediaSent,
+            setSendingMedia,
+            onVideoDraft,
+            isComposerFocused,
+            blurComposer,
+        });
+    }
+
+    // (1) focused chat input → launch video camera → blur/dismiss occurs first
+    it('composer enfocado + "Grabar video": blurComposer/Keyboard.dismiss ocurren ANTES de launchCameraAsync, y launchCameraAsync espera a keyboardDidHide', async () => {
+        isComposerFocused.mockReturnValue(true);
+        const callOrder: string[] = [];
+        blurComposer.mockImplementation(() => callOrder.push('blur'));
+        keyboardDismiss.mockImplementation(() => callOrder.push('dismiss'));
+        launchCameraAsync.mockImplementation(async () => {
+            callOrder.push('launchCameraAsync');
+            return { canceled: true, assets: null };
+        });
+
+        const { openCamera } = buildPicker();
+        const openPromise = openCamera('video');
+
+        // launchCameraAsync no debe resolverse todavía: el hook está
+        // esperando el evento real keyboardDidHide, no un timeout arbitrario.
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(callOrder).not.toContain('launchCameraAsync');
+        expect(blurComposer).toHaveBeenCalled();
+        expect(keyboardDismiss).toHaveBeenCalled();
+
+        fireKeyboardDidHide();
+        await openPromise;
+
+        expect(callOrder.indexOf('blur')).toBeLessThan(callOrder.indexOf('launchCameraAsync'));
+        expect(callOrder.indexOf('dismiss')).toBeLessThan(callOrder.indexOf('launchCameraAsync'));
+    });
+
+    // (2) focused chat input → launch photo camera → same contract
+    it('composer enfocado + "Tomar foto": mismo contrato de blur/dismiss antes de launchCameraAsync', async () => {
+        isComposerFocused.mockReturnValue(true);
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openCamera } = buildPicker();
+        const openPromise = openCamera('photo');
+        await Promise.resolve();
+        expect(blurComposer).toHaveBeenCalled();
+        fireKeyboardDidHide();
+        await openPromise;
+
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+    });
+
+    // (3) focused chat input → gallery/document picker → same contract
+    it('composer enfocado + galería: mismo contrato de blur/dismiss antes de launchImageLibraryAsync', async () => {
+        isComposerFocused.mockReturnValue(true);
+        launchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openGallery } = buildPicker();
+        const openPromise = openGallery();
+        await Promise.resolve();
+        expect(blurComposer).toHaveBeenCalled();
+        fireKeyboardDidHide();
+        await openPromise;
+
+        expect(launchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('composer enfocado + documento: mismo contrato de blur/dismiss antes de getDocumentAsync', async () => {
+        isComposerFocused.mockReturnValue(true);
+        getDocumentAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openDocumentPicker } = buildPicker();
+        const openPromise = openDocumentPicker();
+        await Promise.resolve();
+        expect(blurComposer).toHaveBeenCalled();
+        fireKeyboardDidHide();
+        await openPromise;
+
+        expect(getDocumentAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('composer SIN foco: no se llama blurComposer/Keyboard.dismiss ni se espera — la superficie nativa se lanza de inmediato, sin demora artificial', async () => {
+        isComposerFocused.mockReturnValue(false);
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openCamera } = buildPicker();
+        await openCamera('video');
+
+        expect(blurComposer).not.toHaveBeenCalled();
+        expect(keyboardDismiss).not.toHaveBeenCalled();
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('sin isComposerFocused/blurComposer conectados (caller no los provee): degrada a no-op, no rompe el flujo', async () => {
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+        const picker = useMediaPicker({
+            conversationId: 'conv-1',
+            onMediaSent,
+            setSendingMedia,
+            onVideoDraft,
+        });
+
+        await expect(picker.openCamera('video')).resolves.toBeUndefined();
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+    });
+
+    // (4) returning/cancelling picker does not leave composer broken
+    it('cancelar la cámara tras el blur no dispara ningún upload ni dibuja el composer como roto (routeSelectedAsset nunca se llama)', async () => {
+        isComposerFocused.mockReturnValue(true);
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openCamera } = buildPicker();
+        const openPromise = openCamera('video');
+        await Promise.resolve();
+        fireKeyboardDidHide();
+        await openPromise;
+
+        expect(onVideoDraft).not.toHaveBeenCalled();
+        expect(uploadPrivateMessageAttachment).not.toHaveBeenCalled();
+        // blurComposer fue llamado exactamente una vez — no hay un segundo
+        // blur/relanzamiento espurio tras la cancelación.
+        expect(blurComposer).toHaveBeenCalledTimes(1);
+    });
+
+    it('si keyboardDidHide nunca llega (borde), el lanzamiento igual procede tras el timeout de seguridad — nunca cuelga para siempre', async () => {
+        vi.useFakeTimers();
+        isComposerFocused.mockReturnValue(true);
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+
+        const { openCamera } = buildPicker();
+        const openPromise = openCamera('video');
+        await vi.advanceTimersByTimeAsync(500); // > safety ceiling, sin fireKeyboardDidHide()
+        await openPromise;
+
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+        vi.useRealTimers();
     });
 });

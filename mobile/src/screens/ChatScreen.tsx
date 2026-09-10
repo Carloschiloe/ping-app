@@ -29,7 +29,7 @@ import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { useChatPresence } from '../hooks/useChatPresence';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { ChatHeader } from '../components/ChatHeader';
-import { ChatInput } from '../components/ChatInput';
+import { ChatInput, ChatInputHandle } from '../components/ChatInput';
 import { AISuggestionModal } from '../components/AISuggestionModal';
 import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
@@ -344,11 +344,22 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         return false;
     }, [messages]);
 
+    // Canonical native-media launch boundary: the chat composer's TextInput
+    // must relinquish focus/dismiss the keyboard before any camera/gallery/
+    // document picker is presented (see useMediaPicker.ts's
+    // dismissComposerKeyboard) — otherwise the software keyboard remains
+    // visible over the native fullscreen surface, since presenting an
+    // unrelated native modal never implicitly blurs the still-focused
+    // TextInput that triggered it.
+    const chatInputRef = useRef<ChatInputHandle>(null);
+
     const { pickMediaSource, sendMediaDraft } = useMediaPicker({
         conversationId,
         onMediaSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
         setSendingMedia,
         onVideoDraft: (draft) => setVideoDraft(draft),
+        isComposerFocused: () => chatInputRef.current?.isComposerFocused() ?? false,
+        blurComposer: () => chatInputRef.current?.blurComposer(),
     });
 
     const cancelVideoDraft = () => setVideoDraft(null);
@@ -764,6 +775,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 )}
 
                 <ChatInput
+                    ref={chatInputRef}
                     text={text}
                     onTextChange={handleTextChange}
                     onSend={handleSend}

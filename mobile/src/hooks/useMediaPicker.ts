@@ -1,12 +1,53 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Alert } from 'react-native';
+import { Alert, Keyboard } from 'react-native';
 import {
     PrivateMessageAttachment,
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
 import { getAppConfig } from '../lib/appConfig';
+
+// Safety ceiling only — NOT the expected wait. keyboardDidHide (below) is
+// the real, proven completion signal RN's own Keyboard module fires when
+// the native dismiss animation actually finishes; this timeout exists
+// solely to avoid hanging forever in the rare case that event never fires
+// (e.g. the keyboard was already gone, or a platform quirk swallows it).
+const KEYBOARD_DISMISS_SAFETY_MS = 400;
+
+// Canonical native-media launch boundary: before presenting ANY fullscreen
+// native surface (camera, gallery, document picker) from chat, the composer
+// TextInput must relinquish focus and the keyboard must be fully dismissed
+// first. Without this, the composer keeps the software keyboard's first-
+// responder status while iOS/Android present the native modal on top of
+// it — the keyboard does not implicitly hide just because an unrelated
+// native surface is being presented (this was the exact root cause: no
+// code anywhere called blur()/Keyboard.dismiss() before
+// launchCameraAsync/launchImageLibraryAsync/getDocumentAsync).
+//
+// Waits for the real `keyboardDidHide` event (not a guessed delay) only
+// when the composer actually reports being focused — if it isn't focused,
+// there is nothing to wait for, so this resolves immediately with zero
+// artificial delay. blurComposer is optional so this hook still works if a
+// caller doesn't wire a composer ref (defensive, not the expected path).
+async function dismissComposerKeyboard(isComposerFocused?: () => boolean, blurComposer?: () => void): Promise<void> {
+    if (!isComposerFocused?.() || !blurComposer) return;
+
+    await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            subscription.remove();
+            clearTimeout(safetyTimer);
+            resolve();
+        };
+        const subscription = Keyboard.addListener('keyboardDidHide', finish);
+        const safetyTimer = setTimeout(finish, KEYBOARD_DISMISS_SAFETY_MS);
+        blurComposer();
+        Keyboard.dismiss();
+    });
+}
 
 // Canonical cross-platform draft for a locally selected/captured media asset,
 // frozen before any upload/attachment/message side effect. One shape for
@@ -118,9 +159,24 @@ interface UseMediaPickerProps {
     // happens. Photo/document flows are unaffected and continue to send
     // immediately, per existing product behavior.
     onVideoDraft: (draft: LocalMediaDraft) => void;
+    // Composer focus/blur bridge (see ChatInput.tsx's ChatInputHandle) —
+    // used at the shared native-media launch boundary (openCamera/
+    // openGallery/openDocumentPicker) so the chat TextInput always
+    // relinquishes focus before a fullscreen native surface is presented.
+    // Optional so existing/future callers without a wired composer ref
+    // still work (dismissComposerKeyboard degrades to a no-op).
+    isComposerFocused?: () => boolean;
+    blurComposer?: () => void;
 }
 
-export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, onVideoDraft }: UseMediaPickerProps) {
+export function useMediaPicker({
+    conversationId,
+    onMediaSent,
+    setSendingMedia,
+    onVideoDraft,
+    isComposerFocused,
+    blurComposer,
+}: UseMediaPickerProps) {
     const prepareImage = async (asset: any) => {
         const longestSide = Math.max(Number(asset.width || 0), Number(asset.height || 0));
         const resize = longestSide > 1920
@@ -203,6 +259,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
 
     const openDocumentPicker = async () => {
         try {
+            await dismissComposerKeyboard(isComposerFocused, blurComposer);
             const result = await DocumentPicker.getDocumentAsync({
                 type: ['application/pdf', 'image/*', 'video/*'],
                 copyToCacheDirectory: true,
@@ -267,6 +324,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
             Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería.');
             return;
         }
+        await dismissComposerKeyboard(isComposerFocused, blurComposer);
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.All,
             quality: 0.7,
@@ -300,6 +358,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, o
             Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara.');
             return;
         }
+        await dismissComposerKeyboard(isComposerFocused, blurComposer);
         const result = await ImagePicker.launchCameraAsync({
             mediaTypes: mode === 'video' ? ['videos'] : ['images'],
             quality: 0.7,
