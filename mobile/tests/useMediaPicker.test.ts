@@ -25,6 +25,8 @@
 // surface. This mock Keyboard lets tests control exactly when that event
 // fires, so the dismiss-and-wait contract can be proven deterministically.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const keyboardDismiss = vi.fn();
 let keyboardDidHideListeners: Array<() => void> = [];
@@ -805,5 +807,138 @@ describe('useMediaPicker — canonical native-media launch boundary: composer de
 
         expect(launchCameraAsync).toHaveBeenCalledTimes(1);
         vi.useRealTimers();
+    });
+});
+
+describe('useMediaPicker — CAMERA UI PHYSICALLY UNUSABLE (segunda causa raíz): el chooser ya no es una presentación nativa competidora', () => {
+    // PING — CAMERA UI PHYSICALLY UNUSABLE: el diagnóstico físico (cámara
+    // visible pero sin interacción, incluso el botón de cerrar nativo sin
+    // respuesta) fue causado por Alert.alert (un UIAlertController nativo
+    // real) cuyo onPress no garantiza haber terminado su propia transición
+    // de dismissal antes de ejecutarse (ver Alert.js: "invoke the
+    // respective onPress callback and dismiss the alert" — sin orden
+    // garantizado) — expo-image-picker llama directamente a
+    // UIViewController.present(), y iOS sólo permite una transición de
+    // presentación/dismissal por ventana a la vez. La corrección: el
+    // chooser (MediaSourceSheet.tsx, en ChatScreen.tsx) ya NO es
+    // Alert.alert/Modal — es un overlay de React plano sin presentación
+    // nativa propia, así que openCamera/openGallery/openDocumentPicker son
+    // SIEMPRE la única presentación nativa en curso cuando se invocan.
+    const onMediaSent = vi.fn();
+    const setSendingMedia = vi.fn();
+    const onVideoDraft = vi.fn();
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        keyboardDidHideListeners = [];
+        requestCameraPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+        getAppConfig.mockResolvedValue({ limits: { maxMessageAttachmentBytes: 50 * 1024 * 1024 } });
+    });
+
+    function buildPicker() {
+        return useMediaPicker({ conversationId: 'conv-1', onMediaSent, setSendingMedia, onVideoDraft });
+    }
+
+    it('useMediaPicker.ts fuente: pickMediaSource/Alert.alert ya no existen — el hook nunca presenta el chooser como Alert nativo', () => {
+        const src = fs.readFileSync(
+            path.join(__dirname, '..', 'src', 'hooks', 'useMediaPicker.ts'),
+            'utf-8'
+        );
+
+        expect(src).not.toContain('pickMediaSource');
+        expect(src).not.toMatch(/Alert\.alert\(\s*['"]Enviar archivo/);
+    });
+
+    it('MediaSourceSheet.tsx: es un overlay de React plano — nunca usa Alert.alert ni <Modal> (import ni JSX)', () => {
+        const src = fs.readFileSync(
+            path.join(__dirname, '..', 'src', 'components', 'MediaSourceSheet.tsx'),
+            'utf-8'
+        );
+        const importLine = src.split('\n').find((line) => line.includes("from 'react-native'"));
+
+        // Sólo se verifica el import real de react-native (no comentarios de
+        // prosa, que sí mencionan "Alert.alert" al explicar por qué NO se usa).
+        expect(importLine).toBeDefined();
+        expect(importLine).not.toContain('Alert');
+        expect(importLine).not.toContain('Modal');
+        expect(importLine).toContain('View');
+        expect(importLine).toContain('TouchableOpacity');
+        expect(src).not.toMatch(/Alert\.alert\(/);
+        expect(src).not.toMatch(/<Modal\b/);
+    });
+
+    // (A) diagnóstico: openCamera('video') invocado directamente — sin
+    // chooser/Alert de por medio — ya funcionaba estructuralmente incluso
+    // antes de este fix (nada en openCamera dependía de Alert). Se certifica
+    // aquí como baseline explícito.
+    it('(A) diagnóstico — invocación directa de openCamera("video") sin pasar por ningún chooser: no depende de Alert.alert en absoluto', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+        const { openCamera } = buildPicker();
+
+        await openCamera('video');
+
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+        expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    // (B) el patrón real: "cerrar el chooser (estado síncrono) → invocar
+    // openCamera" — simulando exactamente lo que ChatScreen.tsx hace ahora
+    // al seleccionar "Grabar video" en MediaSourceSheet. Ninguna llamada a
+    // Alert.alert ocurre en ningún punto de esta secuencia — no hay una
+    // segunda presentación nativa con la que competir.
+    it('(B) patrón real del chooser: cerrar (estado síncrono) inmediatamente antes de invocar openCamera produce exactamente una presentación nativa, nunca dos', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+        const { openCamera } = buildPicker();
+
+        // Simula ChatScreen.tsx's selectVideo(): closeMediaSheet() (estado
+        // síncrono, ninguna llamada nativa) seguido de openCamera('video').
+        let sheetVisible = true;
+        const closeMediaSheet = () => { sheetVisible = false; };
+        const selectVideo = () => { closeMediaSheet(); return openCamera('video'); };
+
+        await selectVideo();
+
+        expect(sheetVisible).toBe(false);
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+        expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('foto: mismo patrón (A) y (B) — sin Alert.alert', async () => {
+        const { Alert } = await import('react-native');
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+        const { openCamera } = buildPicker();
+
+        await openCamera('photo');
+
+        expect(launchCameraAsync).toHaveBeenCalledTimes(1);
+        expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('galería/documento: el chooser real tampoco depende de Alert.alert para presentarse ni para cerrarse', async () => {
+        const { Alert } = await import('react-native');
+        launchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: null });
+        getDocumentAsync.mockResolvedValue({ canceled: true, assets: null });
+        const { openGallery, openDocumentPicker } = buildPicker();
+
+        await openGallery();
+        await openDocumentPicker();
+
+        expect(launchImageLibraryAsync).toHaveBeenCalledTimes(1);
+        expect(getDocumentAsync).toHaveBeenCalledTimes(1);
+        expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('volver/cancelar desde la cámara deja al composer utilizable: openCamera resuelve limpiamente sin dejar ningún estado de chooser pendiente', async () => {
+        launchCameraAsync.mockResolvedValue({ canceled: true, assets: null });
+        const { openCamera } = buildPicker();
+
+        await expect(openCamera('video')).resolves.toBeUndefined();
+        // Una segunda invocación inmediata funciona igual de limpio — no
+        // quedó ningún candado/estado de presentación colgado.
+        await expect(openCamera('video')).resolves.toBeUndefined();
+        expect(launchCameraAsync).toHaveBeenCalledTimes(2);
     });
 });

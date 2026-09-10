@@ -368,28 +368,18 @@ export function useMediaPicker({
         await routeSelectedAsset(result.assets[0]);
     };
 
-    const pickMediaSource = () => {
-        // Fire-and-forget pre-warm: by the time the user actually picks/
-        // captures something, the canonical config is likely already
-        // cached, so the real preflight check below doesn't have to wait on
-        // a network round-trip. Never blocks the menu, never throws
-        // (getAppConfig always resolves — see appConfig.ts).
+    // Fire-and-forget pre-warm: by the time the user actually picks/
+    // captures something, the canonical config is likely already cached, so
+    // the real preflight check below doesn't have to wait on a network
+    // round-trip. Never blocks anything, never throws (getAppConfig always
+    // resolves — see appConfig.ts). Exposed so the caller's media-source
+    // chooser (see MediaSourceSheet.tsx) can call it when it opens.
+    const prewarmAppConfig = () => {
         void getAppConfig();
-        Alert.alert(
-            'Enviar archivo',
-            '¿Qué quieres enviar?',
-            [
-                { text: '📷 Tomar foto', onPress: () => openCamera('photo') },
-                { text: '🎥 Grabar video', onPress: () => openCamera('video') },
-                { text: '🖼️ Galería (Foto o Video)', onPress: () => openGallery() },
-                { text: '📄 Documento PDF', onPress: () => openDocumentPicker() },
-                { text: 'Cancelar', style: 'cancel' },
-            ]
-        );
     };
 
     return {
-        pickMediaSource,
+        prewarmAppConfig,
         openCamera,
         openGallery,
         openDocumentPicker,

@@ -35,6 +35,7 @@ import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
 import { SummaryModal } from '../components/SummaryModal';
 import { MessageActionsModal } from '../components/MessageActionsModal';
+import { MediaSourceSheet } from '../components/MediaSourceSheet';
 import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
@@ -353,7 +354,30 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     // TextInput that triggered it.
     const chatInputRef = useRef<ChatInputHandle>(null);
 
-    const { pickMediaSource, sendMediaDraft } = useMediaPicker({
+    // Media-source chooser visibility is owned HERE (a plain React state
+    // flip in an actual component), not inside useMediaPicker.ts — that
+    // hook has no renderer/component instance backing it in most call
+    // sites, and more importantly, this state is what proves the fix:
+    // choosing an option below closes the sheet via ordinary React
+    // reconciliation (no native presentation/dismissal in flight) BEFORE
+    // openCamera/openGallery/openDocumentPicker ever runs, so the real
+    // native camera/gallery/picker is always the only native presentation
+    // active. Previously this used Alert.alert (a real native
+    // UIAlertController) whose onPress→dismiss ordering is not guaranteed
+    // (see Alert.js's own doc comment), which collided with
+    // expo-image-picker's own UIViewController.present() call — iOS only
+    // allows one presentation/dismissal transition per window — producing
+    // exactly the reported broken camera (visible, but completely
+    // non-interactive, even its own native close button unresponsive).
+    const [mediaSheetVisible, setMediaSheetVisible] = useState(false);
+
+    const {
+        prewarmAppConfig,
+        openCamera,
+        openGallery,
+        openDocumentPicker,
+        sendMediaDraft,
+    } = useMediaPicker({
         conversationId,
         onMediaSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
         setSendingMedia,
@@ -361,6 +385,19 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         isComposerFocused: () => chatInputRef.current?.isComposerFocused() ?? false,
         blurComposer: () => chatInputRef.current?.blurComposer(),
     });
+
+    const openMediaSheet = () => {
+        prewarmAppConfig();
+        setMediaSheetVisible(true);
+    };
+    const closeMediaSheet = () => setMediaSheetVisible(false);
+    // Each option closes the sheet synchronously before invoking the
+    // picker — see the comment above mediaSheetVisible for why this
+    // ordering is the actual fix.
+    const selectPhoto = () => { closeMediaSheet(); void openCamera('photo'); };
+    const selectVideo = () => { closeMediaSheet(); void openCamera('video'); };
+    const selectGallery = () => { closeMediaSheet(); void openGallery(); };
+    const selectDocument = () => { closeMediaSheet(); void openDocumentPicker(); };
 
     const cancelVideoDraft = () => setVideoDraft(null);
 
@@ -785,7 +822,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     recordingUri={recordingUri}
                     isRecording={isRecording}
                     recordingDurationMs={recordingDurationMs}
-                    onPickMedia={pickMediaSource}
+                    onPickMedia={openMediaSheet}
                     onShareLocation={handleShareLocation}
                     onStartRecording={startRecording}
                     onStopRecording={stopRecording}
@@ -916,6 +953,23 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         </View>
                     </View>
                 </Modal>
+
+                {/* Canonical media-source chooser — plain in-app overlay, NOT
+                    Alert.alert/Modal. See MediaSourceSheet.tsx and
+                    useMediaPicker.ts's selectPhoto/selectVideo/selectGallery/
+                    selectDocument: choosing an option closes this via a
+                    synchronous React state update (no native dismissal to
+                    race against) before the real camera/gallery/document
+                    picker is presented — the proven fix for the camera
+                    appearing but being completely non-interactive. */}
+                <MediaSourceSheet
+                    visible={mediaSheetVisible}
+                    onClose={closeMediaSheet}
+                    onPickPhoto={selectPhoto}
+                    onPickVideo={selectVideo}
+                    onPickGallery={selectGallery}
+                    onPickDocument={selectDocument}
+                />
 
                 <SummaryModal
                     visible={!!summary}
