@@ -54,6 +54,14 @@ import {
 describe('private file mobile preparation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // clearAllMocks resets call history but NOT queued
+        // mockResolvedValueOnce implementations. A test whose upload throws
+        // before consuming every queued apiClient.post response (e.g. the
+        // local-read-failure test below, which never reaches the second/
+        // "complete" call) would otherwise leak its unconsumed queued value
+        // into the next test's first apiClient.post call. Reassigning the
+        // mock function itself drops any such leftover queue.
+        vi.mocked(apiClient.post).mockReset();
         clearPrivateFileReadCache();
         mockFileBytesByUri = new Map();
         mockFileShouldThrow = new Set();
@@ -382,6 +390,106 @@ describe('private file mobile preparation', () => {
             )).rejects.toThrow('No se pudo leer el archivo seleccionado.');
 
             expect(uploadToSignedUrlMock).not.toHaveBeenCalled();
+        });
+
+        it('preserva byteLength exacto para un video grande (varios MB) a través del adaptador', async () => {
+            const uri = 'file:///var/mobile/clip.mp4';
+            const largeBytes = new ArrayBuffer(18 * 1024 * 1024); // 18MB, bajo el cap de 20MB
+            mockFileBytesByUri.set(uri, largeBytes);
+            mockAttachmentIntent('clip.mp4');
+
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'clip.mp4'
+            );
+
+            const [, , uploadedBody] = uploadToSignedUrlMock.mock.calls[0];
+            expect(uploadedBody.byteLength).toBe(18 * 1024 * 1024);
+        });
+
+        it('no swallow: un fallo real de Supabase Storage propaga el mensaje de error real, no uno genérico fijo', async () => {
+            const uri = 'file:///clip.mp4';
+            mockFileBytesByUri.set(uri, new Uint8Array([1, 2, 3]).buffer);
+            mockAttachmentIntent('clip.mp4');
+            uploadToSignedUrlMock.mockResolvedValue({
+                error: { message: 'Payload too large', name: 'StorageApiError' },
+            });
+
+            await expect(uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'clip.mp4'
+            )).rejects.toThrow(/Payload too large/);
+        });
+
+        it('una subida exitosa no emite ningún diagnóstico (sin logging permanente/ruidoso en el camino feliz)', async () => {
+            const uri = 'content://media/external/video/media/555';
+            mockFileBytesByUri.set(uri, new Uint8Array([7, 7, 7, 7]).buffer);
+            mockAttachmentIntent('diag.mp4');
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+            await uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'diag.mp4'
+            );
+
+            expect(warnSpy).not.toHaveBeenCalled();
+            warnSpy.mockRestore();
+        });
+
+        it('un fallo de subida emite diagnóstico seguro (scheme, mimeType, byteLength) sin loggear tokens/signed URLs/bytes', async () => {
+            const uri = 'content://media/external/video/media/555';
+            mockFileBytesByUri.set(uri, new Uint8Array([7, 7, 7, 7]).buffer);
+            mockAttachmentIntent('diag.mp4');
+            uploadToSignedUrlMock.mockResolvedValue({
+                error: { message: 'Payload too large', name: 'StorageApiError' },
+            });
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+            await expect(uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'diag.mp4'
+            )).rejects.toThrow();
+
+            const loggedCalls = warnSpy.mock.calls.map((call) => JSON.stringify(call));
+            const diagnosticCall = loggedCalls.find((c) => c.includes('storage-upload-failed'));
+            expect(diagnosticCall).toBeDefined();
+            expect(diagnosticCall).toContain('"scheme":"content"');
+            expect(diagnosticCall).toContain('"mimeType":"video/mp4"');
+            expect(diagnosticCall).toContain('"byteLength":4');
+            expect(loggedCalls.join('|')).not.toContain('temporary-token');
+            expect(loggedCalls.join('|')).not.toContain('signed.invalid');
+            warnSpy.mockRestore();
+        });
+
+        it('un fallo de lectura local emite diagnóstico seguro sin loggear bytes/tokens', async () => {
+            const uri = 'content://media/external/video/media/bad';
+            mockFileShouldThrow.add(uri);
+            mockAttachmentIntent('bad.mp4');
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+            await expect(uploadPrivateMessageAttachment(
+                '33333333-3333-4333-8333-333333333333',
+                uri,
+                'video/mp4',
+                'bad.mp4'
+            )).rejects.toThrow();
+
+            const loggedCalls = warnSpy.mock.calls.map((call) => JSON.stringify(call));
+            const diagnosticCall = loggedCalls.find((c) => c.includes('local-read-failed'));
+            expect(diagnosticCall).toBeDefined();
+            expect(diagnosticCall).toContain('"scheme":"content"');
+            expect(diagnosticCall).toContain('"mimeType":"video/mp4"');
+            expect(loggedCalls.join('|')).not.toContain('temporary-token');
+            expect(loggedCalls.join('|')).not.toContain('signed.invalid');
+            warnSpy.mockRestore();
         });
     });
 });

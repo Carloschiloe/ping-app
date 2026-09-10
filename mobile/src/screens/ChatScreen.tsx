@@ -24,7 +24,7 @@ import MentionPopup from '../components/MentionPopup';
 import MessageItemCard from '../components/MessageItem';
 import TypingIndicator from '../components/TypingIndicator';
 import { apiClient } from '../api/client';
-import { useMediaPicker } from '../hooks/useMediaPicker';
+import { useMediaPicker, LocalMediaDraft } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { useChatPresence } from '../hooks/useChatPresence';
 import { useChatMessages } from '../hooks/useChatMessages';
@@ -110,6 +110,24 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             viewerVideoPlayer.pause();
         }
     }, [viewerMedia, viewerVideoPlayer]);
+
+    // Canonical pre-send media preview (video only — see useMediaPicker's
+    // LocalMediaDraft). Selecting/recording a video freezes a draft here
+    // instead of uploading immediately; Cancel discards it with zero
+    // attachment/message/storage writes, Send performs exactly one upload
+    // attempt from the frozen draft. Reuses the same in-app VideoView player
+    // pattern as the sent-message viewer above — never a browser/Supabase URL.
+    const [videoDraft, setVideoDraft] = useState<LocalMediaDraft | null>(null);
+    const draftVideoPlayer = useVideoPlayer(null);
+
+    useEffect(() => {
+        if (videoDraft) {
+            draftVideoPlayer.replace(videoDraft.uri);
+            draftVideoPlayer.play();
+        } else {
+            draftVideoPlayer.pause();
+        }
+    }, [videoDraft, draftVideoPlayer]);
 
     const [summary, setSummary] = useState<string | null>(null);
     const [isSummarizing, setIsSummarizing] = useState(false);
@@ -326,11 +344,21 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         return false;
     }, [messages]);
 
-    const { pickMediaSource } = useMediaPicker({
+    const { pickMediaSource, sendMediaDraft } = useMediaPicker({
         conversationId,
         onMediaSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
-        setSendingMedia
+        setSendingMedia,
+        onVideoDraft: (draft) => setVideoDraft(draft),
     });
+
+    const cancelVideoDraft = () => setVideoDraft(null);
+
+    const confirmVideoDraft = async () => {
+        if (!videoDraft) return;
+        const draft = videoDraft;
+        setVideoDraft(null);
+        await sendMediaDraft(draft);
+    };
 
     const {
         startRecording,
@@ -849,6 +877,34 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     </View>
                 </Modal>
 
+                {/* Canonical pre-send video preview — camera and gallery both
+                    feed the same LocalMediaDraft here. Cancel discards the
+                    draft with zero writes; Send performs exactly one upload
+                    attempt via sendMediaDraft. */}
+                <Modal visible={!!videoDraft} transparent animationType="fade" onRequestClose={cancelVideoDraft}>
+                    <View style={styles.viewerBackdrop}>
+                        <VideoView player={draftVideoPlayer} style={styles.viewerImage} nativeControls contentFit="contain" />
+                        <View style={styles.draftActionsBar}>
+                            <TouchableOpacity
+                                style={[styles.draftActionBtn, styles.draftCancelBtn]}
+                                onPress={cancelVideoDraft}
+                                disabled={sendingMedia}
+                            >
+                                <Ionicons name="close" size={20} color="white" />
+                                <Text style={styles.draftActionText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.draftActionBtn, styles.draftSendBtn]}
+                                onPress={confirmVideoDraft}
+                                disabled={sendingMedia}
+                            >
+                                <Ionicons name="send" size={18} color="white" />
+                                <Text style={styles.draftActionText}>{sendingMedia ? 'Enviando...' : 'Enviar'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
+
                 <SummaryModal
                     visible={!!summary}
                     summary={summary}
@@ -971,6 +1027,17 @@ const createStyles = (theme: any) => StyleSheet.create({
     viewerBackdrop: { flex: 1, backgroundColor: theme.colors.black, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },
     viewerClose: { position: 'absolute', top: 50, right: 20 },
+    draftActionsBar: {
+        position: 'absolute', bottom: 40, left: 24, right: 24,
+        flexDirection: 'row', justifyContent: 'space-between', gap: 16,
+    },
+    draftActionBtn: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        paddingVertical: 14, borderRadius: 28, gap: 8,
+    },
+    draftCancelBtn: { backgroundColor: 'rgba(255,255,255,0.15)' },
+    draftSendBtn: { backgroundColor: theme.colors.accent },
+    draftActionText: { color: 'white', fontSize: 15, fontWeight: '700' },
     selectBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: theme.colors.primary, height: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 1000 },
     selectBarBtn: { padding: 8 },
     selectBarText: { flex: 1, color: theme.colors.white, fontSize: 16, fontWeight: '700', textAlign: 'center' },

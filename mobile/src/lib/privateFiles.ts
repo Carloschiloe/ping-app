@@ -137,10 +137,27 @@ export async function requestPrivateFileUploadUrl(
 // access for `file://`) instead of the JS fetch polyfill, so this single
 // implementation is correct on both platforms and for both URI schemes —
 // no `Platform.OS` branch needed anywhere that calls it.
-async function readLocalMediaBytes(uri: string): Promise<ArrayBuffer> {
+// Safe local diagnostics only: URI scheme, mimeType, byte length, HTTP
+// status/error code. Never logs tokens, signed URLs, or media bytes — see
+// module invariants. Videos differ materially from images in size (a few
+// MB vs. tens of MB for a couple of minutes of footage), so silently
+// collapsing every read/upload failure into one generic message made the
+// real cause (empty read vs. storage rejection vs. size-cap rejection)
+// unprovable from the field. This does not fix a failure by itself; it
+// makes whichever failure is actually occurring provable instead of guessed.
+function logUploadDiagnostics(stage: string, uri: string, extra: Record<string, unknown>) {
+    const scheme = uri.slice(0, uri.indexOf(':')) || 'unknown';
+    console.warn(`[Upload][${stage}]`, { scheme, ...extra });
+}
+
+async function readLocalMediaBytes(uri: string, mimeType: string): Promise<ArrayBuffer> {
     try {
         return await new File(uri).arrayBuffer();
-    } catch {
+    } catch (error) {
+        logUploadDiagnostics('local-read-failed', uri, {
+            mimeType,
+            message: error instanceof Error ? error.message : String(error),
+        });
         throw new Error('No se pudo leer el archivo seleccionado.');
     }
 }
@@ -150,7 +167,7 @@ async function uploadToSignedPrivatePath(
     mimeType: string,
     access: PrivateFileUploadAccess
 ) {
-    const body = await readLocalMediaBytes(uri);
+    const body = await readLocalMediaBytes(uri, mimeType);
     if (body.byteLength === 0) throw new Error('El archivo seleccionado está vacío.');
 
     const { error } = await supabase.storage
@@ -159,7 +176,15 @@ async function uploadToSignedPrivatePath(
             contentType: mimeType,
         });
 
-    if (error) throw new Error('No se pudo subir el archivo de forma segura.');
+    if (error) {
+        logUploadDiagnostics('storage-upload-failed', uri, {
+            mimeType,
+            byteLength: body.byteLength,
+            message: error.message,
+            name: (error as { name?: string }).name,
+        });
+        throw new Error(`No se pudo subir el archivo de forma segura: ${error.message}`, { cause: error });
+    }
 }
 
 export async function uploadPrivateProfileAvatar(

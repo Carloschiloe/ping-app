@@ -7,13 +7,50 @@ import {
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
 
+// Canonical cross-platform draft for a locally selected/captured media asset,
+// frozen before any upload/attachment/message side effect. One shape for
+// camera capture and gallery selection — no separate business logic per
+// source. `kind` drives presentation (only 'video' is currently gated
+// behind a pre-send preview); `size`/`durationMs` are best-effort, since not
+// every picker/provider populates them.
+export type LocalMediaDraft = {
+    uri: string;
+    kind: 'image' | 'video';
+    mimeType: string;
+    fileName: string;
+    size?: number;
+    durationMs?: number;
+};
+
+function isVideoAsset(asset: any): boolean {
+    return asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+}
+
+function buildDraftFromAsset(asset: any): LocalMediaDraft {
+    const isVideo = isVideoAsset(asset);
+    return {
+        uri: asset.uri,
+        kind: isVideo ? 'video' : 'image',
+        mimeType: asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg'),
+        fileName: asset.fileName || (isVideo ? 'video.mp4' : 'imagen.jpg'),
+        size: typeof asset.fileSize === 'number' ? asset.fileSize : undefined,
+        durationMs: typeof asset.duration === 'number' ? asset.duration : undefined,
+    };
+}
+
 interface UseMediaPickerProps {
     conversationId: string;
     onMediaSent: (payload: { text: string; attachment: PrivateMessageAttachment }) => void;
     setSendingMedia: (sending: boolean) => void;
+    // Video assets are frozen into a LocalMediaDraft and handed here instead
+    // of being uploaded immediately, so the caller can show an in-app
+    // preview (Play/Send/Cancel) before any attachment/upload/message write
+    // happens. Photo/document flows are unaffected and continue to send
+    // immediately, per existing product behavior.
+    onVideoDraft: (draft: LocalMediaDraft) => void;
 }
 
-export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }: UseMediaPickerProps) {
+export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia, onVideoDraft }: UseMediaPickerProps) {
     const prepareImage = async (asset: any) => {
         const longestSide = Math.max(Number(asset.width || 0), Number(asset.height || 0));
         const resize = longestSide > 1920
@@ -36,7 +73,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
     const uploadAndSendMedia = async (asset: any) => {
         setSendingMedia(true);
         try {
-            const isVideo = asset.type === 'video' || asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
+            const isVideo = isVideoAsset(asset);
             const prepared = isVideo
                 ? {
                     uri: asset.uri,
@@ -55,10 +92,44 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
                 attachment,
             });
         } catch (error) {
-            console.warn('[MediaPicker] Private upload failed', {
-                message: error instanceof Error ? error.message : 'unknown',
+            // The underlying failure (empty local read, Supabase Storage
+            // rejection, or backend size-cap rejection) is already logged with
+            // safe diagnostics (URI scheme, mimeType, byte length, HTTP
+            // status/error code — never tokens/signed URLs/bytes) inside
+            // privateFiles.ts. Surfacing error.message here (instead of a
+            // fixed generic string) is what makes that real, classified
+            // failure visible to the user/QA instead of masking every distinct
+            // cause behind one identical alert.
+            const message = error instanceof Error ? error.message : 'unknown';
+            console.warn('[MediaPicker] Private upload failed', { message });
+            Alert.alert('No se pudo enviar', message || 'El archivo no se subió. Inténtalo nuevamente.');
+        } finally {
+            setSendingMedia(false);
+        }
+    };
+
+    // Send action from the canonical pre-send preview: the draft was already
+    // frozen at selection/capture time (buildDraftFromAsset) and previewed by
+    // the caller; this is the single point where a video draft enters the
+    // attachment/upload/message pipeline — exactly one upload attempt.
+    const sendMediaDraft = async (draft: LocalMediaDraft) => {
+        setSendingMedia(true);
+        try {
+            const attachment = await uploadPrivateMessageAttachment(
+                conversationId,
+                draft.uri,
+                draft.mimeType,
+                draft.fileName,
+                draft.durationMs
+            );
+            onMediaSent({
+                text: draft.kind === 'video' ? 'Video' : 'Imagen',
+                attachment,
             });
-            Alert.alert('No se pudo enviar', 'El archivo no se subió. Inténtalo nuevamente.');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'unknown';
+            console.warn('[MediaPicker] Private upload failed', { message });
+            Alert.alert('No se pudo enviar', message || 'El archivo no se subió. Inténtalo nuevamente.');
         } finally {
             setSendingMedia(false);
         }
@@ -97,6 +168,19 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
         }
     };
 
+    // Single shared routing decision for every picker/camera source: video
+    // assets are frozen into a LocalMediaDraft and handed to the caller for
+    // pre-send preview (no upload yet); everything else keeps sending
+    // immediately, unchanged. Camera and gallery both call this — no
+    // duplicated per-source business logic.
+    const routeSelectedAsset = async (asset: any) => {
+        if (isVideoAsset(asset)) {
+            onVideoDraft(buildDraftFromAsset(asset));
+            return;
+        }
+        await uploadAndSendMedia(asset);
+    };
+
     const openGallery = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
@@ -109,7 +193,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
             videoMaxDuration: 120,
         });
         if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendMedia(result.assets[0]);
+        await routeSelectedAsset(result.assets[0]);
     };
 
     // Canonical camera capture contract: the mode requested by the user MUST be
@@ -142,7 +226,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
             videoMaxDuration: 120,
         });
         if (result.canceled || !result.assets[0]) return;
-        await uploadAndSendMedia(result.assets[0]);
+        await routeSelectedAsset(result.assets[0]);
     };
 
     const pickMediaSource = () => {
@@ -163,6 +247,7 @@ export function useMediaPicker({ conversationId, onMediaSent, setSendingMedia }:
         pickMediaSource,
         openCamera,
         openGallery,
-        openDocumentPicker
+        openDocumentPicker,
+        sendMediaDraft,
     };
 }
