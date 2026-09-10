@@ -1,94 +1,125 @@
-# PING - Chat that remembers
+# PING
 
-Este es el MVP de la aplicación PING. Un "Self-Chat" que detecta fechas automáticamente y crea compromisos (recordatorios) sincronizados de extremo a extremo con tu base de datos y autenticación de Supabase.
+Ping is a global, horizontal, domain-agnostic conversational AI agent built around real messaging, commitments, people, memory, context, planning, authorization, and verified execution.
 
-La arquitectura está completamente estructurada para escalar (B2B o SaaS B2C).
+Its product promise is simple: **Ping remembers what matters and helps the user follow through.** Mobile is the current primary surface. The same Ping Core is intended to serve Web/PC, tablet, voice, a dedicated Ping device, and car experiences without creating a second agent or a second source of truth.
 
----
+## Agent: start here
 
-## 🚀 Quickstart
+For most coding tasks, do this and stop as soon as you have enough context:
 
-Sigue estos pasos para arrancar el proyecto de 0 a 100 sin instalar nada extra ni escribir código.
+1. Read this README.
+2. Find the task or error keywords in [`docs/AGENT_TASK_ROUTER.md`](docs/AGENT_TASK_ROUTER.md).
+3. Read only the matching domain section in [`docs/AGENT_INDEX.md`](docs/AGENT_INDEX.md).
+4. Inspect the 2–6 listed entry points and the focused test first.
+5. Use [`docs/DEPENDENCY_MAP.md`](docs/DEPENDENCY_MAP.md) only for cross-module impact.
+6. Use [`docs/generated/import-index.json`](docs/generated/import-index.json) only for direct import/imported-by questions.
 
-### Paso 1: Configurar Variables de Entorno
+Broad repository search is a fallback, not the starting point.
 
-Obtén las credenciales de tu proyecto de [Supabase](https://supabase.com/):
-- **Project URL**
-- **anon key**
-- **service_role key**
+## Repo guard
 
-1. Navega a `backend/` y renombra `.env.example` a `.env`. Completa las variables:
-   ```env
-   PORT=3000
-   SUPABASE_URL=tu_supabase_project_url
-   SUPABASE_ANON_KEY=tu_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=tu_supabase_service_role_key
-   ENCRYPTION_KEY=una_clave_segura_de_32_bytes
-   RUN_CRON_JOBS=true # puedes poner false si solo quieres exponer el API sin jobs de background
-   ```
-2. Navega a `mobile/` y renombra `.env.example` a `.env`. Completa las variables:
-   ```env
-   EXPO_PUBLIC_SUPABASE_URL=tu_supabase_project_url
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=tu_supabase_anon_key
-   EXPO_PUBLIC_API_URL=http://localhost:3000/api
-   ```
-   *(Importante: Si pruebas en dispositivo físico, cambia localhost a la IP de tu PC).*
+- Repository: `Carloschiloe/ping-app`
+- Integration branch: `codex/staging-beta`
+- Typical Windows root: `C:\Users\carlo\Desktop\App en produccion\Ping`
+- Shell on the current workstation: Windows PowerShell 5.1
 
-### Paso 2: Ejecutar Esquema de Base de Datos
-Si nunca antes configuraste la base, ve a **SQL Editor** en Supabase, copia el contenido de `supabase/schema.full.sql` y ejecútalo entero; este archivo combina el esquema base con todas las fases de evolución (`phase*.sql`).
+Before changing anything, verify the root, remote, branch, HEAD, and dirty worktree. Never reset, clean, restore, stage, or overwrite unrelated user work.
 
-Si modificas alguno de los archivos `backend/phase*.sql`, regenera el esquema actual con `cd backend && npm run schema:build` antes de subir nuevos cambios.
+## Critical invariants
 
-### Paso 3: Instalar Dependencias
-Abre 2 terminales, una para el backend y otra para el mobile y corre:
-```bash
+- **LLM suggests; Ping Core decides.** Model output is an untrusted hint.
+- Messaging remains canonical real messaging; Agent features do not replace Chat.
+- `AgentPlan` is not authorization.
+- Voice input is not authorization.
+- No side effect happens before explicit authorization when the tool contract requires it.
+- Core owns actor identity, permissions, canonical IDs, lifecycle truth, and writes.
+- Person names are hints; Core resolves canonical people and authorized resources.
+- Mobile renders Core `PlanPresentation`; it must not reconstruct semantics from `toolId`.
+- Commitment proposals and commitments are distinct lifecycle concepts.
+- A pending proposal is never overdue and is not yet a commitment.
+- The app has exactly four primary tabs: **Chats | Hoy | Compromisos | Perfil**.
+- Preserve source messages, transcripts, evidence, provenance, audit, and idempotency.
+- Production is never touched without explicit, current authorization.
+
+## Current state
+
+Current staging branch HEAD documented here: `19f5fd8e692d4fa25402f3d5cc1b39bd0d1d8fb9`.
+
+- **M-1 — Retrieval and context:** authorization-aware structured retrieval, identity resolution, context building, and evidence-backed agent responses.
+- **M-2 — Memory:** evidence-linked memory ingestion/retrieval with sensitivity, freshness, invalidation, and canonical-fact dominance.
+- **M-3 — Planning:** objective interpretation, deterministic resolution, `AgentPlan`, validation, digest, and clarification/authorization-ready states.
+- **M-4 — Authorization and execution:** exact-plan binding, expiring/revocable authorizations, idempotent step claiming, tool executors, verification, and audit records.
+- **M-5 — Voice:** real mobile capture/transcription and editable transcript feeding the same Agent pipeline. Physical iPhone voice certification passed.
+- **M-6 — Conversational Agent UX:** unified `/agent/turn`, Core-owned presentation, mobile plan confirmation, authorization, execution, and truthful result cards deployed to staging.
+
+The global named-recipient fix is deployed at the documented HEAD: one canonical person plus one authorized exact DIRECT conversation can become a `send_message` plan without a current chat context. Final real-iPhone M-6 retest remains separate and pending; deployment is not physical certification.
+
+Backend regression at this state: **1127 passing**. Published M-6 mobile baseline: **564 passing**.
+
+## Repository shape
+
+- `backend/src/` — Express API, Ping Core application services, agent pipeline, authorization, execution, workers.
+- `backend/tests/` — focused Vitest suites and PostgreSQL integration specifications.
+- `mobile/src/` — Expo/React Native screens, API modules, state, hooks, and presentation.
+- `mobile/tests/` — focused mobile contract and state tests.
+- `supabase/migrations/` — canonical database evolution; migrations outrank historical scripts.
+- `docs/` — product intent, architecture, domain routing, runbooks, and validation records.
+- `scripts/` — repository-level deterministic tooling.
+
+## Quickstart
+
+Requirements: Node.js compatible with the package engines, npm, and local environment files derived from the checked-in examples. Never print or commit `.env` contents.
+
+Backend:
+
+```powershell
+Set-Location backend
 npm install
-```
-
-### Paso 4: Levantar el Backend
-En la terminal del `/backend`, corre:
-```bash
 npm run dev
 ```
-*(Valida que diga "✅ PING Backend listening on port 3000").*
 
-### Paso 5: Levantar Mobile App 
-En la terminal de `/mobile`, corre:
-```bash
+Mobile in another terminal:
+
+```powershell
+Set-Location mobile
+npm install
 npm start
 ```
-Escanea el código QR con la app **Expo Go** en tu celular o ábrelo en un emulador (Presiona "i" para iOS / "a" para Android).
 
-### Paso 6: Prueba el flujo completo
-1. Regístrate en la app con un correo y contraseña.
-2. Ingresarás al chat. Escribe: `"comprar madera el viernes"` y presiona Enviar.
-3. El frontend de React Native llama de forma segura a nuestro backend (enviando el token de autenticación Supabase nativo).
-4. El backend parseará "el viernes", guardará el chat original y paralelamente insertará el **commitment** usando la llave Service Role de administrador.
-5. Regresa al "Hoy" o verifica en Supabase para validar que el compromiso fue insertado con éxito.
+For a physical device, the configured API URL must be reachable from that device. Use the existing staging configuration when reviewing staging; do not silently redirect production configuration.
 
----
+## Development rules
 
-## 🛠 Troubleshooting (Errores Comunes)
+Use the smallest validation ladder proportional to the change:
 
-Si te encuentras con problemas durane el set-up, revisa estos escenarios:
+1. Run the focused test that owns the behavior.
+2. Run the affected module suite.
+3. Run TypeScript/build checks.
+4. Run the full regression only at closure or when explicitly required.
 
-#### 1. "Backend no conectado" / Request timeout en app
-Asegúrate de cambiar `localhost` por tu IP local en la variable `EXPO_PUBLIC_API_URL` si usas un dispositivo móvil real. Ej: `http://192.168.1.10:3000/api`.
+Additional rules:
 
-#### 2. Auth error en el backend
-Validar que `SUPABASE_SERVICE_ROLE_KEY` esté debidamente puesta en el .env del backend. El backend usa esto indirecto a RLS para verificar la validez del bearer token de los usuarios y automatizar. No la compartas nunca en el frontend.
+- Diagnose the exact expected/received failure before editing.
+- Do not rerun the same failing command blindly.
+- Do not start with a broad grep or read every service/test.
+- Prefer canonical application services over controllers or compatibility adapters.
+- Never add direct Commitment writers outside `commitmentApplication.service.ts` and its canonical delegates.
+- Preserve legacy routes as adapters until an authorized migration removes them.
+- On PowerShell 5.1, do not use Bash-only `&&`, `head`, `tail`, or `ls -la`.
+- Do not deploy, push, migrate remotely, or change infrastructure without explicit authorization.
+- Never expose service-role keys, signed URLs, tokens, credentials, or `.env` contents.
 
-#### 3. Los compromisos no aparecen en la Tab de "Hoy"
-Asegúrate de que estás escribiendo fechas detectables (ej. "mañana", "el domingo", "12 de marzo"). Si las fechas no se detectan, el motor guarda el mensaje pero no crea recordatorios en la tabla commitments.
+## Documentation links
 
-#### 4. Error 401: Unauthorized 
-Checa si el script de Base de Datos base (schema.sql) copió con éxito y permitió a `handle_new_user()` auto-crear registros en la persistencia `profiles(id, email)`, porque los insert requieren un profile para el foregin constraint.
+- Fast task lookup: [`docs/AGENT_TASK_ROUTER.md`](docs/AGENT_TASK_ROUTER.md)
+- Domain handbook: [`docs/AGENT_INDEX.md`](docs/AGENT_INDEX.md)
+- Durable architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- High-value graphs and change impact: [`docs/DEPENDENCY_MAP.md`](docs/DEPENDENCY_MAP.md)
+- Generated direct-import graph: [`docs/generated/import-index.json`](docs/generated/import-index.json)
+- Product vision: [`docs/00-VISION-PING.md`](docs/00-VISION-PING.md)
+- Architecture principles: [`docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md`](docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md)
+- Technical audit: [`docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md`](docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md)
+- Staging runbook: [`docs/23-STAGING-BETA-VALIDATION.md`](docs/23-STAGING-BETA-VALIDATION.md)
 
-#### 5. Errores bloqueantes "Invalid token" al iniciar en Mobile
-Por favor, asegúrate de reinstalar Supabase/Expo Secure Store. Borra la carpeta Node_modules y vuelve a correr `npm install`.
-
----
-
-## Instrucciones de Producción
-En `/backend`, usa `npm run build` seguido de `npm start` para producción en Node.
-Para la aplicación móvil de producción, revisa comandos para EAS en las documentaciones de Expo (`eas build --platform all`).
+When documentation and implementation differ, treat source plus `supabase/migrations/` as the current technical truth, then report the contradiction instead of silently choosing one.

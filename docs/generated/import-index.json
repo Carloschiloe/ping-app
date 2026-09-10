@@ -1,0 +1,2644 @@
+{
+  "schemaVersion": 1,
+  "scope": [
+    "backend/src/**/*.ts",
+    "mobile/src/**/*.ts",
+    "mobile/src/**/*.tsx"
+  ],
+  "files": {
+    "backend/src/app.ts": {
+      "imports": [
+        "backend/src/config/env.ts",
+        "backend/src/middleware/errorHandler.ts",
+        "backend/src/middleware/requestLogger.ts",
+        "backend/src/routes/index.ts"
+      ],
+      "importedBy": [
+        "backend/src/index.ts"
+      ]
+    },
+    "backend/src/config/env.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/app.ts",
+        "backend/src/index.ts",
+        "backend/src/services/calendar_sync.service.ts",
+        "backend/src/services/cronCoordinator.ts"
+      ]
+    },
+    "backend/src/controllers/agent.controller.ts": {
+      "imports": [
+        "backend/src/types/agent.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agentAuthorize.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agentExecute.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agentPlan.controller.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agentTurn.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agentVoice.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/agora.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/inlineScript.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/ai.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/trustedMedia.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/attachment.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/calendar.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/oauthState.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/commitment.controller.ts": {
+      "imports": [
+        "backend/src/utils/commitmentCompat.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/contact.controller.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/controllers/conversation.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/contactDiscovery.ts",
+        "backend/src/utils/conversationCompat.ts",
+        "backend/src/utils/conversationInvitation.ts",
+        "backend/src/utils/messageCompat.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/group.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/insights.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/commitmentCompat.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentVisibility.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/message.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/operation.controller.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/controllers/privateFile.controller.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/push.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/search.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentCompat.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentVisibility.ts",
+        "backend/src/utils/conversationCompat.ts",
+        "backend/src/utils/messageCompat.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/controllers/user.controller.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/contactDiscovery.ts",
+        "backend/src/utils/profileValidation.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/index.ts": {
+      "imports": [
+        "backend/src/app.ts",
+        "backend/src/config/env.ts",
+        "backend/src/services/cronCoordinator.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/lib/supabaseAdmin.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/agora.controller.ts",
+        "backend/src/controllers/ai.controller.ts",
+        "backend/src/controllers/calendar.controller.ts",
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/group.controller.ts",
+        "backend/src/controllers/insights.controller.ts",
+        "backend/src/controllers/message.controller.ts",
+        "backend/src/controllers/push.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/controllers/user.controller.ts",
+        "backend/src/middleware/auth.ts",
+        "backend/src/routes/index.ts",
+        "backend/src/scripts/check_group_media.ts",
+        "backend/src/scripts/check_tokens.ts",
+        "backend/src/scripts/debug_schema.ts",
+        "backend/src/scripts/fix_bucket.ts",
+        "backend/src/scripts/test-db.ts",
+        "backend/src/scripts/test-policies.ts",
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentExecution.service.ts",
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/attachmentApplication.service.ts",
+        "backend/src/services/audioTranscriptionWorker.service.ts",
+        "backend/src/services/calendar_sync.service.ts",
+        "backend/src/services/call-processing.service.ts",
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/commitmentProposal.service.ts",
+        "backend/src/services/contact.service.ts",
+        "backend/src/services/conversationApplication.service.ts",
+        "backend/src/services/memory.service.ts",
+        "backend/src/services/memorySearchProvider.ts",
+        "backend/src/services/message.service.ts",
+        "backend/src/services/messagingApplication.service.ts",
+        "backend/src/services/morningRoutine.service.ts",
+        "backend/src/services/notification.service.ts",
+        "backend/src/services/operation.service.ts",
+        "backend/src/services/privateFile.service.ts",
+        "backend/src/services/push.service.ts",
+        "backend/src/services/retrieval.service.ts",
+        "backend/src/services/sharedContent.service.ts",
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentEvents.ts",
+        "backend/src/utils/commitmentVisibility.ts"
+      ]
+    },
+    "backend/src/middleware/auth.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/routes/index.ts"
+      ]
+    },
+    "backend/src/middleware/errorHandler.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/app.ts"
+      ]
+    },
+    "backend/src/middleware/featureGate.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/routes/index.ts"
+      ]
+    },
+    "backend/src/middleware/requestLogger.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/app.ts"
+      ]
+    },
+    "backend/src/middleware/validate.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/routes/index.ts"
+      ]
+    },
+    "backend/src/repositories/supabase.repository.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/routes/index.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/middleware/auth.ts",
+        "backend/src/middleware/featureGate.ts",
+        "backend/src/middleware/validate.ts"
+      ],
+      "importedBy": [
+        "backend/src/app.ts"
+      ]
+    },
+    "backend/src/schemas/agentAuthorizeRequest.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentExecuteRequest.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentInterpretation.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentObjectiveInterpretation.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentPlanRequest.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentRequest.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentResponse.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentTurnRequest.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/agentVoiceRequest.schema.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/schemas/attachment.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/commitment.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/contact.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/contactDiscovery.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/conversationInvitation.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/group.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/message.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/operation.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/privateFile.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/schemas/sharedContent.schema.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_estacas.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_group_files.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_group_media.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_msg_format.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_shared.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_specific_message.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/check_tokens.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/debug_agora_auth.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/debug_save_v2.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/debug_schema.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/find_group_media.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/fix_bucket.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/test_push.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/test_search_commitments.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/scripts/test-db.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/test-policies.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/scripts/test-realtime.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/agentAuthorization.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/agentExecution.ts",
+        "backend/src/types/agentInput.ts",
+        "backend/src/types/agentPlan.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/executionTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentAuthorizationPolicy.service.ts": {
+      "imports": [
+        "backend/src/types/agentExecution.ts",
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentContextBuilder.service.ts": {
+      "imports": [
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/memory.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/overdueSemantics.ts",
+        "backend/src/utils/overdueTrace.ts",
+        "backend/src/utils/timezone.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentExecution.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/agentExecution.ts",
+        "backend/src/types/agentPlan.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/executionTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentInputEnvelope.service.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentInputInterpreter.service.ts": {
+      "imports": [
+        "backend/src/types/agentContext.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentObjectiveInterpreter.service.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentOrchestrator.service.ts": {
+      "imports": [
+        "backend/src/types/agent.ts",
+        "backend/src/types/agentContext.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentPlanDigest.service.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentPlanner.service.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts",
+        "backend/src/types/agentPlan.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/commitmentTransitions.ts",
+        "backend/src/utils/planTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentPlanOrchestrator.service.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts",
+        "backend/src/types/agentPlan.ts",
+        "backend/src/utils/planTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentPlanValidator.service.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentResponseSynthesizer.service.ts": {
+      "imports": [
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/agentResponse.ts",
+        "backend/src/utils/overdueSemantics.ts",
+        "backend/src/utils/overdueTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentSession.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/agentInput.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentVisibility.ts",
+        "backend/src/utils/voiceTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentTurn.service.ts": {
+      "imports": [
+        "backend/src/types/agent.ts",
+        "backend/src/types/agentPlan.ts",
+        "backend/src/types/agentTurn.ts",
+        "backend/src/utils/overdueTrace.ts",
+        "backend/src/utils/planTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agentVoice.service.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/voiceTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/agora.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/ai.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/attachmentApplication.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/audioTranscriptionWorker.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/calendar_sync.service.ts": {
+      "imports": [
+        "backend/src/config/env.ts",
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/call-processing.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/canonicalMemoryEvents.service.ts": {
+      "imports": [
+        "backend/src/utils/memoryTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/canonicalTruthRegistry.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/memory.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentVisibility.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts"
+      ]
+    },
+    "backend/src/services/commitment.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentTransitions.ts",
+        "backend/src/utils/commitmentVisibility.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/commitmentApplication.service.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/commitmentProposal.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentCompat.ts",
+        "backend/src/utils/commitmentVisibility.ts",
+        "backend/src/utils/proposalParticipation.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/contact.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/conversation.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/conversationApplication.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/cronCoordinator.ts": {
+      "imports": [
+        "backend/src/config/env.ts"
+      ],
+      "importedBy": [
+        "backend/src/index.ts"
+      ]
+    },
+    "backend/src/services/date-parser.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/memory.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/services/memoryAutoStorePolicy.ts",
+        "backend/src/services/memorySearchProvider.ts",
+        "backend/src/types/memory.ts",
+        "backend/src/utils/memoryTrace.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/memoryAutoStorePolicy.ts": {
+      "imports": [
+        "backend/src/types/memory.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/memory.service.ts"
+      ]
+    },
+    "backend/src/services/memoryExtractionProvider.service.ts": {
+      "imports": [
+        "backend/src/types/memory.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/memorySearchProvider.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/memory.ts",
+        "backend/src/utils/memoryTrace.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/memory.service.ts"
+      ]
+    },
+    "backend/src/services/message.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/deterministicCommitmentSuggestion.ts",
+        "backend/src/utils/messageCompat.ts",
+        "backend/src/utils/trustedMedia.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/messagingApplication.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/messageCompat.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/morningRoutine.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/notification.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/operation.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/privateFile.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/push-notification.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/services/push.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/retrieval.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentVisibility.ts",
+        "backend/src/utils/overdueSemantics.ts",
+        "backend/src/utils/profileValidation.ts",
+        "backend/src/utils/proposalParticipation.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/sharedContent.service.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/speechSynthesis.service.ts": {
+      "imports": [
+        "backend/src/types/agentInput.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/synthesis.service.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/temporalContext.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/toolExecutorRegistry.service.ts": {
+      "imports": [
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/createCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/respondToProposalExecutor.ts",
+        "backend/src/services/toolExecutors/sendMessageExecutor.ts",
+        "backend/src/types/agentExecution.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/toolExecutors/completeCommitmentExecutor.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/agentExecution.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentTransitions.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/toolExecutorRegistry.service.ts"
+      ]
+    },
+    "backend/src/services/toolExecutors/createCommitmentExecutor.ts": {
+      "imports": [
+        "backend/src/types/agentExecution.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/toolExecutorRegistry.service.ts"
+      ]
+    },
+    "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/types/agentExecution.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentTransitions.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/toolExecutorRegistry.service.ts"
+      ]
+    },
+    "backend/src/services/toolExecutors/respondToProposalExecutor.ts": {
+      "imports": [
+        "backend/src/types/agentExecution.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/toolExecutorRegistry.service.ts"
+      ]
+    },
+    "backend/src/services/toolExecutors/sendMessageExecutor.ts": {
+      "imports": [
+        "backend/src/types/agentExecution.ts",
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/authz.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/toolExecutorRegistry.service.ts"
+      ]
+    },
+    "backend/src/services/toolRegistry.service.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/services/transcription.service.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/types/agent.ts": {
+      "imports": [
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/agentInput.ts",
+        "backend/src/types/agentResponse.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/agent.controller.ts",
+        "backend/src/services/agentOrchestrator.service.ts",
+        "backend/src/services/agentTurn.service.ts",
+        "backend/src/types/agentTurn.ts"
+      ]
+    },
+    "backend/src/types/agentContext.ts": {
+      "imports": [
+        "backend/src/types/memory.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/agentInputInterpreter.service.ts",
+        "backend/src/services/agentOrchestrator.service.ts",
+        "backend/src/services/agentResponseSynthesizer.service.ts",
+        "backend/src/types/agent.ts",
+        "backend/src/types/agentResponse.ts"
+      ]
+    },
+    "backend/src/types/agentExecution.ts": {
+      "imports": [
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentAuthorizationPolicy.service.ts",
+        "backend/src/services/agentExecution.service.ts",
+        "backend/src/services/toolExecutorRegistry.service.ts",
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/createCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/respondToProposalExecutor.ts",
+        "backend/src/services/toolExecutors/sendMessageExecutor.ts"
+      ]
+    },
+    "backend/src/types/agentInput.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/schemas/agentVoiceRequest.schema.ts",
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentInputEnvelope.service.ts",
+        "backend/src/services/agentPlanner.service.ts",
+        "backend/src/services/agentPlanOrchestrator.service.ts",
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/agentVoice.service.ts",
+        "backend/src/services/speechSynthesis.service.ts",
+        "backend/src/types/agent.ts"
+      ]
+    },
+    "backend/src/types/agentPlan.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/agentPlan.controller.ts",
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentAuthorizationPolicy.service.ts",
+        "backend/src/services/agentExecution.service.ts",
+        "backend/src/services/agentObjectiveInterpreter.service.ts",
+        "backend/src/services/agentPlanDigest.service.ts",
+        "backend/src/services/agentPlanner.service.ts",
+        "backend/src/services/agentPlanOrchestrator.service.ts",
+        "backend/src/services/agentPlanValidator.service.ts",
+        "backend/src/services/agentTurn.service.ts",
+        "backend/src/services/toolRegistry.service.ts",
+        "backend/src/types/agentExecution.ts",
+        "backend/src/types/agentTurn.ts"
+      ]
+    },
+    "backend/src/types/agentResponse.ts": {
+      "imports": [
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/retrieval.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentResponseSynthesizer.service.ts",
+        "backend/src/types/agent.ts"
+      ]
+    },
+    "backend/src/types/agentTurn.ts": {
+      "imports": [
+        "backend/src/types/agent.ts",
+        "backend/src/types/agentPlan.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentTurn.service.ts"
+      ]
+    },
+    "backend/src/types/memory.ts": {
+      "imports": [
+        "backend/src/types/retrieval.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/services/memory.service.ts",
+        "backend/src/services/memoryAutoStorePolicy.ts",
+        "backend/src/services/memoryExtractionProvider.service.ts",
+        "backend/src/services/memorySearchProvider.ts",
+        "backend/src/types/agentContext.ts"
+      ]
+    },
+    "backend/src/types/retrieval.ts": {
+      "imports": [
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/agentPlanner.service.ts",
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/services/retrieval.service.ts",
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/agentResponse.ts",
+        "backend/src/types/memory.ts"
+      ]
+    },
+    "backend/src/types/shared.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/utils/AppError.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/agent.controller.ts",
+        "backend/src/controllers/agentAuthorize.controller.ts",
+        "backend/src/controllers/agentExecute.controller.ts",
+        "backend/src/controllers/agentPlan.controller.ts",
+        "backend/src/controllers/agentTurn.controller.ts",
+        "backend/src/controllers/agentVoice.controller.ts",
+        "backend/src/controllers/agora.controller.ts",
+        "backend/src/controllers/attachment.controller.ts",
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/group.controller.ts",
+        "backend/src/controllers/message.controller.ts",
+        "backend/src/controllers/privateFile.controller.ts",
+        "backend/src/middleware/auth.ts",
+        "backend/src/middleware/errorHandler.ts",
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/agentExecution.service.ts",
+        "backend/src/services/agentInputEnvelope.service.ts",
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/agentVoice.service.ts",
+        "backend/src/services/attachmentApplication.service.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/commitmentApplication.service.ts",
+        "backend/src/services/commitmentProposal.service.ts",
+        "backend/src/services/conversationApplication.service.ts",
+        "backend/src/services/messagingApplication.service.ts",
+        "backend/src/services/privateFile.service.ts",
+        "backend/src/services/retrieval.service.ts",
+        "backend/src/services/sharedContent.service.ts",
+        "backend/src/services/synthesis.service.ts",
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/createCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/respondToProposalExecutor.ts",
+        "backend/src/services/toolExecutors/sendMessageExecutor.ts",
+        "backend/src/utils/authz.ts",
+        "backend/src/utils/commitmentTransitions.ts",
+        "backend/src/utils/contactDiscovery.ts",
+        "backend/src/utils/conversationInvitation.ts",
+        "backend/src/utils/profileValidation.ts"
+      ]
+    },
+    "backend/src/utils/authz.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/agora.controller.ts",
+        "backend/src/controllers/ai.controller.ts",
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/group.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/controllers/user.controller.ts",
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/attachmentApplication.service.ts",
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/commitmentProposal.service.ts",
+        "backend/src/services/contact.service.ts",
+        "backend/src/services/message.service.ts",
+        "backend/src/services/operation.service.ts",
+        "backend/src/services/privateFile.service.ts",
+        "backend/src/services/retrieval.service.ts",
+        "backend/src/services/sharedContent.service.ts",
+        "backend/src/services/toolExecutors/createCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/sendMessageExecutor.ts"
+      ]
+    },
+    "backend/src/utils/commitmentCompat.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/commitment.controller.ts",
+        "backend/src/controllers/insights.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/services/commitmentProposal.service.ts"
+      ]
+    },
+    "backend/src/utils/commitmentEvents.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts",
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/commitmentTransitions.ts"
+      ],
+      "importedBy": []
+    },
+    "backend/src/utils/commitmentStatus.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/insights.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/services/agentInputInterpreter.service.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/commitmentApplication.service.ts",
+        "backend/src/services/morningRoutine.service.ts",
+        "backend/src/services/operation.service.ts",
+        "backend/src/services/retrieval.service.ts",
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/types/agentContext.ts",
+        "backend/src/types/retrieval.ts",
+        "backend/src/utils/commitmentEvents.ts",
+        "backend/src/utils/commitmentTransitions.ts",
+        "backend/src/utils/overdueSemantics.ts"
+      ]
+    },
+    "backend/src/utils/commitmentTransitions.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts",
+        "backend/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentPlanner.service.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/toolExecutors/completeCommitmentExecutor.ts",
+        "backend/src/services/toolExecutors/rescheduleCommitmentExecutor.ts",
+        "backend/src/utils/commitmentEvents.ts"
+      ]
+    },
+    "backend/src/utils/commitmentType.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "backend/src/utils/commitmentVisibility.ts": {
+      "imports": [
+        "backend/src/lib/supabaseAdmin.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/insights.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/canonicalTruthRegistry.ts",
+        "backend/src/services/commitment.service.ts",
+        "backend/src/services/commitmentProposal.service.ts",
+        "backend/src/services/retrieval.service.ts"
+      ]
+    },
+    "backend/src/utils/contactDiscovery.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/user.controller.ts"
+      ]
+    },
+    "backend/src/utils/conversationCompat.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/search.controller.ts"
+      ]
+    },
+    "backend/src/utils/conversationInvitation.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/conversation.controller.ts"
+      ]
+    },
+    "backend/src/utils/deterministicCommitmentSuggestion.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/message.service.ts"
+      ]
+    },
+    "backend/src/utils/executionTrace.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/agentAuthorization.service.ts",
+        "backend/src/services/agentExecution.service.ts"
+      ]
+    },
+    "backend/src/utils/inlineScript.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/agora.controller.ts"
+      ]
+    },
+    "backend/src/utils/memoryTrace.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/canonicalMemoryEvents.service.ts",
+        "backend/src/services/memory.service.ts",
+        "backend/src/services/memorySearchProvider.ts"
+      ]
+    },
+    "backend/src/utils/messageCompat.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/conversation.controller.ts",
+        "backend/src/controllers/search.controller.ts",
+        "backend/src/services/message.service.ts",
+        "backend/src/services/messagingApplication.service.ts"
+      ]
+    },
+    "backend/src/utils/oauthState.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/calendar.controller.ts"
+      ]
+    },
+    "backend/src/utils/overdueSemantics.ts": {
+      "imports": [
+        "backend/src/utils/commitmentStatus.ts",
+        "backend/src/utils/timezone.ts"
+      ],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/agentResponseSynthesizer.service.ts",
+        "backend/src/services/retrieval.service.ts"
+      ]
+    },
+    "backend/src/utils/overdueTrace.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/agent.controller.ts",
+        "backend/src/controllers/agentAuthorize.controller.ts",
+        "backend/src/controllers/agentExecute.controller.ts",
+        "backend/src/controllers/agentPlan.controller.ts",
+        "backend/src/controllers/agentTurn.controller.ts",
+        "backend/src/controllers/agentVoice.controller.ts",
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/services/agentResponseSynthesizer.service.ts",
+        "backend/src/services/agentTurn.service.ts"
+      ]
+    },
+    "backend/src/utils/planTrace.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/agentPlanner.service.ts",
+        "backend/src/services/agentPlanOrchestrator.service.ts",
+        "backend/src/services/agentTurn.service.ts"
+      ]
+    },
+    "backend/src/utils/profileValidation.ts": {
+      "imports": [
+        "backend/src/utils/AppError.ts"
+      ],
+      "importedBy": [
+        "backend/src/controllers/user.controller.ts",
+        "backend/src/services/retrieval.service.ts"
+      ]
+    },
+    "backend/src/utils/proposalParticipation.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/commitmentProposal.service.ts",
+        "backend/src/services/retrieval.service.ts"
+      ]
+    },
+    "backend/src/utils/temporalContext.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/synthesis.service.ts"
+      ]
+    },
+    "backend/src/utils/timezone.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/agentContextBuilder.service.ts",
+        "backend/src/utils/overdueSemantics.ts"
+      ]
+    },
+    "backend/src/utils/trustedMedia.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/controllers/ai.controller.ts",
+        "backend/src/services/message.service.ts"
+      ]
+    },
+    "backend/src/utils/voiceTrace.ts": {
+      "imports": [],
+      "importedBy": [
+        "backend/src/services/agentSession.service.ts",
+        "backend/src/services/agentVoice.service.ts"
+      ]
+    },
+    "mobile/src/api/client.ts": {
+      "imports": [
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/api/query-modules/calendar.ts",
+        "mobile/src/api/query-modules/commitmentConfirmRequests.ts",
+        "mobile/src/api/query-modules/commitments.ts",
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/api/query-modules/groups.ts",
+        "mobile/src/api/query-modules/legacy-ai.ts",
+        "mobile/src/api/query-modules/operation.ts",
+        "mobile/src/components/AISuggestionModal.tsx",
+        "mobile/src/components/perfil/CalendarsSheet.tsx",
+        "mobile/src/hooks/useChatMessages.ts",
+        "mobile/src/hooks/usePushNotifications.ts",
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/CallScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/HoyScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/NewChatScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/api/queries.ts": {
+      "imports": [
+        "mobile/src/api/query-modules/index.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/AISuggestionModal.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/perfil/CalendarsSheet.tsx",
+        "mobile/src/hooks/useChatMessages.ts",
+        "mobile/src/screens/AddParticipantsScreen.tsx",
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/HoyScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/NewGroupScreen.tsx",
+        "mobile/src/screens/PingAIScreen.tsx",
+        "mobile/src/screens/ProfileScreen.tsx",
+        "mobile/src/screens/QuickCaptureScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx",
+        "mobile/src/screens/SpotlightSearch.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx"
+      ]
+    },
+    "mobile/src/api/query-modules/agent.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/utils/timeZone.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts",
+        "mobile/src/components/agent/AgentExecutionCard.tsx",
+        "mobile/src/components/agent/AgentPlanCard.tsx",
+        "mobile/src/hooks/useAgentVoiceInput.ts",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/utils/agentChat.ts",
+        "mobile/src/utils/agentTurnState.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/calendar.ts": {
+      "imports": [
+        "mobile/src/api/client.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/commitmentConfirmRequests.ts": {
+      "imports": [
+        "mobile/src/api/client.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/commitments.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/commitments.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/query-modules/commitmentConfirmRequests.ts",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/conversations.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/types/sharedContent.ts",
+        "mobile/src/utils/messageReconciliation.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/groups.ts": {
+      "imports": [
+        "mobile/src/api/client.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/index.ts": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/api/query-modules/calendar.ts",
+        "mobile/src/api/query-modules/commitments.ts",
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/api/query-modules/groups.ts",
+        "mobile/src/api/query-modules/legacy-ai.ts",
+        "mobile/src/api/query-modules/operation.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/queries.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/legacy-ai.ts": {
+      "imports": [
+        "mobile/src/api/client.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/api/query-modules/operation.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/index.ts"
+      ]
+    },
+    "mobile/src/components/agent/AgentExecutionCard.tsx": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    },
+    "mobile/src/components/agent/AgentPlanCard.tsx": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    },
+    "mobile/src/components/AgreementParticipantsList.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/agreement.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/GroupTaskCard.tsx"
+      ]
+    },
+    "mobile/src/components/AISuggestionModal.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/utils/timeZone.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/AudioPlayer.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/messagePresentation.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/ChatInput.tsx",
+        "mobile/src/components/MessageItem.tsx",
+        "mobile/src/screens/PingAIScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx"
+      ]
+    },
+    "mobile/src/components/auth/AuthKit.tsx": {
+      "imports": [
+        "mobile/src/theme/authTheme.ts",
+        "mobile/src/utils/authForm.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AuthScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/components/chat-info/ChecklistEditorModal.tsx": {
+      "imports": [],
+      "importedBy": []
+    },
+    "mobile/src/components/chat-info/ChecklistManagementSection.tsx": {
+      "imports": [],
+      "importedBy": []
+    },
+    "mobile/src/components/chat-info/GroupMembersSection.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatInfoScreen.tsx"
+      ]
+    },
+    "mobile/src/components/ChatHeader.tsx": {
+      "imports": [
+        "mobile/src/hooks/useProfileAvatarUrl.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/chatHeaderCapabilities.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/ChatInput.tsx": {
+      "imports": [
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/audioRecording.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/compromisos/CommitmentDetailSheet.tsx": {
+      "imports": [
+        "mobile/src/components/AgreementParticipantsList.tsx",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/agreement.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/InsightsScreen.tsx"
+      ]
+    },
+    "mobile/src/components/compromisos/CommitmentRow.tsx": {
+      "imports": [
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/actorPresentation.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/InsightsScreen.tsx"
+      ]
+    },
+    "mobile/src/components/compromisos/ConfirmCommitmentModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/commitmentDisplay.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/components/compromisos/RescheduleModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/components/ConversationRow.tsx": {
+      "imports": [
+        "mobile/src/hooks/useProfileAvatarUrl.ts",
+        "mobile/src/utils/conversationCompat.ts",
+        "mobile/src/utils/messageCompat.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ConversationsScreen.tsx"
+      ]
+    },
+    "mobile/src/components/ForwardMessagesModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/GlobalSearchSection.tsx": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ConversationsScreen.tsx"
+      ]
+    },
+    "mobile/src/components/GroupTaskCard.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/AgreementParticipantsList.tsx",
+        "mobile/src/components/AISuggestionModal.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/actorPresentation.ts",
+        "mobile/src/utils/agreement.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/MessageItem.tsx"
+      ]
+    },
+    "mobile/src/components/hoy/OverdueAlert.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/components/hoy/TodayItemRow.tsx": {
+      "imports": [
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/actorPresentation.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/components/hoy/TodaySummaryBar.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/components/LocationConfirmModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/mapTiles.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/LockScreen.tsx": {
+      "imports": [],
+      "importedBy": []
+    },
+    "mobile/src/components/MentionPopup.tsx": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/MessageActionsModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/MessageItem.tsx": {
+      "imports": [
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/hooks/useProfileAvatarUrl.ts",
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/mapTiles.ts",
+        "mobile/src/utils/messageCompat.ts",
+        "mobile/src/utils/messagePresentation.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/OperationPanel.tsx": {
+      "imports": [
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/agreement.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/perfil/CalendarsSheet.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/components/perfil/EditProfileSheet.tsx": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/profile.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/components/perfil/FocusModeSheet.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/components/ReactionsModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/shared-content/SharedContentThumbnail.tsx": {
+      "imports": [
+        "mobile/src/hooks/useSharedContentUrl.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/types/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx"
+      ]
+    },
+    "mobile/src/components/shared-content/SharedMediaViewer.tsx": {
+      "imports": [
+        "mobile/src/hooks/useSharedContentUrl.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/types/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/SharedVisualContentScreen.tsx"
+      ]
+    },
+    "mobile/src/components/SummaryModal.tsx": {
+      "imports": [
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/components/TypingIndicator.tsx": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/context/AuthContext.tsx": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/utils/authRedirect.ts",
+        "mobile/src/utils/offlineQueueStorage.ts"
+      ],
+      "importedBy": [
+        "mobile/src/api/query-modules/commitments.ts",
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/OperationPanel.tsx",
+        "mobile/src/hooks/usePushNotifications.ts",
+        "mobile/src/navigation/index.tsx",
+        "mobile/src/screens/AddParticipantsScreen.tsx",
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/ProfileScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useAgentVoiceInput.ts": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/utils/audioRecording.ts",
+        "mobile/src/utils/voiceSession.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useAudioRecorder.ts": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/utils/audioRecording.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useChatMessages.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/hooks/useOfflineSync.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/utils/messageReceipts.ts",
+        "mobile/src/utils/messageReconciliation.ts",
+        "mobile/src/utils/synchronization.ts",
+        "mobile/src/utils/timeZone.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useChatOperation.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useChatPresence.ts": {
+      "imports": [
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useDebouncedValue.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ConversationsScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useMediaPicker.ts": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/hooks/useOfflineSync.ts": {
+      "imports": [
+        "mobile/src/utils/synchronization.ts"
+      ],
+      "importedBy": [
+        "mobile/src/hooks/useChatMessages.ts"
+      ]
+    },
+    "mobile/src/hooks/useProfileAvatarUrl.ts": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/ChatHeader.tsx",
+        "mobile/src/components/ConversationRow.tsx",
+        "mobile/src/components/MessageItem.tsx"
+      ]
+    },
+    "mobile/src/hooks/usePushNotifications.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/hooks/useSharedContentUrl.ts": {
+      "imports": [
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/types/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/shared-content/SharedContentThumbnail.tsx",
+        "mobile/src/components/shared-content/SharedMediaViewer.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx"
+      ]
+    },
+    "mobile/src/lib/notifications.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/HoyScreen.tsx"
+      ]
+    },
+    "mobile/src/lib/privateFiles.ts": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/utils/synchronization.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/MessageItem.tsx",
+        "mobile/src/components/perfil/EditProfileSheet.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/hooks/useAudioRecorder.ts",
+        "mobile/src/hooks/useMediaPicker.ts",
+        "mobile/src/hooks/useProfileAvatarUrl.ts",
+        "mobile/src/hooks/useSharedContentUrl.ts",
+        "mobile/src/screens/ProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/lib/supabase.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/query-modules/commitments.ts",
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/components/perfil/CalendarsSheet.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/hooks/useChatMessages.ts",
+        "mobile/src/hooks/useChatPresence.ts",
+        "mobile/src/hooks/usePushNotifications.ts",
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/screens/AuthScreen.tsx",
+        "mobile/src/screens/CallScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/IncomingCallScreen.tsx",
+        "mobile/src/screens/ProfileScreen.tsx",
+        "mobile/src/screens/SpotlightSearch.tsx"
+      ]
+    },
+    "mobile/src/lib/upload.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/NewGroupScreen.tsx",
+        "mobile/src/screens/PingAIScreen.tsx"
+      ]
+    },
+    "mobile/src/navigation/index.tsx": {
+      "imports": [
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/hooks/usePushNotifications.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/screens/AddParticipantsScreen.tsx",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/AuthScreen.tsx",
+        "mobile/src/screens/CallScreen.tsx",
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/IncomingCallScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/NewChatScreen.tsx",
+        "mobile/src/screens/NewGroupScreen.tsx",
+        "mobile/src/screens/PingAIScreen.tsx",
+        "mobile/src/screens/ProfileScreen.tsx",
+        "mobile/src/screens/QuickCaptureScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx",
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": []
+    },
+    "mobile/src/navigation/types.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/navigation/index.tsx",
+        "mobile/src/screens/AddParticipantsScreen.tsx",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx"
+      ]
+    },
+    "mobile/src/screens/AddParticipantsScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/navigation/types.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/AgentPreviewScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/components/agent/AgentExecutionCard.tsx",
+        "mobile/src/components/agent/AgentPlanCard.tsx",
+        "mobile/src/hooks/useAgentVoiceInput.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/agentChat.ts",
+        "mobile/src/utils/agentTurnState.ts",
+        "mobile/src/utils/audioRecording.ts",
+        "mobile/src/utils/chatKeyboard.ts",
+        "mobile/src/utils/voiceSession.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/AuthScreen.tsx": {
+      "imports": [
+        "mobile/src/components/auth/AuthKit.tsx",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/theme/authTheme.ts",
+        "mobile/src/utils/authForm.ts",
+        "mobile/src/utils/authRegistration.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/CallScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/utils/callBridge.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/ChatInfoScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/chat-info/GroupMembersSection.tsx",
+        "mobile/src/components/shared-content/SharedContentThumbnail.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/upload.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/ChatScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/AISuggestionModal.tsx",
+        "mobile/src/components/ChatHeader.tsx",
+        "mobile/src/components/ChatInput.tsx",
+        "mobile/src/components/ForwardMessagesModal.tsx",
+        "mobile/src/components/LocationConfirmModal.tsx",
+        "mobile/src/components/MentionPopup.tsx",
+        "mobile/src/components/MessageActionsModal.tsx",
+        "mobile/src/components/MessageItem.tsx",
+        "mobile/src/components/OperationPanel.tsx",
+        "mobile/src/components/ReactionsModal.tsx",
+        "mobile/src/components/SummaryModal.tsx",
+        "mobile/src/components/TypingIndicator.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/hooks/useAudioRecorder.ts",
+        "mobile/src/hooks/useChatMessages.ts",
+        "mobile/src/hooks/useChatOperation.ts",
+        "mobile/src/hooks/useChatPresence.ts",
+        "mobile/src/hooks/useMediaPicker.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/theme.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/audioRecording.ts",
+        "mobile/src/utils/chatKeyboard.ts",
+        "mobile/src/utils/messageActions.ts",
+        "mobile/src/utils/messageCompat.ts",
+        "mobile/src/utils/messageFocus.ts",
+        "mobile/src/utils/synchronization.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/CompleteProfileScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/auth/AuthKit.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/theme/authTheme.ts",
+        "mobile/src/utils/authRegistration.ts",
+        "mobile/src/utils/profile.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/ConversationsScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/ConversationRow.tsx",
+        "mobile/src/components/GlobalSearchSection.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/hooks/useDebouncedValue.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/conversationCompat.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/HoyScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/lib/notifications.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": []
+    },
+    "mobile/src/screens/IncomingCallScreen.tsx": {
+      "imports": [
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/InsightsScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/compromisos/ConfirmCommitmentModal.tsx",
+        "mobile/src/components/compromisos/RescheduleModal.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/commitmentConfirmDispatch.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/NewChatScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/NewGroupScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/lib/upload.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/PingAIScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/lib/upload.ts",
+        "mobile/src/utils/aiPresentation.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/ProfileScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/perfil/CalendarsSheet.tsx",
+        "mobile/src/components/perfil/EditProfileSheet.tsx",
+        "mobile/src/components/perfil/FocusModeSheet.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/lib/supabase.ts",
+        "mobile/src/theme/ThemeContext.tsx"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/QuickCaptureScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/SharedContentScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/hooks/useSharedContentUrl.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/types/sharedContent.ts",
+        "mobile/src/utils/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/SharedVisualContentScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/shared-content/SharedContentThumbnail.tsx",
+        "mobile/src/components/shared-content/SharedMediaViewer.tsx",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/types/sharedContent.ts",
+        "mobile/src/utils/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/SpotlightSearch.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/lib/supabase.ts"
+      ],
+      "importedBy": []
+    },
+    "mobile/src/screens/TaskDashboardScreen.tsx": {
+      "imports": [
+        "mobile/src/api/client.ts",
+        "mobile/src/api/queries.ts",
+        "mobile/src/components/compromisos/ConfirmCommitmentModal.tsx",
+        "mobile/src/components/compromisos/RescheduleModal.tsx",
+        "mobile/src/components/hoy/OverdueAlert.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/components/hoy/TodaySummaryBar.tsx",
+        "mobile/src/context/AuthContext.tsx",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/commitmentConfirmDispatch.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts",
+        "mobile/src/utils/holidays.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/screens/TaskHistoryScreen.tsx": {
+      "imports": [
+        "mobile/src/api/queries.ts",
+        "mobile/src/navigation/types.ts",
+        "mobile/src/theme/ThemeContext.tsx",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/navigation/index.tsx"
+      ]
+    },
+    "mobile/src/theme/authTheme.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/auth/AuthKit.tsx",
+        "mobile/src/screens/AuthScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/theme/theme.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/theme/ThemeContext.tsx"
+      ]
+    },
+    "mobile/src/theme/ThemeContext.tsx": {
+      "imports": [
+        "mobile/src/theme/theme.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/agent/AgentExecutionCard.tsx",
+        "mobile/src/components/agent/AgentPlanCard.tsx",
+        "mobile/src/components/AgreementParticipantsList.tsx",
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/components/chat-info/GroupMembersSection.tsx",
+        "mobile/src/components/ChatHeader.tsx",
+        "mobile/src/components/ChatInput.tsx",
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/compromisos/ConfirmCommitmentModal.tsx",
+        "mobile/src/components/compromisos/RescheduleModal.tsx",
+        "mobile/src/components/ForwardMessagesModal.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/hoy/OverdueAlert.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/components/hoy/TodaySummaryBar.tsx",
+        "mobile/src/components/LocationConfirmModal.tsx",
+        "mobile/src/components/MessageActionsModal.tsx",
+        "mobile/src/components/MessageItem.tsx",
+        "mobile/src/components/OperationPanel.tsx",
+        "mobile/src/components/perfil/CalendarsSheet.tsx",
+        "mobile/src/components/perfil/EditProfileSheet.tsx",
+        "mobile/src/components/perfil/FocusModeSheet.tsx",
+        "mobile/src/components/ReactionsModal.tsx",
+        "mobile/src/components/shared-content/SharedContentThumbnail.tsx",
+        "mobile/src/components/shared-content/SharedMediaViewer.tsx",
+        "mobile/src/components/SummaryModal.tsx",
+        "mobile/src/navigation/index.tsx",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/ProfileScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx"
+      ]
+    },
+    "mobile/src/types/shared.ts": {
+      "imports": [],
+      "importedBy": []
+    },
+    "mobile/src/types/sharedContent.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/components/shared-content/SharedContentThumbnail.tsx",
+        "mobile/src/components/shared-content/SharedMediaViewer.tsx",
+        "mobile/src/hooks/useSharedContentUrl.ts",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx",
+        "mobile/src/utils/sharedContent.ts"
+      ]
+    },
+    "mobile/src/utils/actorPresentation.ts": {
+      "imports": [
+        "mobile/src/utils/agreement.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx"
+      ]
+    },
+    "mobile/src/utils/agentChat.ts": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/agentTurnState.ts": {
+      "imports": [
+        "mobile/src/api/query-modules/agent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/agreement.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/AgreementParticipantsList.tsx",
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/OperationPanel.tsx",
+        "mobile/src/utils/actorPresentation.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts"
+      ]
+    },
+    "mobile/src/utils/aiPresentation.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/PingAIScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/audioRecording.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/ChatInput.tsx",
+        "mobile/src/hooks/useAgentVoiceInput.ts",
+        "mobile/src/hooks/useAudioRecorder.ts",
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/authForm.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/auth/AuthKit.tsx",
+        "mobile/src/screens/AuthScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/authRedirect.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/context/AuthContext.tsx"
+      ]
+    },
+    "mobile/src/utils/authRegistration.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/AuthScreen.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/callBridge.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/CallScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/chatHeaderCapabilities.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/ChatHeader.tsx"
+      ]
+    },
+    "mobile/src/utils/chatKeyboard.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/AgentPreviewScreen.tsx",
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/commitmentConfirmDispatch.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/commitmentDisplay.ts": {
+      "imports": [
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/compromisos/ConfirmCommitmentModal.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx",
+        "mobile/src/utils/actorPresentation.ts"
+      ]
+    },
+    "mobile/src/utils/commitmentPrimaryAction.ts": {
+      "imports": [
+        "mobile/src/utils/agreement.ts",
+        "mobile/src/utils/commitmentStatus.ts"
+      ],
+      "importedBy": [
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/utils/actorPresentation.ts"
+      ]
+    },
+    "mobile/src/utils/commitmentStatus.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/api/query-modules/operation.ts",
+        "mobile/src/components/compromisos/CommitmentDetailSheet.tsx",
+        "mobile/src/components/compromisos/CommitmentRow.tsx",
+        "mobile/src/components/GroupTaskCard.tsx",
+        "mobile/src/components/hoy/TodayItemRow.tsx",
+        "mobile/src/components/OperationPanel.tsx",
+        "mobile/src/screens/HoyScreen.tsx",
+        "mobile/src/screens/InsightsScreen.tsx",
+        "mobile/src/screens/TaskDashboardScreen.tsx",
+        "mobile/src/screens/TaskHistoryScreen.tsx",
+        "mobile/src/utils/actorPresentation.ts",
+        "mobile/src/utils/commitmentDisplay.ts",
+        "mobile/src/utils/commitmentPrimaryAction.ts"
+      ]
+    },
+    "mobile/src/utils/conversationCompat.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/ConversationRow.tsx",
+        "mobile/src/screens/ConversationsScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/holidays.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/TaskDashboardScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/mapTiles.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/LocationConfirmModal.tsx",
+        "mobile/src/components/MessageItem.tsx"
+      ]
+    },
+    "mobile/src/utils/messageActions.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/messageCompat.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/ConversationRow.tsx",
+        "mobile/src/components/MessageItem.tsx",
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/messageFocus.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/screens/ChatScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/messagePresentation.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/AudioPlayer.tsx",
+        "mobile/src/components/MessageItem.tsx"
+      ]
+    },
+    "mobile/src/utils/messageReceipts.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/hooks/useChatMessages.ts"
+      ]
+    },
+    "mobile/src/utils/messageReconciliation.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/api/query-modules/conversations.ts",
+        "mobile/src/hooks/useChatMessages.ts"
+      ]
+    },
+    "mobile/src/utils/offlineQueueStorage.ts": {
+      "imports": [
+        "mobile/src/utils/synchronization.ts"
+      ],
+      "importedBy": [
+        "mobile/src/context/AuthContext.tsx"
+      ]
+    },
+    "mobile/src/utils/profile.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/components/perfil/EditProfileSheet.tsx",
+        "mobile/src/screens/CompleteProfileScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/sharedContent.ts": {
+      "imports": [
+        "mobile/src/types/sharedContent.ts"
+      ],
+      "importedBy": [
+        "mobile/src/screens/ChatInfoScreen.tsx",
+        "mobile/src/screens/SharedContentScreen.tsx",
+        "mobile/src/screens/SharedVisualContentScreen.tsx"
+      ]
+    },
+    "mobile/src/utils/synchronization.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/hooks/useChatMessages.ts",
+        "mobile/src/hooks/useOfflineSync.ts",
+        "mobile/src/lib/privateFiles.ts",
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/utils/offlineQueueStorage.ts"
+      ]
+    },
+    "mobile/src/utils/timeZone.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/api/query-modules/agent.ts",
+        "mobile/src/components/AISuggestionModal.tsx",
+        "mobile/src/hooks/useChatMessages.ts"
+      ]
+    },
+    "mobile/src/utils/voiceSession.ts": {
+      "imports": [],
+      "importedBy": [
+        "mobile/src/hooks/useAgentVoiceInput.ts",
+        "mobile/src/screens/AgentPreviewScreen.tsx"
+      ]
+    }
+  }
+}
