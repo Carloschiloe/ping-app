@@ -141,7 +141,7 @@ export interface PlanStepProvenance {
     // A short excerpt of the source utterance this step was derived from —
     // never independently hallucinated (sección 28).
     sourceUtteranceSpan?: string;
-    resolvedFrom: 'user_text' | 'entity_resolution' | 'memory' | 'canonical_context';
+    resolvedFrom: 'user_text' | 'entity_resolution' | 'memory' | 'canonical_context' | 'global_conversation_resolution';
     canonicalSourceRefs: { sourceType: string; sourceId: string }[];
 }
 

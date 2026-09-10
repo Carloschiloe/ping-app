@@ -50,6 +50,7 @@ import type {
     RetrievalTranscript,
     RetrieveContextInput,
     PersonResolutionResult,
+    DirectConversationResolution,
 } from '../types/retrieval';
 
 // ─── Límites por defecto (sección 13) ───────────────────────────────────────
@@ -1052,6 +1053,69 @@ export async function retrieveAttachments(
 ): Promise<RetrievalAttachment[]> {
     await assertConversationParticipant(actorUserId, conversationId);
     return retrieveAttachmentsInternal(conversationId, limit, kinds);
+}
+
+// ─── Direct conversation resolution (global Agent send_message) ──────────────
+// Finds an existing direct conversation between actor and another user.
+// Returns an id only when exactly one authorized, structurally valid match
+// exists; ambiguity is data, not an exception, so the planner can clarify.
+export async function resolveDirectConversation(actorUserId: string, otherUserId: string): Promise<DirectConversationResolution> {
+    // Authorization-first: begin only from memberships belonging to the
+    // authenticated actor. This resolver never creates a conversation.
+    const { data: actorMemberships, error: membershipError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', actorUserId);
+    if (membershipError) throw new AppError(membershipError.message, 500);
+
+    const actorConversationIds = [...new Set((actorMemberships || []).map((row) => row.conversation_id))];
+    if (actorConversationIds.length === 0) {
+        return { conversationId: null, ambiguous: false, candidateCount: 0 };
+    }
+
+    const { data: directConversations, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .in('id', actorConversationIds)
+        .eq('conversation_type', 'direct')
+        .is('deleted_at', null);
+    if (conversationError) throw new AppError(conversationError.message, 500);
+
+    const directIds = (directConversations || []).map((row) => row.id);
+    if (directIds.length === 0) {
+        return { conversationId: null, ambiguous: false, candidateCount: 0 };
+    }
+
+    // A row labelled "direct" is still treated as untrusted data: verify
+    // the complete participant set so a malformed/group-shaped conversation
+    // can never be selected as a 1:1 recipient channel.
+    const { data: participants, error: participantsError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id, user_id')
+        .in('conversation_id', directIds);
+    if (participantsError) throw new AppError(participantsError.message, 500);
+
+    const participantsByConversation = new Map<string, Set<string>>();
+    for (const row of participants || []) {
+        const members = participantsByConversation.get(row.conversation_id) ?? new Set<string>();
+        members.add(row.user_id);
+        participantsByConversation.set(row.conversation_id, members);
+    }
+
+    const candidates = directIds.filter((conversationId) => {
+        const members = participantsByConversation.get(conversationId) ?? new Set<string>();
+        if (actorUserId === otherUserId) return members.size === 1 && members.has(actorUserId);
+        return members.size === 2 && members.has(actorUserId) && members.has(otherUserId);
+    });
+
+    if (candidates.length === 1) {
+        return { conversationId: candidates[0], ambiguous: false, candidateCount: 1 };
+    }
+    return {
+        conversationId: null,
+        ambiguous: candidates.length > 1,
+        candidateCount: candidates.length,
+    };
 }
 
 // ─── Orquestador principal ───────────────────────────────────────────────────

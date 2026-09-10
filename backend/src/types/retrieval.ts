@@ -52,6 +52,12 @@ export interface PersonResolutionResult {
     candidates: RetrievalPerson[];
 }
 
+export interface DirectConversationResolution {
+    conversationId: string | null;
+    ambiguous: boolean;
+    candidateCount: number;
+}
+
 export interface RetrievalCommitment {
     id: string;
     // M-1H — 'commitment' (tabla canónica) o 'commitment_proposal' (tabla

@@ -8,12 +8,12 @@
 // (resolvePerson, retrieveCommitments, retrieveCommitmentProposals,
 // parseDateFromText) to ground a plan that a future M-4 would execute.
 import { randomUUID } from 'crypto';
-import { resolvePerson, retrieveCommitments, retrieveCommitmentProposals, retrieveVisibleCommitmentById } from './retrieval.service';
+import { resolvePerson, retrieveCommitments, retrieveCommitmentProposals, retrieveVisibleCommitmentById, resolveDirectConversation } from './retrieval.service';
 import { parseDateFromText, resolveTimeZone } from './date-parser.service';
 import { retrieveMemory } from './memory.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../utils/commitmentTransitions';
 import { getToolContract } from './toolRegistry.service';
-import type { RetrievalCommitment, RetrievalPerson } from '../types/retrieval';
+import type { RetrievalCommitment, RetrievalPerson, DirectConversationResolution } from '../types/retrieval';
 import type {
     AgentObjective,
     AgentPlan,
@@ -166,9 +166,6 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
             }],
         };
     }
-    if (!input.conversationId) {
-        return { steps: [], blockingAmbiguities: [], failureMode: 'missing_context', failureMessage: 'This planning preview needs to run inside an existing conversation to know where to send the message.' };
-    }
 
     const steps: AgentPlanStep[] = [];
     const blockingAmbiguities: AgentObjectiveAmbiguity[] = [];
@@ -184,14 +181,47 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
             });
             continue;
         }
+
+        // A contextual conversation remains authoritative. Global planning may
+        // only continue after resolving exactly one existing authorized DIRECT
+        // conversation; the planner never creates one or picks a first match.
+        let conversationId = input.conversationId;
+        let conversationResolution: DirectConversationResolution | null = null;
+
+        if (!conversationId) {
+            conversationResolution = await resolveDirectConversation(input.actorUserId, result.resolved.id);
+            if (conversationResolution.ambiguous) {
+                blockingAmbiguities.push({
+                    field: 'conversation',
+                    kind: 'blocking',
+                    reason: `Hay ${conversationResolution.candidateCount} conversaciones directas con ${result.resolved.displayName}. Especifica en cuál enviar el mensaje.`,
+                });
+                continue;
+            }
+            if (!conversationResolution.conversationId) {
+                blockingAmbiguities.push({
+                    field: 'conversation',
+                    kind: 'blocking',
+                    reason: `No existe una conversación directa con ${result.resolved.displayName}. Inicia una conversación primero.`,
+                });
+                continue;
+            }
+            conversationId = conversationResolution.conversationId;
+        }
+
         steps.push(buildStep({
             toolId: 'send_message',
             operation: `Enviar mensaje a ${result.resolved.displayName}`,
-            args: { conversationId: input.conversationId, recipientPersonId: result.resolved.id, content: objective.desiredOutcome },
+            args: { conversationId, recipientPersonId: result.resolved.id, content: objective.desiredOutcome },
             expectedEffect: `${result.resolved.displayName} recibirá el mensaje.`,
             sourceUtteranceSpan: hint,
-            resolvedFrom: 'entity_resolution',
-            canonicalSourceRefs: [{ sourceType: 'person', sourceId: result.resolved.id }],
+            resolvedFrom: conversationResolution ? 'global_conversation_resolution' : 'entity_resolution',
+            canonicalSourceRefs: [
+                { sourceType: 'person', sourceId: result.resolved.id },
+                ...(conversationResolution && conversationId
+                    ? [{ sourceType: 'conversation', sourceId: conversationId }]
+                    : []),
+            ],
         }));
     }
 
@@ -209,7 +239,7 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
                 title: objective.targetEntities.entityHints[0] ?? 'Compromiso acordado',
                 dueAt: parsed ? parsed.date.toISOString() : null,
                 responsiblePersonId: null,
-                conversationId: input.conversationId,
+                conversationId: steps[0].arguments.conversationId,
             },
             dependsOn: [waitStep.stepId],
             condition: { type: 'wait_for_response', dependsOnStepId: waitStep.stepId, description: 'Esperar la respuesta de la persona antes de agendar.' },

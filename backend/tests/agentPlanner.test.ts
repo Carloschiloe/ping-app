@@ -9,16 +9,22 @@ const ENTRENAR_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 const alejandraPerson: RetrievalPerson = { kind: 'user', id: ALEJANDRA_ID, displayName: 'Alejandra' };
 
-let resolvePersonMock: ReturnType<typeof vi.fn>;
-let retrieveCommitmentsMock: ReturnType<typeof vi.fn>;
-let retrieveCommitmentProposalsMock: ReturnType<typeof vi.fn>;
-let parseDateFromTextMock: ReturnType<typeof vi.fn>;
-let retrieveMemoryMock: ReturnType<typeof vi.fn>;
+// Use vi.hoisted to make mocks available during hoisting
+const { resolvePersonMock, retrieveCommitmentsMock, retrieveCommitmentProposalsMock,
+    parseDateFromTextMock, retrieveMemoryMock, resolveDirectConversationMock } = vi.hoisted(() => ({
+    resolvePersonMock: vi.fn(),
+    retrieveCommitmentsMock: vi.fn(async () => []),
+    retrieveCommitmentProposalsMock: vi.fn(async () => []),
+    parseDateFromTextMock: vi.fn(() => null),
+    retrieveMemoryMock: vi.fn(async () => []),
+    resolveDirectConversationMock: vi.fn(),
+}));
 
 vi.mock('../src/services/retrieval.service', () => ({
     resolvePerson: (...args: any[]) => resolvePersonMock(...args),
     retrieveCommitments: (...args: any[]) => retrieveCommitmentsMock(...args),
     retrieveCommitmentProposals: (...args: any[]) => retrieveCommitmentProposalsMock(...args),
+    resolveDirectConversation: (...args: any[]) => resolveDirectConversationMock(...args),
 }));
 vi.mock('../src/services/date-parser.service', () => ({
     parseDateFromText: (...args: any[]) => parseDateFromTextMock(...args),
@@ -63,15 +69,17 @@ function commitmentFixture(overrides: Partial<RetrievalCommitment> = {}): Retrie
 }
 
 beforeEach(() => {
-    resolvePersonMock = vi.fn();
-    retrieveCommitmentsMock = vi.fn(async () => []);
-    retrieveCommitmentProposalsMock = vi.fn(async () => []);
-    parseDateFromTextMock = vi.fn(() => null);
-    retrieveMemoryMock = vi.fn(async () => []);
+    resolvePersonMock.mockReset();
+    retrieveCommitmentsMock.mockReset().mockResolvedValue([]);
+    retrieveCommitmentProposalsMock.mockReset().mockResolvedValue([]);
+    parseDateFromTextMock.mockReset().mockReturnValue(null);
+    retrieveMemoryMock.mockReset().mockResolvedValue([]);
+    resolveDirectConversationMock.mockReset();
 });
 
-describe('planCommunicate (sección 12: identity resolution, nunca inventa un destinatario)', async () => {
-    const { planObjective } = await import('../src/services/agentPlanner.service');
+import { planObjective } from '../src/services/agentPlanner.service';
+
+describe('planCommunicate (sección 12: identity resolution, nunca inventa un destinatario)', () => {
 
     it('persona resuelta -> un step send_message', async () => {
         resolvePersonMock.mockResolvedValue({ resolved: alejandraPerson, ambiguous: false, candidates: [] });
@@ -81,6 +89,7 @@ describe('planCommunicate (sección 12: identity resolution, nunca inventa un de
         expect(result.steps).toHaveLength(1);
         expect(result.steps[0].toolId).toBe('send_message');
         expect(result.steps[0].arguments).toMatchObject({ recipientPersonId: ALEJANDRA_ID, content: 'Llegaré tarde' });
+        expect(resolveDirectConversationMock).not.toHaveBeenCalled();
     });
 
     it('persona ambigua -> ambigüedad bloqueante con candidatos reales, nunca un plan silencioso', async () => {
@@ -100,10 +109,37 @@ describe('planCommunicate (sección 12: identity resolution, nunca inventa un de
         expect(result.blockingAmbiguities[0].field).toBe('recipient');
     });
 
-    it('sin conversationId -> failureMode missing_context (nunca intenta adivinar dónde enviar)', async () => {
-        const objective = baseObjective({ targetEntities: { personHints: ['Alejandra'], entityHints: [] } });
+    it('sin conversationId pero con persona y conversación directas resueltas -> draft normal sin bloqueo', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: alejandraPerson, ambiguous: false, candidates: [] });
+        resolveDirectConversationMock.mockResolvedValue({ conversationId: CONVERSATION_ID, ambiguous: false, candidateCount: 1 });
+        const objective = baseObjective({ targetEntities: { personHints: ['Alejandra'], entityHints: [] }, desiredOutcome: 'Llegaré tarde' });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
-        expect(result.failureMode).toBe('missing_context');
+        expect(result.failureMode).toBeUndefined();
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('send_message');
+        expect(result.steps[0].arguments).toMatchObject({ recipientPersonId: ALEJANDRA_ID, conversationId: CONVERSATION_ID, content: 'Llegaré tarde' });
+        expect(result.steps[0].provenance.canonicalSourceRefs).toContainEqual({ sourceType: 'conversation', sourceId: CONVERSATION_ID });
+    });
+
+    it('sin conversationId, persona resuelta pero conversación ambigua -> ambigüedad bloqueante', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: alejandraPerson, ambiguous: false, candidates: [] });
+        resolveDirectConversationMock.mockResolvedValue({ conversationId: null, ambiguous: true, candidateCount: 2 });
+        const objective = baseObjective({ targetEntities: { personHints: ['Alejandra'], entityHints: [] }, desiredOutcome: 'Llegaré tarde' });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities).toHaveLength(1);
+        expect(result.blockingAmbiguities[0].field).toBe('conversation');
+        expect(result.blockingAmbiguities[0].reason).toContain('2 conversaciones directas');
+    });
+
+    it('sin conversationId, persona resuelta pero sin conversación directa -> ambigüedad bloqueante', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: alejandraPerson, ambiguous: false, candidates: [] });
+        resolveDirectConversationMock.mockResolvedValue({ conversationId: null, ambiguous: false, candidateCount: 0 });
+        const objective = baseObjective({ targetEntities: { personHints: ['Alejandra'], entityHints: [] }, desiredOutcome: 'Llegaré tarde' });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities).toHaveLength(1);
+        expect(result.blockingAmbiguities[0].field).toBe('conversation');
+        expect(result.blockingAmbiguities[0].reason).toContain('No existe una conversación directa');
     });
 
     it('sin ningún personHint -> ambigüedad bloqueante', async () => {

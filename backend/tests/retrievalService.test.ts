@@ -72,6 +72,104 @@ describe('M-1B: rankCommitments', () => {
 
 // ─── resolvePerson (sección 7) ───────────────────────────────────────────────
 
+describe('M-6: resolveDirectConversation — autorización y cardinalidad exacta', () => {
+    const actorId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const recipientId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const directId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    it('devuelve la única DIRECT activa cuyo conjunto exacto es actor + destinatario', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: directId }], error: null },
+                { data: [
+                    { conversation_id: directId, user_id: actorId },
+                    { conversation_id: directId, user_id: recipientId },
+                ], error: null },
+            ],
+            conversations: [{ data: [{ id: directId }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { resolveDirectConversation } = await import('../src/services/retrieval.service');
+
+        await expect(resolveDirectConversation(actorId, recipientId)).resolves.toEqual({
+            conversationId: directId,
+            ambiguous: false,
+            candidateCount: 1,
+        });
+        expect(mock.getEqCalls('conversation_participants')).toContainEqual(['user_id', actorId]);
+        expect(mock.getEqCalls('conversations')).toContainEqual(['conversation_type', 'direct']);
+        expect(mock.getInCalls('conversations')).toContainEqual(['id', [directId]]);
+    });
+
+    it('no selecciona una conversación group que contiene a ambas personas', async () => {
+        const groupId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: [{ conversation_id: groupId }], error: null }],
+            // Simula el resultado del filtro conversation_type=direct: el
+            // grupo no aparece aunque el actor pertenezca a él.
+            conversations: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { resolveDirectConversation } = await import('../src/services/retrieval.service');
+
+        await expect(resolveDirectConversation(actorId, recipientId)).resolves.toEqual({
+            conversationId: null,
+            ambiguous: false,
+            candidateCount: 0,
+        });
+        expect(mock.getCalledTables()).toEqual(['conversation_participants', 'conversations']);
+        expect(mock.getEqCalls('conversations')).toContainEqual(['conversation_type', 'direct']);
+    });
+
+    it('rechaza una fila etiquetada DIRECT si tiene forma de grupo', async () => {
+        const malformedId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+        const thirdId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: malformedId }], error: null },
+                { data: [
+                    { conversation_id: malformedId, user_id: actorId },
+                    { conversation_id: malformedId, user_id: recipientId },
+                    { conversation_id: malformedId, user_id: thirdId },
+                ], error: null },
+            ],
+            conversations: [{ data: [{ id: malformedId }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { resolveDirectConversation } = await import('../src/services/retrieval.service');
+
+        await expect(resolveDirectConversation(actorId, recipientId)).resolves.toEqual({
+            conversationId: null,
+            ambiguous: false,
+            candidateCount: 0,
+        });
+    });
+
+    it('marca ambigüedad y nunca escoge el primer match cuando existen dos DIRECT exactas', async () => {
+        const secondDirectId = '11111111-1111-4111-8111-111111111111';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: directId }, { conversation_id: secondDirectId }], error: null },
+                { data: [
+                    { conversation_id: directId, user_id: actorId },
+                    { conversation_id: directId, user_id: recipientId },
+                    { conversation_id: secondDirectId, user_id: actorId },
+                    { conversation_id: secondDirectId, user_id: recipientId },
+                ], error: null },
+            ],
+            conversations: [{ data: [{ id: directId }, { id: secondDirectId }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { resolveDirectConversation } = await import('../src/services/retrieval.service');
+
+        await expect(resolveDirectConversation(actorId, recipientId)).resolves.toEqual({
+            conversationId: null,
+            ambiguous: true,
+            candidateCount: 2,
+        });
+    });
+});
+
 describe('M-1B: resolvePerson — IDs directos', () => {
     it('resuelve al propio actor sin consultar autorización adicional', async () => {
         const mock = createSupabaseAdminMock({
