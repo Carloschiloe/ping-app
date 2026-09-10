@@ -39,6 +39,14 @@ export const agentObjectiveInterpretationPayloadSchema = z.object({
     // una lista libre.
     additionalPersonHint: z.string().trim().max(80).nullable().default(null),
     desiredOutcomeHint: z.string().trim().max(200).nullable().default(null),
+    // For communicate_message/communicate_and_wait ONLY: the literal
+    // outgoing message text, copied VERBATIM (same language, same wording,
+    // same punctuation) from the user's request — never a restatement,
+    // never a translation. Core (agentPlanner.service.ts) independently
+    // proves this string is an actual substring of the real source text
+    // before it can ever become executable content; a value that isn't a
+    // true verbatim excerpt is simply rejected, never trusted.
+    verbatimMessageHint: z.string().trim().min(1).max(500).nullable().default(null),
 });
 
 export type AgentObjectiveInterpretationPayload = z.infer<typeof agentObjectiveInterpretationPayloadSchema>;

@@ -36,6 +36,14 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
     const stateRef = useRef<VoiceSessionState>('idle');
     const durationRef = useRef(0);
     const activeUriRef = useRef<string | null>(null);
+    // Mirrors the last known recording uri from the polled JS-side recorder
+    // state (never the live native accessor) so cleanup paths that may run
+    // after the native recorder shared object has been released — unmount,
+    // background-cancel — never dereference the native uri getter directly.
+    // Reading that getter after disposal throws "Unable to find the native
+    // shared object associated with given JavaScript object" and crashes the
+    // app.
+    const lastKnownUriRef = useRef<string | null>(null);
     const voiceSessionIdRef = useRef<string | null>(null);
     const deviceSessionIdRef = useRef(createEphemeralUuid());
     const mountedRef = useRef(true);
@@ -68,7 +76,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
         }
         requestAbortRef.current?.abort();
         requestAbortRef.current = null;
-        deleteLocalCapture(recorder.uri);
+        deleteLocalCapture(lastKnownUriRef.current);
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
         try {
             applyEvent('CANCEL');
@@ -89,6 +97,13 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
         }
     }, [recorderState.durationMillis, recorderState.isRecording]);
 
+    // Captures the uri while the recorder is still known-valid, via the
+    // library's own polled JS state rather than the live native getter — see
+    // lastKnownUriRef above.
+    useEffect(() => {
+        if (recorderState.url) lastKnownUriRef.current = recorderState.url;
+    }, [recorderState.url]);
+
     useEffect(() => {
         mountedRef.current = true;
         const subscription = AppState.addEventListener('change', (next) => {
@@ -100,7 +115,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             mountedRef.current = false;
             subscription.remove();
             if (stateRef.current === 'capturing' || stateRef.current === 'listening') void recorder.stop().catch(() => undefined);
-            deleteLocalCapture(recorder.uri);
+            deleteLocalCapture(lastKnownUriRef.current);
             void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
         };
     }, [cancel, deleteLocalCapture, recorder]);
@@ -142,9 +157,10 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             applyEvent('CAPTURE_STOPPED');
             const status = recorder.getStatus();
             const finalDuration = resolveRecordingDurationMs(status.durationMillis, durationRef.current);
-            const uri = recorder.uri;
+            const uri = status.url;
             if (!uri || !finalDuration) throw new Error('empty_audio');
             activeUriRef.current = uri;
+            lastKnownUriRef.current = uri;
             const requestAbort = new AbortController();
             requestAbortRef.current = requestAbort;
 
@@ -175,7 +191,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             }
         } finally {
             requestAbortRef.current = null;
-            deleteLocalCapture(activeUriRef.current || recorder.uri);
+            deleteLocalCapture(activeUriRef.current || lastKnownUriRef.current);
             await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
         }
     }, [applyEvent, deleteLocalCapture, recorder]);

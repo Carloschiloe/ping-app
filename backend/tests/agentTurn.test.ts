@@ -16,6 +16,31 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { Server } from 'http';
 import type { AgentPlan, AgentPlanStep } from '../src/types/agentPlan';
 
+// M-6 semantic enrichment bridge -- OPENAI_API_KEY is deliberately blank in
+// this suite (see beforeAll below), so proposeSemanticContentCandidate would
+// otherwise fail safely to null for every natural-phrasing "Dile a ... que
+// ..." fixture used throughout this file (no colon/quote -> no deterministic
+// candidate -> the real function needs a live model). This test-only stand-in
+// proves the BRIDGE WIRING (deterministic-first -> enrichment -> Core
+// validation) without a network call: it returns the exact verbatim
+// substring that already appears in the fixture utterance -- Core
+// (validateCommunicateContent) still independently locates/validates it,
+// exactly as it would a real provider's response. Everything else in the
+// module (DeterministicObjectiveInterpreter, DeterministicInputInterpreter,
+// proposeCommunicateContent, etc.) stays real.
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return {
+        ...actual,
+        proposeSemanticContentCandidate: vi.fn(async (sourceUtterance: string) => {
+            if (sourceUtterance.includes('llegaré tarde')) {
+                return { verbatimText: 'llegaré tarde.', extractionMode: 'semantic_verbatim' as const };
+            }
+            return null;
+        }),
+    };
+});
+
 const originalApiKey = process.env.OPENAI_API_KEY;
 const originalEncryptionKey = process.env.ENCRYPTION_KEY;
 
@@ -229,6 +254,25 @@ describe('POST /agent/turn — Core routing ownership (mobile must NOT decide)',
         expect(voiceRes.status).toBe(200);
         expect(voiceRes.body.kind).toBe('plan');
         expect(voiceRes.body.plan.steps[0].toolId).toBe('send_message');
+    });
+
+    it('7) voice and text converge through the exact same deterministic-first + semantic-enrichment bridge -- identical frozen send_message content either way', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: person(ALEJANDRA_ID, 'Alejandra Gómez'), ambiguous: false, candidates: [] });
+
+        const textRes = await postTurn({ input: 'Dile a Alejandra que llegaré tarde.', conversationId: CONVERSATION_ID });
+        const token = await buildVoiceToken('Dile a Alejandra que llegaré tarde.', { confidence: 0.95 });
+        const voiceRes = await postTurn({ voiceInputToken: token });
+
+        expect(textRes.body.kind).toBe('plan');
+        expect(voiceRes.body.kind).toBe('plan');
+        expect(textRes.body.plan.status).toBe(voiceRes.body.plan.status);
+        // The public plan shape never exposes raw arguments (sección 44) --
+        // convergence is certified via the frozen content preview both
+        // plans present to the user, which must be identical either way
+        // since both funnel through the exact same bridge/Core validation.
+        expect(textRes.body.presentation.stepPresentations[0].contentPreview)
+            .toBe(voiceRes.body.presentation.stepPresentations[0].contentPreview);
+        expect(textRes.body.presentation.stepPresentations[0].contentPreview).toBe('llegaré tarde.');
     });
 
     it('G) low-confidence voice transcript on an actionable utterance -> clarification, never a silent plan', async () => {

@@ -368,6 +368,22 @@ describe('agentInputEnvelope.service — voiceInputToken is signed, TTL-bound an
 describe('agentPlanOrchestrator — low-confidence voice transcript blocks planning before interpretation (sección 6)', async () => {
     const { runAgentPlanning } = await import('../src/services/agentPlanOrchestrator.service');
 
+    // M-6 semantic enrichment bridge: OPENAI_API_KEY is blanked for this
+    // whole file (see beforeAll above), so "Dile a Alejandra que llegaré
+    // tarde" (no colon/quote) needs a live semantic provider to obtain a
+    // communicateContentCandidate. This fake stands in for one, returning
+    // the exact verbatim substring already present in the fixture text —
+    // Core (validateCommunicateContent) still independently locates/
+    // validates it.
+    function fakeSemanticModel(verbatimMessageHint: string | null) {
+        return {
+            modelName: 'test-fake-semantic-model',
+            async interpret() {
+                return JSON.stringify({ objectiveType: 'communicate_message', verbatimMessageHint });
+            },
+        };
+    }
+
     function envelope(confidence: number | null): any {
         return {
             inputId: 'input-1', actorUserId: CARLOS, surface: 'mobile_voice', modality: 'voice',
@@ -393,19 +409,28 @@ describe('agentPlanOrchestrator — low-confidence voice transcript blocks plann
 
     it('confianza null (proveedor sin señal de confianza) -> NO bloquea, sigue el flujo normal', async () => {
         resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', displayName: 'Alejandra' } as RetrievalPerson, ambiguous: false, candidates: [] });
-        const result = await runAgentPlanning({ actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111', inputEnvelope: envelope(null) });
+        const result = await runAgentPlanning(
+            { actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111', inputEnvelope: envelope(null) },
+            { semanticContentModel: fakeSemanticModel('llegaré tarde') },
+        );
         expect(result.status).not.toBe('needs_clarification');
     });
 
     it('confianza alta (0.9) -> NO bloquea, sigue el flujo normal', async () => {
         resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', displayName: 'Alejandra' } as RetrievalPerson, ambiguous: false, candidates: [] });
-        const result = await runAgentPlanning({ actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111', inputEnvelope: envelope(0.9) });
+        const result = await runAgentPlanning(
+            { actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111', inputEnvelope: envelope(0.9) },
+            { semanticContentModel: fakeSemanticModel('llegaré tarde') },
+        );
         expect(result.status).not.toBe('needs_clarification');
     });
 
     it('sin inputEnvelope (texto plano, flujo pre-M-5) -> comportamiento idéntico al de siempre', async () => {
         resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', displayName: 'Alejandra' } as RetrievalPerson, ambiguous: false, candidates: [] });
-        const result = await runAgentPlanning({ actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111' });
+        const result = await runAgentPlanning(
+            { actorUserId: CARLOS, input: 'Dile a Alejandra que llegaré tarde', conversationId: '11111111-1111-4111-8111-111111111111' },
+            { semanticContentModel: fakeSemanticModel('llegaré tarde') },
+        );
         expect(result.status).toBe('ready_for_authorization');
     });
 });

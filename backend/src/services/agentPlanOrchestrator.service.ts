@@ -12,7 +12,7 @@
 // cost discipline as runAgent (sección 1 del ticket M-1F, "nunca una
 // tercera [llamada] agregada aquí").
 import { randomUUID } from 'crypto';
-import { LlmObjectiveInterpreter, type AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import { LlmObjectiveInterpreter, proposeSemanticContentCandidate, type AgentObjectiveInterpreter, type AgentObjectiveModel } from './agentObjectiveInterpreter.service';
 import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput } from './agentPlanner.service';
 import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
@@ -37,6 +37,10 @@ export interface AgentPlanOrchestratorInput {
 export interface RunAgentPlanningOptions {
     objectiveInterpreter?: AgentObjectiveInterpreter;
     resolvedObjective?: AgentObjective;
+    // Injectable for tests only — proposeSemanticContentCandidate defaults
+    // to the real OpenAI provider when omitted. See the enrichment bridge
+    // below for what this can and cannot influence.
+    semanticContentModel?: AgentObjectiveModel;
 }
 
 function riskSummaryFor(steps: AgentPlanStep[]): AgentPlan['riskSummary'] {
@@ -103,6 +107,42 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
     tracePlan(input.traceId, 'OBJECTIVE_INTERPRETED', {
         objectiveType: objective.objectiveType, source: objective.source, fallbackReason: objective.fallbackReason,
     });
+
+    // M-6 semantic enrichment BRIDGE (sección: "deterministic first" — the
+    // canonical objective/planning pipeline always runs first and normally;
+    // this only fires for the narrow residual gap it leaves behind). By the
+    // time we get here, `objective` came from EITHER a deterministic
+    // fast-path caller (agentTurn.service.ts, via resolvedObjective) OR
+    // LlmObjectiveInterpreter above — which itself already tried a full LLM
+    // call and, on success, already populated communicateContentCandidate
+    // via verbatimMessageHint (mapPayloadToObjective), so this is a true
+    // no-op in that case. It only actually calls out when the objective is
+    // a communicate_* intent that's otherwise fully resolved (recipient
+    // hints known) but has no content candidate — because the utterance has
+    // neither a colon nor a quoted span AND no LLM call already ran (the
+    // deterministic fast path never calls a model at all). This is a HINT
+    // stage only: proposeSemanticContentCandidate's return type is a single
+    // `MessageContentCandidate | null` — it cannot carry/alter actor,
+    // recipient/person id, conversation id, authorization, tool, or any
+    // write state, and the canonical objective/planning pipeline resumes
+    // completely unchanged afterward — Core (planObjective ->
+    // validateCommunicateContent) still independently locates/validates the
+    // candidate exactly as it would any other, so a translated/paraphrased/
+    // absent/ambiguous hint is rejected exactly like before. On any
+    // provider failure (not configured, timeout, network, invalid JSON,
+    // schema-invalid) proposeSemanticContentCandidate fails safely to null
+    // — never fabricates a payload — and planObjective below falls through
+    // to its existing blocking `messageContent` ambiguity, same as always.
+    if (
+        (objective.objectiveType === 'communicate_message' || objective.objectiveType === 'communicate_and_wait')
+        && objective.targetEntities.personHints.length > 0
+        && !objective.communicateContentCandidate
+    ) {
+        objective.communicateContentCandidate = await proposeSemanticContentCandidate(objective.sourceUtterance, {
+            actorUserId: input.actorUserId,
+            conversationId: input.conversationId,
+        }, { model: options.semanticContentModel });
+    }
 
     const plannerInput: AgentPlannerInput = {
         objective,

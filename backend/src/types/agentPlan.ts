@@ -100,6 +100,29 @@ export interface AgentObjectiveAmbiguity {
     candidates?: { id: string; label: string }[];
 }
 
+// Smallest canonical contract extension for send_message content (sección
+// 1/36: "LLM/interpreter suggests; Core decides"). A `communicate_message`/
+// `communicate_and_wait` interpreter (deterministic OR llm) may PROPOSE the
+// outgoing payload only as a VERBATIM candidate substring — never as an
+// offset/index (JS string offsets are UTF-16 code-unit positions, which a
+// proposer cannot be trusted to compute/report correctly across all of
+// Ping's supported Unicode text, and which — more importantly — could be
+// used to smuggle replacement text under the guise of "just a position").
+// `verbatimText` must be text the proposer claims literally appears in
+// `sourceUtterance`. It is only a candidate: agentPlanner.service.ts (Core)
+// is the sole place that turns it into executable
+// `send_message.arguments.content`, and it does so by independently
+// locating that EXACT string inside the real `sourceUtterance` with
+// JavaScript's own string search (`indexOf`/`slice`, correct by
+// construction for UTF-16 — including surrogate-pair/emoji text — because
+// the boundary is always wherever the matched substring actually falls,
+// never a manually computed index) and validating uniqueness/region/non-
+// emptiness — never by trusting a position.
+export interface MessageContentCandidate {
+    verbatimText: string;
+    extractionMode: 'delimiter_colon' | 'delimiter_quote' | 'semantic_verbatim';
+}
+
 export interface AgentObjective {
     objectiveType: AgentObjectiveType;
     targetEntities: {
@@ -122,6 +145,10 @@ export interface AgentObjective {
     source: 'deterministic' | 'llm' | 'llm_fallback';
     fallbackReason?: string;
     modelUsed?: string;
+    // Set only for communicate_message/communicate_and_wait — see
+    // MessageContentCandidate. Absent/null means no safe candidate was
+    // found; Core must never invent one.
+    communicateContentCandidate?: MessageContentCandidate | null;
 }
 
 // ─── Plan states (sección 9) — exactly these three. No fake "executed". ────

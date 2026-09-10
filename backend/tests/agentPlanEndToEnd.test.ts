@@ -1,6 +1,32 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Server } from 'http';
 
+// M-6 semantic enrichment bridge -- OPENAI_API_KEY is absent throughout this
+// file (see header comment below), so proposeSemanticContentCandidate would
+// otherwise fail safely to null for every natural-phrasing communicate
+// fixture in this suite (no colon/quote -> no deterministic candidate ->
+// the real function needs a live model). This test-only stand-in proves the
+// bridge wiring (deterministic-first -> enrichment -> Core validation)
+// without a network call, returning the exact verbatim substring that
+// already exists in each fixture's utterance -- Core
+// (validateCommunicateContent) still independently locates/validates it.
+// Everything else in the module stays real.
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return {
+        ...actual,
+        proposeSemanticContentCandidate: vi.fn(async (sourceUtterance: string) => {
+            if (sourceUtterance.includes('llegaré tarde')) {
+                return { verbatimText: 'llegaré tarde.', extractionMode: 'semantic_verbatim' as const };
+            }
+            if (sourceUtterance.includes('puede el viernes')) {
+                return { verbatimText: 'puede el viernes', extractionMode: 'semantic_verbatim' as const };
+            }
+            return null;
+        }),
+    };
+});
+
 // M-3 — integración HTTP real para POST /api/agent/plan, mismo principio que
 // agentEndToEnd.test.ts (M-1F): app Express real, middleware real
 // (requireAuth, rate limit compartido, validateRequest), controller real,
@@ -228,14 +254,14 @@ describe('CONTRACT SCENARIO F: "Pregúntale a Alejandra si puede el viernes y si
     });
 });
 
-describe('CONTRACT SCENARIO G: "Avísale a Alejandra y Pedro." (sección 42/20)', () => {
+describe('CONTRACT SCENARIO G: "Avísale a Alejandra y Pedro que llegaré tarde." (sección 42/20)', () => {
     it('pasos de comunicación paralelos, sin dependencia entre ellos', async () => {
         resolvePersonMock.mockImplementation(async (_actorId: string, input: { name: string }) => {
             if (input.name === 'Alejandra') return { resolved: person(ALEJANDRA_ID, 'Alejandra'), ambiguous: false, candidates: [] };
             if (input.name === 'Pedro') return { resolved: person(PEDRO_ID, 'Pedro'), ambiguous: false, candidates: [] };
             return { resolved: null, ambiguous: false, candidates: [] };
         });
-        const { body } = await callPlan({ input: 'Avísale a Alejandra y Pedro.', conversationId: CONVERSATION_ID });
+        const { body } = await callPlan({ input: 'Avísale a Alejandra y Pedro que llegaré tarde.', conversationId: CONVERSATION_ID });
         expect(body.objectiveType).toBe('communicate_message');
         expect(body.steps).toHaveLength(2);
         expect(body.steps.every((s: any) => s.dependsOn.length === 0)).toBe(true);

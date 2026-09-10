@@ -23,6 +23,7 @@ import type {
     ClarificationQuestion,
     ConfirmationPolicy,
     SideEffectClass,
+    MessageContentCandidate,
 } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
 import type { ContextReferent } from '../types/agentInput';
@@ -157,6 +158,67 @@ function isEntityShared(entity: RetrievalCommitment): boolean {
     return !!entity.conversationId;
 }
 
+// ─── Core-owned send_message content VALIDATION (sección 1/36: "the model
+// may suggest WHERE the payload is; it may not supply replacement payload
+// text"). This is the ONLY place a `MessageContentCandidate` ever turns
+// into executable `send_message.arguments.content`, and it contains ZERO
+// word/connector lists, ZERO language-specific logic. A proposer (today:
+// this repo's own deterministic colon/quote fast paths and the LLM
+// interpreter's `verbatimMessageHint`) may only claim a literal substring
+// exists in `sourceUtterance` — never a position, never replacement text.
+// Core proves that claim itself, entirely with JavaScript's own string
+// search: `indexOf`/`slice` are correct by construction for UTF-16 text —
+// including surrogate-pair/emoji payloads — because the boundary is always
+// wherever the engine actually finds the matched substring, never a
+// manually computed or externally supplied index. Invariants, all of them
+// pure substring-location logic:
+//   - a candidate must exist (no candidate -> unsafe, never a text
+//     fallback to desiredOutcome);
+//   - `verbatimText` must be non-empty;
+//   - the recipient's own hint must actually occur in sourceUtterance,
+//     establishing the addressing span to exclude;
+//   - `verbatimText` must occur, AT LEAST ONCE, strictly after the end of
+//     that addressing span (the region search is confined to
+//     `sourceUtterance` AFTER the recipient's name — the addressing span
+//     itself can never be claimed as payload);
+//   - that occurrence must be UNIQUE within that region — an ambiguous
+//     (2+) match is rejected exactly like an absent one, never guessed;
+//   - a candidate that doesn't literally occur there (absent, translated,
+//     paraphrased, truncated — none of those are ever a real substring
+//     match) is rejected by the same "not found" path, no separate
+//     translation-detection logic needed;
+//   - Core computes start/end ITSELF from the located match (UTF-16
+//     code-unit offsets, by construction of `indexOf`/`slice`) and freezes
+//     content via `sourceUtterance.slice(start, end)` — never the
+//     proposer's own string instance.
+function validateCommunicateContent(
+    sourceUtterance: string,
+    personHint: string,
+    candidate: MessageContentCandidate | null | undefined,
+): { safe: boolean; content: string | null } {
+    if (!candidate) return { safe: false, content: null };
+    const verbatimText = candidate.verbatimText;
+    if (typeof verbatimText !== 'string' || verbatimText.length === 0) return { safe: false, content: null };
+
+    const addressingIdx = sourceUtterance.indexOf(personHint);
+    if (addressingIdx === -1) return { safe: false, content: null };
+    const addressingEnd = addressingIdx + personHint.length;
+
+    // Confine the search to the region strictly after the recipient's own
+    // name — this is what makes "overlaps recipient addressing" structurally
+    // impossible rather than merely checked after the fact.
+    const validRegion = sourceUtterance.slice(addressingEnd);
+    const firstMatch = validRegion.indexOf(verbatimText);
+    if (firstMatch === -1) return { safe: false, content: null }; // absent, translated, or paraphrased
+    const secondMatch = validRegion.indexOf(verbatimText, firstMatch + 1);
+    if (secondMatch !== -1) return { safe: false, content: null }; // ambiguous — 2+ safe occurrences
+
+    const start = addressingEnd + firstMatch;
+    const end = start + verbatimText.length; // UTF-16 code-unit offsets, by construction — see header comment
+    const content = sourceUtterance.slice(start, end).trim();
+    return content ? { safe: true, content } : { safe: false, content: null };
+}
+
 async function planCommunicate(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
     const hints = objective.targetEntities.personHints;
     if (hints.length === 0) {
@@ -181,6 +243,31 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
             });
             continue;
         }
+
+        // Core never trusts `objective.desiredOutcome` verbatim for a
+        // send_message argument — when the LLM objective interpreter
+        // produced the objective, that field is `desiredOutcomeHint`: a
+        // free-form restatement the model is explicitly allowed to
+        // paraphrase or translate (e.g. "Dile a Alejandra que llegaré
+        // tarde" -> "Inform Alejandra that I will arrive late"), never a
+        // literal transcript. The interpreter instead PROPOSED a verbatim
+        // candidate substring (`objective.communicateContentCandidate`);
+        // Core independently locates and validates it against the real
+        // `sourceUtterance` (see validateCommunicateContent above) and only
+        // ever emits content it re-sliced from the canonical utterance. No
+        // candidate, or one that fails validation, is a blocking ambiguity
+        // — clarification/non-ready — never a silent fallback to
+        // desiredOutcome.
+        const validated = validateCommunicateContent(objective.sourceUtterance, hint, objective.communicateContentCandidate);
+        if (!validated.safe || !validated.content) {
+            blockingAmbiguities.push({
+                field: 'messageContent',
+                kind: 'blocking',
+                reason: `No pude determinar con certeza qué mensaje quieres enviarle a ${result.resolved.displayName}.`,
+            });
+            continue;
+        }
+        const messageContent = validated.content;
 
         // A contextual conversation remains authoritative. Global planning may
         // only continue after resolving exactly one existing authorized DIRECT
@@ -212,7 +299,7 @@ async function planCommunicate(objective: AgentObjective, input: AgentPlannerInp
         steps.push(buildStep({
             toolId: 'send_message',
             operation: `Enviar mensaje a ${result.resolved.displayName}`,
-            args: { conversationId, recipientPersonId: result.resolved.id, content: objective.desiredOutcome },
+            args: { conversationId, recipientPersonId: result.resolved.id, content: messageContent },
             expectedEffect: `${result.resolved.displayName} recibirá el mensaje.`,
             sourceUtteranceSpan: hint,
             resolvedFrom: conversationResolution ? 'global_conversation_resolution' : 'entity_resolution',

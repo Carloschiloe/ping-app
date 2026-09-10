@@ -82,3 +82,41 @@ describe('useAgentVoiceInput.ts — auditoría de código (sección 8: cleanup e
         expect(src).toMatch(/if \(!response\.granted\)[\s\S]{0,300}return;/);
     });
 });
+
+describe('useAgentVoiceInput.ts — regresión: crash real "Unable to find the native shared object" en cleanup/unmount', () => {
+    const src = readSrc('src/hooks/useAgentVoiceInput.ts');
+
+    it('nunca lee el getter nativo recorder.uri -- ni en cancel(), ni en el cleanup de unmount, ni en ningún otro punto del hook', () => {
+        // El crash real ocurría porque recorder.uri (un accessor que cruza al
+        // objeto nativo SharedObject de expo-audio) se leía en el cleanup de
+        // unmount, que puede correr DESPUÉS de que expo-audio ya liberó el
+        // objeto nativo -- la lectura lanzaba "Unable to find the native
+        // shared object associated with given JavaScript object". La única
+        // forma correcta de eliminar esa clase de bug es no leer nunca ese
+        // accessor en absoluto.
+        expect(src).not.toContain('recorder.uri');
+    });
+
+    it('el cleanup de unmount y cancel() borran la captura local usando un ref JS estable (lastKnownUriRef), nunca el objeto nativo vivo', () => {
+        expect(src).toContain('lastKnownUriRef');
+        // cancel(): deleteLocalCapture recibe el ref, nunca el recorder nativo.
+        expect(src).toMatch(/deleteLocalCapture\(lastKnownUriRef\.current\);[\s\S]{0,200}setAudioModeAsync\(\{ allowsRecording: false/);
+        // cleanup de unmount: mismo contrato -- se ejecuta después de
+        // subscription.remove() y del stop() best-effort, nunca toca
+        // recorder.uri.
+        expect(src).toMatch(/subscription\.remove\(\);[\s\S]{0,300}deleteLocalCapture\(lastKnownUriRef\.current\)/);
+    });
+
+    it('lastKnownUriRef se alimenta del estado JS ya poleado (recorderState.url), nunca de un accessor nativo leído directamente', () => {
+        expect(src).toMatch(/if \(recorderState\.url\) lastKnownUriRef\.current = recorderState\.url;/);
+    });
+
+    it('CONTRATO preservado: background-cancel sigue limpiando la captura (cancel() sigue disparado por AppState en capturing/listening)', () => {
+        expect(src).toMatch(/next !== 'active'[\s\S]{0,200}void cancel\(\)/);
+        expect(src).toMatch(/const cancel = useCallback\(async \(\) => \{[\s\S]{0,400}deleteLocalCapture\(lastKnownUriRef\.current\)/);
+    });
+
+    it('stop() (ruta normal, montado) obtiene el uri final de status.url -- el mismo objeto RecorderState ya devuelto por getStatus(), nunca una segunda lectura del accessor nativo', () => {
+        expect(src).toMatch(/const status = recorder\.getStatus\(\);[\s\S]{0,200}const uri = status\.url;/);
+    });
+});
