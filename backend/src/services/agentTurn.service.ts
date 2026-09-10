@@ -22,7 +22,7 @@
 // planning needs write-shaped entity resolution buildAgentContext's
 // read-only heuristics were never tuned for (see the header comment of
 // agentPlanOrchestrator.service.ts).
-import { runAgentPlanning } from './agentPlanOrchestrator.service';
+import { runAgentPlanning, resolveDeterministicRouting } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
 import { synthesizeAgentResponse } from './agentResponseSynthesizer.service';
 import { toPublicAgentResponse } from '../types/agent';
@@ -38,8 +38,6 @@ import type {
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
-import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
-import { DeterministicObjectiveInterpreter } from './agentObjectiveInterpreter.service';
 
 export interface RunAgentTurnOptions {
     now?: Date;
@@ -101,14 +99,15 @@ export async function runAgentTurn(
     // resolved objective avoids both an unnecessary read-context retrieval
     // and a second provider/model interpretation. Unknown action language
     // still falls through to the general context + objective pipeline.
-    const deterministicRouting = await new DeterministicInputInterpreter().interpret(content);
-    const deterministicObjective = deterministicRouting.isWriteActionRequest
-        ? await new DeterministicObjectiveInterpreter().interpret(content, {
-            actorUserId: input.actorUserId,
-            conversationId,
-        })
-        : null;
-    if (deterministicRouting.isWriteActionRequest && deterministicObjective && deterministicObjective.objectiveType !== 'unsupported') {
+    // resolveDeterministicRouting is the ONE canonical owner of this
+    // decision (sección: "no duplicated routing logic") — agentTurn.service.ts
+    // never independently re-implements deterministic-vs-LLM classification;
+    // it only asks the canonical function and, when the input qualifies,
+    // hands the already-resolved objective straight into runAgentPlanning
+    // (the sole final plan-status owner) exactly as agentAuthorization.service.ts's
+    // re-plan and agentPlan.controller.ts's initial plan now also do.
+    const routing = await resolveDeterministicRouting(content, { actorUserId: input.actorUserId, conversationId });
+    if (routing.isWriteActionRequest && routing.resolvedObjective) {
         const plan = await runAgentPlanning({
             actorUserId: input.actorUserId,
             input: content,
@@ -120,7 +119,7 @@ export async function runAgentTurn(
             traceId,
             inputEnvelope: envelope,
             contextReferents: referents,
-        }, { resolvedObjective: deterministicObjective });
+        }, { resolvedObjective: routing.resolvedObjective });
         return routePlanningResult(plan, { locale, timezone, now, traceId });
     }
 

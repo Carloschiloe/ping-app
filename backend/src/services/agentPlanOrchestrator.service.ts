@@ -12,7 +12,11 @@
 // cost discipline as runAgent (sección 1 del ticket M-1F, "nunca una
 // tercera [llamada] agregada aquí").
 import { randomUUID } from 'crypto';
-import { LlmObjectiveInterpreter, proposeSemanticContentCandidate, type AgentObjectiveInterpreter, type AgentObjectiveModel } from './agentObjectiveInterpreter.service';
+import {
+    LlmObjectiveInterpreter, DeterministicObjectiveInterpreter, proposeSemanticContentCandidate,
+    type AgentObjectiveInterpreter, type AgentObjectiveModel,
+} from './agentObjectiveInterpreter.service';
+import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput } from './agentPlanner.service';
 import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
@@ -20,6 +24,44 @@ import { tracePlan } from '../utils/planTrace';
 import type { AgentObjective, AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 import { LOW_CONFIDENCE_ACTION_THRESHOLD } from './agentVoice.service';
+
+// ─── Canonical deterministic-first routing (sección: "ONE owner of agent
+// input -> deterministic-first interpretation -> optional semantic
+// enrichment -> canonical objective -> runAgentPlanning -> canonical
+// AgentPlan/digest"). /agent/turn, /api/agent/plan, and /agent/authorize's
+// re-plan ALL call this exact function to decide whether an input is
+// write-shaped and, if so, what its deterministic objective is — none of
+// them independently re-implements this decision. It NEVER performs I/O
+// beyond the pure/regex-based deterministic interpreters (no model call, no
+// DB): a write-shaped input whose deterministic objective is usable is
+// handed straight to the caller as `resolvedObjective`; runAgentPlanning
+// (the sole remaining decision-maker) falls back to the full
+// LlmObjectiveInterpreter — and, for communicate_* objectives, the
+// semantic-enrichment bridge — only when this returns none. This is the
+// ONLY place that reads DeterministicInputInterpreter/
+// DeterministicObjectiveInterpreter for planning purposes; no other module
+// may instantiate them for that reason.
+export interface DeterministicRoutingResult {
+    isWriteActionRequest: boolean;
+    resolvedObjective?: AgentObjective;
+}
+
+export async function resolveDeterministicRouting(
+    inputText: string,
+    context: { actorUserId: string; conversationId?: string },
+): Promise<DeterministicRoutingResult> {
+    const routing = await new DeterministicInputInterpreter().interpret(inputText);
+    if (!routing.isWriteActionRequest) return { isWriteActionRequest: false };
+
+    const objective = await new DeterministicObjectiveInterpreter().interpret(inputText, {
+        actorUserId: context.actorUserId,
+        conversationId: context.conversationId,
+    });
+    return {
+        isWriteActionRequest: true,
+        resolvedObjective: objective.objectiveType !== 'unsupported' ? objective : undefined,
+    };
+}
 
 export interface AgentPlanOrchestratorInput {
     actorUserId: string;

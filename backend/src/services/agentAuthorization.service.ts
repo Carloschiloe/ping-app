@@ -6,7 +6,7 @@
 // genuine prior /agent/plan call.
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
-import { runAgentPlanning, type AgentPlanOrchestratorInput } from './agentPlanOrchestrator.service';
+import { runAgentPlanning, resolveDeterministicRouting, type AgentPlanOrchestratorInput } from './agentPlanOrchestrator.service';
 import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
@@ -76,7 +76,22 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
 
     // Re-planifica desde cero, con el estado canónico ACTUAL -- nunca se
     // reutiliza el plan que el cliente pudiera haber cacheado (sección 9/74).
-    const freshPlan = await runAgentPlanning(orchestratorInput);
+    //
+    // CANONICAL PIPELINE (sección: "authorization must NOT independently
+    // decide deterministic vs LLM, write-action classification, or semantic
+    // enrichment policy — it should request a fresh canonical plan and
+    // compare/bind the digest"). This calls the exact same
+    // resolveDeterministicRouting agentTurn.service.ts and
+    // agentPlan.controller.ts call — the ONE owner of that decision — and
+    // hands its result straight to runAgentPlanning, which remains the sole
+    // final plan-status owner (semantic enrichment, LLM fallback,
+    // validation, digest — all unchanged, all still exclusively there).
+    // authorizePlan itself contains zero interpreter-selection policy.
+    const routing = await resolveDeterministicRouting(input.input, {
+        actorUserId: input.actorUserId,
+        conversationId: input.conversationId,
+    });
+    const freshPlan = await runAgentPlanning(orchestratorInput, { resolvedObjective: routing.resolvedObjective });
 
     traceAuth(input.traceId, 'REPLAN_FOR_AUTHORIZATION', {
         status: freshPlan.status, freshDigest: freshPlan.planDigest, claimedDigest: input.planDigest,
