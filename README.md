@@ -44,7 +44,10 @@ Before changing anything, verify the root, remote, branch, HEAD, and dirty workt
 
 ## Current state
 
-Current staging branch HEAD documented here: `19f5fd8e692d4fa25402f3d5cc1b39bd0d1d8fb9`.
+Milestones documented:
+
+- Global recipient resolution fix: `19f5fd8e692d4fa25402f3d5cc1b39bd0d1d8fb9`
+- Agent navigation system introduced in: `38e3f2c1fd0e122fd679f8f84560e2c6e2684681`
 
 - **M-1 — Retrieval and context:** authorization-aware structured retrieval, identity resolution, context building, and evidence-backed agent responses.
 - **M-2 — Memory:** evidence-linked memory ingestion/retrieval with sensitivity, freshness, invalidation, and canonical-fact dominance.
@@ -53,7 +56,7 @@ Current staging branch HEAD documented here: `19f5fd8e692d4fa25402f3d5cc1b39bd0d
 - **M-5 — Voice:** real mobile capture/transcription and editable transcript feeding the same Agent pipeline. Physical iPhone voice certification passed.
 - **M-6 — Conversational Agent UX:** unified `/agent/turn`, Core-owned presentation, mobile plan confirmation, authorization, execution, and truthful result cards deployed to staging.
 
-The global named-recipient fix is deployed at the documented HEAD: one canonical person plus one authorized exact DIRECT conversation can become a `send_message` plan without a current chat context. Final real-iPhone M-6 retest remains separate and pending; deployment is not physical certification.
+The global named-recipient fix (commit `19f5fd8e`) is deployed: one canonical person plus one authorized exact DIRECT conversation can become a `send_message` plan without a current chat context. Final real-iPhone M-6 retest remains separate and pending; deployment is not physical certification.
 
 Backend regression at this state: **1127 passing**. Published M-6 mobile baseline: **564 passing**.
 
