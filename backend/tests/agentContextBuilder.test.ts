@@ -1336,6 +1336,123 @@ describe('M-1H: adversarial interpreter tests (sección 16) -- normalización SI
     });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — M-2 CROSS-TURN CONTEXT ISOLATION: reproducción física exacta.
+// "Cuando completamos lo de ver Spiderman?" pasó fresco (Agent Preview
+// recién abierto) pero falló con "person_ambiguous" tras turnos previos NO
+// relacionados en la misma sesión ("¿Qué compromisos tengo pendiente?",
+// "Hola", "¿Qué tengo para hoy?"). Investigación probó que NINGÚN estado de
+// turnos previos llega al backend en absoluto para input de texto plano
+// (resolveAgentRequestInput siempre devuelve referents:[] fuera del flujo de
+// voz) -- la causa real es varianza de muestreo del LLM primario
+// (LlmInputInterpreter) en el MISMO input exacto, produciendo a veces
+// personHints=["Spiderman"] (grounded porque la palabra SÍ está en el
+// texto, así que isPersonHintGroundedInInput nunca lo atrapaba). El fix
+// (isPersonHintTopicalNotPersonal) es un segundo filtro, no un cambio de
+// sesión/estado -- por eso esta prueba invoca buildAgentContext
+// independientemente para cada variante del intérprete, exactamente como
+// certifica que NINGÚN estado compartido entre llamadas pueda producir el
+// resultado -- si esto pasara, la causa sería otra.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-2 CROSS-TURN CONTEXT ISOLATION: "Cuando completamos lo de ver Spiderman?" resuelve idéntico sin importar salida no-determinística del LLM ni turnos previos', () => {
+    const SPIDERMAN_INPUT = 'Cuando completamos lo de ver Spiderman?';
+
+    function spidermanInterpretation(overrides: Partial<Record<string, any>> = {}) {
+        return interpretationFixture({
+            intent: 'commitment_query', textQuery: 'ver Spiderman', topicHints: ['ver Spiderman'], statusHints: ['resolved'],
+            ...overrides,
+        });
+    }
+
+    async function runSpidermanQuery(overrides: Partial<Record<string, any>>) {
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'spiderman-id', entityType: 'commitment', title: 'ver Spiderman', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+        }] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([{
+            id: 'mem-spiderman', memoryType: 'episodic', subjectPersonId: null, subjectContactId: null,
+            canonicalText: 'El compromiso "ver Spiderman" está en estado resolved.', predicate: 'commitment_status:spiderman-id',
+            objectValue: 'resolved', observedAt: '2026-09-10T22:33:00.000Z', validFrom: null, validUntil: null, status: 'active',
+            isCurrent: false, supersededBy: null, confidence: 1, sensitivity: 'normal', evidenceRefs: [],
+            sourceType: 'commitment', sourceId: 'spiderman-id', conversationId: null,
+        }] as any);
+        const interpreter = mockInterpreter(spidermanInterpretation(overrides));
+        return withDeterministicInterpreter({ actorUserId: 'u1', input: SPIDERMAN_INPUT }, { interpreter });
+    }
+
+    function expectResolvedCleanly(ctx: Awaited<ReturnType<typeof runSpidermanQuery>>) {
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.clarification).toBeUndefined();
+        expect(ctx.entities.people).toEqual([]);
+        expect(ctx.entities.topics).toContain('ver Spiderman');
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.commitments.map((c) => c.title)).toContain('ver Spiderman');
+        expect(ctx.historicalMemoryFacts.map((m) => m.id)).toContain('mem-spiderman');
+    }
+
+    it('A) FRESH: primer turno de la sesión, el LLM NO alucina personHints -> resuelve limpio', async () => {
+        mockResolvePerson.mockClear();
+        const ctx = await runSpidermanQuery({ personHints: [] });
+        expectResolvedCleanly(ctx);
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+    });
+
+    it('B) FÍSICO: mismo input EXACTO, el LLM alucina personHints=["Spiderman"] (grounded, pasa la primera red) -> debe resolver IDÉNTICO a (A), nunca person_ambiguous', async () => {
+        mockResolvePerson.mockClear();
+        const ctx = await runSpidermanQuery({ personHints: ['Spiderman'] });
+        expectResolvedCleanly(ctx);
+        // La prueba central del bug: resolvePerson NUNCA debe ejecutarse para
+        // "Spiderman" -- se filtra ANTES de llegar a esa función.
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+    });
+
+    it('C) turnos previos NO relacionados en la sesión (secuencia física exacta) nunca alteran el resultado, porque ningún estado de turno llega al backend para texto plano', async () => {
+        // Cada llamada es independiente -- buildAgentContext no recibe ni
+        // persiste historial entre invocaciones para input de texto (ver
+        // resolveAgentRequestInput -- referents:[] siempre fuera de voz).
+        // Esto reproduce la secuencia física completa como 4 llamadas
+        // aisladas, certificando que ninguna "contamina" a la siguiente.
+        mockResolvePerson.mockClear();
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo pendiente?' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'commitment_query' })),
+        });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hola' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'general_context' })),
+        });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo para hoy?' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'commitment_query' })),
+        });
+
+        const ctx = await runSpidermanQuery({ personHints: ['Spiderman'] });
+        expectResolvedCleanly(ctx);
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+    });
+
+    it('un catch genuino de persona por el LLM (nombre real, presente en el input, SIN solape con el textQuery determinístico) sigue resolviendo/necesitando aclaración normalmente -- el fix no apaga ambigüedad real', async () => {
+        // Input real donde "Alejandra" está genuinamente presente en el
+        // texto (distinto de "Spiderman", que sólo aparecía dentro del
+        // título/tema) y el textQuery determinístico ("completamos lo de
+        // Ver Spiderman" es otro caso -- aquí usamos un input donde el tema
+        // determinístico nunca incluye "Alejandra").
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        mockResolvePerson.mockResolvedValue({
+            resolved: null, ambiguous: true,
+            candidates: [{ id: 'p1', displayName: 'Alejandra Soto', kind: 'user' as const, email: null, avatarUrl: null }, { id: 'p2', displayName: 'Alejandra Vera', kind: 'user' as const, email: null, avatarUrl: null }],
+        });
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'person_query', personHints: ['Alejandra'], textQuery: null }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué sabes de Alejandra?' }, { interpreter });
+
+        expect(mockResolvePerson).toHaveBeenCalledTimes(1);
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        expect(ctx.clarification?.candidates?.length).toBe(2); // ambigüedad GENUINA (>1 candidato real) nunca se suprime
+    });
+});
+
 // M-1H — regresión encontrada DURANTE la implementación de la sección 16: la
 // primera versión de "commitmentSignalConfident" usaba "cualquier intent
 // distinto de general_context", lo que forzaba wantsCommitments=true incluso

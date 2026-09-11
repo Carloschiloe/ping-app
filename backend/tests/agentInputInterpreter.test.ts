@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-    LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
+    LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, isPersonHintTopicalNotPersonal, classifyQueryCardinality,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -1020,6 +1020,40 @@ describe('M-1H: isPersonHintGroundedInInput (sección 4) -- explicit person ment
     it('un hint vacío o sólo espacios nunca está grounded', () => {
         expect(isPersonHintGroundedInInput('', 'cualquier texto')).toBe(false);
         expect(isPersonHintGroundedInInput('   ', 'cualquier texto')).toBe(false);
+    });
+});
+
+// PING — M-2 CROSS-TURN CONTEXT ISOLATION: segunda red de seguridad para
+// personHints del LLM. isPersonHintGroundedInInput sólo prueba "el texto
+// existe en el input" -- nunca "ese texto es una persona real, no parte del
+// tema". Hallazgo físico real: "Cuando completamos lo de ver Spiderman?"
+// ocasionalmente producía personHints=["Spiderman"] del LLM primario
+// (varianza de muestreo -- "Spiderman" SÍ aparece en el texto, así que la
+// primera red de seguridad nunca lo atrapaba), disparando person_ambiguous
+// sobre un título de compromiso, no una persona.
+describe('M-2 CROSS-TURN CONTEXT ISOLATION: isPersonHintTopicalNotPersonal -- distingue "está en el texto" de "es una persona real"', () => {
+    it('reproducción exacta: "Spiderman" dentro del textQuery determinístico "ver Spiderman", sin corroboración -> topical (se descarta)', () => {
+        expect(isPersonHintTopicalNotPersonal('Spiderman', 'ver Spiderman', [])).toBe(true);
+    });
+
+    it('un catch genuino del LLM (persona real, SIN solape con el textQuery determinístico) nunca se descarta', () => {
+        expect(isPersonHintTopicalNotPersonal('Laura', 'presupuesto marketing', [])).toBe(false);
+    });
+
+    it('si el determinístico TAMBIÉN reconoce el mismo nombre como persona vía un cue real, sobrevive aunque haya solape textual', () => {
+        expect(isPersonHintTopicalNotPersonal('Laura', 'Laura viaje', ['Laura'])).toBe(false);
+    });
+
+    it('sin textQuery determinístico (null) -- conservador, nunca descarta sin evidencia positiva de solape', () => {
+        expect(isPersonHintTopicalNotPersonal('Spiderman', null, [])).toBe(false);
+    });
+
+    it('case-insensitive: "spiderman" (minúscula) sigue detectado como topical contra "ver Spiderman"', () => {
+        expect(isPersonHintTopicalNotPersonal('spiderman', 'ver Spiderman', [])).toBe(true);
+    });
+
+    it('hint vacío nunca se marca como topical (nada que comparar)', () => {
+        expect(isPersonHintTopicalNotPersonal('', 'ver Spiderman', [])).toBe(false);
     });
 });
 

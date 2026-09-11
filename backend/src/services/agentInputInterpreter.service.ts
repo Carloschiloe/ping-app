@@ -506,6 +506,36 @@ export function isPersonHintGroundedInInput(hint: string, rawInput: string): boo
     return rawInput.toLowerCase().includes(normalizedHint);
 }
 
+// PING — M-2 CROSS-TURN CONTEXT ISOLATION (real name: LLM person-hint
+// sampling variance on a proper noun that is actually part of the topic,
+// not a person -- "Cuando completamos lo de ver Spiderman?" occasionally had
+// the LLM label "Spiderman" as a personHint; the substring grounding check
+// above never catches this, because "Spiderman" genuinely IS present in the
+// raw input -- it just isn't a real person's name, it's the commitment's own
+// title). isPersonHintGroundedInInput only proves the LLM didn't invent text
+// that isn't there; it says nothing about whether that text is a person
+// reference versus topical content. This is the second, narrower gate: an
+// LLM personHint is rejected when it is fully contained within the
+// DETERMINISTIC interpreter's own textQuery for the SAME raw input AND the
+// deterministic interpreter's own structural cue patterns
+// (extractPersonHints -- "con X"/"a X"/"X dijo"/etc.) never independently
+// flagged this same text as a person reference. This is deliberately
+// asymmetric with genuine LLM-only catches: a real person mention the regex
+// heuristic misses (no cue word matched) but that is NOT part of the
+// deterministic topical textQuery survives untouched -- this only closes the
+// specific gap where a proper noun is simultaneously "present in the text"
+// and "part of what textQuery already identified as the topic", which is
+// exactly the shape of a title/fictional-name/project-name being
+// misclassified, never a real standalone person mention.
+export function isPersonHintTopicalNotPersonal(hint: string, deterministicTextQuery: string | null, deterministicPersonHints: string[]): boolean {
+    if (!deterministicTextQuery) return false;
+    const normalizedHint = hint.trim().toLowerCase();
+    if (!normalizedHint) return false;
+    const alreadyFlaggedByDeterministic = deterministicPersonHints.some((h) => h.trim().toLowerCase() === normalizedHint);
+    if (alreadyFlaggedByDeterministic) return false; // el determinístico SÍ lo reconoce como persona vía un cue estructural real -- nunca se descarta
+    return deterministicTextQuery.toLowerCase().includes(normalizedHint);
+}
+
 function extractTimeExpression(input: string): string | null {
     for (const pattern of TIME_EXPRESSIONS) {
         const match = input.match(pattern);

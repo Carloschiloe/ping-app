@@ -29,6 +29,7 @@ import {
     DeterministicInputInterpreter,
     fallbackInterpretation,
     isPersonHintGroundedInInput,
+    isPersonHintTopicalNotPersonal,
     classifyQueryCardinality,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
@@ -435,7 +436,23 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // scope estructural real si el nombre efectivamente aparece como texto
     // en el input crudo -- nunca "porque el LLM lo dijo". Esto reemplaza
     // confiar ciegamente en `rawInterpretation.personHints`.
-    const explicitPersonHints = rawInterpretation.personHints.filter((hint) => isPersonHintGroundedInInput(hint, input.input));
+    //
+    // PING — M-2 CROSS-TURN CONTEXT ISOLATION: segunda red de seguridad,
+    // necesaria porque la de arriba sólo prueba "el LLM no inventó texto
+    // ausente", nunca "ese texto es realmente una persona y no parte del
+    // tema". Hallazgo físico real: el mismo input exacto ("Cuando completamos
+    // lo de ver Spiderman?") a veces producía personHints=["Spiderman"] del
+    // LLM primario (varianza de muestreo del modelo, no un cambio real de
+    // texto ni contexto de turnos previos -- "Spiderman" SÍ está presente en
+    // el input, así que la primera red de seguridad nunca lo atrapaba). Se
+    // descarta cuando el propio determinístico coloca ese mismo texto dentro
+    // de SU textQuery (ya es "tema", no "persona") Y el determinístico no lo
+    // reconoció independientemente como persona vía un cue estructural real
+    // (con/a/dijo/etc.) -- un catch genuino del LLM que el regex no cubre
+    // (sin solapar con el textQuery determinístico) nunca se ve afectado.
+    const explicitPersonHints = rawInterpretation.personHints
+        .filter((hint) => isPersonHintGroundedInInput(hint, input.input))
+        .filter((hint) => !isPersonHintTopicalNotPersonal(hint, deterministicSignals.textQuery, deterministicSignals.personHints));
     // Sección 3: cuando el determinístico detecta proposalFocus (waiting_for_
     // others/needs_my_response/pending_response_from_person), el LLM no
     // puede contradecirlo -- ni con un valor distinto, ni alegando
