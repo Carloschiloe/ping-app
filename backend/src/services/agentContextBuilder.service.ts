@@ -471,39 +471,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // más abajo: "coreHasConfidentSignal no debe forzar wantsCommitments
     // para intents ajenos a commitments").
     const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
-    // PING — PRONOUN GROUNDING AUDIT (supersedes the 9bf35b2 approach,
-    // rejected in review as an over-broad condition): "LLM suggests, Core
-    // decides" boundary applied to unresolved_pronoun, but gated on the
-    // NARROWEST correct Core-owned signal, not
-    // generalContextHasRetrievableSignal. That function answers "is there
-    // something worth retrieving" (textQuery/personHints/timeExpression/
-    // overdue/status) -- a real but DIFFERENT question from "does a
-    // third-person pronoun in this input have an antecedent". Proven unsafe
-    // by adversarial audit: "¿Qué dijo él ayer?" (timeExpression="ayer") and
-    // "¿Él tiene algo vencido?" (wantsOverdueFocus=true) both satisfy
-    // generalContextHasRetrievableSignal while "él"/"Él" remain genuinely
-    // unresolved -- time and overdue/status signals are orthogonal to WHO a
-    // pronoun refers to, and would have wrongly suppressed real
-    // unresolved_pronoun ambiguity for these cases. Even textQuery/
-    // personHints alone are unsafe: STOPWORDS strips "el/la/lo" (articles)
-    // but never "él/ella" (genuine third-person pronouns), so they leak
-    // through as residual textQuery content that looks like grounding but
-    // isn't.
-    // The correct question is answered by containsThirdPersonPronoun: did
-    // the raw input contain a genuine third-person pronoun (él/ella/ellos/
-    // ellas/he/she/they/etc.) requiring an antecedent AT ALL? "lo" in "lo de
-    // Spiderman" is a clitic/article (topic-referential idiom), never an
-    // anaphoric subject pronoun -- see PERSON_HINT_CUE_BEFORE's lo/la
-    // lookbehind, the same linguistic fact already established elsewhere in
-    // this exact pipeline. If no such pronoun exists in the text, the LLM's
-    // unresolved_pronoun claim had nothing genuine to be ambiguous about and
-    // is discarded; if one DOES exist, the claim is always trusted (this
-    // makes no attempt to guess whether that pronoun's antecedent was
-    // actually resolved -- it only vetoes the specific case where there was
-    // never a real pronoun to resolve). Never a phrase-specific check for
-    // "Spiderman"/"lo de" -- a grammatical distinction that generalizes to
-    // any future input with the same shape.
-    const rawInputHasThirdPersonPronoun = containsThirdPersonPronoun(input.input);
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -538,18 +505,26 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // Cuando el Core ya tiene una lectura estructurada confiada de
         // proposalFocus, una alucinación de ambigüedad del LLM
         // (needs_clarification sobre una consulta que en realidad es clara)
-        // queda descartada. Independientemente de eso, "unresolved_pronoun"
-        // específicamente también se descarta cuando el input crudo NUNCA
-        // contuvo un pronombre de tercera persona real (ver
-        // rawInputHasThirdPersonPronoun arriba, containsThirdPersonPronoun)
-        // -- nunca se debilita time_ambiguous/topic_too_broad, sólo este
-        // caso puntual, y nunca se suprime cuando el pronombre SÍ está
-        // presente en el texto.
+        // queda descartada.
+        //
+        // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE: previous
+        // approaches (9bf35b2, its narrower revision) still let the LLM's
+        // OWN ambiguityHints=['unresolved_pronoun'] decide routing whenever
+        // it happened to agree with a deterministic veto -- "same input +
+        // same canonical state must produce deterministic routing" was
+        // still violated in principle, because whether unresolved_pronoun
+        // fired at all was still a question the LLM answered, not Core.
+        // "unresolved_pronoun" is filtered out HERE UNCONDITIONALLY -- it is
+        // never used as routing authority anywhere downstream any more (see
+        // the real Core-derived gate further below, right after person
+        // resolution completes: containsThirdPersonPronoun(input.input) &&
+        // !resolvedPersonId). This field is now advisory-only end to end,
+        // exactly like personHints -- kept in Interpretation only for
+        // trace/diagnostics parity, matching the comment on personHints
+        // above.
         ambiguityHints: commitmentSignalConfident
             ? []
-            : (!rawInputHasThirdPersonPronoun
-                ? rawInterpretation.ambiguityHints.filter((h) => h !== 'unresolved_pronoun')
-                : rawInterpretation.ambiguityHints),
+            : rawInterpretation.ambiguityHints.filter((h) => h !== 'unresolved_pronoun'),
         // Si el Core acaba de decidir que esto SÍ es una consulta de
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
@@ -675,6 +650,34 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // determinística ya usada para "unresolved_pronoun" (candidates:[] pide
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
+        needsClarification = true;
+        clarification = { reason: 'person_ambiguous', candidates: [] };
+    }
+
+    // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,
+    // replaces every prior LLM-dependent attempt at this exact spot --
+    // 9bf35b2's generalContextHasRetrievableSignal reuse and its narrower
+    // revision both still let the LLM's own ambiguityHints value decide
+    // WHETHER this fires at all). Decision table (Core-derived only, zero
+    // LLM input):
+    //   containsThirdPersonPronoun(raw input) | resolvedPersonId | outcome
+    //   ------------------------------------- | ---------------- | -------
+    //   false (no real 3rd-person pronoun)    | (irrelevant)     | no clarification from this gate
+    //   true                                  | present (real)   | no clarification -- antecedent IS resolved
+    //   true                                  | absent           | person_ambiguous, candidates:[]
+    // `resolvedPersonId` here is the SAME canonical resolution already
+    // computed above (canonicalPersonScope -> resolvePerson, or
+    // authorizedPersonReferentId) -- "the pronoun's antecedent is
+    // resolvable" is proven exclusively by Core's own resolvePerson-backed
+    // authority, never by the LLM claiming a name for the pronoun (an
+    // LLM-guessed personHints=["él"], if it ever occurred, would still have
+    // to pass isPersonHintGroundedInInput/canonicalPersonScope/resolvePerson
+    // like any other hint -- it has no special authority here). Same input
+    // + same canonical state (what resolvePerson returns) now ALWAYS
+    // produces the same routing, independent of whether/how the LLM phrased
+    // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
+    // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
+    if (!needsClarification && containsThirdPersonPronoun(input.input) && !resolvedPersonId) {
         needsClarification = true;
         clarification = { reason: 'person_ambiguous', candidates: [] };
     }
@@ -1034,16 +1037,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     }
 
     // M-1D.1 (sección 19): el intérprete (LLM o determinístico) sólo SEÑALA
-    // ambigüedad — nunca la resuelve. El builder decide qué hacer. Un
-    // "unresolved_pronoun" ("¿qué dijo él?" sin antecedente confiable) se
-    // trata como person_ambiguous sin candidatos: no hay a quién resolver,
-    // a diferencia de >1 match real de resolvePerson.
+    // ambigüedad — nunca la resuelve. El builder decide qué hacer.
+    // "unresolved_pronoun" NUNCA se lee de aquí -- ver el gate Core-derived
+    // más arriba (containsThirdPersonPronoun + resolvedPersonId), la única
+    // autoridad real para esa clarificación (PING — REMOVE LLM OWNERSHIP OF
+    // PRONOUN AMBIGUITY GATE). time_ambiguous/topic_too_broad siguen siendo
+    // señales genuinas del intérprete, sin un resolutor determinístico
+    // propio todavía -- fuera de alcance de este ticket.
     const ambiguityHints = interpretation.ambiguityHints ?? []; // defensivo: un intérprete mal formado no debe crashear el builder
     if (!needsClarification) {
-        if (ambiguityHints.includes('unresolved_pronoun')) {
-            needsClarification = true;
-            clarification = { reason: 'person_ambiguous', candidates: [] };
-        } else if (ambiguityHints.includes('time_ambiguous')) {
+        if (ambiguityHints.includes('time_ambiguous')) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
         } else if (ambiguityHints.includes('topic_too_broad')) {
