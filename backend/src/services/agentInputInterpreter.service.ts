@@ -571,6 +571,45 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     return tokens.join(' ');
 }
 
+// PING — CANONICAL RETRIEVAL ROUTING: single, shared owner for "does this
+// query carry ENOUGH real signal to justify broad evidence retrieval, given
+// that intent classification could not pin it to a specific category".
+// 'general_context' is the genuine no-match fallback (see classifyIntent's
+// own final branch) -- every OTHER intent already has a specific,
+// keyword-justified reason to want commitments/messages (commitment_query,
+// person_query, recall, message_search each matched a real pattern;
+// document_search is already narrowed to wantsAttachments only). Before this
+// function, 'general_context' defaulted wantsCommitments/wantsMessages to
+// true UNCONDITIONALLY in all three interpretation paths (deterministic,
+// LLM, fallback) -- "Hola" (zero signal of any kind) and "¿Qué tengo para
+// hoy?" (a real time expression) were treated identically, fanning out
+// commitment/message retrieval for a bare greeting. The correct boundary
+// mirrors the one 'topic_too_broad' already uses downstream (sección 20,
+// agentContextBuilder.service.ts) to detect "no real signal", EXTENDED with
+// two more real structural signals ("vencido"/wantsOverdueFocus and any
+// statusHints) that a real physical regression proved were missing:
+// "¿Qué tengo vencido?" classifies as general_context (COMMITMENT_KEYWORDS
+// doesn't match "vencido", only OVERDUE_KEYWORDS does) and carries neither
+// textQuery/personHints/timeExpression, yet it is unambiguously a real
+// commitment-status query, never a bare greeting. A textQuery, a person
+// hint, a time expression, an overdue focus, or a status hint are each
+// independently sufficient; if NONE exist, there is nothing to look up and
+// retrieval must stay empty rather than fan out by default. This is
+// Core-owned and applied identically regardless of which interpreter (or
+// the conservative fallback) produced the classification -- the LLM's own
+// suggested wantsCommitments/wantsMessages for general_context is never
+// trusted directly; only the deterministically-verifiable signals below
+// decide.
+export function generalContextHasRetrievableSignal(
+    textQuery: string | null,
+    personHints: string[],
+    timeExpression: string | null,
+    wantsOverdueFocus?: boolean,
+    statusHints?: CanonicalCommitmentStatus[] | null,
+): boolean {
+    return !!textQuery || personHints.length > 0 || !!timeExpression || !!wantsOverdueFocus || !!(statusHints && statusHints.length > 0);
+}
+
 export class DeterministicInputInterpreter implements AgentInputInterpreter {
     async interpret(input: string): Promise<Interpretation> {
         const trimmed = input.trim();
@@ -580,6 +619,8 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const statusHints = extractStatusHints(trimmed);
         const textQuery = extractTextQuery(trimmed, personHints);
         const wantsAudio = AUDIO_KEYWORDS.test(trimmed);
+        const wantsOverdueFocus = OVERDUE_KEYWORDS.test(trimmed);
+        const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints);
 
         return {
             intent,
@@ -589,11 +630,11 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             textQuery,
             timeExpression,
             statusHints,
-            wantsCommitments: intent !== 'document_search',
-            wantsMessages: true,
+            wantsCommitments: intent !== 'document_search' && (intent !== 'general_context' || generalContextRetrievable),
+            wantsMessages: intent !== 'general_context' || generalContextRetrievable,
             wantsTranscriptions: intent === 'recall' || intent === 'message_search' || wantsAudio,
             wantsAttachments: intent === 'document_search' || DOCUMENT_KEYWORDS.test(trimmed),
-            wantsOverdueFocus: OVERDUE_KEYWORDS.test(trimmed),
+            wantsOverdueFocus,
             proposalFocus: extractProposalFocus(trimmed),
             isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed),
             ambiguityHints: [],
@@ -605,6 +646,18 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
 // Fallback conservador (sección 31): usado cuando un intérprete (presente o
 // futuro) falla o devuelve una forma inválida. Nunca inventa personId ni
 // timeRange; nunca amplía fuentes más allá de lo mínimo razonable.
+//
+// PING — CANONICAL RETRIEVAL ROUTING: this path's own "textQuery" is the
+// RAW, unfiltered trimmed input (never processed through stopword/control
+// stripping like the deterministic extractor's) -- treating it as verified
+// retrievable signal would make wantsCommitments/wantsMessages effectively
+// always true here (raw input is almost never empty), which is exactly the
+// unconditional-fan-out this fix removes elsewhere. Since this branch never
+// runs generalContextHasRetrievableSignal against a genuinely-extracted
+// textQuery/personHints/timeExpression, it stays at its own explicit
+// minimum: no commitments/messages by default when the interpreter itself
+// already failed or returned an invalid shape -- consistent with "nunca
+// amplía fuentes más allá de lo mínimo razonable" already documented above.
 export function fallbackInterpretation(input: string, reason?: string): Interpretation {
     return {
         intent: 'general_context',
@@ -614,8 +667,8 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         textQuery: input.trim() || null,
         timeExpression: null,
         statusHints: null,
-        wantsCommitments: true,
-        wantsMessages: true,
+        wantsCommitments: false,
+        wantsMessages: false,
         wantsTranscriptions: false,
         wantsAttachments: false,
         wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
@@ -768,6 +821,14 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     const finalTextQuery = confirmationCleanedTextQuery ? stripCardinalityControlWords(confirmationCleanedTextQuery) : null;
     const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
+    // PING — CANONICAL RETRIEVAL ROUTING: same Core-owned boundary as
+    // DeterministicInputInterpreter -- the LLM's OWN wantsCommitments/
+    // requested.has('commitments') suggestion for 'general_context' is
+    // never trusted directly for broad fan-out; only deterministically
+    // present textQuery/personHints/timeExpression justify it. This closes
+    // the LLM path that produced the exact same "Hola" defect.
+    const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, payload.personHints, payload.timeExpression, payload.wantsOverdueFocus, statusHints);
+
     return {
         intent: payload.intent,
         // El modelo no auto-reporta confianza (los scores auto-reportados por
@@ -779,8 +840,9 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         textQuery,
         timeExpression: payload.timeExpression,
         statusHints,
-        wantsCommitments: payload.intent !== 'document_search' || requested.has('commitments'),
-        wantsMessages: true,
+        wantsCommitments: payload.intent !== 'document_search'
+            && (payload.intent !== 'general_context' || generalContextRetrievable || requested.has('commitments')),
+        wantsMessages: payload.intent !== 'general_context' || generalContextRetrievable || requested.has('messages'),
         wantsTranscriptions: requested.has('transcriptions') || payload.intent === 'recall' || payload.intent === 'message_search',
         wantsAttachments: requested.has('attachments') || payload.intent === 'document_search',
         wantsOverdueFocus: payload.wantsOverdueFocus,

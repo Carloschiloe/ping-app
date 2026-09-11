@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
+    generalContextHasRetrievableSignal,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -1099,5 +1100,182 @@ describe('M-1H: bloqueo B ("FINAL ARCHITECTURE GATE") -- generic commitment_quer
         const summary = await new DeterministicInputInterpreter().interpret('Resume mis compromisos', {});
         expect(count.textQuery).toBeNull();
         expect(summary.textQuery).toBeNull();
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — CANONICAL RETRIEVAL ROUTING: root architectural fix. Physical
+// finding: "Hola" (general_context, zero real signal) unconditionally set
+// wantsCommitments=true/wantsMessages=true in ALL THREE interpretation paths
+// (DeterministicInputInterpreter, LlmInputInterpreter, fallbackInterpretation),
+// causing unnecessary commitment retrieval for a bare greeting. This is not a
+// "Hola" bug -- every OTHER intent (commitment_query, person_query, recall,
+// message_search, document_search) already has a specific keyword-justified
+// reason to want a given domain; 'general_context' is the genuine no-match
+// fallback and had NO minimum bar at all. generalContextHasRetrievableSignal
+// is the single Core-owned decision point (never per-phrase heuristics):
+// textQuery, personHints, timeExpression, wantsOverdueFocus, or statusHints
+// -- any ONE of these existing means the unclassified query still plausibly
+// refers to something retrievable; NONE existing means there is nothing to
+// look up. Applied identically in the deterministic path, the LLM path (the
+// LLM's own wantsCommitments/requestedSources suggestion is NEVER trusted
+// directly for general_context -- only these Core-verifiable signals decide,
+// with requestedSources as an additional bounded-enum justification), and the
+// true last-resort fallbackInterpretation (now maximally conservative: no
+// verified signal exists there at all, so no domain is requested).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('CANONICAL RETRIEVAL ROUTING: generalContextHasRetrievableSignal — the single owner of "does this unclassified query deserve broad retrieval"', () => {
+    it('ningún signal (textQuery/personHints/timeExpression/overdue/status) -> false (el caso "Hola")', () => {
+        expect(generalContextHasRetrievableSignal(null, [], null)).toBe(false);
+        expect(generalContextHasRetrievableSignal(null, [], null, false, null)).toBe(false);
+    });
+
+    it('textQuery presente -> true', () => {
+        expect(generalContextHasRetrievableSignal('ver Spiderman', [], null)).toBe(true);
+    });
+
+    it('personHints presente -> true', () => {
+        expect(generalContextHasRetrievableSignal(null, ['Alejandra'], null)).toBe(true);
+    });
+
+    it('timeExpression presente -> true (el caso "¿Qué tengo para hoy?")', () => {
+        expect(generalContextHasRetrievableSignal(null, [], 'hoy')).toBe(true);
+    });
+
+    it('wantsOverdueFocus=true -> true (el caso "¿Qué tengo vencido?", que nunca matchea COMMITMENT_KEYWORDS)', () => {
+        expect(generalContextHasRetrievableSignal(null, [], null, true)).toBe(true);
+    });
+
+    it('statusHints no vacío -> true', () => {
+        expect(generalContextHasRetrievableSignal(null, [], null, false, ['resolved'])).toBe(true);
+    });
+
+    it('statusHints=[] (vacío pero no null) -> false, igual que null', () => {
+        expect(generalContextHasRetrievableSignal(null, [], null, false, [])).toBe(false);
+    });
+});
+
+describe('CANONICAL RETRIEVAL ROUTING: DeterministicInputInterpreter — domain selection, no per-phrase heuristics', () => {
+    it('"Hola" (saludo puro, cero señal real) -> wantsCommitments=false, wantsMessages=false', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Hola', {});
+        expect(r.intent).toBe('general_context');
+        expect(r.wantsCommitments).toBe(false);
+        expect(r.wantsMessages).toBe(false);
+    });
+
+    it('variantes de mayúscula/minúscula de "hola" (no es un caso especial hardcodeado -- el fix opera sobre ausencia de señal, no sobre la palabra) también producen cero retrieval', async () => {
+        for (const greeting of ['hola', 'HOLA', '  Hola  ', 'Hola!']) {
+            const r = await new DeterministicInputInterpreter().interpret(greeting, {});
+            expect(r.intent).toBe('general_context');
+            expect(r.wantsCommitments).toBe(false);
+            expect(r.wantsMessages).toBe(false);
+        }
+    });
+
+    // HALLAZGO SEPARADO (fuera de alcance de este fix, documentado no
+    // corregido -- mismo patrón que otras brechas de vocabulario ya
+    // encontradas esta sesión): "ok"/"gracias"/"jaja" no están en STOPWORDS,
+    // así que sobreviven como textQuery genuino y por lo tanto SÍ activan
+    // wantsCommitments bajo la señal real de generalContextHasRetrievableSignal
+    // -- textQuery="ok" es indistinguible, para esta función, de un tema real
+    // como "proyecto Aurora". Esto es un gap de STOPWORDS/extractTextQuery,
+    // no del contrato de retrieval routing en sí (que confía correctamente en
+    // textQuery cuando existe) -- reportado en el morning report, no
+    // corregido en este pase.
+    it('DOCUMENTA (no corrige): "ok"/"gracias"/"jaja" sobreviven como textQuery por brecha de STOPWORDS, no por un defecto del routing', async () => {
+        for (const filler of ['ok', 'gracias', 'jaja']) {
+            const r = await new DeterministicInputInterpreter().interpret(filler, {});
+            expect(r.textQuery).toBe(filler); // la causa raíz real: STOPWORDS incompleto
+        }
+    });
+
+    it('"Que compromisos tengo pendiente?" (commitment_query real) -> wantsCommitments=true, sin cambios', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Que compromisos tengo pendiente?', {});
+        expect(r.intent).toBe('commitment_query');
+        expect(r.wantsCommitments).toBe(true);
+    });
+
+    it('"Que tengo para hoy?" (general_context CON timeExpression real) -> retrieval permitido, nunca tratado como "Hola"', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Que tengo para hoy?', {});
+        expect(r.intent).toBe('general_context');
+        expect(r.timeExpression).toBe('hoy');
+        expect(r.wantsCommitments).toBe(true);
+        expect(r.wantsMessages).toBe(true);
+    });
+
+    it('"Cuando completamos lo de ver Spiderman?" (general_context CON textQuery real, la consulta histórica de M-2) -> retrieval permitido', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de ver Spiderman?', {});
+        expect(r.intent).toBe('general_context');
+        expect(r.textQuery).toBe('ver Spiderman');
+        expect(r.wantsCommitments).toBe(true);
+    });
+
+    it('"¿Qué tengo vencido?" (general_context CON wantsOverdueFocus real) -> retrieval permitido (regresión física certificada aparte)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+        expect(r.intent).toBe('general_context');
+        expect(r.wantsOverdueFocus).toBe(true);
+        expect(r.wantsCommitments).toBe(true);
+    });
+
+    it('"¿Me mandaron algún contrato?" (document_search) -> wantsCommitments=false, wantsAttachments=true, sin cambios', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Me mandaron algún contrato?', {});
+        expect(r.intent).toBe('document_search');
+        expect(r.wantsCommitments).toBe(false);
+        expect(r.wantsAttachments).toBe(true);
+    });
+
+    it('"¿Qué sabes de Alejandra?" (general_context CON personHints real) -> retrieval permitido', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué sabes de Alejandra?', {});
+        expect(r.intent).toBe('general_context');
+        expect(r.personHints).toContain('Alejandra');
+        expect(r.wantsCommitments).toBe(true);
+    });
+});
+
+describe('CANONICAL RETRIEVAL ROUTING: LlmInputInterpreter — el LLM no puede activar retrieval amplio para general_context por su cuenta', () => {
+    it('el modelo devuelve general_context + wantsCommitments=true sin ninguna señal Core-verificable -> el Core lo descarta a false', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', personHints: [], topicHints: [], textQuery: null, timeExpression: null }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Hola', {});
+        expect(result.wantsCommitments).toBe(false);
+        expect(result.wantsMessages).toBe(false);
+    });
+
+    it('el modelo devuelve general_context pero SÍ incluye requestedSources=["commitments"] (señal estructurada, enum acotado) -> se honra', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', requestedSources: ['commitments'], personHints: [], topicHints: [], textQuery: null, timeExpression: null }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('algo ambiguo', {});
+        expect(result.wantsCommitments).toBe(true);
+    });
+
+    it('el modelo devuelve general_context con un textQuery real -> se honra (no es un saludo vacío)', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', textQuery: 'proyecto Aurora', topicHints: ['proyecto Aurora'] }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('algo sobre el proyecto Aurora', {});
+        expect(result.wantsCommitments).toBe(true);
+        expect(result.wantsMessages).toBe(true);
+    });
+
+    it('intents distintos de general_context nunca se ven afectados por este fix (commitment_query sigue wantsCommitments=true incondicionalmente)', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', personHints: [], topicHints: [], textQuery: null }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué tengo pendiente?', {});
+        expect(result.wantsCommitments).toBe(true);
+    });
+});
+
+describe('CANONICAL RETRIEVAL ROUTING: fallbackInterpretation — último recurso, máximamente conservador', () => {
+    it('sin ninguna señal verificada en este camino -> wantsCommitments=false, wantsMessages=false (nunca amplía fuentes en el peor caso)', async () => {
+        const { fallbackInterpretation: fb } = await import('../src/services/agentInputInterpreter.service');
+        const result = fb('cualquier texto crudo no interpretado', 'interpreter_threw');
+        expect(result.wantsCommitments).toBe(false);
+        expect(result.wantsMessages).toBe(false);
+        expect(result.source).toBe('llm_fallback');
+    });
+
+    it('sigue detectando "vencido" incluso en este camino de última red de seguridad (wantsOverdueFocus no depende de este fix)', async () => {
+        const { fallbackInterpretation: fb } = await import('../src/services/agentInputInterpreter.service');
+        const result = fb('¿Qué tengo vencido?', 'interpreter_threw');
+        expect(result.wantsOverdueFocus).toBe(true);
     });
 });
