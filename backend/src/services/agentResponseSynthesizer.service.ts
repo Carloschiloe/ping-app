@@ -35,7 +35,7 @@ import type {
     AgentResponseStatus,
     AgentSynthesisInput,
 } from '../types/agentResponse';
-import type { AgentContext } from '../types/agentContext';
+import type { AgentContext, QueryCardinality } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
 import { formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
@@ -169,6 +169,47 @@ function memoryAgreesWithCanonicalCurrentState(memory: { predicate: string; obje
     return commitment.status === memory.objectValue;
 }
 
+// PING — M-2 ENTITY EVIDENCE CONTAMINATION: root cause was NOT a bad FTS
+// scope (websearch_to_tsquery correctly ANDs multi-word queries) — it was
+// that retrieveMemory has no per-commitment filter at all (see
+// memorySearchProvider.ts), so a lexical match on a single shared word (e.g.
+// the LLM's non-deterministic textQuery dropping "ver" and leaving bare
+// "Spiderman") legitimately retrieves commitment_status:<id> memory for
+// EVERY commitment whose title contains that word, not just the one the
+// user actually asked about. Physical case: "Cuando completamos lo de ver
+// Spiderman?" resolved "Ver Spiderman" as the SINGLE canonical commitment in
+// context.commitments (retrieveCommitments correctly excluded "Spiderman el
+// Viernes" via the status filter), but its unrelated commitment_status
+// memory still rode along into the prompt and the model cited it.
+//
+// Fix lives HERE (not in memorySearchProvider.ts, not as a new textQuery
+// heuristic) because this is the one place context.commitments (the
+// already-resolved canonical target set) and context.memoryFacts/
+// historicalMemoryFacts (unscoped raw evidence) are both in scope
+// simultaneously, right before evidence is frozen into the prompt/allowlist.
+// Reuses the EXISTING queryCardinality signal (already the canonical
+// single-vs-broad distinction in this exact file — see
+// enforceExhaustiveCoverage below, gated the same way on
+// queryCardinality==='exhaustive_list') instead of inventing a new
+// heuristic: 'exhaustive_list' is the only cardinality that means "the user
+// asked for a listing/comparison across multiple items" (see
+// classifyQueryCardinality's own docs — proposalFocus/wantsOverdueFocus/
+// generic commitment_query all map there). Every other cardinality
+// (focused_lookup/summary/count/unknown) names or targets something
+// specific, so when exactly one commitment was canonically resolved for a
+// non-exhaustive_list query, memory belonging to any OTHER commitment_status
+// is off-target by definition, not merely historical -- it is dropped
+// entirely (never sent to the model, never citable), not just disclaimed.
+function excludeOffTargetCommitmentMemory<T extends { predicate: string }>(
+    memories: T[],
+    commitments: AgentContext['commitments'],
+    queryCardinality: QueryCardinality,
+): T[] {
+    if (commitments.length !== 1 || queryCardinality === 'exhaustive_list') return memories;
+    const targetId = commitments[0].id;
+    return memories.filter((m) => !m.predicate.startsWith('commitment_status:') || m.predicate.slice('commitment_status:'.length) === targetId);
+}
+
 const MAX_SYNTHESIS_CONTEXT_CHARS = 6000; // presupuesto de caracteres enviado al modelo (sección 30) — aparte del budget de M-1D (cuántos items se recuperan)
 
 // M-1E.1 — resultado del serializer: el payload que efectivamente se envía
@@ -220,7 +261,17 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         // "sin memoria" es siempre seguro, nunca oculta una degradación real
         // (buildAgentContext real SIEMPRE los popula, ver
         // agentContextBuilder.service.ts).
-        memory: [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])].map((m) => ({
+        //
+        // PING — M-2 ENTITY EVIDENCE CONTAMINATION: excludeOffTargetCommitmentMemory
+        // runs BEFORE mapping to the serialized shape -- memory for a
+        // different commitment than the single canonically-resolved target
+        // is dropped entirely here, never reaching the prompt or the
+        // citable allowlist (never just disclaimed).
+        memory: excludeOffTargetCommitmentMemory(
+            [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])],
+            context.commitments,
+            context.queryCardinality,
+        ).map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
             observedAtLocal: formatEventTimestampInZone(m.observedAt, context.timezone, locale),
             agreesWithCanonicalCurrentState: memoryAgreesWithCanonicalCurrentState(m, context.commitments),
