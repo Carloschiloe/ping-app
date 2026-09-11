@@ -228,7 +228,7 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Direct dependencies:** Retrieval, Memory, canonical truth registry, temporal/overdue semantics.
 **Used by:** Agent read responses and `/agent/turn` read branch.
 **Tests:** `backend/tests/agentContextBuilder.test.ts`, `backend/tests/temporalContext.test.ts`, `backend/tests/agentOrchestrator.test.ts`.
-**Common symptoms:** wrong evidence window, ambiguous referent, UI/Agent overdue mismatch.
+**Common symptoms:** wrong evidence window, ambiguous referent, UI/Agent overdue mismatch, unnecessary retrieval fan-out for an unrelated/no-signal query (e.g. a bare greeting retrieving commitments) — canonical owner is `generalContextHasRetrievableSignal` in `backend/src/services/agentInputInterpreter.service.ts`; retrieval domains for the `general_context` fallback intent are gated on verified signal (textQuery/personHints/timeExpression/overdue/status), never enabled unconditionally or by untrusted LLM suggestion alone.
 **Usually do not read:** Planner/executors for a purely read-only answer bug.
 
 ### Agent interpretation
@@ -240,7 +240,7 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Direct dependencies:** deterministic patterns, optional OpenAI model, input envelope/session signals.
 **Used by:** AgentTurn, Agent planning, voice input.
 **Tests:** `backend/tests/agentInputInterpreter.test.ts`, `backend/tests/agentObjectiveInterpreter.test.ts`, `backend/tests/agentVoiceCapture.test.ts`.
-**Common symptoms:** wrong intent, invented ID, prompt output accepted directly, voice provenance lost.
+**Common symptoms:** wrong intent, invented ID, prompt output accepted directly, voice provenance lost, LLM-suggested person/scope treated as authoritative, retrieval domain enabled without verified signal.
 **Usually do not read:** Database writers; interpretation must not write.
 
 ### AgentTurn
