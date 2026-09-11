@@ -108,17 +108,30 @@ const FALTA_WAITING_KEYWORDS = wordBounded('falta por confirmar|falta que (?:me 
 // impuestos") — cada uno de esos caía silenciosamente en el pipeline de
 // sólo-lectura en vez de llegar al planner (que sí sabe, correctamente,
 // decir "no puedo planificar eso todavía").
+//
+// PING — M-2 TEST 1 ROOT FIX (causa raíz real #2): el wildcard `\w*` sobre
+// estos verbos ES en modo imperativo ("completa"/"cancela"/"acept[oa]"/
+// "rechaz"/"termina") también matcheaba, sin querer, su propia conjugación
+// de indicativo/pretérito en primera persona plural ("-amos": completamos/
+// cancelamos/aceptamos/rechazamos/terminamos) -- la forma exacta con la que
+// alguien PREGUNTA algo ya ocurrido en conjunto ("¿Cuándo completamos lo de
+// X?"), nunca un comando. Gramaticalmente el imperativo "nosotros" real es
+// otra forma ("completemos", no "completamos"), así que "-amos" nunca es una
+// orden en español -- se excluye explícitamente con un negative lookahead,
+// no una lista de frases: cualquier input futuro con esa misma conjugación
+// (de estos u otros verbos ya cubiertos) queda correctamente clasificado
+// como consulta sin necesidad de un nuevo caso especial.
 const WRITE_ACTION_KEYWORDS = wordBounded(
-    'crea|crear|agenda|agendar|programa\\w*|cancela|cancelar|env[ií]a\\w*|enviar|modifica|modificar|cambia|cambiar|'
-    + 'mueve\\w*|reprogram\\w*|posp\\w*|borra|borrar|elimina|eliminar|'
-    + 'dile|avisa\\w*|av[íi]sale|cu[ée]ntale|comun[íi]cale|preg[úu]ntale|pregunta\\w*|'
-    + 'completa\\w*|termina\\w*|marca\\w*|'
-    + 'acept[oa]\\w*|aprueba\\w*|apruebo|rechaz\\w*|'
+    'crea|crear|agenda|agendar|programa\\w*|cancela(?!mos)\\w*|cancelar|env[ií]a\\w*|enviar|modifica(?!mos)\\w*|modificar|cambia(?!mos)\\w*|cambiar|'
+    + 'mueve\\w*|reprogram(?!amos)\\w*|posp\\w*|borra(?!mos)\\w*|borrar|elimina(?!mos)\\w*|eliminar|'
+    + 'dile|avisa(?!mos)\\w*|av[íi]sale|cu[ée]ntale|comun[íi]cale|preg[úu]ntale|pregunta(?!mos)\\w*|'
+    + 'completa(?!mos)\\w*|termina(?!mos)\\w*|marca(?!mos)\\w*|'
+    + 'acept[oa](?!mos)\\w*|aprueba(?!mos)\\w*|apruebo|rechaz(?!amos)\\w*|'
     + 'recu[ée]rdame|haz(?:me)?|'
     + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
     + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
 );
-const CLOSED_STATUS_KEYWORDS = wordBounded('resuelt[oa]s?|resolved|cerrad[oa]s?|closed|cancelad[oa]s?|cancelled|canceled|rechazad[oa]s?|rejected');
+const CLOSED_STATUS_KEYWORDS = wordBounded('resuelt[oa]s?|resolved|cerrad[oa]s?|closed|cancelad[oa]s?|cancelled|canceled|rechazad[oa]s?|rejected|complet[ae]\\w*|completed');
 const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|tell me about');
 
 // Palabras a excluir del textQuery residual — question words, verbos de
@@ -220,10 +233,16 @@ function isControlLanguageOnly(text: string): boolean {
 // OVERDUE_KEYWORDS/proposalFocus arriba -- nunca un filtro token-por-token
 // genérico (eso sí rompía "task list app" y "presupuesto de marketing", ver
 // regresión detectada al intentarlo).
+// PING — M-2 TEST 1 ROOT FIX: mismo hallazgo que WRITE_ACTION_KEYWORDS
+// arriba, aplicado aquí también -- "aceptamos"/"confirmamos"/"aprobamos"
+// (primera persona plural, "¿cuándo aceptamos lo de X?") es la forma con la
+// que se PREGUNTA por un acuerdo ya ocurrido, no estaba cubierta por ninguna
+// de las formas ya listadas y sobrevivía como textQuery, mismo bug que
+// "completamos" (M-1G.3/M-2 TEST 1).
 const CONFIRMATION_CONTROL_WORDS = wordBounded(
-    'confirmar|confirmaci[oó]n|confirmen|confirme|confirmes|confirm[oó]|'
-    + 'aceptar|acepte|aceptes|acept[oó]|aceptan|'
-    + 'aprobar|apruebe|aprueb[oa]n?|aprobaci[oó]n|'
+    'confirmar|confirmaci[oó]n|confirmen|confirme|confirmes|confirm[oó]|confirmamos|'
+    + 'aceptar|acepte|aceptes|acept[oó]|aceptan|aceptamos|'
+    + 'aprobar|apruebe|aprueb[oa]n?|aprobaci[oó]n|aprobamos|'
     + 'respuestas?|propuestas?',
 );
 function stripConfirmationControlWords(text: string): string {
@@ -260,6 +279,33 @@ function stripCardinalityControlWords(text: string): string {
 function stripOverdueLanguage(text: string): string {
     const globalOverduePattern = new RegExp(OVERDUE_KEYWORDS.source, 'giu');
     return text.replace(globalOverduePattern, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// PING — M-2 TEST 1 ROOT FIX: same mechanism/root cause as stripOverdueLanguage
+// above (M-1G.3's "Entrenar" bug), now hit by a different status verb.
+// "¿Cuándo completamos lo de Ver Spiderman?" against a real commitment
+// titled "Ver Spiderman" (status resolved via action_complete) returned "no
+// encontré" -- not because the memory row was missing, but because
+// "completamos" (already captured structurally by CLOSED_STATUS_KEYWORDS/
+// statusHints) survived into textQuery="completamos Ver Spiderman". M-1C's
+// websearch_to_tsquery ANDs all terms; commitments.search_tsv only indexes
+// title/description/expected_result/next_action (never the status verb), so
+// the AND-query against a commitment whose title has no lexeme "completamos"
+// returned zero rows even though "Ver Spiderman" alone matches exactly.
+// isControlLanguageOnly already treated OPEN_STATUS_KEYWORDS/
+// CLOSED_STATUS_KEYWORDS as control language for the LLM path's safety net,
+// but extractTextQuery's own deterministic-path chain never stripped them --
+// only OVERDUE_KEYWORDS/proposalFocus/confirmation/cardinality words were.
+// Same regex-substring-removal mechanism as stripOverdueLanguage (open/
+// closed status keywords are single words, but reusing one strip function
+// for both keeps this symmetric with the existing pattern rather than a new
+// one per status family).
+function stripStatusLanguage(text: string): string {
+    let cleaned = text;
+    for (const kw of [OPEN_STATUS_KEYWORDS, CLOSED_STATUS_KEYWORDS]) {
+        cleaned = cleaned.replace(new RegExp(kw.source, 'giu'), ' ');
+    }
+    return cleaned.replace(/\s+/g, ' ').trim();
 }
 
 // M-1H v6 — mismo mecanismo que stripOverdueLanguage: ninguna de las 3
@@ -306,7 +352,22 @@ function extractProposalFocus(input: string): ProposalFocus {
 // ANTES del nombre ("con Laura", "about Alex") y nombre-luego-verbo, común
 // en construcciones en inglés con sujeto explícito ("Laura say(s)/said").
 const NAME_TOKEN = '[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?';
-const PERSON_HINT_CUE_BEFORE = new RegExp(`\\b(?:a|con|de|sobre|dijo|dice|dijeron|with|about|to|told|said)\\s+(${NAME_TOKEN})`, 'g');
+// PING — M-2 TEST 1 ROOT FIX (causa raíz real #3): "lo de X"/"la de X" es un
+// modismo referencial de tema en español ("el asunto de X"), nunca una
+// introducción de persona -- "¿Cuándo completamos lo de Ver Spiderman?" no
+// menciona a ninguna persona llamada "Ver Spiderman". El cue genérico "de"
+// de abajo, sin embargo, no distinguía este caso de uno real ("hablamos de
+// Juan"), así que "Ver Spiderman" se colaba como personHint, resolvePerson
+// nunca encontraba a nadie con ese nombre, y agentContextBuilder.service.ts
+// bloqueaba retrieveCommitments enteramente (`personScopeBlocked`) para
+// proteger contra fuga de datos de una persona real no resuelta -- el mismo
+// guard de seguridad que corresponde aplicar cuando SÍ hay un nombre de
+// persona genuino sin resolver. El fix es sintáctico, no una lista de
+// frases: un lookbehind negativo excluye "de"/"con"/etc. cuando vienen
+// justo después del artículo referencial "lo"/"la" -- cualquier futura
+// consulta con la misma construcción ("lo de <tema>") queda correctamente
+// sin personHint, sin tocar ningún otro cue legítimo.
+const PERSON_HINT_CUE_BEFORE = new RegExp(`(?<!\\blo\\s)(?<!\\bla\\s)\\b(?:a|con|de|sobre|dijo|dice|dijeron|with|about|to|told|said)\\s+(${NAME_TOKEN})`, 'g');
 const PERSON_HINT_VERB_AFTER = new RegExp(`(${NAME_TOKEN})\\s+(?:say|says|said|dijo|dice|mentioned)\\b`, 'g');
 // M-1H v6 (Gap B, sección 12) — cue dedicado para "¿Qué falta que acepte
 // Alejandra?" / "What still needs to accept from Alejandra?": el cue-before
@@ -460,7 +521,13 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
     if (OVERDUE_KEYWORDS.test(input) || OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
     if (CLOSED_STATUS_KEYWORDS.test(input)) {
         const closed: CanonicalCommitmentStatus[] = [];
-        if (/resuelt|resolved/i.test(input)) closed.push('resolved');
+        // "completado"/"completamos"/"completed" es el verbo con el que la
+        // gente describe en lenguaje natural lo que el mobile muestra como
+        // "Completado" -- ese estado de UI/acción es 'resolved' en el
+        // esquema canónico V2 ('completed' dejó de ser un status propio, ver
+        // commitmentStatus.ts). Nunca un status nuevo, sólo otro sinónimo de
+        // 'resolved' junto a "resuelto".
+        if (/resuelt|resolved|complet[ae]\w*|completed/i.test(input)) closed.push('resolved');
         if (/cancelad|cancell?ed/i.test(input)) closed.push('cancelled');
         if (/rechazad|rejected/i.test(input)) closed.push('rejected');
         return closed.length > 0 ? closed : ['resolved', 'cancelled', 'rejected'];
@@ -480,6 +547,11 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
     // (ver stripOverdueLanguage).
     cleaned = stripOverdueLanguage(cleaned);
+    // PING — M-2 TEST 1 ROOT FIX: mismo principio -- "completamos"/
+    // "resuelto"/"cancelado"/"rechazado" ya están capturados
+    // estructuralmente en statusHints, nunca deben sobrevivir como
+    // textQuery (ver stripStatusLanguage).
+    cleaned = stripStatusLanguage(cleaned);
     // M-1H v6: mismo principio para "esperando"/"por aceptar"/"falta que
     // acepte" -- ya capturado estructuralmente en proposalFocus.
     cleaned = stripProposalFocusLanguage(cleaned);
@@ -679,10 +751,15 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // esta es la red de seguridad real, aplicada ANTES de decidir si lo que
     // queda es sólo control language.
     const strippedTextQuery = rawTextQuery ? stripOverdueLanguage(rawTextQuery) : null;
+    // PING — M-2 TEST 1 ROOT FIX: misma red de seguridad que
+    // stripOverdueLanguage -- el modelo tampoco siempre sigue la instrucción
+    // de nunca repetir "completado"/"resuelto"/"cancelado"/"rechazado" en
+    // textQuery.
+    const statusCleanedTextQuery = strippedTextQuery ? stripStatusLanguage(strippedTextQuery) : null;
     // M-1H v6: misma red de seguridad que stripOverdueLanguage -- el modelo
     // no siempre sigue la instrucción de nunca repetir "esperando"/"por
     // aceptar"/"falta que acepte" en textQuery.
-    const proposalCleanedTextQuery = strippedTextQuery ? stripProposalFocusLanguage(strippedTextQuery) : null;
+    const proposalCleanedTextQuery = statusCleanedTextQuery ? stripProposalFocusLanguage(statusCleanedTextQuery) : null;
     // M-1H v7: misma red de seguridad que arriba (extractTextQuery) -- el
     // modelo no siempre sigue la instrucción de nunca repetir
     // "confirmación"/"aceptar"/"aprobar" sueltos en textQuery.

@@ -310,7 +310,29 @@ function filterByProposalFocus(
 // -- ampliar la cobertura de frases futuras es una mejora de amplitud de
 // producto, no una corrección de contrato (ver informe de entrega, sección
 // "MemoryQueryPlan").
-const MEMORY_TRIGGER_PATTERN = /qu[eé] (sabes|recuerdas|recuerdo|cambi[oó])|conoces (de|sobre)|d[oó]nde viv|preferencias|por qu[eé] sabes|porque sabes|sigue siendo cierto|cu[aá]ndo (hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos)|recuerdo (tenemos|hay)/;
+//
+// PING — M-2 TEST 1 (segunda ronda, certificación física): el grupo
+// "cu[aá]ndo (...)" ya cubría 3 de las 8 transiciones canónicas que
+// realmente escriben memoria determinística (accept/reject/counter_propose
+// -- ver dispatchCommitmentStatusMemoryEvent, único call site en
+// applyCommitmentTransition), pero nunca las otras 5: resolve/
+// action_complete (mismo status canónico "resolved" -- ver
+// commitmentStatus.ts, "completado" es el verbo con el que la gente
+// describe ese estado), cancel, reopen y reassign. Esto no era una decisión
+// deliberada de alcance como el resto del comentario de arriba -- era una
+// cobertura incompleta del mismo contrato ya aceptado (si 3 de las 8
+// transiciones ya activaban memoria por su verbo natural, las 5 restantes
+// debían hacerlo también, por el mismo principio, no por una frase
+// hardcodeada de "Ver Spiderman"). "completamos"/"resolvimos" comparten el
+// mismo status canónico 'resolved', así que ambos disparan la misma
+// consulta.
+// Verbos "cuándo <verbo>-amos" -- una sola lista, reutilizada por
+// MEMORY_TRIGGER_PATTERN y MEMORY_EPISODIC_PATTERN, para que ambos
+// permanezcan sincronizados por construcción (la duplicación de esta misma
+// lista en dos regexes fue exactamente la causa por la que la cobertura de
+// las 8 transiciones canónicas quedó incompleta en ambos lugares a la vez).
+const MEMORY_EPISODIC_VERBS = 'hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos|completamos|resolvimos|cancelamos|reabrimos|reasignamos';
+const MEMORY_TRIGGER_PATTERN = new RegExp(`qu[eé] (sabes|recuerdas|recuerdo|cambi[oó])|conoces (de|sobre)|d[oó]nde viv|preferencias|por qu[eé] sabes|porque sabes|sigue siendo cierto|cu[aá]ndo (${MEMORY_EPISODIC_VERBS})|recuerdo (tenemos|hay)`);
 const MEMORY_HISTORICAL_PATTERN = /viv[ií]a|antes viv|el a[nñ]o pasado|hace tiempo|anteriormente|sol[ií]a|used to|last year|previously/;
 const MEMORY_CURRENT_PATTERN = /d[oó]nde vive|prefiero|prefiere|actualmente|sigue siendo cierto/;
 const MEMORY_SELF_SUBJECT_PATTERN = /preferencias m[ií]as|sobre m[ií]\b|de m[ií]\b|conmigo|prefiero|por qu[eé] sabes que|porque sabes que/;
@@ -320,7 +342,7 @@ const MEMORY_SELF_SUBJECT_PATTERN = /preferencias m[ií]as|sobre m[ií]\b|de m[i
 // preferencia) tenga un resultado determinístico, nunca ambiguo.
 const MEMORY_PROVENANCE_PATTERN = /por qu[eé] sabes|porque sabes/;
 const MEMORY_CHANGE_PATTERN = /qu[eé] cambi[oó]/;
-const MEMORY_EPISODIC_PATTERN = /cu[aá]ndo (hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos)/;
+const MEMORY_EPISODIC_PATTERN = new RegExp(`cu[aá]ndo (${MEMORY_EPISODIC_VERBS})`);
 const MEMORY_PREFERENCE_LIST_PATTERN = /preferencias/;
 const MEMORY_SUMMARY_PATTERN = /qu[eé] sabes|conoces (de|sobre)|recuerdo (tenemos|hay)|qu[eé] recuerdas|qu[eé] recuerdo/;
 

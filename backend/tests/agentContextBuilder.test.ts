@@ -1963,6 +1963,78 @@ describe('M-2: detección de intención de memoria (detectMemoryIntent) -- wants
     });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — M-2 TEST 1 (segunda ronda, certificación física): "Cuando
+// completamos lo de Ver Spiderman?" resolvía por commitment search real
+// (fix anterior), pero MEMORY_TRIGGER_PATTERN nunca incluía
+// "completamos"/"resolvimos"/"cancelamos"/"reabrimos"/"reasignamos" -- sólo
+// 3 de las 8 transiciones canónicas que realmente escriben memoria
+// determinística (accept/reject/counter_propose) activaban wantsMemory por
+// su verbo natural. Esto probaba que el éxito físico observado nunca
+// ejercitó retrieveMemory/PostgresMemorySearchProvider -- la certificación
+// M-2 habría aprobado un camino que no es el contrato M-2 en absoluto.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-2 TEST 1 (segunda ronda): la pregunta natural sobre CUALQUIERA de las 8 transiciones canónicas entra al camino de memoria', () => {
+    it('reproducción exacta: "Cuando completamos lo de Ver Spiderman?" -> wantsMemory=true, retrieveMemory invocado, evidencia de memoria retornada', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([memoryFixture({
+            id: 'mem-spiderman', memoryType: 'episodic', predicate: 'commitment_status:spiderman-id', objectValue: 'resolved',
+            canonicalText: 'El compromiso "Ver Spiderman" está en estado resolved.', sourceType: 'commitment', sourceId: 'spiderman-id',
+        })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de Ver Spiderman?' });
+
+        // Prueba directa de la pregunta 2 del ticket: no es una suposición,
+        // es una llamada real verificada contra el mock de retrieveMemory
+        // (memory.service.ts#retrieveMemory, la fachada sobre
+        // PostgresMemorySearchProvider -- ver memorySearchProvider.ts).
+        expect(ctx.wantsMemory).toBe(true);
+        expect(mockRetrieveMemory).toHaveBeenCalledTimes(1);
+
+        // commitment_status:* es un dominio canónico (canonicalTruthRegistry.ts)
+        // -- enforceMemoryCanonicalDominance SIEMPRE marca isCurrent=false
+        // para estos predicados sin importar si el valor coincide con el
+        // estado vivo, así que la evidencia real aparece en
+        // historicalMemoryFacts, nunca en memoryFacts (comportamiento
+        // arquitectónico correcto, no un defecto de este fix).
+        expect(ctx.memoryFacts).toEqual([]);
+        expect(ctx.historicalMemoryFacts.map((m) => m.id)).toEqual(['mem-spiderman']);
+    });
+
+    it('las 5 transiciones que antes NO activaban memoria (completamos/resolvimos/cancelamos/reabrimos/reasignamos) ahora sí -- ninguna requirió una frase hardcodeada', async () => {
+        const cases = [
+            '¿Cuándo completamos lo de Ver Spiderman?',
+            '¿Cuándo resolvimos lo de Ver Spiderman?',
+            '¿Cuándo cancelamos lo de Ver Spiderman?',
+            '¿Cuándo reabrimos lo de Ver Spiderman?',
+            '¿Cuándo reasignamos lo de Ver Spiderman?',
+        ];
+        for (const input of cases) {
+            mockRetrieveMemory.mockClear();
+            mockRetrieveCommitments.mockResolvedValue([]);
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input });
+            expect(ctx.wantsMemory).toBe(true);
+            expect(mockRetrieveMemory).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('las 3 transiciones que YA activaban memoria (aceptamos/rechazamos/propusimos) siguen intactas -- el fix nunca las tocó', async () => {
+        const cases = ['¿Cuándo aceptamos lo de Ver Spiderman?', '¿Cuándo rechazamos lo de Ver Spiderman?', '¿Cuándo propusimos lo de Ver Spiderman?'];
+        for (const input of cases) {
+            mockRetrieveMemory.mockClear();
+            mockRetrieveCommitments.mockResolvedValue([]);
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input });
+            expect(ctx.wantsMemory).toBe(true);
+            expect(mockRetrieveMemory).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('"Completa Ver Spiderman" (comando real, sin "cuándo") sigue clasificado como escritura, nunca confundido con la pregunta de memoria', async () => {
+        const { DeterministicInputInterpreter: DI } = await import('../src/services/agentInputInterpreter.service');
+        const interpretation = await new DI().interpret('Completa Ver Spiderman', {});
+        expect(interpretation.isWriteActionRequest).toBe(true);
+    });
+});
+
 describe('M-2 FINAL: memoryQueryCardinality (sección 20) -- forma de la pregunta, distinta de freshness', () => {
     it('H) "¿Por qué sabes que prefiero café?" -> cardinality="provenance"', async () => {
         const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Por qué sabes que prefiero café?' });

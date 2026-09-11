@@ -651,6 +651,82 @@ describe('M-1G.3: "vencido"/"overdue" nunca sobrevive como textQuery (causa raí
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PING — M-2 TEST 1 ROOT FIX: reproducción mínima de la falla física real de
+// certificación M-2 ("Cuando completamos lo de Ver Spiderman?" contra un
+// compromiso canónico real titulado "Ver Spiderman", status resolved via
+// action_complete, devolvía "No encontré ningún compromiso o propuesta que
+// coincida con 'lo de Ver Spiderman'."). Causa raíz: TRES defectos
+// independientes en el mismo camino determinístico, cada uno ya corregido
+// arriba con el mismo mecanismo de sus pares existentes (M-1G.3/M-1H v6),
+// nunca con un parche de frase específica:
+//   1. "completamos" nunca estaba en CLOSED_STATUS_KEYWORDS ni se removía de
+//      textQuery -> textQuery="completamos Ver Spiderman" hacía que
+//      websearch_to_tsquery exigiera las 3 lexemas (AND), y el commitment
+//      real (cuyo search_tsv sólo indexa title/description/expected_result/
+//      next_action, nunca el verbo de estado) nunca calzaba.
+//   2. El wildcard \w* de WRITE_ACTION_KEYWORDS sobre "completa" también
+//      matcheaba su propia conjugación "-amos" (nunca imperativa en
+//      español), enrutando la PREGUNTA entera al planner de escritura en
+//      vez del pipeline de sólo lectura.
+//   3. "lo de X" (modismo referencial de tema, "el asunto de X") se colaba
+//      como person-hint vía el cue genérico "de", bloqueando
+//      retrieveCommitments por completo (personScopeBlocked) como si "Ver
+//      Spiderman" fuera una persona real sin resolver.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-2 TEST 1 ROOT FIX: "completamos"/"lo de X" nunca rompe la resolución del título canónico', () => {
+    it('reproducción exacta: "Cuando completamos lo de Ver Spiderman?" -> sin personHint falso, textQuery=título exacto, status=resolved, nunca ruteado a escritura', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de Ver Spiderman?', {});
+        expect(r.personHints).toEqual([]);
+        expect(r.textQuery).toBe('Ver Spiderman');
+        expect(r.statusHints).toEqual(['resolved']);
+        expect(r.isWriteActionRequest).toBe(false);
+    });
+
+    it('"¿Cuándo aceptamos lo de entrenar?" (mismo modismo, otro verbo de M-2) -> sin personHint falso, textQuery=tema real', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Cuándo aceptamos lo de entrenar?', {});
+        expect(r.personHints).toEqual([]);
+        expect(r.textQuery).toBe('entrenar');
+        expect(r.isWriteActionRequest).toBe(false);
+    });
+
+    it('"el compromiso Ver Spiderman" (framing referencial alternativo del mismo invariante) -> el título nunca se pierde como textQuery', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué pasó con el compromiso Ver Spiderman?', {});
+        expect(r.textQuery).toContain('Ver Spiderman');
+    });
+
+    it('un comando real de escritura con el mismo verbo sigue enrutando a planificación (el fix no rompe el imperativo real)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Completa el compromiso de llamar a Alejandra', {});
+        expect(r.isWriteActionRequest).toBe(true);
+    });
+
+    it('otros verbos con el mismo defecto de conjugación ("-amos") -- cancelamos/rechazamos -- tampoco enrutan a escritura (mapeo a statusHints de "cancelamos"/"rechazamos" queda fuera de alcance de este fix, ver CLOSED_STATUS_KEYWORDS)', async () => {
+        const cancel = await new DeterministicInputInterpreter().interpret('¿Cuándo cancelamos lo de Ver Spiderman?', {});
+        expect(cancel.isWriteActionRequest).toBe(false);
+        expect(cancel.personHints).toEqual([]);
+
+        const reject = await new DeterministicInputInterpreter().interpret('¿Cuándo rechazamos lo de Ver Spiderman?', {});
+        expect(reject.isWriteActionRequest).toBe(false);
+        expect(reject.personHints).toEqual([]);
+    });
+
+    it('cues de persona legítimos ("con Laura", "a Laura", "sobre Alex") nunca se rompen por el fix de "lo de"/"la de"', async () => {
+        expect((await new DeterministicInputInterpreter().interpret('hablamos con Laura de su viaje', {})).personHints).toEqual(['Laura']);
+        expect((await new DeterministicInputInterpreter().interpret('¿Qué le prometí a Laura?', {})).personHints).toEqual(['Laura']);
+        expect((await new DeterministicInputInterpreter().interpret('¿Qué sabes sobre Alex?', {})).personHints).toEqual(['Alex']);
+    });
+
+    it('LlmInputInterpreter: misma red de seguridad -- si el modelo devuelve textQuery="completamos Ver Spiderman", sólo el título sobrevive', async () => {
+        const model = fakeModel(validPayload({
+            textQuery: 'completamos Ver Spiderman',
+            commitmentFilterHints: { status: 'resolved', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Cuando completamos lo de Ver Spiderman?', {});
+        expect(result.textQuery).toBe('Ver Spiderman');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // M-1H v6 (GAP B, final proposal lifecycle gate) — proposalFocus: señal
 // ESTRUCTURADA para el lifecycle de aprobación de una commitment_proposal,
 // nunca decidido por texto libre. Mismo patrón exacto que

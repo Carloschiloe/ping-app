@@ -692,6 +692,66 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
         expect(inserted.object_value).toBe('accepted');
         expect(inserted.confidence).toBe(1); // determinístico -> confianza plena, nunca acotada como llm
     });
+
+    // PING — M-2 TEST 1 (segunda ronda): prueba explícita para el status
+    // REAL detrás del caso físico "Ver Spiderman" (mobile muestra
+    // "Completado", que en el esquema canónico V2 es newStatus='resolved' --
+    // 'completed' no es un status propio, ver commitmentStatus.ts). El test
+    // anterior sólo certificaba newStatus='accepted'; sin este, nunca se
+    // probó que la transición action_complete/resolve realmente deja un
+    // registro de memoria consultable con predicate="commitment_status:<id>"
+    // y object_value="resolved".
+    it('newStatus="resolved" (transición action_complete/resolve, el caso real "Ver Spiderman") también genera el registro determinístico correcto', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: null, error: null }, // existingSame
+                { data: null, error: null }, // findActiveSameFact
+                { data: { id: 'derived-id-2' }, error: null }, // insert
+            ],
+            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+        });
+        setSupabaseAdminMock(mock);
+        const { deriveMemoryFromCommitmentStatusChange } = await import('../src/services/memory.service');
+        const result = await deriveMemoryFromCommitmentStatusChange({
+            ownerUserId: 'owner1', sourceType: 'commitment', sourceId: 'spiderman-id', title: 'Ver Spiderman', newStatus: 'resolved',
+            conversationId: null, occurredAt: '2026-09-10T20:00:00Z',
+        });
+        expect(result).toEqual({ kind: 'inserted', id: 'derived-id-2', status: 'active' });
+        const inserted = mock.getInsertCalls('memory_records')[0];
+        expect(inserted.extraction_method).toBe('deterministic');
+        expect(inserted.predicate).toBe('commitment_status:spiderman-id');
+        expect(inserted.object_value).toBe('resolved');
+        expect(inserted.canonical_text).toBe('El compromiso "Ver Spiderman" está en estado resolved.');
+        expect(inserted.observed_at).toBe('2026-09-10T20:00:00Z');
+        expect(inserted.confidence).toBe(1);
+    });
+
+    // PING — M-2 TEST 1 (segunda ronda): prueba explícita del WRAPPER real
+    // que commitment.service.ts invoca en cada una de las 8 transiciones
+    // (dispatchCommitmentStatusMemoryEvent) -- hasta ahora sólo se probaba
+    // la función interna (deriveMemoryFromCommitmentStatusChange), nunca el
+    // punto de entrada real que existingCommitmentTransition/
+    // applyCommitmentTransition efectivamente llama.
+    it('dispatchCommitmentStatusMemoryEvent (el wrapper real que invoca applyCommitmentTransition) también escribe el registro para newStatus="resolved"', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: null, error: null },
+                { data: null, error: null },
+                { data: { id: 'derived-id-3' }, error: null },
+            ],
+            memory_record_evidence: [{ data: null, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { dispatchCommitmentStatusMemoryEvent } = await import('../src/services/canonicalMemoryEvents.service');
+        await dispatchCommitmentStatusMemoryEvent({
+            ownerUserId: 'owner1', sourceType: 'commitment', sourceId: 'spiderman-id', title: 'Ver Spiderman', newStatus: 'resolved',
+            conversationId: null,
+        });
+        const inserted = mock.getInsertCalls('memory_records')[0];
+        expect(inserted.predicate).toBe('commitment_status:spiderman-id');
+        expect(inserted.object_value).toBe('resolved');
+        expect(inserted.extraction_method).toBe('deterministic');
+    });
 });
 
 // ─── decideMemoryPersistence (política, secciones 1-4 del cierre absoluto) ──
