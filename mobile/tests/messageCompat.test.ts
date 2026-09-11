@@ -6,6 +6,7 @@ import {
     isMessageTombstoned,
     hasLiveAttachment,
     resolvableAttachmentId,
+    resolveDeletedMessageLabel,
     resolveReactionEmoji,
 } from '../src/utils/messageCompat';
 
@@ -177,6 +178,140 @@ describe('resolvableAttachmentId — el id que MessageItem.tsx puede pasar a res
         expect(resolvableAttachmentId({ attachment: { id: 'v1', lifecycleStatus: 'attached', mimeType: 'video/mp4' } })).toBe('v1');
         expect(resolvableAttachmentId({ attachment: { id: 'p2', lifecycleStatus: 'tombstoned' } })).toBeNull();
         expect(resolvableAttachmentId({ attachment: { id: 'v2', lifecycleStatus: 'tombstoned' } })).toBeNull();
+    });
+});
+
+describe('resolveDeletedMessageLabel — PING: REMOVE EMPTY MEDIA BUBBLE AFTER DELETE (universal label, never invented from stripped kind)', () => {
+    // Proven against backend/src/utils/messageCompat.ts's toLegacyMessageShape:
+    // the tombstone branch's attachment is hardcoded to
+    // { id, lifecycleStatus: 'tombstoned' } — kind/mimeType never survive.
+    // Per the task's own explicit fallback rule, the label must therefore
+    // always be the universal one, regardless of any other field present.
+    it('mensaje de texto eliminado: Mensaje eliminado', () => {
+        expect(resolveDeletedMessageLabel({ deleted_at: '2026-09-10T00:00:00.000Z', text: 'Mensaje eliminado' }))
+            .toBe('Mensaje eliminado');
+    });
+
+    it('foto eliminada: universal "Mensaje eliminado", nunca "Foto eliminada" (el payload no conserva kind)', () => {
+        expect(resolveDeletedMessageLabel({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'p1', lifecycleStatus: 'tombstoned' },
+        })).toBe('Mensaje eliminado');
+    });
+
+    it('video eliminado: universal "Mensaje eliminado", nunca "Video eliminado" (el payload no conserva kind)', () => {
+        expect(resolveDeletedMessageLabel({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'v1', lifecycleStatus: 'tombstoned' },
+        })).toBe('Mensaje eliminado');
+    });
+
+    it('no inventa el tipo aunque un campo local obsoleto conserve mimeType (el backend nunca lo envía tombstoned, pero la política tampoco confía en él)', () => {
+        expect(resolveDeletedMessageLabel({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'p1', lifecycleStatus: 'tombstoned', mimeType: 'image/jpeg' },
+        })).toBe('Mensaje eliminado');
+    });
+});
+
+describe('render-order guard — canonical tombstone priority forces every media boolean inert (PING: REMOVE EMPTY MEDIA BUBBLE AFTER DELETE)', () => {
+    // MessageItem.tsx derives isImage/isVideo/isAudio/isDocument/mediaUrl
+    // gated on `!isTombstoned` as the first condition, so no cached
+    // attachment.mimeType or legacy [imagen]/[video]/[audio]/[document=
+    // text prefix can resurrect a media layout for a canonically deleted
+    // message. This test proves the exact boolean logic MessageItem.tsx
+    // now runs, since this repo has no React component-render test
+    // infrastructure (see vitest.config.ts) — the decision is mirrored
+    // here as pure logic instead of rendered.
+    function deriveMediaFlags(item: any, meta: any) {
+        const isTombstoned = isMessageTombstoned(item);
+        const canonicalAttachmentId = resolvableAttachmentId(item);
+        const msgText: string = isTombstoned ? resolveDeletedMessageLabel(item) : (item.content ?? item.text ?? '');
+        const trimmedText = msgText.trim();
+        const privateMimeType = isTombstoned ? '' : String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
+        const hasPrivateAttachment = !isTombstoned && (!!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path));
+        const isImage = !isTombstoned && (privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]'));
+        const isAudio = !isTombstoned && (privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]'));
+        const isVideo = !isTombstoned && (privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]'));
+        const isDocument = !isTombstoned && ((hasPrivateAttachment && !isImage && !isAudio && !isVideo) || trimmedText.startsWith('[document='));
+        const mediaUrl: string | null = hasPrivateAttachment ? 'signed-url-placeholder' : null;
+        const usesBubbleMediaStyle = isImage || isVideo || isAudio;
+        return { isTombstoned, hasPrivateAttachment, isImage, isAudio, isVideo, isDocument, mediaUrl, usesBubbleMediaStyle, msgText };
+    }
+
+    it('foto saliente eliminada: sin wrapper de medios, sin dimensiones, tombstone compacto', () => {
+        const flags = deriveMediaFlags({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'p1', lifecycleStatus: 'tombstoned', mimeType: 'image/jpeg' },
+        }, {});
+        expect(flags.isImage).toBe(false);
+        expect(flags.hasPrivateAttachment).toBe(false);
+        expect(flags.usesBubbleMediaStyle).toBe(false);
+        expect(flags.mediaUrl).toBeNull();
+        expect(flags.msgText).toBe('Mensaje eliminado');
+    });
+
+    it('video eliminado: sin wrapper de medios, sin dimensiones, tombstone compacto', () => {
+        const flags = deriveMediaFlags({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'v1', lifecycleStatus: 'tombstoned', mimeType: 'video/mp4' },
+        }, {});
+        expect(flags.isVideo).toBe(false);
+        expect(flags.hasPrivateAttachment).toBe(false);
+        expect(flags.usesBubbleMediaStyle).toBe(false);
+        expect(flags.mediaUrl).toBeNull();
+        expect(flags.msgText).toBe('Mensaje eliminado');
+    });
+
+    it('medio entrante eliminado: mismo comportamiento compacto que saliente (mismo contrato sin importar isMe)', () => {
+        const flags = deriveMediaFlags({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            sender_id: 'other-user',
+            attachment: { id: 'p2', lifecycleStatus: 'tombstoned', mimeType: 'image/png' },
+        }, {});
+        expect(flags.usesBubbleMediaStyle).toBe(false);
+        expect(flags.mediaUrl).toBeNull();
+    });
+
+    it('sin resolución de URL de medios tras el borrado, incluso con un prefijo legacy [imagen]/[video] residual en el texto', () => {
+        const flags = deriveMediaFlags({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            text: '[imagen]https://example.com/old.jpg',
+        }, {});
+        expect(flags.isImage).toBe(false);
+        expect(flags.mediaUrl).toBeNull();
+        expect(flags.msgText).toBe('Mensaje eliminado');
+    });
+
+    it('foto en vivo (no eliminada): el layout de medios se conserva sin cambios', () => {
+        const flags = deriveMediaFlags({
+            attachment: { id: 'p1', lifecycleStatus: 'attached', mimeType: 'image/jpeg' },
+        }, {});
+        expect(flags.isImage).toBe(true);
+        expect(flags.hasPrivateAttachment).toBe(true);
+        expect(flags.usesBubbleMediaStyle).toBe(true);
+    });
+
+    it('video en vivo (no eliminado): el layout de medios se conserva sin cambios', () => {
+        const flags = deriveMediaFlags({
+            attachment: { id: 'v1', lifecycleStatus: 'attached', mimeType: 'video/mp4' },
+        }, {});
+        expect(flags.isVideo).toBe(true);
+        expect(flags.hasPrivateAttachment).toBe(true);
+        expect(flags.usesBubbleMediaStyle).toBe(true);
+    });
+
+    it('tombstone de texto sin cambios: continúa mostrando "Mensaje eliminado" sin ningún flag de medios', () => {
+        const flags = deriveMediaFlags({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            text: 'Mensaje eliminado',
+        }, {});
+        expect(flags.isImage).toBe(false);
+        expect(flags.isVideo).toBe(false);
+        expect(flags.isAudio).toBe(false);
+        expect(flags.isDocument).toBe(false);
+        expect(flags.usesBubbleMediaStyle).toBe(false);
+        expect(flags.msgText).toBe('Mensaje eliminado');
     });
 });
 

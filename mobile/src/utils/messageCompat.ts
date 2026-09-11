@@ -61,3 +61,18 @@ export function hasLiveAttachment(message: any): boolean {
 export function resolvableAttachmentId(message: any): string | null {
     return hasLiveAttachment(message) ? message.attachment.id : null;
 }
+
+// PING — REMOVE EMPTY MEDIA BUBBLE AFTER DELETE: the label shown for a
+// tombstoned message. The backend's toLegacyMessageShape deliberately
+// strips attachment.kind/mimeType down to only { id, lifecycleStatus:
+// 'tombstoned' } on delete (see backend/src/utils/messageCompat.ts) — there
+// is no canonical, reliable signal of the original attachment's media type
+// left on the wire. Per the task's own explicit fallback rule, inventing
+// "Foto eliminada"/"Video eliminado" from anything else (URL shape, stale
+// local mimeType, a legacy [imagen]/[video] text prefix) would be guessing,
+// which this codebase's standard forbids. If a future backend change
+// intentionally starts preserving a reliable kind on tombstoned payloads,
+// this is the single place to extend the policy — not MessageItem.tsx.
+export function resolveDeletedMessageLabel(_message: any): string {
+    return 'Mensaje eliminado';
+}

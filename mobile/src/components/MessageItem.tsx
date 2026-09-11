@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
-import { isMessageTombstoned, resolvableAttachmentId, resolveReactionEmoji } from '../utils/messageCompat';
+import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveReactionEmoji } from '../utils/messageCompat';
 import { getPrivateFileRefreshDelay, resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
 import { latLngToOsmTile } from '../utils/mapTiles';
@@ -208,7 +208,9 @@ const MessageItemComponent = ({
     const quotedPalette = getQuotedMessagePalette(isMe, theme.isDark, theme.colors);
     const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
-    const msgText: string = item.content ?? item.text ?? '';
+    const msgText: string = isTombstoned
+        ? resolveDeletedMessageLabel(item)
+        : (item.content ?? item.text ?? '');
 
     if (isSystem) {
         const completion = meta?.operationCompletion;
@@ -260,19 +262,30 @@ const MessageItemComponent = ({
     }
 
     const trimmedText = msgText.trim();
-    const privateMimeType = String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
+    // Canonical render priority — a tombstoned message must never reach any
+    // media-derived branch (image/video/audio/document wrapper, aspect
+    // ratio, thumbnail, bubbleMedia padding, resolveAttachmentUrl). This is
+    // a structural guard, not just individually-false booleans: every
+    // media signal (mimeType, legacy [imagen]/[video]/[audio]/[document=
+    // prefixes, private attachment presence) is forced inert up front so a
+    // stale cached attachment.mimeType or a stale legacy-prefix text body
+    // can never re-derive a media layout for a message whose deleted_at is
+    // already canonically set.
+    const privateMimeType = isTombstoned
+        ? ''
+        : String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
     const hasPrivateAttachment = !isTombstoned
         && (!!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path));
-    let isImage = privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]');
-    const isAudio = privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]');
-    let isVideo = privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]');
-    const isDocument = (
+    let isImage = !isTombstoned && (privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]'));
+    const isAudio = !isTombstoned && (privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]'));
+    let isVideo = !isTombstoned && (privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]'));
+    const isDocument = !isTombstoned && ((
         hasPrivateAttachment
         && !isImage
         && !isAudio
         && !isVideo
-    ) || trimmedText.startsWith('[document=');
-    const isLocationShare = meta?.messageType === 'location_share';
+    ) || trimmedText.startsWith('[document='));
+    const isLocationShare = !isTombstoned && meta?.messageType === 'location_share';
 
     let mediaUrl: string | null = hasPrivateAttachment ? privateMediaUrl : null;
     let documentName = hasPrivateAttachment
