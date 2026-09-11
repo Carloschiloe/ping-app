@@ -49,6 +49,43 @@ function wordBounded(alternatives: string): RegExp {
     return new RegExp(`${WB_START}(?:${alternatives})${WB_END}`, 'iu');
 }
 
+// PING — PRONOUN GROUNDING AUDIT (root fix, replaces the over-broad
+// generalContextHasRetrievableSignal reuse from 9bf35b2, rejected in
+// review): a "retrievable signal" (textQuery/personHints/timeExpression/
+// overdue/status) answers "is there something worth retrieving", NOT "has a
+// third-person pronoun's referent been resolved" -- those are genuinely
+// different questions. Real adversarial finding: "¿Qué dijo él ayer?" has
+// timeExpression="ayer" (real retrievable signal) while "él" stays
+// completely unresolved (personHints=[] -- the deterministic cue extractor
+// never recognized it as a name, because it isn't one); "¿Él tiene algo
+// vencido?" has wantsOverdueFocus=true/statusHints set while "Él" is
+// equally unresolved. Neither time nor status/overdue signals say anything
+// about WHO a pronoun refers to -- they are orthogonal axes. Even
+// textQuery/personHints alone are unsafe here: STOPWORDS strips "el/la/lo"
+// (articles) but never "él/ella" (genuine third-person pronouns), so they
+// leak through as residual textQuery content ("él ayer", "Él tiene") that
+// looks like grounding but isn't.
+// The actual correct, narrow question: did the raw input contain a genuine
+// third-person pronoun requiring an antecedent AT ALL? "lo" in "lo de
+// Spiderman" is grammatically a clitic/article (topic-referential idiom,
+// "the matter of X" -- see PERSON_HINT_CUE_BEFORE's lo/la lookbehind,
+// same linguistic fact from a different angle), never an anaphoric subject
+// pronoun; "él"/"ella"/"ellos"/"ellas"/"he"/"she"/"they" etc. ARE. If the
+// input never contained one of these, the LLM's unresolved_pronoun claim
+// had no genuine pronoun to be ambiguous about in the first place, and is
+// discarded; if it DID contain one, the claim is always trusted (this
+// function makes no attempt to guess whether that pronoun's antecedent
+// exists -- that determination correctly stays with the LLM/context, this
+// only vetoes the specific case where there is no pronoun to resolve).
+// "él" (acentuado, pronombre) es deliberadamente DISTINTO de "el" (sin
+// tilde, artículo -- ya en STOPWORDS) -- una clase de caracteres [eé] aquí
+// habría matcheado también el artículo desacentuado, un falso positivo real
+// encontrado durante el testing (ej. "el héroe llegó").
+const THIRD_PERSON_PRONOUN_PATTERN = wordBounded('él|ella|ellos|ellas|he|she|they|him|her|them');
+export function containsThirdPersonPronoun(rawInput: string): boolean {
+    return THIRD_PERSON_PRONOUN_PATTERN.test(rawInput);
+}
+
 const COMMITMENT_KEYWORDS = wordBounded('promet[íi]\\w*|promise[ds]?|pendientes?|pending|tareas?|tasks?|compromisos?|commitments?|debo|owe');
 const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|archivos?|files?|adjuntos?|attachments?|mandaron|enviaron|sent');
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');

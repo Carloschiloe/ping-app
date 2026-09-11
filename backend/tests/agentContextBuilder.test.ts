@@ -1616,23 +1616,29 @@ describe('CORE-OWNED PERSON SCOPE: canonicalPersonScope is the only authority th
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PING — NONDETERMINISTIC person_ambiguous ROOT FIX: real-provider
-// reproduction proved "Cuando completamos lo de Spiderman?" returns
-// person_ambiguous 15/15 runs -- NOT via personHints (LLM correctly returns
-// [] every time, already Core-gated by canonicalPersonScope), but via
-// `ambiguityHints: ['unresolved_pronoun']`, an entirely separate field with
-// NO deterministic floor/ceiling at all before this fix ("lo" in "completamos
-// LO de Spiderman" reads, in isolation, like an unresolved pronoun to the
-// LLM). Root fix: when the deterministic interpreter's OWN extraction for
-// the identical raw text already found a real referent (textQuery/
-// personHints/timeExpression/overdue/status -- reusing
-// generalContextHasRetrievableSignal, the SAME signal already used for
-// canonical retrieval routing, never a new heuristic), the LLM's
-// unresolved_pronoun claim is discarded as unsupported by Core's own
-// evidence. Scoped to ONLY unresolved_pronoun -- time_ambiguous/
-// topic_too_broad are untouched.
+// PING — PRONOUN GROUNDING AUDIT: real-provider reproduction proved "Cuando
+// completamos lo de Spiderman?" returns person_ambiguous 15/15 runs -- NOT
+// via personHints (LLM correctly returns [] every time, already Core-gated
+// by canonicalPersonScope), but via `ambiguityHints: ['unresolved_pronoun']`,
+// an entirely separate field with NO deterministic floor/ceiling at all
+// before this fix. An earlier fix attempt (commit 9bf35b2) discarded
+// unresolved_pronoun whenever generalContextHasRetrievableSignal was true --
+// REJECTED in review as an over-broad condition: that signal answers "is
+// there something worth retrieving" (textQuery/personHints/timeExpression/
+// overdue/status), not "has a pronoun's referent been resolved". Adversarial
+// audit proved it would have wrongly suppressed real unresolved_pronoun
+// ambiguity for "¿Qué dijo él ayer?" (timeExpression alone satisfies it)
+// and "¿Él tiene algo vencido?" (wantsOverdueFocus alone satisfies it) --
+// time/overdue/status are orthogonal to WHO a pronoun refers to. The
+// corrected, narrower fix (containsThirdPersonPronoun) checks whether the
+// raw input contains a genuine third-person pronoun (él/ella/ellos/ellas/
+// he/she/they/etc.) AT ALL -- "lo" in "lo de Spiderman" is a clitic/article,
+// never an anaphoric pronoun. If no such pronoun exists, unresolved_pronoun
+// is discarded; if one DOES exist, it is always trusted, regardless of any
+// other retrievable signal. Scoped to ONLY unresolved_pronoun --
+// time_ambiguous/topic_too_broad are untouched.
 // ═══════════════════════════════════════════════════════════════════════════
-describe('NONDETERMINISTIC person_ambiguous ROOT FIX: unresolved_pronoun from the LLM is discarded when Core\'s own deterministic extraction already found a referent', () => {
+describe('PRONOUN GROUNDING AUDIT: unresolved_pronoun from the LLM is discarded ONLY when the raw input never contained a genuine third-person pronoun', () => {
     function spidermanRetrievalMocks() {
         mockRetrieveCommitments.mockResolvedValue([{
             id: 'spiderman-id', entityType: 'commitment', title: 'Spiderman', status: 'resolved',
@@ -1685,6 +1691,70 @@ describe('NONDETERMINISTIC person_ambiguous ROOT FIX: unresolved_pronoun from th
         expect(ctx.needsClarification).toBe(true);
         expect(ctx.clarification?.reason).toBe('person_ambiguous');
         expect(ctx.clarification?.candidates).toEqual([]);
+    });
+
+    // ─── Casos adversariales de la auditoría: generalContextHasRetrievableSignal
+    // (el enfoque rechazado de 9bf35b2) habría suprimido incorrectamente
+    // unresolved_pronoun en estos 3 casos, porque cada uno satisface esa
+    // señal por una razón COMPLETAMENTE AJENA a si "él"/"ella" está resuelto
+    // (timeExpression, wantsOverdueFocus/statusHints respectivamente) --
+    // containsThirdPersonPronoun los detecta correctamente y preserva la
+    // ambigüedad real. ─────────────────────────────────────────────────────
+    it('ADVERSARIAL 1 — "¿Qué dijo él ayer?": timeExpression="ayer" es señal retrievable real, pero "él" sigue sin resolver -> person_ambiguous se preserva', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context', personHints: [], textQuery: null, timeExpression: 'ayer', statusHints: null,
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué dijo él ayer?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+    });
+
+    it('ADVERSARIAL 2 — "¿Qué hizo ella hoy?": mismo patrón con "ella" y timeExpression="hoy" -> person_ambiguous se preserva', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context', personHints: [], textQuery: null, timeExpression: 'hoy', statusHints: null,
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué hizo ella hoy?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+    });
+
+    it('ADVERSARIAL 3 — "¿Él tiene algo vencido?": wantsOverdueFocus=true/statusHints son señal retrievable real, pero "Él" sigue sin resolver -> person_ambiguous se preserva', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        // textQuery="Él tiene" refleja la extracción determinística REAL para
+        // este input exacto (verificado con el proveedor real) -- "Él" no se
+        // limpia como STOPWORD (a diferencia de "el/la/lo" sin tilde), así
+        // que sobrevive como residuo. topic_too_broad exige textQuery=null
+        // para activarse (ver su propia guarda más abajo en este archivo),
+        // así que un textQuery no vacío es la condición real que deja pasar
+        // el chequeo de unresolved_pronoun -- null aquí sería un mock
+        // irreal que nunca ocurre con el intérprete determinístico real.
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context', personHints: [], textQuery: 'Él tiene', timeExpression: null,
+            wantsOverdueFocus: true, statusHints: ['proposed', 'accepted', 'counter_proposal'],
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Él tiene algo vencido?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
     });
 
     it('un commitment con nombre de persona en el título ("Llamar a Alejandra") no se convierte automáticamente en person_query ni dispara clarification -- el título es tema, no referencia de persona ambigua', async () => {

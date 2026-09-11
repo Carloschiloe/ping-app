@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
-    generalContextHasRetrievableSignal,
+    generalContextHasRetrievableSignal, containsThirdPersonPronoun,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -1277,5 +1277,43 @@ describe('CANONICAL RETRIEVAL ROUTING: fallbackInterpretation — último recurs
         const { fallbackInterpretation: fb } = await import('../src/services/agentInputInterpreter.service');
         const result = fb('¿Qué tengo vencido?', 'interpreter_threw');
         expect(result.wantsOverdueFocus).toBe(true);
+    });
+});
+
+// PING — PRONOUN GROUNDING AUDIT: containsThirdPersonPronoun is the narrow,
+// Core-owned check that answers "does this input contain a genuine
+// third-person pronoun requiring an antecedent" -- distinct from
+// generalContextHasRetrievableSignal ("is there something worth
+// retrieving"), which was proven unsafe for this purpose (time/overdue/
+// status signals are orthogonal to WHO a pronoun refers to).
+describe('PRONOUN GROUNDING AUDIT: containsThirdPersonPronoun -- detecta pronombres de tercera persona reales, nunca artículos/clíticos', () => {
+    it('detecta "él"/"ella"/"ellos"/"ellas" (con y sin tilde en mayúscula) como pronombre real', () => {
+        expect(containsThirdPersonPronoun('¿Qué dijo él ayer?')).toBe(true);
+        expect(containsThirdPersonPronoun('¿Qué hizo ella hoy?')).toBe(true);
+        expect(containsThirdPersonPronoun('¿Ellos tienen algo pendiente?')).toBe(true);
+        expect(containsThirdPersonPronoun('¿Ellas ya respondieron?')).toBe(true);
+        expect(containsThirdPersonPronoun('¿Él tiene algo vencido?')).toBe(true);
+    });
+
+    it('detecta pronombres en inglés (he/she/they/him/her/them)', () => {
+        expect(containsThirdPersonPronoun('What did he say?')).toBe(true);
+        expect(containsThirdPersonPronoun('What did she do today?')).toBe(true);
+        expect(containsThirdPersonPronoun('Did they finish it?')).toBe(true);
+        expect(containsThirdPersonPronoun('Tell him about it')).toBe(true);
+        expect(containsThirdPersonPronoun('Ask her tomorrow')).toBe(true);
+        expect(containsThirdPersonPronoun('Remind them')).toBe(true);
+    });
+
+    it('"lo"/"la" (artículo/clítico, sin tilde) NUNCA se detectan como pronombre de tercera persona -- caso central del hallazgo físico', () => {
+        expect(containsThirdPersonPronoun('Cuando completamos lo de Spiderman?')).toBe(false);
+        expect(containsThirdPersonPronoun('Cuando completamos lo de ver Spiderman?')).toBe(false);
+        expect(containsThirdPersonPronoun('¿Qué compromisos tengo con Alejandra?')).toBe(false);
+        expect(containsThirdPersonPronoun('¿Qué compromisos tengo pendientes?')).toBe(false);
+    });
+
+    it('nunca hace match parcial dentro de otra palabra (ej. "ellos" dentro de "castellanos", "hero" conteniendo "he")', () => {
+        expect(containsThirdPersonPronoun('los castellanos vinieron')).toBe(false);
+        expect(containsThirdPersonPronoun('el héroe llegó')).toBe(false);
+        expect(containsThirdPersonPronoun('the hermit lives alone')).toBe(false);
     });
 });

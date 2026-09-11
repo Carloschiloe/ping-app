@@ -30,7 +30,7 @@ import {
     fallbackInterpretation,
     isPersonHintGroundedInInput,
     classifyQueryCardinality,
-    generalContextHasRetrievableSignal,
+    containsThirdPersonPronoun,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -471,36 +471,39 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // más abajo: "coreHasConfidentSignal no debe forzar wantsCommitments
     // para intents ajenos a commitments").
     const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
-    // PING — NONDETERMINISTIC person_ambiguous ROOT FIX: same "LLM suggests,
-    // Core decides" boundary already applied to personHints (M-2 CROSS-TURN
-    // CONTEXT ISOLATION / CORE-OWNED PERSON SCOPE), extended to a sibling
-    // field that had the exact same gap. "Cuando completamos lo de
-    // Spiderman?" reproduced person_ambiguous 15/15 real-provider runs --
-    // NOT via personHints (LLM correctly returns [] for it every time), but
-    // via `ambiguityHints: ['unresolved_pronoun']`, which the LLM sets
-    // because "lo" in "completamos LO de Spiderman" reads, in isolation, like
-    // an unresolved direct-object pronoun. That claim is unsupported: the
-    // deterministic interpreter's OWN extraction for the exact same raw text
-    // already finds a real referent for "lo" -- a textQuery/topic ("Spiderman"),
-    // exactly the same signal generalContextHasRetrievableSignal already
-    // uses to decide "does this query have something real to talk about".
-    // If Core's own deterministic extraction found a referent, the LLM's "I
-    // don't know what 'lo' refers to" is contradicted by Core's own
-    // evidence and is discarded -- never a phrase-specific check for
-    // "Spiderman" or "lo de", a general referent-existence test that applies
-    // to any future input with the same shape. Deliberately scoped to ONLY
-    // 'unresolved_pronoun' (not time_ambiguous/topic_too_broad, separate
-    // concerns with their own correct handling elsewhere) so a genuine
-    // unresolved-pronoun case ("¿Qué dijo él?" with no antecedent anywhere,
-    // where the deterministic extractor ALSO finds nothing) is never
-    // weakened.
-    const deterministicFoundReferentForPronoun = generalContextHasRetrievableSignal(
-        deterministicSignals.textQuery,
-        deterministicSignals.personHints,
-        deterministicSignals.timeExpression,
-        deterministicSignals.wantsOverdueFocus,
-        deterministicSignals.statusHints,
-    );
+    // PING — PRONOUN GROUNDING AUDIT (supersedes the 9bf35b2 approach,
+    // rejected in review as an over-broad condition): "LLM suggests, Core
+    // decides" boundary applied to unresolved_pronoun, but gated on the
+    // NARROWEST correct Core-owned signal, not
+    // generalContextHasRetrievableSignal. That function answers "is there
+    // something worth retrieving" (textQuery/personHints/timeExpression/
+    // overdue/status) -- a real but DIFFERENT question from "does a
+    // third-person pronoun in this input have an antecedent". Proven unsafe
+    // by adversarial audit: "¿Qué dijo él ayer?" (timeExpression="ayer") and
+    // "¿Él tiene algo vencido?" (wantsOverdueFocus=true) both satisfy
+    // generalContextHasRetrievableSignal while "él"/"Él" remain genuinely
+    // unresolved -- time and overdue/status signals are orthogonal to WHO a
+    // pronoun refers to, and would have wrongly suppressed real
+    // unresolved_pronoun ambiguity for these cases. Even textQuery/
+    // personHints alone are unsafe: STOPWORDS strips "el/la/lo" (articles)
+    // but never "él/ella" (genuine third-person pronouns), so they leak
+    // through as residual textQuery content that looks like grounding but
+    // isn't.
+    // The correct question is answered by containsThirdPersonPronoun: did
+    // the raw input contain a genuine third-person pronoun (él/ella/ellos/
+    // ellas/he/she/they/etc.) requiring an antecedent AT ALL? "lo" in "lo de
+    // Spiderman" is a clitic/article (topic-referential idiom), never an
+    // anaphoric subject pronoun -- see PERSON_HINT_CUE_BEFORE's lo/la
+    // lookbehind, the same linguistic fact already established elsewhere in
+    // this exact pipeline. If no such pronoun exists in the text, the LLM's
+    // unresolved_pronoun claim had nothing genuine to be ambiguous about and
+    // is discarded; if one DOES exist, the claim is always trusted (this
+    // makes no attempt to guess whether that pronoun's antecedent was
+    // actually resolved -- it only vetoes the specific case where there was
+    // never a real pronoun to resolve). Never a phrase-specific check for
+    // "Spiderman"/"lo de" -- a grammatical distinction that generalizes to
+    // any future input with the same shape.
+    const rawInputHasThirdPersonPronoun = containsThirdPersonPronoun(input.input);
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -536,13 +539,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // proposalFocus, una alucinación de ambigüedad del LLM
         // (needs_clarification sobre una consulta que en realidad es clara)
         // queda descartada. Independientemente de eso, "unresolved_pronoun"
-        // específicamente también se descarta cuando el propio
-        // determinístico ya encontró un referente real para "lo/él/ella/etc"
-        // (ver deterministicFoundReferentForPronoun arriba) -- nunca se
-        // debilita time_ambiguous/topic_too_broad, sólo este caso puntual.
+        // específicamente también se descarta cuando el input crudo NUNCA
+        // contuvo un pronombre de tercera persona real (ver
+        // rawInputHasThirdPersonPronoun arriba, containsThirdPersonPronoun)
+        // -- nunca se debilita time_ambiguous/topic_too_broad, sólo este
+        // caso puntual, y nunca se suprime cuando el pronombre SÍ está
+        // presente en el texto.
         ambiguityHints: commitmentSignalConfident
             ? []
-            : (deterministicFoundReferentForPronoun
+            : (!rawInputHasThirdPersonPronoun
                 ? rawInterpretation.ambiguityHints.filter((h) => h !== 'unresolved_pronoun')
                 : rawInterpretation.ambiguityHints),
         // Si el Core acaba de decidir que esto SÍ es una consulta de
