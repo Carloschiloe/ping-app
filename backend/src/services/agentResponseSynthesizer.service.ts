@@ -127,7 +127,46 @@ interface SerializedContext {
     // modelo la usa TAL CUAL para cualquier pregunta "cuándo", nunca
     // reformatea `observedAt` (ISO) por su cuenta, para que la precisión de
     // hora nunca dependa de una decisión de fraseo libre del LLM.
-    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string; observedAtLocal: string }>;
+    // `agreesWithCanonicalCurrentState` (PING — M-2 CANONICAL DOMINANCE
+    // SYNTHESIS CONTRADICTION): backend-computed, same "trust it, never
+    // recompute it" principle as `isOverdue`/`isCurrent`. `isCurrent=false`
+    // for a canon-owned predicate (commitment_status:*, etc.) means ONLY
+    // "the current truth for this field lives in its canonical entity, not
+    // here" (see canonicalTruthRegistry.ts's enforceMemoryCanonicalDominance
+    // -- it is forced false unconditionally, whether or not the remembered
+    // value still matches). It does NOT mean the remembered fact is stale or
+    // in doubt. When the canonical entity's live value still matches what
+    // this memory recorded, this is `true`; when they genuinely conflict (or
+    // the canonical entity can't be cross-checked from this evidence),
+    // `false`. Only `false` may ever carry a "this may no longer be true"
+    // disclaimer (see enforceMemoryHistoricalDisclosure) -- `true` means
+    // memory and canonical truth AGREE, so the model must present the fact
+    // as a coherent, non-uncertain statement, using canonicalText's
+    // description of WHEN it happened alongside the current confirmed state.
+    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string; observedAtLocal: string; agreesWithCanonicalCurrentState: boolean }>;
+}
+
+// PING — M-2 CANONICAL DOMINANCE SYNTHESIS CONTRADICTION: a memory whose
+// predicate is `commitment_status:<id>` is ALWAYS isCurrent=false (forced
+// unconditionally by enforceMemoryCanonicalDominance -- canonicalTruthRegistry.ts
+// explicitly does NOT compare values for that decision, by design). But
+// "isCurrent=false" collapsed two genuinely different situations into one
+// signal: (a) the remembered status is stale/superseded by a LATER status
+// change (real conflict — the disclaimer is correct), and (b) the remembered
+// status is still exactly what the canonical commitment says right now (no
+// conflict at all — a "may no longer be true" disclaimer directly
+// contradicts the canonical evidence already in the same response). This
+// compares the memory's recorded objectValue against the SAME canonical
+// commitment already present in this evidence payload (never a new lookup,
+// never re-deriving canonical truth here) -- conservative by construction:
+// any predicate shape it doesn't recognize, or a commitment it can't find in
+// evidence, returns false (never claims agreement it can't verify).
+function memoryAgreesWithCanonicalCurrentState(memory: { predicate: string; objectValue: string }, commitments: AgentContext['commitments']): boolean {
+    if (!memory.predicate.startsWith('commitment_status:')) return false;
+    const commitmentId = memory.predicate.slice('commitment_status:'.length);
+    const commitment = commitments.find((c) => c.id === commitmentId);
+    if (!commitment) return false;
+    return commitment.status === memory.objectValue;
 }
 
 const MAX_SYNTHESIS_CONTEXT_CHARS = 6000; // presupuesto de caracteres enviado al modelo (sección 30) — aparte del budget de M-1D (cuántos items se recuperan)
@@ -184,6 +223,7 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         memory: [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])].map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
             observedAtLocal: formatEventTimestampInZone(m.observedAt, context.timezone, locale),
+            agreesWithCanonicalCurrentState: memoryAgreesWithCanonicalCurrentState(m, context.commitments),
         })),
     };
     const totalBeforeBudget = full.commitments.length + full.events.length + full.messages.length + full.transcriptions.length + full.attachments.length + full.memory.length;
@@ -250,7 +290,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         'For "entityType":"commitment_proposal" you are given the exact participation facts, already resolved by the backend — never infer or guess any of them from "status" or dates yourself: "actorHasApproved" (the user already approved it), "actorCanRespond" (the user still needs to respond — accept, propose another date, or reject), "pendingResponderNamesSafe" (the real names of people whose approval is still missing), "isFullyApproved" (nothing more is needed, it is about to become a real commitment), and "proposalDatePassed" (its proposed date has already passed — this is informational only, it is NEVER the same as "overdue"). Phrase these naturally: if pendingResponderNamesSafe has names, say the proposal is waiting on them (e.g. "\'Entrenar\' is waiting for Alejandra to respond"); if proposalDatePassed is true, you may add that the proposed date has already passed, but always alongside who it is still waiting on, and NEVER phrase this as "overdue" or "vencido". If actorCanRespond is true, say the user still needs to respond to it themselves.',
         'Distinguish "we talked about X" (a message/transcript mentions a topic) from "we agreed to X" (only assert an agreement if a canonical commitment actually reflects it) — do not upgrade an informal remark into a commitment.',
         'Attachments are metadata references only (id, kind, filename) — never assert what a document says internally unless its actual text is given to you (it is not, in this version).',
-        '"memory" entries are DERIVED facts remembered from past interactions (never as authoritative as "commitments") — each has "isCurrent" (backend-computed, TRUST it exactly, never recompute it): true means still believed true now, false means it was true in the past and has since changed or been superseded. For isCurrent:false memory, you MUST phrase it as past ("used to be"/"previously was"), never as a present-tense fact. If a memory conflicts with a "commitment"/"commitment_proposal" about the same thing, the commitment always wins — memory never overrides canonical evidence. If asked "why do you know that" / "por qué sabes eso", cite the specific memory id that supports the claim.',
+        '"memory" entries are DERIVED facts remembered from past interactions (never as authoritative as "commitments") — each has "isCurrent" (backend-computed, TRUST it exactly, never recompute it): true means still believed true now, false means the current truth for this fact lives in its canonical entity (a commitment, etc.), not in memory. isCurrent:false does NOT by itself mean the remembered fact is wrong or in doubt — check "agreesWithCanonicalCurrentState" (also backend-computed, TRUST it exactly) to know which: true means the canonical entity confirms the SAME state memory recorded (state it plainly, e.g. "X was completed on <date>, and it is still resolved now" — never add uncertainty like "but this may no longer be true"), false means it genuinely conflicts with a NEWER canonical state (only THEN phrase it as past and add that it may have changed). If a memory conflicts with a "commitment"/"commitment_proposal" about the same thing, the commitment always wins — memory never overrides canonical evidence. If asked "why do you know that" / "por qué sabes eso", cite the specific memory id that supports the claim.',
         'When the user asks WHEN something happened (e.g. "cuándo aceptamos/completamos/cancelamos/reabrimos X?", "when did we accept/complete/cancel X?") and a "memory" entry answers it, you MUST use that entry\'s "observedAtLocal" string VERBATIM as the date/time in your answer — it is already correctly formatted and timezone-adjusted by the backend. NEVER reformat, reparse, or derive your own date/time string from "observedAt" (the raw ISO timestamp) yourself; NEVER drop the time-of-day that "observedAtLocal" already includes, and NEVER invent a time it does not contain.',
         ...(input.context.memoryQueryCardinality === 'provenance'
             ? ['The user is specifically asking WHY you know something (a provenance question) — you MUST explicitly name the kind of evidence behind the claim (e.g. "you mentioned this in a message on <date>") using only the "observedAt" and "canonicalText" already given, never invent how/when you learned it beyond what is provided. A bare restatement of the fact without any justification of its source is NOT an acceptable answer to this question.']
@@ -386,10 +426,34 @@ export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentCo
 // (nunca reemplaza) una aclaración determinística por cada memoria histórica
 // citada, sin importar cómo la haya fraseado el modelo -- mismo patrón
 // aditivo-nunca-destructivo que el resto de las guardas de este archivo.
+//
+// PING — M-2 CANONICAL DOMINANCE SYNTHESIS CONTRADICTION: "isCurrent=false"
+// (why this function's candidate set exists at all) is NOT the same signal
+// as "this fact conflicts with canonical truth". A commitment_status memory
+// is unconditionally isCurrent=false even when it still matches the live
+// commitment exactly (see enforceMemoryCanonicalDominance's own comment:
+// "COINCIDA O NO coincida el valor recordado"). Appending "pero puede que ya
+// no lo sea" when `agreesWithCanonicalCurrentState` is true directly
+// contradicts canonical evidence already present in the very same response
+// -- a real, observed physical contradiction, not a hypothetical. This
+// function now branches on that backend-computed flag: genuinely
+// stale/conflicting memory (agreesWithCanonicalCurrentState=false, the
+// original and still-default case) keeps the exact same uncertainty
+// disclaimer as before -- this fix never weakens that. Memory that agrees
+// with canonical truth gets an additive CONFIRMATION claim instead (still
+// never replacing the model's own claim), stating plainly that the current
+// canonical state matches what memory recorded -- coherent, not uncertain.
 function buildMemoryHistoricalClaim(memory: SerializedContext['memory'][number], ref: AgentCitation, language: 'es' | 'en'): AgentClaim {
     const text = language === 'es'
         ? `Esto era cierto anteriormente ("${memory.canonicalText}"), pero puede que ya no lo sea.`
         : `This was true previously ("${memory.canonicalText}"), but it may no longer be current.`;
+    return { text, sourceRefs: [ref] };
+}
+
+function buildMemoryConfirmedCurrentClaim(memory: SerializedContext['memory'][number], ref: AgentCitation, language: 'es' | 'en'): AgentClaim {
+    const text = language === 'es'
+        ? `El estado actual sigue siendo el mismo que registró la memoria ("${memory.canonicalText}").`
+        : `The current state still matches what memory recorded ("${memory.canonicalText}").`;
     return { text, sourceRefs: [ref] };
 }
 
@@ -406,7 +470,12 @@ export function enforceMemoryHistoricalDisclosure(claims: AgentClaim[], evidence
     for (const id of citedHistoricalIds) {
         const ref = evidence.allowedSourceRefs.find((r) => r.sourceType === 'memory' && r.sourceId === id);
         if (!ref) continue; // nunca citar fuera del boundary de evidencia ya serializado (M-1E.1)
-        additions.push(buildMemoryHistoricalClaim(historicalById.get(id)!, ref, language));
+        const memory = historicalById.get(id)!;
+        additions.push(
+            memory.agreesWithCanonicalCurrentState
+                ? buildMemoryConfirmedCurrentClaim(memory, ref, language)
+                : buildMemoryHistoricalClaim(memory, ref, language),
+        );
     }
     return additions.length > 0 ? [...claims, ...additions] : claims;
 }
