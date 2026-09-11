@@ -37,6 +37,7 @@ import type {
 } from '../types/agentResponse';
 import type { AgentContext } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
+import { formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 
@@ -121,7 +122,12 @@ interface SerializedContext {
     // agentContextBuilder.service.ts) -- el modelo TRUST-ea este campo
     // exactamente igual que ya hace con `isOverdue`, nunca lo recalcula.
     // `observedAt` permite frasear "esto lo supe el <fecha>" cuando aplica.
-    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string }>;
+    // `observedAtLocal` (M-2 EVENT TIME FIDELITY) es la única forma
+    // autorizada de fecha/hora ya formateada en la zona del actor -- el
+    // modelo la usa TAL CUAL para cualquier pregunta "cuándo", nunca
+    // reformatea `observedAt` (ISO) por su cuenta, para que la precisión de
+    // hora nunca dependa de una decisión de fraseo libre del LLM.
+    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string; observedAtLocal: string }>;
 }
 
 const MAX_SYNTHESIS_CONTEXT_CHARS = 6000; // presupuesto de caracteres enviado al modelo (sección 30) — aparte del budget de M-1D (cuántos items se recuperan)
@@ -155,7 +161,7 @@ function isCommitmentLikeSourceType(sourceType: string): boolean {
     return COMMITMENT_LIKE_SOURCE_TYPES.has(sourceType);
 }
 
-function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNTHESIS_CONTEXT_CHARS): SerializedEvidence {
+function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNTHESIS_CONTEXT_CHARS, locale?: string): SerializedEvidence {
     const full: SerializedContext = {
         commitments: context.commitments.map((c) => ({
             id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: c.dueAt,
@@ -177,6 +183,7 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         // agentContextBuilder.service.ts).
         memory: [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])].map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
+            observedAtLocal: formatEventTimestampInZone(m.observedAt, context.timezone, locale),
         })),
     };
     const totalBeforeBudget = full.commitments.length + full.events.length + full.messages.length + full.transcriptions.length + full.attachments.length + full.memory.length;
@@ -244,6 +251,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         'Distinguish "we talked about X" (a message/transcript mentions a topic) from "we agreed to X" (only assert an agreement if a canonical commitment actually reflects it) — do not upgrade an informal remark into a commitment.',
         'Attachments are metadata references only (id, kind, filename) — never assert what a document says internally unless its actual text is given to you (it is not, in this version).',
         '"memory" entries are DERIVED facts remembered from past interactions (never as authoritative as "commitments") — each has "isCurrent" (backend-computed, TRUST it exactly, never recompute it): true means still believed true now, false means it was true in the past and has since changed or been superseded. For isCurrent:false memory, you MUST phrase it as past ("used to be"/"previously was"), never as a present-tense fact. If a memory conflicts with a "commitment"/"commitment_proposal" about the same thing, the commitment always wins — memory never overrides canonical evidence. If asked "why do you know that" / "por qué sabes eso", cite the specific memory id that supports the claim.',
+        'When the user asks WHEN something happened (e.g. "cuándo aceptamos/completamos/cancelamos/reabrimos X?", "when did we accept/complete/cancel X?") and a "memory" entry answers it, you MUST use that entry\'s "observedAtLocal" string VERBATIM as the date/time in your answer — it is already correctly formatted and timezone-adjusted by the backend. NEVER reformat, reparse, or derive your own date/time string from "observedAt" (the raw ISO timestamp) yourself; NEVER drop the time-of-day that "observedAtLocal" already includes, and NEVER invent a time it does not contain.',
         ...(input.context.memoryQueryCardinality === 'provenance'
             ? ['The user is specifically asking WHY you know something (a provenance question) — you MUST explicitly name the kind of evidence behind the claim (e.g. "you mentioned this in a message on <date>") using only the "observedAt" and "canonicalText" already given, never invent how/when you learned it beyond what is provided. A bare restatement of the fact without any justification of its source is NOT an acceptable answer to this question.']
             : []),
@@ -802,7 +810,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // allowlist se calcula UNA vez, después del recorte por budget, y se
         // reutiliza EXACTAMENTE igual en el retry (sección 15) — nunca se
         // amplía el contexto entre intentos para "conseguir que pase".
-        const evidence = serializeContextForSynthesis(context, this.maxContextChars);
+        const evidence = serializeContextForSynthesis(context, this.maxContextChars, input.locale);
         const prompt = buildSynthesisPrompt(input, evidence.payload);
 
         // [PING_OVERDUE_TRACE] TEMPORARY — evidencia enviada al modelo, ANTES de invocarlo.
