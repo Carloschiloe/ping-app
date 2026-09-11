@@ -5,9 +5,10 @@ import { apiClient } from '../client';
 import { useAuth } from '../../context/AuthContext';
 import {
     acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest,
+    withdrawCommitmentProposalRequest,
 } from './commitmentConfirmRequests';
 
-export { acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest };
+export { acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest, withdrawCommitmentProposalRequest };
 
 export const useReactToMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
@@ -167,6 +168,26 @@ export const useConfirmCommitmentProposal = () => {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: confirmCommitmentProposalRequest,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
+        },
+    });
+};
+
+// PROPOSAL UX — retirar (proposer-only) una commitment_proposal propia
+// todavía pending. Mismo endpoint/RPC ya auditado (reject_commitment_proposal_with_evidence),
+// nunca reutiliza useCancelCommitment (ese es el flujo de un commitment
+// canónico ya materializado, con su propio endpoint/tabla/RPC distintos).
+export const useWithdrawCommitmentProposal = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: withdrawCommitmentProposalRequest,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });

@@ -28,6 +28,14 @@ interface CommitmentRowProps {
     // commitment_proposal pendiente -- sólo ofrecido cuando el actor mismo
     // puede responder (nunca "rechazar por Alejandra").
     onReject?: (commitment: any) => void;
+    // PROPOSAL UX (hallazgo real "Entrenar" — el "Cancelar" del ActionSheet
+    // nativo es sólo el botón de descartar el menú, index 0, nunca una
+    // acción de negocio; retirar una proposal propia pending es una acción
+    // DISTINTA de onCancel, que sólo aplica a un commitment canónico ya
+    // materializado). Sólo ofrecido al proposer (isProposer), nunca al
+    // responder -- "retirar por Alejandra" sería el mismo error que
+    // "rechazar por Alejandra" ya prohibido para onReject.
+    onWithdraw?: (commitment: any) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -60,6 +68,7 @@ export function CommitmentRow({
     onOpenDetail,
     onCancel,
     onReject,
+    onWithdraw,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -82,6 +91,17 @@ export function CommitmentRow({
     // nunca para el caso Carlos (primaryAction==='waiting'), donde "rechazar
     // por Alejandra" sería exactamente el error que este ticket prohíbe.
     const canRespondToProposal = isProposal && primaryAction === 'accept';
+    // PROPOSAL UX — el proposer es owner_user_id en el shape que ya consume
+    // esta fila (toAgreementView, backend, mapea proposed_by_user_id ->
+    // owner_user_id para el cliente): mismo campo que ya usa isOwner en
+    // GroupTaskCard.tsx, nunca un campo nuevo/paralelo.
+    const isProposer = isProposal && c.owner_user_id === currentUserId;
+    // c.status aquí es el status crudo de commitment_proposals ('pending' |
+    // 'confirmed' | 'rejected'), nunca el CanonicalCommitmentStatus de
+    // normalizeCommitmentStatus -- esa función normaliza estados de
+    // `commitments`, un modelo de estados distinto (ver auditoría "PROPOSAL
+    // LIFECYCLE").
+    const canWithdrawProposal = isProposer && c.status === 'pending';
 
     // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 19) — presentación
     // canónica única, nunca un roleLabel()/waiting-label reimplementado por
@@ -174,6 +194,13 @@ export function CommitmentRow({
     // (respond_to_commitment_proposal, decision counter_propose/reject) y
     // sólo aparecen cuando el actor mismo puede responder -- nunca para
     // Carlos (caso "Entrenar", esperando a Alejandra).
+    // PROPOSAL UX — "Retirar propuesta" es la contraparte del proposer para
+    // el mismo caso "Entrenar": Carlos SÍ puede retirar su propia proposal
+    // pending (reject_commitment_proposal_with_evidence exige exactamente
+    // proposed_by_user_id=actor), aun cuando no puede "responder" a su
+    // propia proposal. El "Cancelar" en índice 0 del ActionSheet nativo es
+    // sólo el dismiss del menú (cancelButtonIndex) -- nunca la misma acción,
+    // nunca renombrado para no confundirlo con un control de sistema.
     const openMenu = () => {
         if (Platform.OS === 'ios') {
             const options = [
@@ -183,9 +210,12 @@ export function CommitmentRow({
                 canRespondToProposal ? 'Proponer otra fecha' : null,
                 hasConversation ? 'Ver conversación' : null,
                 canRespondToProposal ? 'Rechazar propuesta' : null,
+                onWithdraw && canWithdrawProposal ? 'Retirar propuesta' : null,
                 onCancel && !isFinished && !isProposal ? 'Archivar / Cancelar' : null,
             ].filter(Boolean) as string[];
-            const destructiveButtonIndex = canRespondToProposal ? options.indexOf('Rechazar propuesta') : undefined;
+            const destructiveButtonIndex = canRespondToProposal
+                ? options.indexOf('Rechazar propuesta')
+                : (onWithdraw && canWithdrawProposal ? options.indexOf('Retirar propuesta') : undefined);
 
             ActionSheetIOS.showActionSheetWithOptions(
                 { options, cancelButtonIndex: 0, destructiveButtonIndex, title: c.title },
@@ -196,6 +226,7 @@ export function CommitmentRow({
                     else if (opt === 'Reprogramar fecha' || opt === 'Proponer otra fecha') onOpenReschedule(c);
                     else if (opt === 'Ver conversación') goToChat();
                     else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
+                    else if (opt === 'Retirar propuesta' && onWithdraw) onWithdraw(c);
                     else if (opt === 'Archivar / Cancelar' && onCancel) onCancel(c.id);
                 }
             );
@@ -310,6 +341,12 @@ export function CommitmentRow({
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
                                 <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
+                            </TouchableOpacity>
+                        )}
+                        {onWithdraw && canWithdrawProposal && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onWithdraw(c); }}>
+                                <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Retirar propuesta</Text>
                             </TouchableOpacity>
                         )}
                         {onCancel && !isFinished && !isProposal && (

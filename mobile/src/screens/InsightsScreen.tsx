@@ -19,6 +19,7 @@ import {
     useAcceptCommitment, useResolveCommitment, useReopenCommitment,
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
     useRespondToCommitmentProposal, useConfirmCommitmentProposal,
+    useWithdrawCommitmentProposal,
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
@@ -130,6 +131,7 @@ export default function InsightsScreen() {
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
+    const { mutateAsync: withdrawProposal } = useWithdrawCommitmentProposal();
 
     const handleMarkDone = useCallback((id: string) => {
         resolveCommitment({ id, result: 'Resuelto desde Compromisos.' });
@@ -233,6 +235,32 @@ export default function InsightsScreen() {
             ]
         );
     }, [respondToProposal]);
+
+    // PROPOSAL UX — retirar (proposer-only) una proposal propia pending.
+    // Mismo endpoint/RPC ya existente y auditado
+    // (reject_commitment_proposal_with_evidence) que el backend expone hoy
+    // sin que mobile lo llamara -- nunca un endpoint nuevo. Confirmación
+    // nativa antes del write, mismo patrón que handleRejectProposal arriba.
+    const handleWithdrawProposal = useCallback((commitment: any) => {
+        Alert.alert(
+            '¿Retirar propuesta?',
+            `"${commitment.title}" dejará de estar pendiente y no se convertirá en un compromiso.`,
+            [
+                { text: 'Volver', style: 'cancel' },
+                {
+                    text: 'Retirar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await withdrawProposal(commitment.id);
+                        } catch {
+                            Alert.alert('No se pudo retirar la propuesta', 'Intenta nuevamente.');
+                        }
+                    },
+                },
+            ]
+        );
+    }, [withdrawProposal]);
 
     // Contact map helper
     const contactNameMap = useMemo(() => {
@@ -744,6 +772,7 @@ export default function InsightsScreen() {
                         onOpenDetail={(c) => setDetailItem(c)}
                         onCancel={handleCancel}
                         onReject={handleRejectProposal}
+                        onWithdraw={handleWithdrawProposal}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (

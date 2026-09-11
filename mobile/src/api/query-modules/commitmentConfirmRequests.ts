@@ -17,11 +17,20 @@
 // - confirmCommitmentProposalRequest: proposal SOLO (creada vía
 //   POST /commitment-proposals, caso real "Entrenar") -- RPC
 //   confirm_commitment_proposal, sólo exige ser el owner de la proposal.
+// - withdrawCommitmentProposalRequest: retirar una proposal propia todavía
+//   pending -- reutiliza el endpoint/RPC YA existente
+//   POST /commitment-proposals/:id/reject -> rejectProposal ->
+//   reject_commitment_proposal_with_evidence, cuyo único guard real es
+//   proposed_by_user_id=actor (ver auditoría "PROPOSAL LIFECYCLE"). Nunca se
+//   crea un endpoint nuevo para esto -- el backend ya lo exponía sin que
+//   mobile lo llamara.
 // Ver commitmentConfirmDispatch.ts para el discriminador real entre las dos
 // últimas.
 import { apiClient } from '../client';
 
 export const acceptCommitmentRequest = (id: string) => apiClient.post(`/commitments/${id}/accept`, {});
+
+export const withdrawCommitmentProposalRequest = (id: string) => apiClient.post(`/commitment-proposals/${id}/reject`, {});
 
 export const respondToCommitmentProposalRequest = ({
     id,
