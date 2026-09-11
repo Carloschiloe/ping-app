@@ -107,6 +107,18 @@ export interface ProposalParticipationState {
     actorRole: ProposalActorRole;
     actorHasApproved: boolean;
     actorCanRespond: boolean;
+    // PROPOSAL UX FIX 1 (hallazgo real: proposer de una proposal solo veía
+    // "Rechazar propuesta" pese a que respond_to_commitment_proposal exige
+    // una fila real en commitment_proposal_responses -- las proposals solo
+    // nunca la tienen, así que esa acción siempre devolvía 403). Señal
+    // canónica distinta de actorCanRespond: actorCanRespond es "ES CORRECTO
+    // ofrecerle CUALQUIER respuesta primaria" (incluye el caso solo, donde
+    // confirmar vía POST /commitment-proposals/:id/confirm es válido sin
+    // depender de agreement_responses). actorHasRecordedResponse es
+    // específicamente "¿existe una fila de commitment_proposal_responses
+    // para este actor?" -- la única precondición real del endpoint
+    // /respond, nunca inferida por título/status en cada pantalla.
+    actorHasRecordedResponse: boolean;
     pendingResponderIds: string[];
     approvedResponderIds: string[];
     rejectedResponderIds: string[];
@@ -139,6 +151,7 @@ export function getProposalParticipationState(
             actorRole,
             actorHasApproved: false,
             actorCanRespond: actorRole === 'proposer',
+            actorHasRecordedResponse: false,
             pendingResponderIds: [],
             approvedResponderIds: [],
             rejectedResponderIds: [],
@@ -155,6 +168,7 @@ export function getProposalParticipationState(
         actorRole,
         actorHasApproved: actorResponse?.status === 'approved',
         actorCanRespond: actorResponse?.status === 'pending',
+        actorHasRecordedResponse: !!actorResponse,
         pendingResponderIds: others.filter((r) => r.status === 'pending').map((r) => r.participant_user_id),
         approvedResponderIds: responses.filter((r) => r.status === 'approved').map((r) => r.participant_user_id),
         rejectedResponderIds: responses.filter((r) => r.status === 'rejected').map((r) => r.participant_user_id),

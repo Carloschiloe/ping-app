@@ -54,14 +54,16 @@ describe('responder NO recibe el withdraw proposer-only', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/const isProposer = isProposal && c\.owner_user_id === currentUserId;/);
         expect(COMMITMENT_ROW_SRC).not.toMatch(/canWithdrawProposal = isProposal &&(?! isProposer)/);
     });
-    it('"Retirar propuesta" nunca se ofrece junto a "Rechazar propuesta" para el mismo actor (son mutuamente exclusivas: responder rechaza, proposer retira)', () => {
-        // canRespondToProposal exige primaryAction==='accept', que a su vez
-        // (commitmentPrimaryAction.ts) sólo es true para un actor que SÍ puede
-        // responder -- nunca el proposer esperando a otro participante (caso
-        // "Entrenar"). Ambas gates leen de fuentes de verdad distintas
+    it('"Retirar propuesta" nunca se ofrece junto a "Rechazar propuesta" para el mismo actor en una proposal SOLO (FIX 1: canRespondToProposal ahora exige también actorHasRecordedResponse, ausente en el caso solo)', () => {
+        // canRespondToProposal exige primaryAction==='accept' Y
+        // actorHasRecordedResponse (commitmentPrimaryAction.ts +
+        // agreement.ts) -- para una proposal SOLO (caso "Entrenar" como
+        // proposer) nunca hay fila de commitment_proposal_responses, así que
+        // canRespondToProposal es false pese a que primaryAction sí es
+        // 'accept'. Ambas gates leen de fuentes de verdad distintas
         // (participación real vs owner_user_id), nunca se solapan para el
-        // mismo actor sobre la misma proposal.
-        expect(COMMITMENT_ROW_SRC).toMatch(/const canRespondToProposal = isProposal && primaryAction === 'accept';/);
+        // mismo actor sobre la misma proposal solo.
+        expect(COMMITMENT_ROW_SRC).toMatch(/const canRespondToProposal = isProposal && primaryAction === 'accept' && !!proposalParticipation\?\.actorHasRecordedResponse;/);
     });
 });
 
@@ -91,7 +93,7 @@ describe('tapping "Retirar propuesta" llama al endpoint de proposal reject', () 
 
 describe('el path canónico de cancelación de commitment permanece intacto', () => {
     it('onCancel sigue gated por !isProposal (nunca reutilizado por el withdraw de proposal)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? 'Archivar \/ Cancelar' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
         expect(COMMITMENT_ROW_SRC).toMatch(/\{onCancel && !isFinished && !isProposal && \(/);
     });
     it('el handler onWithdraw es una prop y una rama de código separadas de onCancel -- nunca la misma función ni el mismo endpoint', () => {

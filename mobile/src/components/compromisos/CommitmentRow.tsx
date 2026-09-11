@@ -8,6 +8,7 @@ import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
+import { getProposalParticipationState } from '../../utils/agreement';
 import { getActorPresentation } from '../../utils/actorPresentation';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
@@ -90,7 +91,18 @@ export function CommitmentRow({
     // propuesta" sólo se ofrecen cuando el actor mismo puede responder --
     // nunca para el caso Carlos (primaryAction==='waiting'), donde "rechazar
     // por Alejandra" sería exactamente el error que este ticket prohíbe.
-    const canRespondToProposal = isProposal && primaryAction === 'accept';
+    // PROPOSAL UX FIX 1 (hallazgo físico real: el proposer de una proposal
+    // SOLO veía "Rechazar propuesta"/"Proponer otra fecha" pese a que
+    // respond_to_commitment_proposal exige una fila real en
+    // commitment_proposal_responses -- una proposal solo nunca la tiene, así
+    // que ambas acciones siempre devolvían 403). primaryAction==='accept' por
+    // sí solo NO alcanza (también es 'accept' para el caso solo, donde el
+    // camino real es /confirm, no /respond) -- se exige además
+    // actorHasRecordedResponse, la señal canónica existente
+    // (getProposalParticipationState, agreement.ts) que expone exactamente
+    // si existe esa fila, nunca inferida por título/status en esta pantalla.
+    const proposalParticipation = isProposal ? getProposalParticipationState(c, currentUserId) : null;
+    const canRespondToProposal = isProposal && primaryAction === 'accept' && !!proposalParticipation?.actorHasRecordedResponse;
     // PROPOSAL UX — el proposer es owner_user_id en el shape que ya consume
     // esta fila (toAgreementView, backend, mapea proposed_by_user_id ->
     // owner_user_id para el cliente): mismo campo que ya usa isOwner en
@@ -190,10 +202,10 @@ export function CommitmentRow({
 
     // ─── Menu ─────────────────────────────────────────────────────────────
     // M-1H v6 (Gap A, secciones 2/3/4/5 del ticket): "Reprogramar fecha"/
-    // "Archivar / Cancelar" son transiciones de un commitment YA activo --
-    // nunca se ofrecen para una commitment_proposal (llamarían al endpoint
-    // equivocado con un proposal_id). "Proponer otra fecha"/"Rechazar
-    // propuesta" reutilizan el flujo REAL ya existente
+    // "Cancelar {tarea/reunión}" son transiciones de un commitment YA activo
+    // -- nunca se ofrecen para una commitment_proposal (llamarían al
+    // endpoint equivocado con un proposal_id). "Proponer otra fecha"/
+    // "Rechazar propuesta" reutilizan el flujo REAL ya existente
     // (respond_to_commitment_proposal, decision counter_propose/reject) y
     // sólo aparecen cuando el actor mismo puede responder -- nunca para
     // Carlos (caso "Entrenar", esperando a Alejandra).
@@ -214,7 +226,15 @@ export function CommitmentRow({
                 hasConversation ? 'Ver conversación' : null,
                 canRespondToProposal ? 'Rechazar propuesta' : null,
                 onWithdraw && canWithdrawProposal ? 'Retirar propuesta' : null,
-                onCancel && !isFinished && !isProposal ? 'Archivar / Cancelar' : null,
+                // FIX 2 (vocabulario "Cancelar"): en iOS el índice 0 del
+                // ActionSheet YA es el dismiss nativo "Cancelar"
+                // (cancelButtonIndex) -- usar el mismo string literal para la
+                // acción real de negocio produciría dos filas idénticas
+                // ("Cancelar" inerte vs "Cancelar" que sí cancela). Se usa
+                // "Cancelar {tarea/reunión}" aquí específicamente para evitar
+                // esa colisión visual; el endpoint/comportamiento (onCancel,
+                // POST /commitments/:id/cancel) no cambia.
+                onCancel && !isFinished && !isProposal ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
             ].filter(Boolean) as string[];
             const destructiveButtonIndex = canRespondToProposal
                 ? options.indexOf('Rechazar propuesta')
@@ -230,7 +250,7 @@ export function CommitmentRow({
                     else if (opt === 'Ver conversación') goToChat();
                     else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
                     else if (opt === 'Retirar propuesta' && onWithdraw) onWithdraw(c);
-                    else if (opt === 'Archivar / Cancelar' && onCancel) onCancel(c.id);
+                    else if (opt.startsWith('Cancelar ') && onCancel) onCancel(c.id);
                 }
             );
         } else {
@@ -353,9 +373,14 @@ export function CommitmentRow({
                             </TouchableOpacity>
                         )}
                         {onCancel && !isFinished && !isProposal && (
+                            // FIX 2 (vocabulario "Cancelar"): el dismiss del
+                            // Modal Android (línea de abajo) YA dice
+                            // "Cancelar" -- mismo criterio que iOS, se usa
+                            // "Cancelar {tarea/reunión}" para la acción real
+                            // y evitar dos filas idénticas en el mismo menú.
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
                                 <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Archivar / Cancelar</Text>
+                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>{`Cancelar ${isMeeting ? 'reunión' : 'tarea'}`}</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
