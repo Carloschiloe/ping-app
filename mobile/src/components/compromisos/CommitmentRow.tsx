@@ -96,12 +96,15 @@ export function CommitmentRow({
     // owner_user_id para el cliente): mismo campo que ya usa isOwner en
     // GroupTaskCard.tsx, nunca un campo nuevo/paralelo.
     const isProposer = isProposal && c.owner_user_id === currentUserId;
-    // c.status aquí es el status crudo de commitment_proposals ('pending' |
-    // 'confirmed' | 'rejected'), nunca el CanonicalCommitmentStatus de
-    // normalizeCommitmentStatus -- esa función normaliza estados de
-    // `commitments`, un modelo de estados distinto (ver auditoría "PROPOSAL
-    // LIFECYCLE").
-    const canWithdrawProposal = isProposer && c.status === 'pending';
+    // ROOT-CAUSE FIX (hallazgo físico real, "Entrenar" no mostraba "Retirar
+    // propuesta"): mobile NUNCA recibe el status crudo de
+    // commitment_proposals ('pending') -- toAgreementView
+    // (commitmentProposal.service.ts) lo remapea intencionalmente a 'proposed'
+    // antes de serializar, exactamente el mismo `status` ya normalizado en la
+    // línea de arriba (const status = normalizeCommitmentStatus(c.status)),
+    // reutilizado aquí en vez de comparar contra c.status crudo por segunda
+    // vez con un valor que el wire contract nunca produce.
+    const canWithdrawProposal = isProposer && status === 'proposed';
 
     // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS (sección 19) — presentación
     // canónica única, nunca un roleLabel()/waiting-label reimplementado por

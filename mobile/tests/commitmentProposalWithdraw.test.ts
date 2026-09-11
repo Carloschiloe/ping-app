@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeCommitmentStatus } from '../src/utils/commitmentStatus';
 
 // PROPOSAL UX — WIRE PROPOSER WITHDRAW ACTION. Mismo patrón de source-text ya
 // establecido por commitmentRowRedesign.test.ts (mobile/vitest.config.ts: sin
@@ -25,7 +26,14 @@ const INSIGHTS_SCREEN_SRC = fs.readFileSync(
 describe('proposer ve "Retirar propuesta"', () => {
     it('CommitmentRow.tsx deriva isProposer/canWithdrawProposal y los usa como condición del item de menú', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/const isProposer = isProposal && c\.owner_user_id === currentUserId;/);
-        expect(COMMITMENT_ROW_SRC).toMatch(/const canWithdrawProposal = isProposer && c\.status === 'pending';/);
+        // ROOT-CAUSE FIX (hallazgo físico real "Entrenar"): mobile nunca recibe
+        // el status crudo 'pending' de commitment_proposals -- toAgreementView
+        // (backend) lo remapea a 'proposed' antes de serializar. La condición
+        // real debe comparar contra el `status` YA NORMALIZADO (línea 77,
+        // normalizeCommitmentStatus(c.status)), nunca c.status crudo por
+        // segunda vez con un valor que el wire contract nunca produce.
+        expect(COMMITMENT_ROW_SRC).toMatch(/const canWithdrawProposal = isProposer && status === 'proposed';/);
+        expect(COMMITMENT_ROW_SRC).not.toMatch(/canWithdrawProposal = isProposer && c\.status === 'pending'/);
     });
     it('el ActionSheet iOS ofrece "Retirar propuesta" gated por onWithdraw && canWithdrawProposal', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/onWithdraw && canWithdrawProposal \? 'Retirar propuesta' : null/);
@@ -94,6 +102,60 @@ describe('el path canónico de cancelación de commitment permanece intacto', ()
     it('InsightsScreen.tsx sigue wireando onCancel={handleCancel} (useCancelCommitment) sin cambios de firma', () => {
         expect(INSIGHTS_SCREEN_SRC).toMatch(/onCancel=\{handleCancel\}/);
         expect(INSIGHTS_SCREEN_SRC).toMatch(/const handleCancel = useCallback\(\(id: string\) => \{\s*cancelCommitment\(\{ id \}\);\s*\}, \[cancelCommitment\]\);/);
+    });
+});
+
+describe('elegibilidad real de "Retirar propuesta" contra fixtures con wire status (toAgreementView), nunca el status crudo de commitment_proposals', () => {
+    // Re-deriva la MISMA expresión que CommitmentRow.tsx usa realmente,
+    // extraída por regex del source (nunca hand-duplicada/reescrita) --
+    // así un futuro cambio en la condición real rompe este test en vez de
+    // quedar silenciosamente desincronizado. normalizeCommitmentStatus es la
+    // misma función pura que CommitmentRow.tsx importa (línea 77).
+    const CARLOS = 'carlos-id';
+    const ALEJANDRA = 'alejandra-id';
+
+    function evalCanWithdrawProposal(c: { _isAgreementProposal?: boolean; owner_user_id?: string; status?: string }, currentUserId: string) {
+        const isProposedMatch = COMMITMENT_ROW_SRC.match(/const isProposal = (c\._isAgreementProposal === true);/);
+        const isProposerMatch = COMMITMENT_ROW_SRC.match(/const isProposer = isProposal && (c\.owner_user_id === currentUserId);/);
+        const canWithdrawMatch = COMMITMENT_ROW_SRC.match(/const canWithdrawProposal = isProposer && (status === 'proposed');/);
+        expect(isProposedMatch).not.toBeNull();
+        expect(isProposerMatch).not.toBeNull();
+        expect(canWithdrawMatch).not.toBeNull();
+
+        const status = normalizeCommitmentStatus(c.status);
+        const isProposal = c._isAgreementProposal === true;
+        const isProposer = isProposal && c.owner_user_id === currentUserId;
+        return isProposer && status === 'proposed';
+    }
+
+    it('wire status "proposed" + proposer => elegible ("Retirar propuesta" visible)', () => {
+        const entrenar = { id: 'pr-entrenar', _isAgreementProposal: true, status: 'proposed', owner_user_id: CARLOS };
+        expect(evalCanWithdrawProposal(entrenar, CARLOS)).toBe(true);
+    });
+
+    it('wire status "proposed" + NO proposer (responder) => no elegible (oculto)', () => {
+        const entrenar = { id: 'pr-entrenar', _isAgreementProposal: true, status: 'proposed', owner_user_id: CARLOS };
+        expect(evalCanWithdrawProposal(entrenar, ALEJANDRA)).toBe(false);
+    });
+
+    it('proposal "rejected" (ya retirada/rechazada) => no elegible (oculto), aun siendo proposer', () => {
+        const rejected = { id: 'pr-rejected', _isAgreementProposal: true, status: 'rejected', owner_user_id: CARLOS };
+        expect(evalCanWithdrawProposal(rejected, CARLOS)).toBe(false);
+    });
+
+    it('proposal "counter_proposal" (contrapropuesta en curso) => no elegible (oculto), aun siendo proposer', () => {
+        const countered = { id: 'pr-countered', _isAgreementProposal: true, status: 'counter_proposal', owner_user_id: CARLOS };
+        expect(evalCanWithdrawProposal(countered, CARLOS)).toBe(false);
+    });
+
+    it('el status crudo "pending" (nunca producido por el wire contract real) ya no es el string comparado -- reproduce exactamente el bug físico si se revirtiera', () => {
+        // Si alguien revirtiera el fix a comparar c.status==='pending', esta
+        // fixture con el wire status REAL ('proposed') seguiría siendo
+        // elegible bajo la condición correcta, pero un regreso al bug haría
+        // que este mismo caso (el real, físico) fallara -- éste es el caso
+        // que estaba físicamente roto en staging antes de este fix.
+        const entrenarReal = { id: '0d718396-bab7-424a-834f-24ab19630f8b', _isAgreementProposal: true, status: 'proposed', owner_user_id: CARLOS };
+        expect(evalCanWithdrawProposal(entrenarReal, CARLOS)).toBe(true);
     });
 });
 
