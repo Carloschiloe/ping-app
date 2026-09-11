@@ -1980,3 +1980,197 @@ describe('H — DATE-ONLY REGRESSION: sin hora explícita en la evidencia, nunca
         expect(serializedEvent.createdAtLocal).toMatch(/2026/);
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — CANONICAL DOMINANCE VIA EVIDENCE LINEAGE, NOT TITLE GUESSING.
+// Physical regression: "Cuando completamos lo de Spiderman?" -- the model
+// correctly returned ONE claim citing the RESOLVED commitment_event for "Ver
+// Spiderman" (id cb704796-...), but the old enforceCanonicalDominance
+// matched the word "Spiderman" lexically against BOTH "Ver Spiderman" AND
+// the unrelated "Spiderman el Viernes" (cd25bfd2-..., cancelled), injecting
+// a false-context claim about an entity the claim never referenced. Fix:
+// structured evidence lineage (commitment/commitment_event/commitment_status
+// memory -> commitmentId) takes absolute precedence over lexical title
+// matching; lexical fallback survives ONLY for claims with zero derivable
+// lineage, and ONLY when it resolves to exactly one unambiguous candidate.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('A-H: enforceCanonicalDominance — linaje estructurado tiene precedencia sobre coincidencia léxica de título', () => {
+    const VER_SPIDERMAN_ID = 'cb704796-4c78-4c7d-acd3-57a5b3300b41';
+    const SPIDERMAN_VIERNES_ID = 'cd25bfd2-248b-4c4a-849d-437d691252d2';
+
+    function spidermanCommitments() {
+        return {
+            verSpiderman: commitment(VER_SPIDERMAN_ID, { title: 'Ver Spiderman', status: 'resolved' }),
+            spidermanViernes: commitment(SPIDERMAN_VIERNES_ID, { title: 'Spiderman el Viernes', status: 'cancelled' }),
+        };
+    }
+
+    it('A (reproducción física exacta): claim histórico con sourceRef=commitment_event de "Ver Spiderman" -- puede enriquecer "Ver Spiderman", NUNCA inyecta "Spiderman el Viernes"', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const resolvedEvent = retrievalEvent('evt-resolved', { commitmentId: VER_SPIDERMAN_ID, eventType: 'resolved', newStatus: 'resolved' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any, events: [resolvedEvent] as any });
+        const claims = [{ text: 'Completamos el compromiso "Ver Spiderman" el 10 de septiembre de 2026 a las 22:33.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === SPIDERMAN_VIERNES_ID))).toBe(false);
+        // Puede (no obligatorio) enriquecer el target real -- si lo hace, es EXCLUSIVAMENTE hacia Ver Spiderman.
+        for (const claim of result) {
+            if (claim.sourceRefs.some((r) => r.sourceType === 'commitment')) {
+                expect(claim.sourceRefs.every((r) => r.sourceId === VER_SPIDERMAN_ID)).toBe(true);
+            }
+        }
+    });
+
+    it('B (caso inverso): claim histórico con sourceRef=commitment_event de "Spiderman el Viernes" -- dominancia sólo hacia ese commitment, NUNCA inyecta "Ver Spiderman"', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const cancelEvent = retrievalEvent('evt-cancelled', { commitmentId: SPIDERMAN_VIERNES_ID, eventType: 'cancelled', newStatus: 'cancelled' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any, events: [cancelEvent] as any });
+        const claims = [{ text: 'Cancelamos "Spiderman el Viernes" el 30 de julio de 2026.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === VER_SPIDERMAN_ID))).toBe(false);
+        for (const claim of result) {
+            if (claim.sourceRefs.some((r) => r.sourceType === 'commitment')) {
+                expect(claim.sourceRefs.every((r) => r.sourceId === SPIDERMAN_VIERNES_ID)).toBe(true);
+            }
+        }
+    });
+
+    it('C (multi-entidad legítima): dos claims, cada uno cita un evento de un commitment DISTINTO -- cada uno puede enriquecer SÓLO su propio commitment, sin contaminación cruzada', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const resolvedEvent = retrievalEvent('evt-resolved', { commitmentId: VER_SPIDERMAN_ID, eventType: 'resolved', newStatus: 'resolved' });
+        const cancelEvent = retrievalEvent('evt-cancelled', { commitmentId: SPIDERMAN_VIERNES_ID, eventType: 'cancelled', newStatus: 'cancelled' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any, events: [resolvedEvent, cancelEvent] as any });
+        const claims = [
+            { text: 'Completamos "Ver Spiderman".', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' }] },
+            { text: 'Cancelamos "Spiderman el Viernes".', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' }] },
+        ];
+        const allowedSourceRefs = [
+            { sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' },
+            { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        const commitmentClaims = result.filter((c) => c.sourceRefs.some((r) => r.sourceType === 'commitment'));
+        // Cada claim inyectado cita EXACTAMENTE un commitment, nunca ambos mezclados.
+        for (const claim of commitmentClaims) {
+            const ids = new Set(claim.sourceRefs.filter((r) => r.sourceType === 'commitment').map((r) => r.sourceId));
+            expect(ids.size).toBe(1);
+        }
+        // Ambos commitments pueden terminar enriquecidos (cada uno por SU claim), nunca cruzados.
+        const enrichedIds = new Set(commitmentClaims.flatMap((c) => c.sourceRefs.filter((r) => r.sourceType === 'commitment').map((r) => r.sourceId)));
+        expect([...enrichedIds].every((id) => id === VER_SPIDERMAN_ID || id === SPIDERMAN_VIERNES_ID)).toBe(true);
+    });
+
+    it('D (sourceRef de commitment directo): claim cita "Ver Spiderman" directamente -- ya citado, sin adición; sin importar la ambigüedad léxica de "Spiderman el Viernes"', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any });
+        const claims = [{ text: 'El compromiso "Ver Spiderman" está resuelto.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result).toHaveLength(1); // sin adición -- Ver Spiderman ya citado directo, Spiderman el Viernes nunca inyectado
+        expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === SPIDERMAN_VIERNES_ID))).toBe(false);
+    });
+
+    it('E (linaje vía memoria): claim cita una memoria commitment_status cuyo predicate expone el commitmentId -- dominancia se acota a ESE commitment (mismo contrato ya usado por excludeOffTargetCommitmentMemory)', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const mem = memoryFact('mem-ver-spiderman', {
+            predicate: `commitment_status:${VER_SPIDERMAN_ID}`, objectValue: 'resolved',
+            canonicalText: 'El compromiso "Ver Spiderman" está en estado resolved.',
+        });
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any, historicalMemoryFacts: [mem] as any });
+        const claims = [{ text: 'Completamos "Ver Spiderman".', sourceRefs: [{ sourceType: 'memory' as const, sourceId: 'mem-ver-spiderman' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'memory' as const, sourceId: 'mem-ver-spiderman' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === SPIDERMAN_VIERNES_ID))).toBe(false);
+    });
+
+    it('F (fallback léxico, sin linaje estructurado, exactamente 1 candidato): comportamiento preexistente preservado -- un solo commitment relevante sigue enriqueciéndose vía léxico', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const cancelled = commitment('cm-regalo', { title: 'Comprar regalo', status: 'cancelled' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [cancelled] as any });
+        const claims = [{ text: 'Se entregó el regalo el viernes', sourceRefs: [{ sourceType: 'message' as const, sourceId: 'm-hist' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'message' as const, sourceId: 'm-hist' },
+            { sourceType: 'commitment' as const, sourceId: 'cm-regalo' },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result).toHaveLength(2);
+        expect(result[1].sourceRefs).toEqual([{ sourceType: 'commitment', sourceId: 'cm-regalo' }]);
+        expect(result[1].text.toLowerCase()).toContain('cancelado');
+    });
+
+    it('G (ambigüedad léxica real, sin linaje estructurado): dos commitments comparten palabras significativas del título, claim sin sourceRef tipado a commitment -- NINGUNO se inyecta (nunca adivinar)', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        // El ÚNICO sourceRef del claim es un mensaje -- sin linaje derivable en absoluto, cae a fallback léxico.
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any });
+        const claims = [{ text: 'Hablamos de Spiderman el otro día.', sourceRefs: [{ sourceType: 'message' as const, sourceId: 'm-ambiguo' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'message' as const, sourceId: 'm-ambiguo' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result).toEqual(claims); // sin ninguna adición -- 2 candidatos léxicos ambiguos, ninguno se agrega
+    });
+
+    it('H (cero match): commitment sin ninguna palabra significativa en común con ningún claim -- sin inyección', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const unrelated = commitment('cm-unrelated', { title: 'Renovar contrato oficina', status: 'resolved' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [unrelated] as any });
+        const claims = [{ text: 'Hablamos del viaje a Puerto Montt.', sourceRefs: [{ sourceType: 'message' as const, sourceId: 'm-viaje' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'message' as const, sourceId: 'm-viaje' },
+            { sourceType: 'commitment' as const, sourceId: 'cm-unrelated' },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result).toEqual(claims);
+    });
+
+    it('regresión: linaje estructurado nunca es overrideado por un match léxico contradictorio (título del OTRO commitment aparece literal en el texto del claim)', async () => {
+        const { enforceCanonicalDominance } = await import('../src/services/agentResponseSynthesizer.service');
+        const { verSpiderman, spidermanViernes } = spidermanCommitments();
+        const resolvedEvent = retrievalEvent('evt-resolved', { commitmentId: VER_SPIDERMAN_ID, eventType: 'resolved', newStatus: 'resolved' });
+        const ctx = baseContext({ evidenceFound: true, commitments: [verSpiderman, spidermanViernes] as any, events: [resolvedEvent] as any });
+        // El texto del claim menciona AMBOS títulos, pero su ÚNICO sourceRef tiene linaje estructurado hacia Ver Spiderman -- el linaje gana, nunca el texto.
+        const claims = [{ text: 'Completamos "Ver Spiderman", a diferencia de Spiderman el Viernes que quedó cancelado.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' }] }];
+        const allowedSourceRefs = [
+            { sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' },
+            { sourceType: 'commitment' as const, sourceId: VER_SPIDERMAN_ID },
+            { sourceType: 'commitment' as const, sourceId: SPIDERMAN_VIERNES_ID },
+        ];
+
+        const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
+        expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === SPIDERMAN_VIERNES_ID))).toBe(false);
+    });
+});

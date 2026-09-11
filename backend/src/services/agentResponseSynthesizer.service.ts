@@ -481,6 +481,69 @@ function buildCanonicalStatusClaim(commitment: AgentContext['commitments'][numbe
     return { text, sourceRefs: [ref] };
 }
 
+// PING — CANONICAL DOMINANCE VIA EVIDENCE LINEAGE, NOT TITLE GUESSING
+// (physical regression: "Cuando completamos lo de Spiderman?" -- the model
+// correctly returned ONE claim citing the RESOLVED commitment_event for
+// "Ver Spiderman", but enforceCanonicalDominance's old lexical-only pass
+// matched the word "Spiderman" against BOTH "Ver Spiderman" AND the
+// unrelated "Spiderman el Viernes" (cancelled), injecting a false-context
+// claim about an entity the claim never referenced).
+//
+// The claim's own sourceRefs almost always already encode EXACTLY which
+// commitment they are about -- a commitment_event's commitmentId, a
+// commitment_status memory's predicate, or the commitment ref itself. That
+// structured lineage is always more precise than guessing from shared title
+// words, and must take precedence over it. Lexical title matching is kept
+// ONLY as a last-resort fallback for the case lineage cannot say ANYTHING
+// (a claim built purely from a message/transcript with no commitment-typed
+// evidence at all) -- and even then, only when it resolves to exactly one
+// unambiguous candidate; 0 or >1 candidates leave the claim exactly as
+// the model wrote it, never guessed.
+function deriveCommitmentIdFromSourceRef(ref: AgentCitation, context: AgentContext): string | null {
+    if (ref.sourceType === 'commitment' || ref.sourceType === 'commitment_proposal') {
+        return ref.sourceId;
+    }
+    if (ref.sourceType === 'commitment_event') {
+        const event = context.events.find((e) => e.id === ref.sourceId);
+        return event?.commitmentId ?? null;
+    }
+    if (ref.sourceType === 'memory') {
+        const memory = [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])]
+            .find((m) => m.id === ref.sourceId);
+        if (!memory) return null;
+        // commitment_status:<commitmentId> es el ÚNICO predicate con
+        // linaje de commitment determinístico hoy (ver
+        // canonicalMemoryEvents.service.ts#dispatchCommitmentStatusMemoryEvent,
+        // único emisor de esta forma de predicate) -- cualquier otro
+        // predicate (ej. "lives_in") no tiene relación de commitment
+        // alguna, real o inventada, y debe devolver null, nunca adivinar.
+        const PREDICATE_PREFIX = 'commitment_status:';
+        if (memory.predicate.startsWith(PREDICATE_PREFIX)) {
+            return memory.predicate.slice(PREDICATE_PREFIX.length);
+        }
+        return null;
+    }
+    // message/transcription/attachment/person: no existe una relación de
+    // commitment estructurada y determinística hoy en su contrato -- nunca
+    // se inventa una aquí. El fallback léxico (más abajo) sigue siendo la
+    // única vía para estos, exactamente como ya era antes de este fix.
+    return null;
+}
+
+// Linaje estructurado de UN claim: unión de los commitmentIds derivables de
+// CUALQUIERA de sus sourceRefs (normalmente uno, pero un claim puede citar
+// más de una fuente). Vacío si ninguna ref tiene linaje derivable -- eso
+// NUNCA implica "cero commitments son relevantes", implica "cae al
+// fallback léxico, si corresponde".
+function deriveStructuredCommitmentLineage(claim: AgentClaim, context: AgentContext): Set<string> {
+    const ids = new Set<string>();
+    for (const ref of claim.sourceRefs) {
+        const id = deriveCommitmentIdFromSourceRef(ref, context);
+        if (id) ids.add(id);
+    }
+    return ids;
+}
+
 export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentContext, allowedSourceRefs: AgentCitation[], language: 'es' | 'en'): AgentClaim[] {
     if (context.commitments.length === 0 || claims.length === 0) return claims;
 
@@ -488,28 +551,75 @@ export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentCo
         claims.flatMap((c) => c.sourceRefs.filter((r) => isCommitmentLikeSourceType(r.sourceType)).map((r) => r.sourceId)),
     );
 
-    const additions: AgentClaim[] = [];
+    // Para cada claim que NO cita ya un commitment(-like) directamente,
+    // calcula su linaje estructurado UNA vez -- reutilizado tanto para
+    // decidir qué commitment(s) enriquecer como para, cuando el linaje
+    // exista, DESACTIVAR el fallback léxico para ese claim (sección 3 del
+    // ticket: el linaje estructurado nunca se deja overridear por un match
+    // léxico, ni siquiera uno contradictorio).
+    const candidateClaims = claims.filter((claim) => !claim.sourceRefs.some((r) => isCommitmentLikeSourceType(r.sourceType)));
+    const lineageByClaim = new Map<AgentClaim, Set<string>>(
+        candidateClaims.map((claim) => [claim, deriveStructuredCommitmentLineage(claim, context)]),
+    );
+
+    const additions: Array<{ commitment: AgentContext['commitments'][number]; ref: AgentCitation }> = [];
     for (const commitment of context.commitments) {
         if (citedCommitmentIds.has(commitment.id)) continue; // ya citado por algún claim -- el modelo ya lo trajo a colación
-        const titleWords = significantWords(commitment.title);
-        if (titleWords.size === 0) continue;
 
-        const topicalMatch = claims.some((claim) => {
-            if (claim.sourceRefs.some((r) => isCommitmentLikeSourceType(r.sourceType))) return false; // ya cita ALGÚN commitment(-like) -- no es el patrón "sólo histórico" que se busca cerrar
-            const claimWords = significantWords(claim.text);
-            for (const w of titleWords) if (claimWords.has(w)) return true;
-            return false;
-        });
-        if (!topicalMatch) continue;
+        // 1/2/3: linaje estructurado tiene precedencia absoluta -- si ALGÚN
+        // claim candidato tiene linaje que apunta EXACTAMENTE a este
+        // commitment, eso basta para enriquecerlo, sin mirar léxico en
+        // absoluto (ni para confirmar ni para vetar).
+        const hasStructuredMatch = candidateClaims.some((claim) => lineageByClaim.get(claim)!.has(commitment.id));
+
+        let eligible = hasStructuredMatch;
+        if (!eligible) {
+            // 4: fallback léxico SOLO para claims sin NINGÚN linaje
+            // estructurado derivable (el caso real "sólo un mensaje/
+            // transcript sin evidencia tipada de commitment") -- un claim
+            // con linaje hacia OTRO commitment nunca participa del
+            // fallback léxico para éste (eso sería exactamente el bug
+            // original: dejar que un match textual override un linaje ya
+            // conocido y distinto).
+            const titleWords = significantWords(commitment.title);
+            if (titleWords.size > 0) {
+                eligible = candidateClaims.some((claim) => {
+                    if (lineageByClaim.get(claim)!.size > 0) return false; // tiene linaje hacia otra cosa -- nunca elegible por léxico para ésta
+                    const claimWords = significantWords(claim.text);
+                    for (const w of titleWords) if (claimWords.has(w)) return true;
+                    return false;
+                });
+            }
+        }
+        if (!eligible) continue;
 
         // Nunca citar algo fuera del boundary de evidencia ya serializado (M-1E.1).
         const ref = allowedSourceRefs.find((r) => isCommitmentLikeSourceType(r.sourceType) && r.sourceId === commitment.id);
         if (!ref) continue;
 
-        additions.push(buildCanonicalStatusClaim(commitment, ref, language));
+        additions.push({ commitment, ref });
     }
 
-    return additions.length > 0 ? [...claims, ...additions] : claims;
+    // 4 (continuación) / G: filtra el fallback léxico a exactamente 1
+    // candidato inequívoco. additions ya contiene, para cada commitment,
+    // TODAS las razones por las que calificó (estructurado o léxico) --
+    // pero un mismo COMMITMENT puede terminar calificando por más de un
+    // camino sin ambigüedad real (eso es correcto, se agrega una vez). La
+    // ambigüedad real que el ticket pide vetar es la INVERSA: un commitment
+    // que sólo calificó por léxico, cuando OTRO commitment sin linaje
+    // propio también comparte esas mismas palabras -- si dos o más
+    // commitments sólo-léxicos matchean el mismo conjunto de claims
+    // sólo-léxicos, ninguno se agrega (0 o >1 candidatos == no adivinar).
+    const structuredIds = new Set(
+        [...lineageByClaim.values()].flatMap((s) => [...s]),
+    );
+    const lexicalOnlyAdditions = additions.filter((a) => !structuredIds.has(a.commitment.id));
+    const finalAdditions = lexicalOnlyAdditions.length > 1
+        ? additions.filter((a) => structuredIds.has(a.commitment.id)) // descarta TODO el fallback léxico ambiguo, conserva sólo lo estructurado
+        : additions;
+
+    if (finalAdditions.length === 0) return claims;
+    return [...claims, ...finalAdditions.map((a) => buildCanonicalStatusClaim(a.commitment, a.ref, language))];
 }
 
 // ─── Memory historical disclosure guard (M-2) ───────────────────────────────
