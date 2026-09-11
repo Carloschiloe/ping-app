@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-    LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, isPersonHintTopicalNotPersonal, classifyQueryCardinality,
+    LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -1023,39 +1023,16 @@ describe('M-1H: isPersonHintGroundedInInput (sección 4) -- explicit person ment
     });
 });
 
-// PING — M-2 CROSS-TURN CONTEXT ISOLATION: segunda red de seguridad para
-// personHints del LLM. isPersonHintGroundedInInput sólo prueba "el texto
-// existe en el input" -- nunca "ese texto es una persona real, no parte del
-// tema". Hallazgo físico real: "Cuando completamos lo de ver Spiderman?"
-// ocasionalmente producía personHints=["Spiderman"] del LLM primario
-// (varianza de muestreo -- "Spiderman" SÍ aparece en el texto, así que la
-// primera red de seguridad nunca lo atrapaba), disparando person_ambiguous
-// sobre un título de compromiso, no una persona.
-describe('M-2 CROSS-TURN CONTEXT ISOLATION: isPersonHintTopicalNotPersonal -- distingue "está en el texto" de "es una persona real"', () => {
-    it('reproducción exacta: "Spiderman" dentro del textQuery determinístico "ver Spiderman", sin corroboración -> topical (se descarta)', () => {
-        expect(isPersonHintTopicalNotPersonal('Spiderman', 'ver Spiderman', [])).toBe(true);
-    });
-
-    it('un catch genuino del LLM (persona real, SIN solape con el textQuery determinístico) nunca se descarta', () => {
-        expect(isPersonHintTopicalNotPersonal('Laura', 'presupuesto marketing', [])).toBe(false);
-    });
-
-    it('si el determinístico TAMBIÉN reconoce el mismo nombre como persona vía un cue real, sobrevive aunque haya solape textual', () => {
-        expect(isPersonHintTopicalNotPersonal('Laura', 'Laura viaje', ['Laura'])).toBe(false);
-    });
-
-    it('sin textQuery determinístico (null) -- conservador, nunca descarta sin evidencia positiva de solape', () => {
-        expect(isPersonHintTopicalNotPersonal('Spiderman', null, [])).toBe(false);
-    });
-
-    it('case-insensitive: "spiderman" (minúscula) sigue detectado como topical contra "ver Spiderman"', () => {
-        expect(isPersonHintTopicalNotPersonal('spiderman', 'ver Spiderman', [])).toBe(true);
-    });
-
-    it('hint vacío nunca se marca como topical (nada que comparar)', () => {
-        expect(isPersonHintTopicalNotPersonal('', 'ver Spiderman', [])).toBe(false);
-    });
-});
+// PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: the previous
+// isPersonHintTopicalNotPersonal heuristic (M-2 CROSS-TURN CONTEXT
+// ISOLATION) was removed entirely — it was a second filter still stacked on
+// the same LLM-sourced array that drove resolvePerson, not a real authority
+// boundary. See tests/agentContextBuilder.test.ts's
+// "CORE-OWNED PERSON SCOPE" suite for the actual fix: canonicalPersonScope
+// is now built ONLY from the deterministic interpreter's own personHints
+// and an authorized referent — the LLM's personHints never reach
+// resolvePerson at all, so no topical-vs-personal heuristic is needed on
+// that path any more.
 
 describe('M-1H: classifyQueryCardinality (sección 5/24) -- los 8 casos mínimos del contract test matrix', () => {
     it.each([

@@ -32,6 +32,19 @@ export interface AgentContextInput {
     now?: string; // ISO timestamp; defaults to server "now" if absent
     locale?: string;
     timezone?: string; // IANA name; validated, never trusted blindly
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: an already-authorized
+    // person id the CALLER resolved and vouches for BEFORE this input ever
+    // reached the interpreter (e.g. a future voice/session flow that
+    // resolved a referent through its own authorization path) — never
+    // derived from parsed text, never supplied by an interpreter. This is
+    // one of the exactly two canonical sources allowed to establish
+    // BLOCKING person scope (the other being the deterministic interpreter's
+    // own structural cue extraction) — see
+    // agentContextBuilder.service.ts#canonicalPersonScope. No current caller
+    // populates this field; it exists so the authority boundary has a real,
+    // typed place to receive a legitimately authorized referent without
+    // ever routing it through personHints/LLM output.
+    authorizedPersonReferentId?: string;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
 }

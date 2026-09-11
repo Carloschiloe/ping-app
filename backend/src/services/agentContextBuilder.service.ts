@@ -29,7 +29,6 @@ import {
     DeterministicInputInterpreter,
     fallbackInterpretation,
     isPersonHintGroundedInInput,
-    isPersonHintTopicalNotPersonal,
     classifyQueryCardinality,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
@@ -432,27 +431,31 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
-    // Sección 4: un personHint (de CUALQUIER intérprete) sólo cuenta como
-    // scope estructural real si el nombre efectivamente aparece como texto
-    // en el input crudo -- nunca "porque el LLM lo dijo". Esto reemplaza
-    // confiar ciegamente en `rawInterpretation.personHints`.
-    //
-    // PING — M-2 CROSS-TURN CONTEXT ISOLATION: segunda red de seguridad,
-    // necesaria porque la de arriba sólo prueba "el LLM no inventó texto
-    // ausente", nunca "ese texto es realmente una persona y no parte del
-    // tema". Hallazgo físico real: el mismo input exacto ("Cuando completamos
-    // lo de ver Spiderman?") a veces producía personHints=["Spiderman"] del
-    // LLM primario (varianza de muestreo del modelo, no un cambio real de
-    // texto ni contexto de turnos previos -- "Spiderman" SÍ está presente en
-    // el input, así que la primera red de seguridad nunca lo atrapaba). Se
-    // descarta cuando el propio determinístico coloca ese mismo texto dentro
-    // de SU textQuery (ya es "tema", no "persona") Y el determinístico no lo
-    // reconoció independientemente como persona vía un cue estructural real
-    // (con/a/dijo/etc.) -- un catch genuino del LLM que el regex no cubre
-    // (sin solapar con el textQuery determinístico) nunca se ve afectado.
-    const explicitPersonHints = rawInterpretation.personHints
-        .filter((hint) => isPersonHintGroundedInInput(hint, input.input))
-        .filter((hint) => !isPersonHintTopicalNotPersonal(hint, deterministicSignals.textQuery, deterministicSignals.personHints));
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE (root architectural fix,
+    // replaces the two prior patch attempts at this exact spot — M-1H's
+    // isPersonHintGroundedInInput and M-2's isPersonHintTopicalNotPersonal).
+    // Both of those still funneled the LLM's personHints (filtered, but
+    // still LLM-sourced) into the SAME array that drives resolvePerson,
+    // personAttributionUnresolved and personScopeBlocked below — a heuristic
+    // stacked on a heuristic, never a real authority boundary. Real
+    // architecture: "LLM SUGGESTS, PING CORE DECIDES" (sección 0/3) means
+    // the LLM's personHints output must have ZERO authority to establish
+    // BLOCKING person scope, full stop — no filter, threshold, or repeated
+    // sampling makes an advisory signal authoritative. `advisoryPersonHints`
+    // (kept for diagnostics/trace only, NEVER passed to resolvePerson) is
+    // whatever the primary interpreter (LLM or deterministic fallback)
+    // suggested. `canonicalPersonScope` (defined further below, right before
+    // the resolution loop) is the ONLY thing allowed to call resolvePerson
+    // or set personAttributionUnresolved/personScopeBlocked — it is built
+    // exclusively from (A) the deterministic interpreter's own structural
+    // cue extraction (con X/a X/X dijo/falta que acepte X/etc. — a REAL Core
+    // signal, not a filtered LLM one) and (B) an already-authorized explicit
+    // referent supplied by the caller in the input envelope
+    // (`input.authorizedPersonReferentId`), never derived from parsed text.
+    // This is not "trust the LLM unless X" with more X — it's "the LLM
+    // literally cannot reach resolvePerson", so correctness never depends on
+    // how the model samples.
+    const advisoryPersonHints = rawInterpretation.personHints.filter((hint) => isPersonHintGroundedInInput(hint, input.input));
     // Sección 3: cuando el determinístico detecta proposalFocus (waiting_for_
     // others/needs_my_response/pending_response_from_person), el LLM no
     // puede contradecirlo -- ni con un valor distinto, ni alegando
@@ -469,7 +472,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
     const interpretation: Interpretation = {
         ...rawInterpretation,
-        personHints: explicitPersonHints,
+        // ADVISORY ONLY from this point on — see canonicalPersonScope below
+        // for the sole authority allowed to block/resolve/clarify. Kept on
+        // Interpretation for trace/diagnostics parity with the rest of this
+        // object; no downstream code in this file may treat
+        // interpretation.personHints as blocking scope (grep it before
+        // adding a new use).
+        personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
@@ -552,6 +561,25 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const sourceCounts: Record<string, number> = {};
 
     // ─── Entity resolution (sección 11) — nunca se elige arbitrariamente. ────
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: canonicalPersonScope is
+    // the ONLY input this loop (and everything that blocks on it below —
+    // personAttributionUnresolved, personScopeBlocked, person_ambiguous)
+    // ever consumes. Built from exactly two sources, both Core-owned:
+    //   A) deterministicSignals.personHints — the deterministic
+    //      interpreter's OWN structural cue extraction (con X/a X/X dijo/
+    //      falta que acepte X/etc.), run unconditionally above regardless of
+    //      which interpreter is primary. This is real evidence the input
+    //      text itself contains a person-introducing construction — never a
+    //      filtered/derived version of what the LLM said.
+    //   B) input.authorizedPersonReferentId — an id the CALLER already
+    //      authorized before this input reached any interpreter (see its
+    //      doc comment in types/agentContext.ts). Never derived from parsed
+    //      text, never from personHints of any kind.
+    // rawInterpretation.personHints / advisoryPersonHints (LLM-sourced, only
+    // grounding-checked) are used NOWHERE in this loop or its guards — the
+    // fix is structural non-participation, not a filter that could
+    // theoretically be bypassed by a different LLM phrasing.
+    const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
     let needsClarification = false;
     let clarification: AgentClarification | undefined;
@@ -564,7 +592,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // nombrada aunque no existiera vínculo real (ej. assigned_to_user_id).
     let personAttributionUnresolved = false;
 
-    for (const hint of interpretation.personHints) {
+    for (const hint of canonicalPersonScope) {
         retrievalPlan.push({ step: 'resolvePerson', params: { hint } });
         const resolution = await resolvePerson(input.actorUserId, { name: hint, conversationId });
         sourcesConsulted.push('resolvePerson');
@@ -575,6 +603,23 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         } else if (resolution.resolved && !resolvedPersonId) {
             resolvedPersonId = resolution.resolved.id;
         } else if (!resolution.resolved) {
+            personAttributionUnresolved = true;
+        }
+    }
+
+    if (input.authorizedPersonReferentId && !resolvedPersonId) {
+        retrievalPlan.push({ step: 'resolvePerson', params: { hint: 'authorizedPersonReferentId' } });
+        const referentResolution = await resolvePerson(input.actorUserId, { userId: input.authorizedPersonReferentId });
+        sourcesConsulted.push('resolvePerson');
+        people.push(referentResolution);
+        if (referentResolution.resolved) {
+            resolvedPersonId = referentResolution.resolved.id;
+        }
+        // Un referente ya autorizado por el caller que no obstante no
+        // resuelve (revocado/fuera de alcance entre el momento en que se
+        // autorizó y este turno) nunca degrada silenciosamente -- mismo
+        // principio de personAttributionUnresolved que un hint textual.
+        else {
             personAttributionUnresolved = true;
         }
     }
@@ -596,7 +641,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // defensa en profundidad (needsClarification ya lo cubre estructuralmente
     // arriba, vía la plantilla determinística que nunca usa context.commitments),
     // no la única barrera — sección 17: nunca se amplía el scope semántico.
-    const personScopeBlocked = interpretation.personHints.length > 0 && !resolvedPersonId;
+    //
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: gated on
+    // canonicalPersonScope (+ the authorized referent), NEVER on
+    // interpretation.personHints (LLM-sourced, advisory-only from this point
+    // on) — an LLM-only hint can never block a source it has no authority
+    // over.
+    const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
     // Mismo guard que commitments/messages: un personHint explícito que no
@@ -617,7 +668,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // intención no pidió (sección 33). commitment events depende de los
     // commitments encontrados, así que va después.
     if (personScopeBlocked && (interpretation.wantsCommitments || interpretation.wantsMessages)) {
-        retrievalPlan.push({ step: 'personScopeGuardSkipped', params: { personHints: interpretation.personHints } });
+        retrievalPlan.push({ step: 'personScopeGuardSkipped', params: { personHints: canonicalPersonScope } });
     }
 
     // M-1H FINAL (sección 29, performance) — cuando proposalFocus está
@@ -927,8 +978,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // topic_too_broad (sección 20): general_context sin ninguna evidencia y
     // sin ningún hint (ni persona ni texto ni tiempo) — la query no dio
     // suficiente señal, no es lo mismo que "no evidence" con una query clara.
+    //
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: gated on
+    // canonicalPersonScope, never interpretation.personHints — an LLM-only
+    // hallucinated hint (advisory, no authority) must never count as "real
+    // signal exists" any more than it may block a source.
     if (!needsClarification && !evidenceFound && interpretation.intent === 'general_context'
-        && interpretation.personHints.length === 0 && !interpretation.textQuery && !interpretation.timeExpression) {
+        && canonicalPersonScope.length === 0 && !input.authorizedPersonReferentId && !interpretation.textQuery && !interpretation.timeExpression) {
         needsClarification = true;
         clarification = { reason: 'topic_too_broad' };
     }
@@ -992,7 +1048,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         timezone,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
-        explicitPersonMention: explicitPersonHints.length > 0,
+        explicitPersonMention: canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId,
         proposalFocus: interpretation.proposalFocus,
         queryCardinality,
         requiredSourceRefs,

@@ -705,8 +705,17 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
     });
 
     it('wantsOverdueFocus=false NUNCA propaga orderByOverdueFirst:true (no cambia el orden de consultas normales)', async () => {
+        // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: el input original
+        // ("¿Qué le prometí a Laura?") contiene un cue estructural real
+        // ("a Laura"), que ahora SÍ activa canonicalPersonScope
+        // (deterministicSignals.personHints, corrección arquitectónica
+        // correcta -- antes esto nunca bloqueaba porque el mock del LLM no
+        // reportaba personHints, y sólo el LLM tenía autoridad). Ese
+        // comportamiento de scoping de persona no es lo que este test
+        // certifica (orderByOverdueFirst) -- se usa un input sin ningún cue
+        // de persona para no mezclar ambas señales.
         const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', wantsOverdueFocus: false }));
-        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué le prometí a Laura?' }, { interpreter });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo pendientes?' }, { interpreter });
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ orderByOverdueFirst: false }), expect.any(Number));
     });
 });
@@ -1337,24 +1346,22 @@ describe('M-1H: adversarial interpreter tests (sección 16) -- normalización SI
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PING — M-2 CROSS-TURN CONTEXT ISOLATION: reproducción física exacta.
-// "Cuando completamos lo de ver Spiderman?" pasó fresco (Agent Preview
-// recién abierto) pero falló con "person_ambiguous" tras turnos previos NO
-// relacionados en la misma sesión ("¿Qué compromisos tengo pendiente?",
-// "Hola", "¿Qué tengo para hoy?"). Investigación probó que NINGÚN estado de
-// turnos previos llega al backend en absoluto para input de texto plano
-// (resolveAgentRequestInput siempre devuelve referents:[] fuera del flujo de
-// voz) -- la causa real es varianza de muestreo del LLM primario
-// (LlmInputInterpreter) en el MISMO input exacto, produciendo a veces
-// personHints=["Spiderman"] (grounded porque la palabra SÍ está en el
-// texto, así que isPersonHintGroundedInInput nunca lo atrapaba). El fix
-// (isPersonHintTopicalNotPersonal) es un segundo filtro, no un cambio de
-// sesión/estado -- por eso esta prueba invoca buildAgentContext
-// independientemente para cada variante del intérprete, exactamente como
-// certifica que NINGÚN estado compartido entre llamadas pueda producir el
-// resultado -- si esto pasara, la causa sería otra.
+// PING — M-2 CROSS-TURN CONTEXT ISOLATION (historical -- superseded by
+// "CORE-OWNED PERSON SCOPE" below): reproducción física exacta. "Cuando
+// completamos lo de ver Spiderman?" pasó fresco pero falló con
+// "person_ambiguous" tras turnos previos no relacionados. Investigación
+// probó ningún estado de turnos previos llega al backend para input de
+// texto plano -- la causa real es varianza de muestreo del LLM primario. The
+// original fix here (isPersonHintTopicalNotPersonal, a filter still stacked
+// on the LLM-sourced array feeding resolvePerson) was later rejected as
+// architecturally insufficient -- it patched a symptom instead of removing
+// the LLM's authority to block. It has been REMOVED from the source; the
+// real fix is canonicalPersonScope (see the describe block below, which
+// supersedes this one). These tests are kept because their OUTCOMES (no
+// person_ambiguous, resolvePerson never called for "Spiderman") remain
+// correct and are now proven by the real fix instead.
 // ═══════════════════════════════════════════════════════════════════════════
-describe('M-2 CROSS-TURN CONTEXT ISOLATION: "Cuando completamos lo de ver Spiderman?" resuelve idéntico sin importar salida no-determinística del LLM ni turnos previos', () => {
+describe('M-2 CROSS-TURN CONTEXT ISOLATION (historical, outcomes now proven by canonicalPersonScope): "Cuando completamos lo de ver Spiderman?" resuelve idéntico sin importar salida no-determinística del LLM ni turnos previos', () => {
     const SPIDERMAN_INPUT = 'Cuando completamos lo de ver Spiderman?';
 
     function spidermanInterpretation(overrides: Partial<Record<string, any>> = {}) {
@@ -1450,6 +1457,161 @@ describe('M-2 CROSS-TURN CONTEXT ISOLATION: "Cuando completamos lo de ver Spider
         expect(ctx.needsClarification).toBe(true);
         expect(ctx.clarification?.reason).toBe('person_ambiguous');
         expect(ctx.clarification?.candidates?.length).toBe(2); // ambigüedad GENUINA (>1 candidato real) nunca se suprime
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — CORE-OWNED PERSON SCOPE (root architectural fix, replaces every
+// prior heuristic at this spot). "LLM SUGGESTS, PING CORE DECIDES": the
+// LLM's personHints output has ZERO authority to establish BLOCKING person
+// scope. canonicalPersonScope is built ONLY from (A) the deterministic
+// interpreter's own structural cue extraction and (B)
+// input.authorizedPersonReferentId — never from what any interpreter's
+// personHints says, filtered or not. These tests mock the LLM interpreter
+// directly (never a real network call — see the separate real-provider
+// smoke test below) specifically because the point being proven is
+// structural: the result must be correct regardless of what the LLM
+// returns, not merely "correct for outputs seen so far".
+// ═══════════════════════════════════════════════════════════════════════════
+describe('CORE-OWNED PERSON SCOPE: canonicalPersonScope is the only authority that can block/resolve/clarify person scope', () => {
+    beforeEach(() => {
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+    });
+
+    it('CASE 1 — reproducción física exacta: LLM personHints=["Spiderman"] (topical, sin cue determinístico) nunca llama resolvePerson ni bloquea nada', async () => {
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'spiderman-id', entityType: 'commitment', title: 'ver Spiderman', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+        }] as any);
+        mockRetrieveMemory.mockResolvedValue([{
+            id: 'mem-spiderman', memoryType: 'episodic', subjectPersonId: null, subjectContactId: null,
+            canonicalText: 'El compromiso "ver Spiderman" está en estado resolved.', predicate: 'commitment_status:spiderman-id',
+            objectValue: 'resolved', observedAt: '2026-09-10T22:33:00.000Z', validFrom: null, validUntil: null, status: 'active',
+            isCurrent: false, supersededBy: null, confidence: 1, sensitivity: 'normal', evidenceRefs: [],
+            sourceType: 'commitment', sourceId: 'spiderman-id', conversationId: null,
+        }] as any);
+        // El intérprete "primario" mockeado ES el LLM real en producción --
+        // aquí se simula su salida adversarial exacta, nunca una llamada de
+        // red (ver LlmInputInterpreter real más abajo para eso).
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: ['Spiderman'], textQuery: 'ver Spiderman', topicHints: ['ver Spiderman'], statusHints: ['resolved'],
+        }));
+        mockResolvePerson.mockClear();
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de ver Spiderman?' }, { interpreter });
+
+        expect(mockResolvePerson).not.toHaveBeenCalled(); // la prueba central: el hint del LLM JAMÁS llega a resolvePerson
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.clarification).toBeUndefined();
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.entities.topics).toContain('ver Spiderman');
+        expect(ctx.commitments.map((c) => c.title)).toContain('ver Spiderman');
+        expect(ctx.historicalMemoryFacts.map((m) => m.id)).toContain('mem-spiderman');
+    });
+
+    it('CASE 2 — "¿Qué compromisos tengo con Alejandra?": cue estructural determinístico REAL ("con Alejandra") SÍ establece canonicalPersonScope y puede bloquear/resolver', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', personHints: [] })); // el LLM mockeado NO sugiere nada -- el cue determinístico es la única fuente
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo con Alejandra?' }, { interpreter });
+
+        expect(mockResolvePerson).toHaveBeenCalledWith('u1', expect.objectContaining({ name: 'Alejandra' }));
+        expect(ctx.entities.people[0]?.resolved?.id).toBe('alejandra-id');
+    });
+
+    it('CASE 2b — genuina ambigüedad real (>1 candidato autorizado para "Alejandra" vía cue determinístico) sigue bloqueando con person_ambiguous', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        mockResolvePerson.mockResolvedValue({
+            resolved: null, ambiguous: true,
+            candidates: [{ id: 'p1', displayName: 'Alejandra Soto', kind: 'user' as const, email: null, avatarUrl: null }, { id: 'p2', displayName: 'Alejandra Vera', kind: 'user' as const, email: null, avatarUrl: null }],
+        });
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', personHints: [] }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo con Alejandra?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        expect(ctx.clarification?.candidates?.length).toBe(2);
+    });
+
+    it('CASE 3 — referente explícito ya autorizado en el input envelope (authorizedPersonReferentId) establece scope sin ningún LLM', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'referent-id', displayName: 'Referente Autorizado', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', personHints: [] }));
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: '¿Qué tiene pendiente?', authorizedPersonReferentId: 'referent-id' },
+            { interpreter },
+        );
+
+        expect(mockResolvePerson).toHaveBeenCalledWith('u1', { userId: 'referent-id' });
+        expect(ctx.entities.people.some((p) => p.resolved?.id === 'referent-id')).toBe(true);
+        expect(ctx.needsClarification).toBe(false);
+    });
+
+    it('CASE 4 — el LLM inventa un personHint que NO aparece en absoluto en el input crudo: cero efecto en el scope canónico (ya cubierto por isPersonHintGroundedInInput, ahora también estructuralmente irrelevante)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', personHints: ['Alejandra'] })); // "Alejandra" no está en el texto de abajo
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo pendiente?' }, { interpreter });
+
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+        expect(ctx.needsClarification).toBe(false);
+    });
+
+    it('CASE 5 — el LLM devuelve 5 personHints DISTINTOS en 5 llamadas idénticas: el resultado canónico es idéntico en las 5 (canonicalPersonScope nunca depende de la salida del LLM)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'spiderman-id', entityType: 'commitment', title: 'ver Spiderman', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+        }] as any);
+        mockRetrieveMemory.mockResolvedValue([]);
+        const hallucinatedVariants = [[], ['Spiderman'], ['Ver'], ['Ver Spiderman'], ['spiderman']];
+        const results: boolean[] = [];
+        for (const personHints of hallucinatedVariants) {
+            mockResolvePerson.mockClear();
+            const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', personHints, textQuery: 'ver Spiderman', statusHints: ['resolved'] }));
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de ver Spiderman?' }, { interpreter });
+            results.push(ctx.needsClarification);
+            expect(mockResolvePerson).not.toHaveBeenCalled();
+        }
+        expect(results).toEqual([false, false, false, false, false]); // idéntico en las 5 corridas
+    });
+
+    it('EXACT PHYSICAL SEQUENCE: "¿Qué compromisos tengo pendiente?" -> "Hola" -> "¿Qué tengo para hoy?" -> "Cuando completamos lo de ver Spiderman?" -- la última llamada enruta idéntico a una llamada fresca, porque ningún turno previo aporta referents/historial a /agent/turn', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo pendiente?' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'commitment_query' })),
+        });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hola' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'general_context' })),
+        });
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo para hoy?' }, {
+            interpreter: mockInterpreter(interpretationFixture({ intent: 'commitment_query' })),
+        });
+
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'spiderman-id', entityType: 'commitment', title: 'ver Spiderman', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+        }] as any);
+        mockRetrieveMemory.mockResolvedValue([]);
+        const interpreterAfterUnrelatedTurns = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: ['Spiderman'], textQuery: 'ver Spiderman', statusHints: ['resolved'],
+        }));
+        const ctxAfterUnrelatedTurns = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de ver Spiderman?' }, { interpreter: interpreterAfterUnrelatedTurns });
+
+        const freshInterpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: ['Spiderman'], textQuery: 'ver Spiderman', statusHints: ['resolved'],
+        }));
+        const ctxFresh = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de ver Spiderman?' }, { interpreter: freshInterpreter });
+
+        expect(ctxAfterUnrelatedTurns.needsClarification).toBe(ctxFresh.needsClarification);
+        expect(ctxAfterUnrelatedTurns.needsClarification).toBe(false);
+        expect(ctxAfterUnrelatedTurns.entities.people).toEqual(ctxFresh.entities.people);
+        expect(ctxAfterUnrelatedTurns.wantsMemory).toBe(ctxFresh.wantsMemory);
+        expect(ctxAfterUnrelatedTurns.entities.topics).toEqual(ctxFresh.entities.topics);
     });
 });
 
