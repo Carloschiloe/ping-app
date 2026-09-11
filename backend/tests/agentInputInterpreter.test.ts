@@ -1316,7 +1316,7 @@ describe('M-1H: bloqueo B ("FINAL ARCHITECTURE GATE") -- generic commitment_quer
 // downgraded to focused_lookup merely because it also contains a lifecycle
 // verb.
 // ═══════════════════════════════════════════════════════════════════════════
-describe('CARDINALITY FIX: "¿Cuándo X-amos...?" es focused_lookup determinístico, independiente del intent que elija el LLM', () => {
+describe('CARDINALITY FIX v2: HISTORICAL_LIFECYCLE_QUERY_PATTERN exige "cuándo/when" + verbo -- una QUERY histórica, no sólo el verbo suelto', () => {
     const HISTORICAL_FOCUSED_MATRIX = [
         ['1', 'completamos', 'Cuando completamos lo de Spiderman?'],
         ['2', 'resolvimos', 'Cuando resolvimos lo de Spiderman?'],
@@ -1328,7 +1328,7 @@ describe('CARDINALITY FIX: "¿Cuándo X-amos...?" es focused_lookup determiníst
         ['8', 'confirmamos', 'Cuando confirmamos lo de Spiderman?'],
     ] as const;
 
-    describe('1-8: matriz de verbos históricos, con intent FORZADO a cada uno de los 3 valores -- SIEMPRE focused_lookup', () => {
+    describe('1-8: matriz de verbos históricos ("¿Cuándo X-amos...?"), con intent FORZADO a cada uno de los 3 valores -- SIEMPRE focused_lookup', () => {
         for (const [n, verb, phrase] of HISTORICAL_FOCUSED_MATRIX) {
             for (const intent of ['commitment_query', 'recall', 'general_context'] as const) {
                 it(`#${n} "${verb}" con intent forzado="${intent}" -> focused_lookup`, () => {
@@ -1336,6 +1336,44 @@ describe('CARDINALITY FIX: "¿Cuándo X-amos...?" es focused_lookup determiníst
                 });
             }
         }
+    });
+
+    // PING — negative control físico: la PRIMERA versión de este fix usaba
+    // sólo el verbo "-amos" suelto como señal, y clasificaba "Ayer cancelamos
+    // la reunión" (oración DECLARATIVA, nunca una consulta) igual que una
+    // pregunta real -- un falso positivo real. HISTORICAL_LIFECYCLE_QUERY_PATTERN
+    // exige además "cuándo"/"when" inmediatamente antes del verbo, así que
+    // estas frases NUNCA activan esa rama -- el resultado es lo que Core
+    // hubiera dado de todos modos sin este fix (unknown si no hay ninguna
+    // otra señal real, o el fallback de dominio existente si sí la hay, ej.
+    // "tarea" activa COMMITMENT_KEYWORDS -- nunca un focused_lookup
+    // inventado por el verbo solo).
+    describe('9-14: oraciones DECLARATIVAS con el mismo verbo -- NUNCA manufacturan focused_lookup sólo por contener el verbo', () => {
+        const DECLARATIVE_NEGATIVE_MATRIX = [
+            ['9', 'Ayer cancelamos la reunión.'],
+            ['10', 'Finalmente completamos el trabajo.'],
+            ['11', 'Reabrimos el tema ayer.'],
+            ['12', 'Aceptamos la propuesta esta mañana.'],
+            ['13', 'Confirmamos la reserva.'],
+        ] as const;
+        for (const [n, phrase] of DECLARATIVE_NEGATIVE_MATRIX) {
+            it(`#${n} "${phrase}" -> nunca focused_lookup manufacturado por el verbo solo (unknown, sin otra señal real de retrieval)`, () => {
+                const result = classifyQueryCardinality(phrase, { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false });
+                expect(result).not.toBe('focused_lookup');
+                expect(result).toBe('unknown');
+            });
+        }
+
+        it('#14 "Reasignamos la tarea a Pedro." -- nunca focused_lookup manufacturado por el verbo; "tarea" SÍ activa el fallback de dominio preexistente (COMMITMENT_KEYWORDS -> commitment_query -> exhaustive_list), un resultado ajeno a este fix, no un focused_lookup inventado', () => {
+            const result = classifyQueryCardinality('Reasignamos la tarea a Pedro.', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false });
+            expect(result).not.toBe('focused_lookup');
+        });
+
+        it('ninguna de las 6 oraciones declarativas contiene la palabra de pregunta "cuándo"/"when" -- confirma por qué HISTORICAL_LIFECYCLE_QUERY_PATTERN correctamente no matchea (el verbo está, la pregunta no)', () => {
+            for (const [, phrase] of [...DECLARATIVE_NEGATIVE_MATRIX, ['14', 'Reasignamos la tarea a Pedro.'] as const]) {
+                expect(phrase).not.toMatch(/cu[áa]ndo|when/i);
+            }
+        });
     });
 
     it('9: "¿Qué compromisos tengo?" (sin verbo histórico) -> exhaustive_list, sin cambios', () => {
@@ -1368,10 +1406,6 @@ describe('CARDINALITY FIX: "¿Cuándo X-amos...?" es focused_lookup determiníst
 
     it('16 (precedencia, control negativo): "Cancelamos la reunión; muéstrame todos mis compromisos" -- "todos" en la misma frase gana sobre "cancelamos" -> exhaustive_list', () => {
         expect(classifyQueryCardinality('Cancelamos la reunión; muéstrame todos mis compromisos', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
-    });
-
-    it('17 (control negativo): "Ayer cancelamos la reunión" (uso conversacional/contextual, sin "cuándo") -- el verbo histórico igual produce focused_lookup determinístico (nunca se inventa exhaustive_list de la nada)', () => {
-        expect(classifyQueryCardinality('Ayer cancelamos la reunión', { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
     });
 
     it('18: "¿Cuándo fue lo de Spiderman?" (sin ningún verbo de lifecycle canónico) -- comportamiento preexistente preservado, sin cambios de este fix', () => {

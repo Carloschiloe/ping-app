@@ -205,7 +205,7 @@ const WRITE_ACTION_KEYWORDS = wordBounded(
 // para cancelar/resolver/reabrir/rechazar/reasignar -- un solo lugar de
 // verdad para estos 3 verbos, nunca un segundo vocabulario mantenido a mano.
 // Definida ANTES de LIFECYCLE_TRANSITION_TABLE (aunque CONFIRMATION_CONTROL_WORDS
-// vive más abajo) porque ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS, unos pasos
+// vive más abajo) porque ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN, unos pasos
 // más abajo, también la necesita -- un solo valor, dos consumidores.
 const ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS = 'aceptamos|confirmamos|aprobamos';
 interface LifecycleTransitionEntry {
@@ -235,16 +235,22 @@ function stripLifecycleHistoricalVerbs(text: string): string {
     const pattern = new RegExp(LIFECYCLE_HISTORICAL_VERB_KEYWORDS.source, 'giu');
     return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
 }
-// CARDINALITY — unión de LOS 8 verbos canónicos de lifecycle en su forma
-// histórica "-amos" (los 6 de LIFECYCLE_HISTORICAL_VERB_KEYWORDS +
-// aceptar/confirmar/aprobar de ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS, ya
-// definida arriba junto a CONFIRMATION_CONTROL_WORDS) -- usada SÓLO por
-// classifyQueryCardinality para reconocer "¿cuándo X-amos...?" como
-// pregunta histórica puntual sin importar el verbo canónico, sin crear un
-// tercer vocabulario: ambos fragmentos ya existían por separado, este es
-// sólo su unión para este único uso.
-const ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS = wordBounded(
-    LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS,
+// CARDINALITY — hallazgo real (negative control físico): un verbo de
+// lifecycle en su forma "-amos" por sí solo NO es una señal de PREGUNTA/
+// LOOKUP -- "Ayer cancelamos la reunión" es una oración declarativa, nunca
+// una consulta de retrieval, pese a contener "cancelamos" igual que
+// "¿Cuándo cancelamos la reunión?". El signal correcto detecta la QUERY
+// HISTÓRICA completa ("cuándo/when" + verbo), reutilizando la MISMA forma
+// canónica ya probada por MEMORY_EPISODIC_PATTERN
+// (agentContextBuilder.service.ts) para memoryQueryCardinality=
+// 'episodic_search' -- nunca un tercer vocabulario de verbos: la unión de
+// verbos (LIFECYCLE_TRANSITION_TABLE + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS,
+// ambos ya existentes) es la misma, sólo se le exige además la palabra de
+// pregunta "cuándo"/"when" inmediatamente antes, igual que
+// MEMORY_EPISODIC_PATTERN exige "cuándo (verbo)" para episodic_search.
+const ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN = LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS;
+const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
+    `${WB_START}(?:cu[áa]ndo|when)\\s+(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
 );
 // R-01: fragmento ES "-amos" reutilizable por agentContextBuilder.service.ts
 // (MEMORY_EPISODIC_VERBS) para las transiciones que este archivo posee
@@ -635,12 +641,16 @@ export function classifyQueryCardinality(
     // enforceExhaustiveCoverage a cubrir CUALQUIER otro commitment que
     // retrieval encontrara por FTS ambiguo, aunque el claim real del modelo
     // nunca lo mencionara -- physical regression real, "Spiderman el
-    // Viernes"). Reutiliza ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS, la MISMA
-    // tabla canónica ya introducida por R-01 (nunca un segundo vocabulario
-    // de lifecycle mantenido a mano aquí) -- "¿cuándo X-amos...?" es
-    // exactamente la misma forma gramatical de pregunta puntual/histórica
-    // que RECALL_KEYWORDS ya resuelve arriba para "pasó"/"dijo", ahora
-    // generalizada a la familia de verbos de transición canónica. Corre
+    // Viernes"). PRIMERA VERSIÓN de este fix usaba sólo el verbo "-amos"
+    // suelto como señal -- hallazgo posterior (negative control físico):
+    // "Ayer cancelamos la reunión" es una oración DECLARATIVA, nunca una
+    // consulta, y esa versión la clasificaba igual que una pregunta real
+    // (falso positivo). HISTORICAL_LIFECYCLE_QUERY_PATTERN exige además la
+    // palabra de pregunta "cuándo"/"when" inmediatamente antes del verbo --
+    // la MISMA forma canónica que MEMORY_EPISODIC_PATTERN
+    // (agentContextBuilder.service.ts) ya usa y ya prueba para
+    // memoryQueryCardinality='episodic_search', nunca un vocabulario de
+    // verbos nuevo (la unión de verbos es la MISMA de siempre). Corre
     // DESPUÉS de EXPLICIT_LIST_KEYWORDS a propósito (precedencia exigida:
     // el alcance explícito del usuario, "todos"/"cuáles", SIEMPRE gana
     // sobre la forma histórica del verbo -- "¿Cuáles compromisos
@@ -648,7 +658,7 @@ export function classifyQueryCardinality(
     // contiene "completamos"), y es 100% determinística: nunca depende de
     // si el LLM etiquetó la consulta como commitment_query, recall o
     // general_context.
-    if (ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input)) return 'focused_lookup';
+    if (HISTORICAL_LIFECYCLE_QUERY_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input)) return 'focused_lookup';
     if (signals.proposalFocus !== null) return 'exhaustive_list';
     if (signals.wantsOverdueFocus) return 'exhaustive_list';
     if (signals.intent === 'recall') return 'focused_lookup';
