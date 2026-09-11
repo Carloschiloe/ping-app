@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
-import { resolveReactionEmoji } from '../utils/messageCompat';
+import { isMessageTombstoned, resolvableAttachmentId, resolveReactionEmoji } from '../utils/messageCompat';
 import { getPrivateFileRefreshDelay, resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
 import { latLngToOsmTile } from '../utils/mapTiles';
@@ -110,7 +110,19 @@ const MessageItemComponent = ({
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
     const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying'>('idle');
     const privateMediaUrlRef = React.useRef<string | null>(null);
-    const canonicalAttachmentId = item?.attachment?.id ?? item?.metadata?.attachment?.id ?? item?.meta?.attachment?.id ?? null;
+    // Message deletion and attachment liveness are checked independently —
+    // see messageCompat.ts's isMessageTombstoned/hasLiveAttachment doc
+    // comments. isTombstoned derives ONLY from the canonical message's own
+    // deleted_at; it must never be inferred from attachment.lifecycleStatus.
+    // canonicalAttachmentId is only ever the id of an attachment the backend
+    // will actually authorize a signed read for (lifecycle_status =
+    // 'attached') — a present-but-non-'attached' id (still uploading, or
+    // tombstoned for a reason unrelated to message deletion) must never be
+    // used to attempt a fetch, since authorize_message_attachment_read would
+    // just reject it forever, producing the same unrecoverable retry loop
+    // this fix removes.
+    const isTombstoned = isMessageTombstoned(item);
+    const canonicalAttachmentId = resolvableAttachmentId(item);
     const senderProfile = Array.isArray(item?.profiles) ? item.profiles[0] : item?.profiles;
     const resolvedSenderAvatarUrl = useProfileAvatarUrl(
         item?.sender_id !== user?.id ? senderProfile?.id : null,
@@ -123,7 +135,7 @@ const MessageItemComponent = ({
         let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
         const hasLegacyReference = !!item?.id && !!item?.media_bucket && !!item?.media_object_path;
-        if (!canonicalAttachmentId && !hasLegacyReference) {
+        if (isTombstoned || (!canonicalAttachmentId && !hasLegacyReference)) {
             privateMediaUrlRef.current = null;
             setPrivateMediaUrl(null);
             setPrivateMediaState('idle');
@@ -161,7 +173,7 @@ const MessageItemComponent = ({
             if (refreshTimer) clearTimeout(refreshTimer);
             if (retryTimer) clearTimeout(retryTimer);
         };
-    }, [canonicalAttachmentId, item?.id, item?.media_bucket, item?.media_object_path]);
+    }, [canonicalAttachmentId, item?.id, item?.media_bucket, item?.media_object_path, isTombstoned]);
 
     if (item.type === 'divider') {
         return (
@@ -249,7 +261,8 @@ const MessageItemComponent = ({
 
     const trimmedText = msgText.trim();
     const privateMimeType = String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
-    const hasPrivateAttachment = !!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path);
+    const hasPrivateAttachment = !isTombstoned
+        && (!!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path));
     let isImage = privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]');
     const isAudio = privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]');
     let isVideo = privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]');

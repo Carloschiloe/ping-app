@@ -298,6 +298,31 @@ describe('Message Attachment Core application boundary', () => {
         expect(storage.createSignedUrl).toHaveBeenCalledWith(objectPath, 60);
     });
 
+    it('PING — DELETE PHOTO/VIDEO FROM CHAT: un adjunto tombstoned (mensaje eliminado) ya no resuelve URL firmada de lectura', async () => {
+        // authorize_message_attachment_read (supabase/migrations/
+        // 20260831010000_message_attachment_core.sql) filtra explícitamente
+        // por lifecycle_status = 'attached' — un adjunto tombstoned no
+        // aparece en el resultado, así que el RPC devuelve "not found" y la
+        // función eleva exactamente el mismo 42501 que el caso IDOR. Esto
+        // certifica que borrar un mensaje con foto/video efectivamente
+        // revoca el acceso de lectura, no sólo dentro de la app sino a
+        // nivel de contrato — ningún lector concurrente puede seguir
+        // resolviendo una URL firmada nueva una vez tombstoned.
+        const db = createSupabaseAdminMock({
+            'rpc:authorize_message_attachment_read': [{
+                data: null,
+                error: { code: '42501', message: 'Attachment is unavailable or unauthorized' },
+            }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(createMessageAttachmentReadUrl(actor, attachmentId))
+            .rejects.toMatchObject({ statusCode: 403 });
+        expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    });
+
     it('bloquea IDOR antes de firmar', async () => {
         const db = createSupabaseAdminMock({
             'rpc:authorize_message_attachment_read': [{

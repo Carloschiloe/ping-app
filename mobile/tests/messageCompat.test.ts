@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMessageContent, resolveMessageMetadata, isMessageFromUser, resolveReactionEmoji } from '../src/utils/messageCompat';
+import {
+    resolveMessageContent,
+    resolveMessageMetadata,
+    isMessageFromUser,
+    isMessageTombstoned,
+    hasLiveAttachment,
+    resolvableAttachmentId,
+    resolveReactionEmoji,
+} from '../src/utils/messageCompat';
 
 describe('isMessageFromUser', () => {
     it('sender_id identifica al autor del mensaje', () => {
@@ -33,6 +41,142 @@ describe('resolveMessageContent', () => {
 
     it('cae a text si content no esta presente (compatibilidad con el alias del backend)', () => {
         expect(resolveMessageContent({ text: 'solo legacy' })).toBe('solo legacy');
+    });
+});
+
+describe('isMessageTombstoned — PING: CLEAN MEDIA TOMBSTONE PRESENTATION (message lifecycle is independent of attachment lifecycle)', () => {
+    // Canonical contract: message deletion is owned EXCLUSIVELY by
+    // messages.deleted_at (see backend's tombstone_message RPC and
+    // toLegacyMessageShape, which always selects '*' and therefore always
+    // passes deleted_at through verbatim). attachment.lifecycleStatus must
+    // NEVER be used to infer that the whole message was deleted — those are
+    // two separate canonical truths.
+    it('mensaje con deleted_at es tombstoned, aunque no tenga adjunto', () => {
+        expect(isMessageTombstoned({ deleted_at: '2026-09-10T00:00:00.000Z' })).toBe(true);
+    });
+
+    it('mensaje de texto eliminado (sin ningún adjunto) es tombstoned', () => {
+        const deletedTextMessage = { deleted_at: '2026-09-10T00:00:00.000Z', text: 'Mensaje eliminado' };
+        expect(isMessageTombstoned(deletedTextMessage)).toBe(true);
+    });
+
+    it('mensaje con foto/video eliminado: tombstoned via deleted_at Y su adjunto queda tombstoned — ambos hechos son ciertos a la vez, sin depender uno del otro', () => {
+        const deletedPhotoMessage = {
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'p1', lifecycleStatus: 'tombstoned' },
+        };
+        const deletedVideoMessage = {
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'v1', lifecycleStatus: 'tombstoned' },
+        };
+        expect(isMessageTombstoned(deletedPhotoMessage)).toBe(true);
+        expect(isMessageTombstoned(deletedVideoMessage)).toBe(true);
+        expect(hasLiveAttachment(deletedPhotoMessage)).toBe(false);
+        expect(hasLiveAttachment(deletedVideoMessage)).toBe(false);
+    });
+
+    // Requerido: un adjunto tombstoned NO implica que el mensaje esté
+    // eliminado. Este es exactamente el error arquitectónico que esta tarea
+    // corrige — antes, isMessageTombstoned miraba
+    // attachment.lifecycleStatus === 'tombstoned' como señal de borrado del
+    // mensaje completo, lo cual es incorrecto: el ciclo de vida del
+    // adjunto y el del mensaje son verdades canónicas separadas.
+    it('adjunto tombstoned con el mensaje NO eliminado (deleted_at ausente) NUNCA implica que el mensaje esté borrado', () => {
+        const messageWithTombstonedAttachmentButNotDeleted = {
+            text: 'Video',
+            attachment: { id: 'v1', lifecycleStatus: 'tombstoned' },
+            // deleted_at deliberadamente ausente.
+        };
+        expect(isMessageTombstoned(messageWithTombstonedAttachmentButNotDeleted)).toBe(false);
+        // El mensaje sigue vivo, pero su adjunto no es fetcheable.
+        expect(hasLiveAttachment(messageWithTombstonedAttachmentButNotDeleted)).toBe(false);
+    });
+
+    it('mensaje normal con adjunto activo (attached) no es tombstoned', () => {
+        expect(isMessageTombstoned({
+            attachment: { id: 'a1', lifecycleStatus: 'attached', mimeType: 'video/mp4' },
+        })).toBe(false);
+    });
+
+    it('mensaje de texto normal sin adjunto no es tombstoned', () => {
+        expect(isMessageTombstoned({ text: 'hola' })).toBe(false);
+    });
+
+    it('mensaje sin ningún campo no es tombstoned (nunca un falso positivo por datos ausentes)', () => {
+        expect(isMessageTombstoned({})).toBe(false);
+        expect(isMessageTombstoned(null)).toBe(false);
+        expect(isMessageTombstoned(undefined)).toBe(false);
+    });
+
+    it('foto y video comparten exactamente el mismo contrato de tombstone de mensaje (sin lógica separada por tipo de medio)', () => {
+        const tombstonedPhotoMessage = { deleted_at: '2026-09-10T00:00:00.000Z' };
+        const tombstonedVideoMessage = { deleted_at: '2026-09-10T00:00:00.000Z' };
+        expect(isMessageTombstoned(tombstonedPhotoMessage)).toBe(true);
+        expect(isMessageTombstoned(tombstonedVideoMessage)).toBe(true);
+    });
+});
+
+describe('hasLiveAttachment — sólo un adjunto attached es fetcheable, foto y video con el mismo contrato', () => {
+    it('adjunto attached con id es live', () => {
+        expect(hasLiveAttachment({ attachment: { id: 'a1', lifecycleStatus: 'attached' } })).toBe(true);
+    });
+
+    it('adjunto tombstoned no es live, incluso si conserva su id', () => {
+        expect(hasLiveAttachment({ attachment: { id: 'a1', lifecycleStatus: 'tombstoned' } })).toBe(false);
+    });
+
+    it('adjunto todavía en "uploaded" (aún no attached al mensaje persistido) no es live — evita reintentos contra un adjunto que el backend todavía no autoriza', () => {
+        expect(hasLiveAttachment({ attachment: { id: 'a1', lifecycleStatus: 'uploaded' } })).toBe(false);
+    });
+
+    it('adjunto "pending" no es live', () => {
+        expect(hasLiveAttachment({ attachment: { id: 'a1', lifecycleStatus: 'pending' } })).toBe(false);
+    });
+
+    it('sin adjunto no es live', () => {
+        expect(hasLiveAttachment({ text: 'hola' })).toBe(false);
+        expect(hasLiveAttachment({})).toBe(false);
+        expect(hasLiveAttachment(null)).toBe(false);
+    });
+
+    it('foto y video attached comparten exactamente el mismo contrato de "live"', () => {
+        expect(hasLiveAttachment({ attachment: { id: 'p1', lifecycleStatus: 'attached', mimeType: 'image/jpeg' } })).toBe(true);
+        expect(hasLiveAttachment({ attachment: { id: 'v1', lifecycleStatus: 'attached', mimeType: 'video/mp4' } })).toBe(true);
+    });
+});
+
+describe('resolvableAttachmentId — el id que MessageItem.tsx puede pasar a resolveAttachmentUrl (cero fetches / cero reintentos cuando es null)', () => {
+    // MessageItem.tsx sólo llama resolveAttachmentUrl(canonicalAttachmentId, ...)
+    // cuando canonicalAttachmentId es verdadero. Al devolver null aquí para
+    // cualquier adjunto no-'attached', se garantiza CERO llamadas a
+    // resolveAttachmentUrl y, por lo tanto, cero posibilidad de que el
+    // efecto entre en su bucle de reintento cada 3s — no hay nada que
+    // reintentar si nunca se intentó una primera vez.
+    it('adjunto tombstoned: devuelve null (cero llamadas a resolveAttachmentUrl posibles)', () => {
+        expect(resolvableAttachmentId({ attachment: { id: 'a1', lifecycleStatus: 'tombstoned' } })).toBeNull();
+    });
+
+    it('adjunto todavía no attached (pending/uploaded): devuelve null', () => {
+        expect(resolvableAttachmentId({ attachment: { id: 'a1', lifecycleStatus: 'pending' } })).toBeNull();
+        expect(resolvableAttachmentId({ attachment: { id: 'a1', lifecycleStatus: 'uploaded' } })).toBeNull();
+    });
+
+    it('adjunto attached: devuelve el id real, habilitando exactamente un intento de fetch', () => {
+        expect(resolvableAttachmentId({ attachment: { id: 'a1', lifecycleStatus: 'attached' } })).toBe('a1');
+    });
+
+    it('mensaje eliminado (deleted_at) cuyo adjunto también quedó tombstoned: null por la razón del adjunto, no por la del mensaje', () => {
+        expect(resolvableAttachmentId({
+            deleted_at: '2026-09-10T00:00:00.000Z',
+            attachment: { id: 'a1', lifecycleStatus: 'tombstoned' },
+        })).toBeNull();
+    });
+
+    it('foto y video comparten exactamente el mismo contrato de resolvableAttachmentId', () => {
+        expect(resolvableAttachmentId({ attachment: { id: 'p1', lifecycleStatus: 'attached', mimeType: 'image/jpeg' } })).toBe('p1');
+        expect(resolvableAttachmentId({ attachment: { id: 'v1', lifecycleStatus: 'attached', mimeType: 'video/mp4' } })).toBe('v1');
+        expect(resolvableAttachmentId({ attachment: { id: 'p2', lifecycleStatus: 'tombstoned' } })).toBeNull();
+        expect(resolvableAttachmentId({ attachment: { id: 'v2', lifecycleStatus: 'tombstoned' } })).toBeNull();
     });
 });
 
