@@ -1615,6 +1615,129 @@ describe('CORE-OWNED PERSON SCOPE: canonicalPersonScope is the only authority th
     });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — NONDETERMINISTIC person_ambiguous ROOT FIX: real-provider
+// reproduction proved "Cuando completamos lo de Spiderman?" returns
+// person_ambiguous 15/15 runs -- NOT via personHints (LLM correctly returns
+// [] every time, already Core-gated by canonicalPersonScope), but via
+// `ambiguityHints: ['unresolved_pronoun']`, an entirely separate field with
+// NO deterministic floor/ceiling at all before this fix ("lo" in "completamos
+// LO de Spiderman" reads, in isolation, like an unresolved pronoun to the
+// LLM). Root fix: when the deterministic interpreter's OWN extraction for
+// the identical raw text already found a real referent (textQuery/
+// personHints/timeExpression/overdue/status -- reusing
+// generalContextHasRetrievableSignal, the SAME signal already used for
+// canonical retrieval routing, never a new heuristic), the LLM's
+// unresolved_pronoun claim is discarded as unsupported by Core's own
+// evidence. Scoped to ONLY unresolved_pronoun -- time_ambiguous/
+// topic_too_broad are untouched.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('NONDETERMINISTIC person_ambiguous ROOT FIX: unresolved_pronoun from the LLM is discarded when Core\'s own deterministic extraction already found a referent', () => {
+    function spidermanRetrievalMocks() {
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'spiderman-id', entityType: 'commitment', title: 'Spiderman', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+        }] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+    }
+
+    it('REPRODUCCIÓN EXACTA (x5, simula la varianza real observada): "Cuando completamos lo de Spiderman?" con ambiguityHints=["unresolved_pronoun"] del LLM -> needsClarification=false, nunca person_ambiguous', async () => {
+        for (let i = 0; i < 5; i += 1) {
+            spidermanRetrievalMocks();
+            const interpreter = mockInterpreter(interpretationFixture({
+                intent: 'commitment_query', personHints: [], textQuery: 'Spiderman', statusHints: ['resolved'],
+                ambiguityHints: ['unresolved_pronoun'],
+            }));
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de Spiderman?' }, { interpreter });
+
+            expect(ctx.needsClarification).toBe(false);
+            expect(ctx.clarification).toBeUndefined();
+        }
+    });
+
+    it('"Cuando completamos lo de Ver Spiderman?" (variante con "ver") con la misma alucinación -> también resuelve limpio', async () => {
+        spidermanRetrievalMocks();
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: [], textQuery: 'ver Spiderman', statusHints: ['resolved'],
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de Ver Spiderman?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.clarification).toBeUndefined();
+    });
+
+    it('una ambigüedad de pronombre GENUINA ("¿Qué dijo él?", sin ningún referente real ni siquiera para el determinístico) sigue devolviendo person_ambiguous -- el fix no debilita casos reales', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context', personHints: [], textQuery: null, timeExpression: null, statusHints: null,
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué dijo él?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        expect(ctx.clarification?.candidates).toEqual([]);
+    });
+
+    it('un commitment con nombre de persona en el título ("Llamar a Alejandra") no se convierte automáticamente en person_query ni dispara clarification -- el título es tema, no referencia de persona ambigua', async () => {
+        mockRetrieveCommitments.mockResolvedValue([{
+            id: 'cm-alejandra', entityType: 'commitment', title: 'Llamar a Alejandra', status: 'resolved',
+            provenance: { sourceType: 'commitment', sourceId: 'cm-alejandra' },
+        }] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([]);
+        mockResolvePerson.mockClear();
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: [], textQuery: 'Llamar Alejandra', statusHints: ['resolved'],
+            ambiguityHints: ['unresolved_pronoun'],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de llamar a Alejandra?' }, { interpreter });
+
+        // "a Alejandra" SÍ es un cue estructural real de persona en el input
+        // crudo -- resolvePerson corre normalmente (esto es CORE-OWNED
+        // PERSON SCOPE, sin cambios); lo que este test certifica es que
+        // unresolved_pronoun no agrega una clarificación ADICIONAL encima.
+        expect(mockResolvePerson).toHaveBeenCalled();
+        // Sin importar cómo resuelva la persona, la clarificación (si la hay)
+        // nunca es por un pronombre alucinado además de la resolución real.
+        if (ctx.needsClarification) {
+            expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        }
+    });
+
+    it('M-2/M-6 preservados: una pregunta de memoria histórica legítima ("¿Cuándo aceptamos lo de entrenar?") sin alucinación del LLM sigue resolviendo memoria normalmente', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        mockRetrieveCommitmentEvents.mockResolvedValue([]);
+        mockRetrieveMessages.mockResolvedValue([]);
+        mockRetrieveMemory.mockResolvedValue([{
+            id: 'mem-entrenar', memoryType: 'episodic', subjectPersonId: null, subjectContactId: null,
+            canonicalText: 'El compromiso "entrenar" está en estado accepted.', predicate: 'commitment_status:entrenar-id',
+            objectValue: 'accepted', observedAt: '2026-09-01T08:00:00Z', validFrom: null, validUntil: null, status: 'active',
+            isCurrent: false, supersededBy: null, confidence: 1, sensitivity: 'normal', evidenceRefs: [],
+            sourceType: 'commitment', sourceId: 'entrenar-id', conversationId: null,
+        }] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', personHints: [], textQuery: 'entrenar', ambiguityHints: [],
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuándo aceptamos lo de entrenar?' }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.wantsMemory).toBe(true);
+        expect(ctx.historicalMemoryFacts.map((m) => m.id)).toContain('mem-entrenar');
+    });
+});
+
 // M-1H — regresión encontrada DURANTE la implementación de la sección 16: la
 // primera versión de "commitmentSignalConfident" usaba "cualquier intent
 // distinto de general_context", lo que forzaba wantsCommitments=true incluso

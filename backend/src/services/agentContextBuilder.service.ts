@@ -30,6 +30,7 @@ import {
     fallbackInterpretation,
     isPersonHintGroundedInInput,
     classifyQueryCardinality,
+    generalContextHasRetrievableSignal,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -470,6 +471,36 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // más abajo: "coreHasConfidentSignal no debe forzar wantsCommitments
     // para intents ajenos a commitments").
     const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
+    // PING — NONDETERMINISTIC person_ambiguous ROOT FIX: same "LLM suggests,
+    // Core decides" boundary already applied to personHints (M-2 CROSS-TURN
+    // CONTEXT ISOLATION / CORE-OWNED PERSON SCOPE), extended to a sibling
+    // field that had the exact same gap. "Cuando completamos lo de
+    // Spiderman?" reproduced person_ambiguous 15/15 real-provider runs --
+    // NOT via personHints (LLM correctly returns [] for it every time), but
+    // via `ambiguityHints: ['unresolved_pronoun']`, which the LLM sets
+    // because "lo" in "completamos LO de Spiderman" reads, in isolation, like
+    // an unresolved direct-object pronoun. That claim is unsupported: the
+    // deterministic interpreter's OWN extraction for the exact same raw text
+    // already finds a real referent for "lo" -- a textQuery/topic ("Spiderman"),
+    // exactly the same signal generalContextHasRetrievableSignal already
+    // uses to decide "does this query have something real to talk about".
+    // If Core's own deterministic extraction found a referent, the LLM's "I
+    // don't know what 'lo' refers to" is contradicted by Core's own
+    // evidence and is discarded -- never a phrase-specific check for
+    // "Spiderman" or "lo de", a general referent-existence test that applies
+    // to any future input with the same shape. Deliberately scoped to ONLY
+    // 'unresolved_pronoun' (not time_ambiguous/topic_too_broad, separate
+    // concerns with their own correct handling elsewhere) so a genuine
+    // unresolved-pronoun case ("¿Qué dijo él?" with no antecedent anywhere,
+    // where the deterministic extractor ALSO finds nothing) is never
+    // weakened.
+    const deterministicFoundReferentForPronoun = generalContextHasRetrievableSignal(
+        deterministicSignals.textQuery,
+        deterministicSignals.personHints,
+        deterministicSignals.timeExpression,
+        deterministicSignals.wantsOverdueFocus,
+        deterministicSignals.statusHints,
+    );
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -504,8 +535,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // Cuando el Core ya tiene una lectura estructurada confiada de
         // proposalFocus, una alucinación de ambigüedad del LLM
         // (needs_clarification sobre una consulta que en realidad es clara)
-        // queda descartada.
-        ambiguityHints: commitmentSignalConfident ? [] : rawInterpretation.ambiguityHints,
+        // queda descartada. Independientemente de eso, "unresolved_pronoun"
+        // específicamente también se descarta cuando el propio
+        // determinístico ya encontró un referente real para "lo/él/ella/etc"
+        // (ver deterministicFoundReferentForPronoun arriba) -- nunca se
+        // debilita time_ambiguous/topic_too_broad, sólo este caso puntual.
+        ambiguityHints: commitmentSignalConfident
+            ? []
+            : (deterministicFoundReferentForPronoun
+                ? rawInterpretation.ambiguityHints.filter((h) => h !== 'unresolved_pronoun')
+                : rawInterpretation.ambiguityHints),
         // Si el Core acaba de decidir que esto SÍ es una consulta de
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
