@@ -682,11 +682,23 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
 // Texto residual para FTS: quita hints de persona ya extraídos y stopwords,
 // conserva el resto en el orden original. `null` si no queda nada útil (ej.
 // una query puramente de commitment sin tema textual).
-function extractTextQuery(input: string, personHints: string[]): string | null {
-    let cleaned = input;
-    for (const hint of personHints) {
-        cleaned = cleaned.replace(hint, ' ');
-    }
+// PING — LLM SUGGESTS, CORE DECIDES (boundary-normalization gap found during
+// R-01 final verification): both the deterministic extractor below and
+// mapPayloadToInterpretation's LLM safety-net apply the EXACT SAME sequence
+// of stripXxx passes to a candidate textQuery -- this used to be
+// hand-duplicated in both places, which is exactly how "completamos" got
+// cleaned (via stripStatusLanguage, already shared) while "cancelamos"/
+// "resolvimos"/"reabrimos"/"rechazamos"/"reasignamos" (stripLifecycleHistoricalVerbs,
+// added by R-01 only to the deterministic path) did NOT: a candidate
+// textQuery suggested by the LLM never passed through it, so the same
+// control verb could survive uncleaned there even though the deterministic
+// path already stripped it correctly. ONE shared function now owns this
+// exact sequence for BOTH callers -- Core's final normalized textQuery can
+// no longer differ by which interpreter merely SUGGESTED the candidate
+// string, closing the boundary gap by construction rather than by adding a
+// second call site that could drift again later.
+function normalizeControlLanguageFromTextQuery(candidate: string): string {
+    let cleaned = candidate;
     // M-1G.3: "vencido"/"overdue"/"past due" ya está capturado por
     // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
     // (ver stripOverdueLanguage).
@@ -714,6 +726,15 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     cleaned = stripConfirmationControlWords(cleaned);
     // M-1H (bloqueo B): "cuántos"/"resume" ya capturados en queryCardinality.
     cleaned = stripCardinalityControlWords(cleaned);
+    return cleaned;
+}
+
+function extractTextQuery(input: string, personHints: string[]): string | null {
+    let cleaned = input;
+    for (const hint of personHints) {
+        cleaned = cleaned.replace(hint, ' ');
+    }
+    cleaned = normalizeControlLanguageFromTextQuery(cleaned);
     const tokens = cleaned
         .replace(/[¿?¡!.,;:]/g, ' ')
         .split(/\s+/)
@@ -950,27 +971,15 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // input, corridas distintas, a veces sí lo repite) — esta es la red de
     // seguridad final, nunca la única defensa.
     const rawTextQuery = payload.textQuery ?? (payload.topicHints.length > 0 ? payload.topicHints.join(' ') : null);
-    // M-1G.3: el modelo no siempre sigue la instrucción de nunca repetir
-    // lenguaje de status/intent en textQuery (no determinístico, y
-    // "overdue"/"vencido" nunca fue mencionado como ejemplo en el prompt) --
-    // esta es la red de seguridad real, aplicada ANTES de decidir si lo que
-    // queda es sólo control language.
-    const strippedTextQuery = rawTextQuery ? stripOverdueLanguage(rawTextQuery) : null;
-    // PING — M-2 TEST 1 ROOT FIX: misma red de seguridad que
-    // stripOverdueLanguage -- el modelo tampoco siempre sigue la instrucción
-    // de nunca repetir "completado"/"resuelto"/"cancelado"/"rechazado" en
-    // textQuery.
-    const statusCleanedTextQuery = strippedTextQuery ? stripStatusLanguage(strippedTextQuery) : null;
-    // M-1H v6: misma red de seguridad que stripOverdueLanguage -- el modelo
-    // no siempre sigue la instrucción de nunca repetir "esperando"/"por
-    // aceptar"/"falta que acepte" en textQuery.
-    const proposalCleanedTextQuery = statusCleanedTextQuery ? stripProposalFocusLanguage(statusCleanedTextQuery) : null;
-    // M-1H v7: misma red de seguridad que arriba (extractTextQuery) -- el
-    // modelo no siempre sigue la instrucción de nunca repetir
-    // "confirmación"/"aceptar"/"aprobar" sueltos en textQuery.
-    const confirmationCleanedTextQuery = proposalCleanedTextQuery ? stripConfirmationControlWords(proposalCleanedTextQuery) : null;
-    // M-1H (bloqueo B): misma red de seguridad para "cuántos"/"resume".
-    const finalTextQuery = confirmationCleanedTextQuery ? stripCardinalityControlWords(confirmationCleanedTextQuery) : null;
+    // M-1G.3/M-2 TEST 1/M-1H v6/M-1H v7/R-01 (boundary-normalization gap) —
+    // el modelo no siempre sigue la instrucción de nunca repetir lenguaje de
+    // control (overdue/status/lifecycle-histórico/proposalFocus/confirmación/
+    // cardinalidad) en su textQuery sugerido (no determinístico). Ésta es la
+    // MISMA red de seguridad que extractTextQuery aplica al camino
+    // determinístico -- un único normalizador compartido, para que el
+    // textQuery final de Core nunca dependa de cuál intérprete meramente
+    // SUGIRIÓ el candidato.
+    const finalTextQuery = rawTextQuery ? normalizeControlLanguageFromTextQuery(rawTextQuery) : null;
     const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
     // PING — CANONICAL RETRIEVAL ROUTING: same Core-owned boundary as

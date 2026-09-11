@@ -845,6 +845,82 @@ describe('R-01: matriz de verbos de lifecycle histórico ("¿Cuándo X-amos...?"
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PING — RESIDUAL LLM→CORE textQuery NORMALIZATION GAP (found during R-01
+// final architectural verification): mapPayloadToInterpretation's own
+// stripXxx safety-net chain never called stripLifecycleHistoricalVerbs --
+// "completamos" was accidentally safe (stripStatusLanguage already covered
+// it), but a model-suggested textQuery containing "cancelamos"/"resolvimos"/
+// "reabrimos"/"rechazamos"/"reasignamos" could survive uncleaned into
+// retrieval, even though the SAME verb was already correctly stripped on the
+// deterministic path. Fixed by extracting ONE shared
+// normalizeControlLanguageFromTextQuery function used by BOTH
+// extractTextQuery (deterministic) and mapPayloadToInterpretation (LLM) --
+// Core's final normalized textQuery can no longer differ by which
+// interpreter merely SUGGESTED the candidate string.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('LLM→Core textQuery boundary: normalizeControlLanguageFromTextQuery aplica el MISMO stripping que el camino determinístico', () => {
+    const LIFECYCLE_VERB_MATRIX = [
+        'completamos', 'resolvimos', 'cancelamos', 'rechazamos', 'reabrimos', 'reasignamos', 'aceptamos', 'confirmamos',
+    ];
+
+    for (const verb of LIFECYCLE_VERB_MATRIX) {
+        it(`LLM sugiere textQuery="${verb} entrenar" -> Core normaliza a exactamente "entrenar"`, async () => {
+            const model = fakeModel(validPayload({ intent: 'general_context', textQuery: `${verb} entrenar` }));
+            const interpreter = new LlmInputInterpreter({ model });
+            const result = await interpreter.interpret(`¿Cuándo ${verb} lo de entrenar?`, {});
+            expect(result.textQuery).toBe('entrenar');
+        });
+    }
+
+    it('textQuery del LLM ya limpio ("entrenar") permanece intacto -- el normalizador nunca sobre-elimina contenido real', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', textQuery: 'entrenar' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Cuándo cancelamos lo de entrenar?', {});
+        expect(result.textQuery).toBe('entrenar');
+    });
+
+    it('consulta de status actual ("compromisos cancelados") preserva su semántica de statusHints -- nunca se clasifica como histórica por este normalizador', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'commitment_query', textQuery: null,
+            commitmentFilterHints: { status: 'closed', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué compromisos cancelados tengo?', {});
+        expect(result.statusHints).toEqual(['resolved', 'cancelled', 'rejected']);
+    });
+
+    it('texto ordinario con un verbo no-control real no se sobre-elimina (sólo el verbo de control se remueve, el tema real sobrevive)', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', textQuery: 'cancelamos la app de facturación' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Qué pasó con cancelamos la app de facturación?', {});
+        expect(result.textQuery).toBe('la app de facturación');
+    });
+
+    it('el camino determinístico permanece exactamente igual (no se le agregó ni removió ningún paso -- mismo comportamiento ya probado arriba)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Cuándo cancelamos lo de entrenar?', {});
+        expect(r.textQuery).toBe('entrenar');
+        expect(r.statusHints).toBeNull();
+    });
+
+    it('regresión Spiderman: LLM sugiere textQuery="completamos Ver Spiderman" -> sólo el título sobrevive (mismo test ya existente, sigue en pie con el normalizador compartido)', async () => {
+        const model = fakeModel(validPayload({
+            textQuery: 'completamos Ver Spiderman',
+            commitmentFilterHints: { status: 'resolved', statusBasis: 'explicit' },
+        }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Cuando completamos lo de Ver Spiderman?', {});
+        expect(result.textQuery).toBe('Ver Spiderman');
+    });
+
+    it('regresión entrenar: LLM sugiere textQuery="cancelamos entrenar" (el caso físico real que motivó R-01) -> normaliza a "entrenar", nunca contamina retrieval', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', textQuery: 'cancelamos entrenar' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('¿Cuándo cancelamos lo de entrenar?', {});
+        expect(result.textQuery).toBe('entrenar');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // M-1H v6 (GAP B, final proposal lifecycle gate) — proposalFocus: señal
 // ESTRUCTURADA para el lifecycle de aprobación de una commitment_proposal,
 // nunca decidido por texto libre. Mismo patrón exacto que
