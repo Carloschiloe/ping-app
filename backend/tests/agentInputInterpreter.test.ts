@@ -1297,6 +1297,108 @@ describe('M-1H: bloqueo B ("FINAL ARCHITECTURE GATE") -- generic commitment_quer
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PING — HISTORICAL LIFECYCLE CARDINALITY FIX. Physical regression: "Cuando
+// completamos lo de Spiderman?" -- the pre-existing fallback
+// intent==='commitment_query' -> 'exhaustive_list' conflated DOMAIN (what the
+// query is about) with SCOPE (how many items the user asked for). Whenever
+// the LLM (non-deterministically) labeled this domain as commitment_query
+// instead of recall, cardinality silently became exhaustive_list, forcing
+// enforceExhaustiveCoverage to cover EVERY retrieved commitment -- including
+// the unrelated "Spiderman el Viernes" (cancelled), which the model's own
+// claim never referenced. Fix: a NEW deterministic check
+// (ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS, reusing the R-01 lifecycle table +
+// the existing accept/confirm "-amos" fragment already inside
+// CONFIRMATION_CONTROL_WORDS -- no new vocabulary invented) recognizes
+// "¿cuándo X-amos...?" as a focused historical lookup BEFORE the
+// commitment_query fallback, completely independent of which intent label
+// the LLM chose. EXPLICIT_LIST_KEYWORDS ("todos"/"cuáles"/etc.) is checked
+// first and always wins, so an explicit plural/list request is never
+// downgraded to focused_lookup merely because it also contains a lifecycle
+// verb.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('CARDINALITY FIX: "¿Cuándo X-amos...?" es focused_lookup determinístico, independiente del intent que elija el LLM', () => {
+    const HISTORICAL_FOCUSED_MATRIX = [
+        ['1', 'completamos', 'Cuando completamos lo de Spiderman?'],
+        ['2', 'resolvimos', 'Cuando resolvimos lo de Spiderman?'],
+        ['3', 'cancelamos', 'Cuando cancelamos lo de Spiderman?'],
+        ['4', 'rechazamos', 'Cuando rechazamos lo de Spiderman?'],
+        ['5', 'reabrimos', 'Cuando reabrimos lo de Spiderman?'],
+        ['6', 'reasignamos', 'Cuando reasignamos lo de Spiderman?'],
+        ['7', 'aceptamos', 'Cuando aceptamos lo de Spiderman?'],
+        ['8', 'confirmamos', 'Cuando confirmamos lo de Spiderman?'],
+    ] as const;
+
+    describe('1-8: matriz de verbos históricos, con intent FORZADO a cada uno de los 3 valores -- SIEMPRE focused_lookup', () => {
+        for (const [n, verb, phrase] of HISTORICAL_FOCUSED_MATRIX) {
+            for (const intent of ['commitment_query', 'recall', 'general_context'] as const) {
+                it(`#${n} "${verb}" con intent forzado="${intent}" -> focused_lookup`, () => {
+                    expect(classifyQueryCardinality(phrase, { intent, proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+                });
+            }
+        }
+    });
+
+    it('9: "¿Qué compromisos tengo?" (sin verbo histórico) -> exhaustive_list, sin cambios', () => {
+        expect(classifyQueryCardinality('¿Qué compromisos tengo?', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('10: "¿Qué compromisos cancelados tengo?" (adjetivo de status actual, no forma histórica "-amos") -> exhaustive_list, sin cambios', () => {
+        expect(classifyQueryCardinality('¿Qué compromisos cancelados tengo?', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('11: "Muéstrame todos los compromisos de Spiderman" (sin verbo histórico) -> exhaustive_list, sin cambios', () => {
+        expect(classifyQueryCardinality('Muéstrame todos los compromisos de Spiderman', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('12: "¿Cuáles compromisos de Spiderman tenemos?" -> exhaustive_list (EXPLICIT_LIST_KEYWORDS: "cuáles")', () => {
+        expect(classifyQueryCardinality('¿Cuáles compromisos de Spiderman tenemos?', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('13 (precedencia crítica): "Muéstrame todos los compromisos que completamos de Spiderman" -- "todos" gana sobre "completamos" -> exhaustive_list, NUNCA focused_lookup', () => {
+        expect(classifyQueryCardinality('Muéstrame todos los compromisos que completamos de Spiderman', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('14 (precedencia crítica): "¿Cuáles compromisos completamos de Spiderman?" -- "cuáles" gana sobre "completamos" -> lista/multi, NUNCA degradado a focused_lookup sólo por el verbo de lifecycle', () => {
+        expect(classifyQueryCardinality('¿Cuáles compromisos completamos de Spiderman?', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('15: "¿Qué pasó con Spiderman?" (recall genérico, sin verbo de lifecycle) -> focused_lookup, sin cambios (RECALL_KEYWORDS ya lo cubría)', () => {
+        expect(classifyQueryCardinality('¿Qué pasó con Spiderman?', { intent: 'recall', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+    });
+
+    it('16 (precedencia, control negativo): "Cancelamos la reunión; muéstrame todos mis compromisos" -- "todos" en la misma frase gana sobre "cancelamos" -> exhaustive_list', () => {
+        expect(classifyQueryCardinality('Cancelamos la reunión; muéstrame todos mis compromisos', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+    });
+
+    it('17 (control negativo): "Ayer cancelamos la reunión" (uso conversacional/contextual, sin "cuándo") -- el verbo histórico igual produce focused_lookup determinístico (nunca se inventa exhaustive_list de la nada)', () => {
+        expect(classifyQueryCardinality('Ayer cancelamos la reunión', { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false })).toBe('focused_lookup');
+    });
+
+    it('18: "¿Cuándo fue lo de Spiderman?" (sin ningún verbo de lifecycle canónico) -- comportamiento preexistente preservado, sin cambios de este fix', () => {
+        const before = classifyQueryCardinality('¿Cuándo fue lo de Spiderman?', { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false });
+        expect(before).toBe('unknown'); // ya era así antes de este fix -- "fue" no está en ninguna tabla de lifecycle
+    });
+
+    it('EXPLICIT_LIST_KEYWORDS se revisa ANTES que el verbo histórico -- un pedido explícito de lista nunca queda degradado por contener también un verbo de lifecycle (regresión: no crear un bug nuevo donde el lifecycle override la pluralidad)', () => {
+        for (const phrase of [
+            'Muéstrame todos los compromisos que cancelamos',
+            '¿Cuáles compromisos rechazamos?',
+            'Todos los que completamos este mes',
+        ]) {
+            expect(classifyQueryCardinality(phrase, { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false })).toBe('exhaustive_list');
+        }
+    });
+
+    it('DeterministicInputInterpreter end-to-end: los 8 verbos producen intent=general_context (det.) pero cardinality=focused_lookup igual, sin depender de qué intent asignó el propio determinístico', async () => {
+        for (const [, , phrase] of HISTORICAL_FOCUSED_MATRIX) {
+            const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+            const cardinality = classifyQueryCardinality(phrase, { intent: r.intent, proposalFocus: r.proposalFocus, wantsOverdueFocus: r.wantsOverdueFocus });
+            expect(cardinality).toBe('focused_lookup');
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PING — CANONICAL RETRIEVAL ROUTING: root architectural fix. Physical
 // finding: "Hola" (general_context, zero real signal) unconditionally set
 // wantsCommitments=true/wantsMessages=true in ALL THREE interpretation paths

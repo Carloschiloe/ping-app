@@ -108,6 +108,15 @@ const COUNT_KEYWORDS = wordBounded('cu[áa]nt[oa]s|how many');
 // (ver enforceExhaustiveCoverage en agentResponseSynthesizer.service.ts,
 // que sólo actúa sobre 'exhaustive_list').
 const SUMMARY_KEYWORDS = wordBounded('res[úu]me\\w*|resumen|summarize|summary');
+// PING — CARDINALITY: señal de PLURALIDAD/LISTADO EXPLÍCITO ("muéstrame
+// todos los compromisos que completamos de X", "¿cuáles compromisos
+// cancelamos de X?") -- necesaria para que un pedido explícito de lista
+// nunca quede degradado a focused_lookup sólo porque también contiene un
+// verbo de lifecycle histórico (ver classifyQueryCardinality: el chequeo
+// histórico corre DESPUÉS de éste a propósito, así que "todos"/"cuáles"
+// siempre gana). Deliberadamente pequeño y genérico, mismo principio que
+// COUNT_KEYWORDS/SUMMARY_KEYWORDS -- nunca vocabulario de una sola frase.
+const EXPLICIT_LIST_KEYWORDS = wordBounded('todos|todas|cada uno|cu[áa]les|every|all( my)?|which (ones|commitments|tasks)');
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 const OPEN_STATUS_KEYWORDS = wordBounded('pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved');
 const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
@@ -187,6 +196,18 @@ const WRITE_ACTION_KEYWORDS = wordBounded(
 // their own "-amos" HISTORICAL form is already handled by the existing,
 // separate CONFIRMATION_CONTROL_WORDS list (M-2 TEST 1 root fix) — reused
 // as-is below, never duplicated into this table.
+// R-01/CARDINALITY — forma histórica "-amos" de aceptar/confirmar/aprobar,
+// aislada como su propio fragmento reutilizable (nunca duplicada como
+// palabras nuevas): CONFIRMATION_CONTROL_WORDS la incluye para el stripping
+// de textQuery de siempre, y classifyQueryCardinality la reutiliza tal cual
+// para reconocer "¿cuándo aceptamos/confirmamos X?" como la misma forma
+// gramatical histórica/puntual que ya cubre LIFECYCLE_HISTORICAL_VERB_KEYWORDS
+// para cancelar/resolver/reabrir/rechazar/reasignar -- un solo lugar de
+// verdad para estos 3 verbos, nunca un segundo vocabulario mantenido a mano.
+// Definida ANTES de LIFECYCLE_TRANSITION_TABLE (aunque CONFIRMATION_CONTROL_WORDS
+// vive más abajo) porque ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS, unos pasos
+// más abajo, también la necesita -- un solo valor, dos consumidores.
+const ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS = 'aceptamos|confirmamos|aprobamos';
 interface LifecycleTransitionEntry {
     status: CanonicalCommitmentStatus;
     // Forma adjetivo/participio (estado actual) — ES+EN, sin conjugación.
@@ -214,6 +235,17 @@ function stripLifecycleHistoricalVerbs(text: string): string {
     const pattern = new RegExp(LIFECYCLE_HISTORICAL_VERB_KEYWORDS.source, 'giu');
     return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
 }
+// CARDINALITY — unión de LOS 8 verbos canónicos de lifecycle en su forma
+// histórica "-amos" (los 6 de LIFECYCLE_HISTORICAL_VERB_KEYWORDS +
+// aceptar/confirmar/aprobar de ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS, ya
+// definida arriba junto a CONFIRMATION_CONTROL_WORDS) -- usada SÓLO por
+// classifyQueryCardinality para reconocer "¿cuándo X-amos...?" como
+// pregunta histórica puntual sin importar el verbo canónico, sin crear un
+// tercer vocabulario: ambos fragmentos ya existían por separado, este es
+// sólo su unión para este único uso.
+const ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS = wordBounded(
+    LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS,
+);
 // R-01: fragmento ES "-amos" reutilizable por agentContextBuilder.service.ts
 // (MEMORY_EPISODIC_VERBS) para las transiciones que este archivo posee
 // canónicamente (cerrado/cancelado/rechazado + reasignar) -- nunca una
@@ -333,9 +365,10 @@ function isControlLanguageOnly(text: string): boolean {
 // de las formas ya listadas y sobrevivía como textQuery, mismo bug que
 // "completamos" (M-1G.3/M-2 TEST 1).
 const CONFIRMATION_CONTROL_WORDS = wordBounded(
-    'confirmar|confirmaci[oó]n|confirmen|confirme|confirmes|confirm[oó]|confirmamos|'
-    + 'aceptar|acepte|aceptes|acept[oó]|aceptan|aceptamos|'
-    + 'aprobar|apruebe|aprueb[oa]n?|aprobaci[oó]n|aprobamos|'
+    'confirmar|confirmaci[oó]n|confirmen|confirme|confirmes|confirm[oó]|'
+    + 'aceptar|acepte|aceptes|acept[oó]|aceptan|'
+    + 'aprobar|apruebe|aprueb[oa]n?|aprobaci[oó]n|'
+    + `${ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS}|`
     + 'respuestas?|propuestas?',
 );
 function stripConfirmationControlWords(text: string): string {
@@ -593,6 +626,29 @@ export function classifyQueryCardinality(
     // clasificación de `intent`, pero la FORMA de la pregunta (recall)
     // sigue siendo la señal correcta para cardinalidad.
     if (RECALL_KEYWORDS.test(input)) return 'focused_lookup';
+    // PING — HISTORICAL LIFECYCLE CARDINALITY FIX (root cause: intent===
+    // 'commitment_query' → 'exhaustive_list' más abajo conflacionaba DOMINIO
+    // (de qué habla la consulta) con ALCANCE (cuántos ítems pidió el
+    // usuario) -- "¿Cuándo completamos lo de Spiderman?" podía volverse
+    // exhaustive_list con sólo que el LLM (no determinísticamente) eligiera
+    // 'commitment_query' en vez de 'recall' como intent, forzando a
+    // enforceExhaustiveCoverage a cubrir CUALQUIER otro commitment que
+    // retrieval encontrara por FTS ambiguo, aunque el claim real del modelo
+    // nunca lo mencionara -- physical regression real, "Spiderman el
+    // Viernes"). Reutiliza ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS, la MISMA
+    // tabla canónica ya introducida por R-01 (nunca un segundo vocabulario
+    // de lifecycle mantenido a mano aquí) -- "¿cuándo X-amos...?" es
+    // exactamente la misma forma gramatical de pregunta puntual/histórica
+    // que RECALL_KEYWORDS ya resuelve arriba para "pasó"/"dijo", ahora
+    // generalizada a la familia de verbos de transición canónica. Corre
+    // DESPUÉS de EXPLICIT_LIST_KEYWORDS a propósito (precedencia exigida:
+    // el alcance explícito del usuario, "todos"/"cuáles", SIEMPRE gana
+    // sobre la forma histórica del verbo -- "¿Cuáles compromisos
+    // completamos de X?" nunca se degrada a focused_lookup sólo porque
+    // contiene "completamos"), y es 100% determinística: nunca depende de
+    // si el LLM etiquetó la consulta como commitment_query, recall o
+    // general_context.
+    if (ALL_LIFECYCLE_HISTORICAL_VERB_KEYWORDS.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input)) return 'focused_lookup';
     if (signals.proposalFocus !== null) return 'exhaustive_list';
     if (signals.wantsOverdueFocus) return 'exhaustive_list';
     if (signals.intent === 'recall') return 'focused_lookup';
@@ -601,9 +657,10 @@ export function classifyQueryCardinality(
     // topic real NO convierte una lista en un lookup puntual, ver sección
     // 10 del ticket). Los casos que SÍ son lookup puntual sobre un
     // commitment específico ya se desvían a intent='recall' arriba (verbo
-    // "pasó"/"háblame de") -- no hay, en el contrato exigido, un caso de
+    // "pasó"/"háblame de") o al chequeo histórico determinístico de arriba
+    // -- no hay, en el contrato exigido, un caso adicional de
     // commitment_query genérico que deba ser focused_lookup sin pasar por
-    // esa señal.
+    // alguna de esas dos señales.
     if (signals.intent === 'commitment_query') return 'exhaustive_list';
     if (signals.intent === 'document_search' || signals.intent === 'message_search' || signals.intent === 'person_query') return 'focused_lookup';
     return 'unknown';
