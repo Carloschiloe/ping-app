@@ -518,10 +518,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // never used as routing authority anywhere downstream any more (see
         // the real Core-derived gate further below, right after person
         // resolution completes: containsThirdPersonPronoun(input.input) &&
-        // !resolvedPersonId). This field is now advisory-only end to end,
-        // exactly like personHints -- kept in Interpretation only for
-        // trace/diagnostics parity, matching the comment on personHints
-        // above.
+        // distinctResolvedPersonIds.size !== 1). This field is now
+        // advisory-only end to end, exactly like personHints -- kept in
+        // Interpretation only for trace/diagnostics parity, matching the
+        // comment on personHints above.
         ambiguityHints: commitmentSignalConfident
             ? []
             : rawInterpretation.ambiguityHints.filter((h) => h !== 'unresolved_pronoun'),
@@ -603,6 +603,23 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     let needsClarification = false;
     let clarification: AgentClarification | undefined;
     let resolvedPersonId: string | undefined;
+    // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
+    // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
+    // guard below) -- it answers "did at least one candidate resolve", never
+    // "does exactly one antecedent exist". That distinction is irrelevant
+    // for this loop's OTHER uses (scoping retrieveCommitments/retrieveMessages
+    // to a person, unchanged here) but is exactly the gap proven unsafe for
+    // the pronoun-ambiguity gate further below: "Hablé con Alejandra sobre
+    // María. ¿Qué dijo ella?" resolves BOTH "Alejandra" and "María" to two
+    // distinct real, canonical people (confirmed with a real resolvePerson
+    // simulation), yet resolvedPersonId silently pinned to whichever
+    // resolved first -- Core would have answered as if "Alejandra" were the
+    // pronoun's unique antecedent, when "ella" is genuinely ambiguous
+    // between two real candidates. `distinctResolvedPersonIds` tracks EVERY
+    // uniquely-resolved id from this same loop (never a second lookup, same
+    // resolvePerson calls already made) so the pronoun gate can require
+    // exactly one, not merely "at least one".
+    const distinctResolvedPersonIds = new Set<string>();
     // M-1F.1 (Caso A del staging real, docs/M-1F-S): un personHint explícito
     // que no resolvió a NADIE (ni ambiguo con >1 candidatos, ni resuelto) no
     // debe degradar silenciosamente a "consulta sin filtro de persona" — eso
@@ -619,9 +636,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         if (resolution.ambiguous) {
             needsClarification = true;
             clarification = { reason: 'person_ambiguous', candidates: resolution.candidates };
-        } else if (resolution.resolved && !resolvedPersonId) {
-            resolvedPersonId = resolution.resolved.id;
-        } else if (!resolution.resolved) {
+        } else if (resolution.resolved) {
+            distinctResolvedPersonIds.add(resolution.resolved.id);
+            if (!resolvedPersonId) resolvedPersonId = resolution.resolved.id;
+        } else {
             personAttributionUnresolved = true;
         }
     }
@@ -633,6 +651,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         people.push(referentResolution);
         if (referentResolution.resolved) {
             resolvedPersonId = referentResolution.resolved.id;
+            distinctResolvedPersonIds.add(referentResolution.resolved.id);
         }
         // Un referente ya autorizado por el caller que no obstante no
         // resuelve (revocado/fuera de alcance entre el momento en que se
@@ -660,24 +679,38 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // revision both still let the LLM's own ambiguityHints value decide
     // WHETHER this fires at all). Decision table (Core-derived only, zero
     // LLM input):
-    //   containsThirdPersonPronoun(raw input) | resolvedPersonId | outcome
-    //   ------------------------------------- | ---------------- | -------
-    //   false (no real 3rd-person pronoun)    | (irrelevant)     | no clarification from this gate
-    //   true                                  | present (real)   | no clarification -- antecedent IS resolved
-    //   true                                  | absent           | person_ambiguous, candidates:[]
-    // `resolvedPersonId` here is the SAME canonical resolution already
-    // computed above (canonicalPersonScope -> resolvePerson, or
-    // authorizedPersonReferentId) -- "the pronoun's antecedent is
+    //   containsThirdPersonPronoun(raw input) | distinctResolvedPersonIds.size | outcome
+    //   ------------------------------------- | ------------------------------- | -------
+    //   false (no real 3rd-person pronoun)    | (irrelevant)                    | no clarification from this gate
+    //   true                                  | exactly 1                       | no clarification -- unique antecedent resolved
+    //   true                                  | 0                                | person_ambiguous, candidates:[]
+    //   true                                  | >1                               | person_ambiguous, candidates:[]
+    //
+    // PING — PRONOUN ANTECEDENT UNIQUENESS (audit finding): the original
+    // gate here checked ONLY `!resolvedPersonId` -- "did at least one
+    // candidate resolve", never "does exactly one antecedent exist". Proven
+    // unsafe with a real resolvePerson simulation: "Hablé con Alejandra
+    // sobre María. ¿Qué dijo ella?" resolves BOTH "Alejandra" and "María" to
+    // distinct real people, yet resolvedPersonId silently pinned to
+    // whichever resolved first in the loop above -- Core would have
+    // answered as if the antecedent were unique when it genuinely was not.
+    // distinctResolvedPersonIds.size===1 is required instead of merely
+    // !resolvedPersonId -- >1 distinct resolved person is exactly as
+    // unresolvable an antecedent for a single pronoun as 0 resolved people,
+    // and is treated identically (person_ambiguous, candidates:[] -- never
+    // guessing which of the N resolved people is meant, the same "never
+    // choose arbitrarily" principle already governing every other person
+    // resolution path in this file).
+    // `distinctResolvedPersonIds` here is the SAME canonical resolution
+    // already computed above (canonicalPersonScope -> resolvePerson, or
+    // authorizedPersonReferentId) -- "the pronoun's antecedent is uniquely
     // resolvable" is proven exclusively by Core's own resolvePerson-backed
-    // authority, never by the LLM claiming a name for the pronoun (an
-    // LLM-guessed personHints=["él"], if it ever occurred, would still have
-    // to pass isPersonHintGroundedInInput/canonicalPersonScope/resolvePerson
-    // like any other hint -- it has no special authority here). Same input
-    // + same canonical state (what resolvePerson returns) now ALWAYS
+    // authority, never by the LLM claiming a name for the pronoun. Same
+    // input + same canonical state (what resolvePerson returns) now ALWAYS
     // produces the same routing, independent of whether/how the LLM phrased
     // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
-    if (!needsClarification && containsThirdPersonPronoun(input.input) && !resolvedPersonId) {
+    if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
         clarification = { reason: 'person_ambiguous', candidates: [] };
     }

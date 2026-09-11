@@ -1886,6 +1886,87 @@ describe('PRONOUN GROUNDING AUDIT: person_ambiguous for an unresolved pronoun is
             expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
         });
     });
+
+    // ─── PRONOUN ANTECEDENT UNIQUENESS (follow-up audit): resolvedPersonId
+    // alone means "at least one candidate resolved", never "exactly one
+    // antecedent exists". Proven unsafe with a REAL resolvePerson
+    // simulation (not a single-name mock): "Hablé con Alejandra sobre
+    // María. ¿Qué dijo ella?" resolves BOTH names to distinct real people
+    // via their own structural cues ("con Alejandra", "sobre María"), yet
+    // the original gate silently answered as if "Alejandra" (whichever
+    // resolved first in the loop) were the unique antecedent.
+    // distinctResolvedPersonIds.size===1 replaces the plain
+    // !resolvedPersonId check for this gate only. ──────────────────────────
+    describe('PRONOUN ANTECEDENT UNIQUENESS: resolvedPersonId truthy is not enough -- exactly one distinct resolved person is required', () => {
+        function twoRealPeopleResolver() {
+            mockResolvePerson.mockImplementation(async (_actorId: string, resolveInput: any) => {
+                if (resolveInput.name === 'Alejandra') return { resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] };
+                if (resolveInput.name === 'María') return { resolved: { kind: 'user', id: 'maria-id', displayName: 'María', email: null, avatarUrl: null }, ambiguous: false, candidates: [] };
+                return { resolved: null, ambiguous: false, candidates: [] };
+            });
+        }
+
+        it('CASO 3 — "Hablé con Alejandra sobre María. ¿Qué dijo ella?": AMBOS nombres resuelven a personas reales distintas -> antecedente genuinamente ambiguo, person_ambiguous (el bug real encontrado en la auditoría)', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver();
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hablé con Alejandra sobre María. ¿Qué dijo ella?' }, {});
+
+            // Prueba directa: ambas personas SÍ resolvieron (nunca se pierde
+            // evidencia real), pero como antecedente único de "ella" es
+            // genuinamente ambiguo.
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'maria-id')).toBe(true);
+            expect(ctx.needsClarification).toBe(true);
+            expect(ctx.clarification?.reason).toBe('person_ambiguous');
+            expect(ctx.clarification?.candidates).toEqual([]);
+        });
+
+        it('CASO 1 (real resolver, sin mock de un solo nombre) — "Hablé con Alejandra ayer, ¿qué dijo ella?": único candidato real resuelto -> nunca clarifica', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver(); // "María" nunca aparece en este input -- sólo "Alejandra" puede resolver
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hablé con Alejandra ayer, ¿qué dijo ella?' }, {});
+
+            expect(ctx.needsClarification).toBe(false);
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
+        });
+
+        it('un pronombre SIN ningún antecedente resuelto (0 personas) sigue siendo person_ambiguous -- el mismo resultado que >1, nunca se confunden', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué dijo él ayer?' }, {});
+
+            expect(ctx.needsClarification).toBe(true);
+            expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        });
+
+        it('múltiples personas mencionadas pero SIN pronombre en la pregunta (query genuinamente multi-target, ej. "¿Qué compromisos tengo con Alejandra y con María?") nunca activa este gate -- sólo aplica cuando hay un pronombre real que resolver', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver();
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo con Alejandra y con María?' }, {});
+
+            // Ninguna clarificación por PRONOMBRE (no hay pronombre en el
+            // input) -- este test certifica que el gate de unicidad de
+            // antecedente nunca se activa para consultas multi-persona
+            // legítimas sin pronombre, sin importar cuántas personas
+            // resuelvan.
+            expect(ctx.needsClarification).toBe(false);
+        });
+    });
 });
 
 // M-1H — regresión encontrada DURANTE la implementación de la sección 16: la
