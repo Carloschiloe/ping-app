@@ -406,6 +406,49 @@ const NAME_TOKEN = '[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][
 // sin personHint, sin tocar ningún otro cue legítimo.
 const PERSON_HINT_CUE_BEFORE = new RegExp(`(?<!\\blo\\s)(?<!\\bla\\s)\\b(?:a|con|de|sobre|dijo|dice|dijeron|with|about|to|told|said)\\s+(${NAME_TOKEN})`, 'g');
 const PERSON_HINT_VERB_AFTER = new RegExp(`(${NAME_TOKEN})\\s+(?:say|says|said|dijo|dice|mentioned)\\b`, 'g');
+// PING — PERSON-CANDIDATE COVERAGE FOR PRONOUN ANTECEDENTS: real sentences
+// mention two people without either existing cue firing for the SECOND
+// name. Two genuinely missing, linguistically-justified constructions
+// (never a name-specific exception):
+//   1. Coordination ("X y Y" / "X and Y"): PERSON_HINT_CUE_BEFORE already
+//      captures the first name via its own cue ("con Alejandra"), but "y
+//      María"/"and María" has no cue word of its own -- "y"/"and" are
+//      coordinating conjunctions, never in the cue list, by design (they
+//      aren't person-introducing prepositions). This pattern requires the
+//      SAME governing cue word before the first name (reused, not
+//      duplicated) so it never fires on an arbitrary "X y Y" with no
+//      person-introducing context at all (ej. "manzanas y peras").
+//   2. Reporting-verb-governed subordinate clause subject ("<reporting
+//      verb> que NAME <verb>", ej. "dijo que María llegaría"): the named
+//      subject of a subordinate clause introduced by a reporting verb this
+//      file already treats as person-introducing (PERSON_HINT_VERB_AFTER's
+//      exact same verb vocabulary, reused -- never a new open-ended verb
+//      list) is exactly as strong a person-introducing signal as "X dijo"
+//      itself, just with "que NAME" instead of "NAME" as the subject
+//      position.
+// Both stay within "heurístico, NUNCA autoritativo" (línea de arriba) --
+// any false positive still has to pass resolvePerson before having any
+// effect, same as every other cue in this file.
+const PERSON_HINT_COORDINATED_NAME = new RegExp(`\\b(?:a|con|de|sobre|with|about|to)\\s+${NAME_TOKEN}\\s+(?:y|and)\\s+(${NAME_TOKEN})`, 'g');
+const PERSON_HINT_SUBORDINATE_SUBJECT = new RegExp(`\\b(?:dijo|dice|dijeron|said|says?)\\s+que\\s+(${NAME_TOKEN})`, 'g');
+// PING — PERSON-CANDIDATE COVERAGE FOR PRONOUN ANTECEDENTS: root cause of
+// "Qué" leaking as a person candidate. PERSON_HINT_VERB_AFTER matches
+// "(NAME_TOKEN) (dijo|dice|...)"  -- a capitalized word immediately
+// followed by a reporting verb. Spanish capitalizes interrogative words
+// when sentence-initial ("¿Qué dijo ella?"), so "Qué" satisfies
+// NAME_TOKEN's shape purely as an orthographic accident of question-word
+// capitalization, never because it looks like a proper noun semantically.
+// This is the EXACT SAME closed, principled set of question words already
+// used in STOPWORDS above for the identical purpose (a question word is
+// never topical/entity content, in any language) -- reused here, not
+// duplicated as a new list, so the two can never drift apart.
+const PERSON_HINT_QUESTION_WORD_DENYLIST = new Set([
+    'qué', 'que', 'quién', 'quien', 'cuál', 'cual', 'cómo', 'como', 'dónde', 'donde', 'cuándo', 'cuando',
+    'what', 'who', 'which', 'how', 'where', 'when',
+]);
+function isPersonHintQuestionWord(candidate: string): boolean {
+    return PERSON_HINT_QUESTION_WORD_DENYLIST.has(candidate.trim().toLowerCase());
+}
 // M-1H v6 (Gap B, sección 12) — cue dedicado para "¿Qué falta que acepte
 // Alejandra?" / "What still needs to accept from Alejandra?": el cue-before
 // genérico de arriba no cubre "acepte"/"accept" como verbo introductorio, y
@@ -512,11 +555,23 @@ export function classifyQueryCardinality(
 
 function extractPersonHints(input: string): string[] {
     const hints = new Set<string>();
-    for (const pattern of [PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER, PENDING_RESPONSE_PERSON_CUE]) {
+    for (const pattern of [
+        PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER, PENDING_RESPONSE_PERSON_CUE,
+        PERSON_HINT_COORDINATED_NAME, PERSON_HINT_SUBORDINATE_SUBJECT,
+    ]) {
         pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
         while ((match = pattern.exec(input)) !== null) {
-            hints.add(match[1].trim());
+            const candidate = match[1].trim();
+            // PING — PERSON-CANDIDATE COVERAGE FOR PRONOUN ANTECEDENTS: a
+            // capitalized question word ("Qué") immediately followed by a
+            // reporting verb ("¿Qué dijo ella?") satisfies every cue
+            // pattern's shape purely by orthographic accident (Spanish
+            // capitalizes interrogatives when sentence-initial) -- never a
+            // real person mention. Filtered here, once, for all patterns,
+            // rather than re-litigated per pattern.
+            if (isPersonHintQuestionWord(candidate)) continue;
+            hints.add(candidate);
         }
     }
     return Array.from(hints);

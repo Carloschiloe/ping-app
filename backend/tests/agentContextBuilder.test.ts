@@ -1967,6 +1967,101 @@ describe('PRONOUN GROUNDING AUDIT: person_ambiguous for an unresolved pronoun is
             expect(ctx.needsClarification).toBe(false);
         });
     });
+
+    // ─── PERSON-CANDIDATE COVERAGE FOR PRONOUN ANTECEDENTS (follow-up audit):
+    // "sobre María" already worked before this fix ("sobre" is already a cue
+    // word) -- these two cases prove the genuinely MISSING extraction paths:
+    // coordination ("X y Y") and a reporting-verb-governed subordinate
+    // clause subject ("dijo que NAME"), both fixed at extractPersonHints
+    // itself (PERSON_HINT_COORDINATED_NAME/PERSON_HINT_SUBORDINATE_SUBJECT),
+    // exercised here through the REAL DeterministicInputInterpreter, never a
+    // mocked interpretation. ─────────────────────────────────────────────
+    describe('PERSON-CANDIDATE COVERAGE: coordinated and subordinate-clause names are extracted, never just cue-adjacent ones', () => {
+        function twoRealPeopleResolver() {
+            mockResolvePerson.mockImplementation(async (_actorId: string, resolveInput: any) => {
+                if (resolveInput.name === 'Alejandra') return { resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] };
+                if (resolveInput.name === 'María') return { resolved: { kind: 'user', id: 'maria-id', displayName: 'María', email: null, avatarUrl: null }, ambiguous: false, candidates: [] };
+                return { resolved: null, ambiguous: false, candidates: [] };
+            });
+        }
+
+        it('COORDINACIÓN — "Hablé con Alejandra y María. ¿Qué dijo ella?" (extracción REAL, no mockeada): María se extrae vía coordinación, "Qué" nunca se filtra como candidato -> antecedente genuinamente ambiguo', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver();
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hablé con Alejandra y María. ¿Qué dijo ella?' }, {});
+
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'maria-id')).toBe(true);
+            // "Qué" nunca debió resolver a nadie -- nunca se le pasó a resolvePerson como candidato.
+            expect(mockResolvePerson).not.toHaveBeenCalledWith('u1', expect.objectContaining({ name: 'Qué' }));
+            expect(ctx.needsClarification).toBe(true);
+            expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        });
+
+        it('CLÁUSULA SUBORDINADA — "Alejandra dijo que María llegaría. ¿Qué dijo ella?" (extracción REAL): María se extrae como sujeto de la subordinada, "Qué" nunca se filtra -> antecedente genuinamente ambiguo', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver();
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Alejandra dijo que María llegaría. ¿Qué dijo ella?' }, {});
+
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'maria-id')).toBe(true);
+            expect(mockResolvePerson).not.toHaveBeenCalledWith('u1', expect.objectContaining({ name: 'Qué' }));
+            expect(ctx.needsClarification).toBe(true);
+            expect(ctx.clarification?.reason).toBe('person_ambiguous');
+        });
+
+        it('control (real, no mockeado) — "Hablé con Alejandra ayer, ¿qué dijo ella?": único candidato real, nunca clarifica', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            twoRealPeopleResolver();
+            const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Hablé con Alejandra ayer, ¿qué dijo ella?' }, {});
+
+            expect(ctx.needsClarification).toBe(false);
+            expect(ctx.entities.people.some((p) => p.resolved?.id === 'alejandra-id')).toBe(true);
+        });
+
+        it('ambas consultas Spiderman siguen sin activar person_ambiguous (extracción REAL, regresión de no-contaminación)', async () => {
+            for (const input of ['Cuando completamos lo de Spiderman?', 'Cuando completamos lo de ver Spiderman?']) {
+                mockRetrieveCommitments.mockResolvedValue([{
+                    id: 'spiderman-id', entityType: 'commitment', title: 'Spiderman', status: 'resolved',
+                    provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' },
+                }] as any);
+                mockRetrieveCommitmentProposals.mockResolvedValue([]);
+                mockRetrieveCommitmentEvents.mockResolvedValue([]);
+                mockRetrieveMessages.mockResolvedValue([]);
+                mockRetrieveMemory.mockResolvedValue([]);
+                mockResolvePerson.mockClear();
+                const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input }, {});
+
+                expect(mockResolvePerson).not.toHaveBeenCalled();
+                expect(ctx.needsClarification).toBe(false);
+            }
+        });
+
+        it('"Qué" nunca se convierte en candidato de persona sólo por iniciar una cláusula/pregunta, en ninguna construcción probada', async () => {
+            mockRetrieveCommitments.mockResolvedValue([]);
+            mockRetrieveCommitmentProposals.mockResolvedValue([]);
+            mockRetrieveCommitmentEvents.mockResolvedValue([]);
+            mockRetrieveMessages.mockResolvedValue([]);
+            mockRetrieveMemory.mockResolvedValue([]);
+            for (const input of ['¿Qué dijo ella?', '¿Qué tengo vencido?', 'Que compromisos tengo pendiente?', '¿Qué sabes de Alejandra?']) {
+                mockResolvePerson.mockClear();
+                await withDeterministicInterpreter({ actorUserId: 'u1', input }, {});
+                expect(mockResolvePerson).not.toHaveBeenCalledWith('u1', expect.objectContaining({ name: 'Qué' }));
+            }
+        });
+    });
 });
 
 // M-1H — regresión encontrada DURANTE la implementación de la sección 16: la

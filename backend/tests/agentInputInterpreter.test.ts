@@ -1317,3 +1317,68 @@ describe('PRONOUN GROUNDING AUDIT: containsThirdPersonPronoun -- detecta pronomb
         expect(containsThirdPersonPronoun('the hermit lives alone')).toBe(false);
     });
 });
+
+// PING — PERSON-CANDIDATE COVERAGE FOR PRONOUN ANTECEDENTS: extractPersonHints
+// (vía DeterministicInputInterpreter.interpret().personHints, el mismo
+// patrón indirecto ya usado en el resto de este archivo -- la función no se
+// exporta directamente) certificado para las dos construcciones que antes
+// se perdían (coordinación, sujeto de subordinada con verbo de reporte) y
+// para el filtro de palabras interrogativas que nunca deben colarse como
+// candidato de persona.
+describe('PERSON-CANDIDATE COVERAGE: extractPersonHints captura nombres coordinados y sujetos de subordinada, y nunca filtra falsos positivos de palabras interrogativas', () => {
+    it('COORDINACIÓN: "Hablé con Alejandra y María" -> ambos nombres, incluso "y María" sin cue propio', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Hablé con Alejandra y María. ¿Qué dijo ella?', {});
+        expect(r.personHints).toContain('Alejandra');
+        expect(r.personHints).toContain('María');
+    });
+
+    it('COORDINACIÓN en inglés: "I talked with Laura and Alex" -> ambos nombres', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('I talked with Laura and Alex about the project', {});
+        expect(r.personHints).toContain('Laura');
+        expect(r.personHints).toContain('Alex');
+    });
+
+    it('sin coordinación real ("Hablé con Alejandra ayer") nunca inventa un segundo nombre', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Hablé con Alejandra ayer, ¿qué dijo ella?', {});
+        expect(r.personHints).toEqual(['Alejandra']);
+    });
+
+    it('SUJETO DE SUBORDINADA: "Alejandra dijo que María llegaría" -> ambos nombres, incluso el sujeto de la subordinada sin cue propio', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('Alejandra dijo que María llegaría. ¿Qué dijo ella?', {});
+        expect(r.personHints).toContain('Alejandra');
+        expect(r.personHints).toContain('María');
+    });
+
+    it('"que NAME" SIN un verbo de reporte gobernante antes nunca se extrae (nunca una regla "que + Nombre" abierta) -- ej. "el compromiso que Alejandra propuso" no agrega un segundo candidato inventado', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué pasó con el compromiso que Alejandra propuso?', {});
+        // "Alejandra" puede o no aparecer según otros cues, pero NINGÚN
+        // nombre nuevo debe surgir sólo por el patrón "que NAME" -- esto
+        // certifica que PERSON_HINT_SUBORDINATE_SUBJECT está acotado a
+        // verbos de reporte reales, no a "que" genérico.
+        expect(r.personHints.length).toBeLessThanOrEqual(1);
+    });
+
+    it('"Qué" NUNCA se convierte en candidato de persona, en ninguna construcción -- filtro de palabras interrogativas', async () => {
+        const cases = ['¿Qué dijo ella?', '¿Qué tengo vencido?', 'Que compromisos tengo pendiente?', '¿Qué sabes de Alejandra?', '¿Qué hizo ella hoy?'];
+        for (const input of cases) {
+            const r = await new DeterministicInputInterpreter().interpret(input, {});
+            expect(r.personHints).not.toContain('Qué');
+            expect(r.personHints).not.toContain('qué');
+        }
+    });
+
+    it('otras palabras interrogativas (Quién/Cuál/Cómo/Dónde/Cuándo, ES+EN) tampoco se cuelan como candidato', async () => {
+        const cases = ['¿Quién dijo eso?', '¿Cuál dijo?', 'Who said that?', 'What said it?'];
+        for (const input of cases) {
+            const r = await new DeterministicInputInterpreter().interpret(input, {});
+            for (const bad of ['Quién', 'Cuál', 'Who', 'What']) expect(r.personHints).not.toContain(bad);
+        }
+    });
+
+    it('ambas consultas Spiderman siguen produciendo personHints=[] tras el fix de extracción', async () => {
+        const r1 = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de Spiderman?', {});
+        const r2 = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de ver Spiderman?', {});
+        expect(r1.personHints).toEqual([]);
+        expect(r2.personHints).toEqual([]);
+    });
+});
