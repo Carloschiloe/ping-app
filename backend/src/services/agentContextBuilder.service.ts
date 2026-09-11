@@ -31,6 +31,7 @@ import {
     isPersonHintGroundedInInput,
     classifyQueryCardinality,
     containsThirdPersonPronoun,
+    CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -332,7 +333,16 @@ function filterByProposalFocus(
 // permanezcan sincronizados por construcción (la duplicación de esta misma
 // lista en dos regexes fue exactamente la causa por la que la cobertura de
 // las 8 transiciones canónicas quedó incompleta en ambos lugares a la vez).
-const MEMORY_EPISODIC_VERBS = 'hablamos|aceptamos|acordamos|confirmamos|rechazamos|propusimos|completamos|resolvimos|cancelamos|reabrimos|reasignamos';
+// R-01: la parte closed-status (completamos/resolvimos/cancelamos/
+// reabrimos/rechazamos/reasignamos) se importa de
+// agentInputInterpreter.service.ts (CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES) --
+// única fuente de verdad, nunca una segunda lista hand-mantenida en
+// paralelo para las mismas 5 transiciones (la duplicación de esta lista en
+// dos archivos era exactamente la causa por la que la cobertura de las 8
+// transiciones canónicas podía quedar desincronizada). hablamos/aceptamos/
+// acordamos/confirmamos/propusimos no son closed-status transitions --
+// siguen viviendo aquí, sin cambios.
+const MEMORY_EPISODIC_VERBS = `hablamos|aceptamos|acordamos|confirmamos|propusimos|${CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES}`;
 const MEMORY_TRIGGER_PATTERN = new RegExp(`qu[eé] (sabes|recuerdas|recuerdo|cambi[oó])|conoces (de|sobre)|d[oó]nde viv|preferencias|por qu[eé] sabes|porque sabes|sigue siendo cierto|cu[aá]ndo (${MEMORY_EPISODIC_VERBS})|recuerdo (tenemos|hay)`);
 const MEMORY_HISTORICAL_PATTERN = /viv[ií]a|antes viv|el a[nñ]o pasado|hace tiempo|anteriormente|sol[ií]a|used to|last year|previously/;
 const MEMORY_CURRENT_PATTERN = /d[oó]nde vive|prefiero|prefiere|actualmente|sigue siendo cierto/;

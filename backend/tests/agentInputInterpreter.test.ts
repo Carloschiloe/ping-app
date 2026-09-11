@@ -700,14 +700,16 @@ describe('M-2 TEST 1 ROOT FIX: "completamos"/"lo de X" nunca rompe la resolució
         expect(r.isWriteActionRequest).toBe(true);
     });
 
-    it('otros verbos con el mismo defecto de conjugación ("-amos") -- cancelamos/rechazamos -- tampoco enrutan a escritura (mapeo a statusHints de "cancelamos"/"rechazamos" queda fuera de alcance de este fix, ver CLOSED_STATUS_KEYWORDS)', async () => {
+    it('otros verbos con el mismo defecto de conjugación ("-amos") -- cancelamos/rechazamos -- tampoco enrutan a escritura, y (R-01, cierre del hallazgo de la auditoría maestra) su textQuery también queda limpio, igual que "completamos"', async () => {
         const cancel = await new DeterministicInputInterpreter().interpret('¿Cuándo cancelamos lo de Ver Spiderman?', {});
         expect(cancel.isWriteActionRequest).toBe(false);
         expect(cancel.personHints).toEqual([]);
+        expect(cancel.textQuery).toBe('Ver Spiderman');
 
         const reject = await new DeterministicInputInterpreter().interpret('¿Cuándo rechazamos lo de Ver Spiderman?', {});
         expect(reject.isWriteActionRequest).toBe(false);
         expect(reject.personHints).toEqual([]);
+        expect(reject.textQuery).toBe('Ver Spiderman');
     });
 
     it('cues de persona legítimos ("con Laura", "a Laura", "sobre Alex") nunca se rompen por el fix de "lo de"/"la de"', async () => {
@@ -724,6 +726,121 @@ describe('M-2 TEST 1 ROOT FIX: "completamos"/"lo de X" nunca rompe la resolució
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('Cuando completamos lo de Ver Spiderman?', {});
         expect(result.textQuery).toBe('Ver Spiderman');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — R-01 CLOSE (MASTER AUDIT finding, "PING — CLOSE R-01 LIFECYCLE
+// INTERPRETATION ASYMMETRY"): CLOSED_STATUS_KEYWORDS/extractStatusHints
+// gave "completamos" (via complet[ae]\w*) short-stem coverage no sibling
+// closed-status verb received -- cancelamos/resolvimos/rechazamos/
+// reabrimos/reasignamos silently survived as textQuery instead of being
+// stripped as control language, even though they are the EXACT SAME
+// "-amos" historical-question idiom as "completamos". Generalized into ONE
+// table (LIFECYCLE_TRANSITION_TABLE) that both CLOSED_STATUS_KEYWORDS
+// (adjective/current-status form) and LIFECYCLE_HISTORICAL_VERB_KEYWORDS
+// ("-amos" historical form, stripped from textQuery) derive from -- no
+// eighth hand-written regex patch, no literal special-case for any single
+// verb, title, or physical-test phrase.
+//
+// Deliberate action-history vs current-status separation (requirement 3 of
+// the ticket): a verb whose ONLY entry in the table is `historicalVerbForms`
+// (cancelar/resolver-as-verb/reabrir/rechazar/reasignar's "-amos" form) never
+// populates statusHints -- "¿Cuándo cancelamos X?" strips the verb from
+// textQuery and signals a historical LOOKUP, but never becomes "list my
+// cancelled commitments" (that would require the literal adjective
+// "cancelado"/"cancelados", a DIFFERENT, already-existing keyword family
+// that this fix does not touch). Only "completar" naturally carries BOTH
+// meanings (its adjective "completado"/"resuelto" already existed as a
+// current-status filter before this fix, and remains exactly that) -- this
+// is preserved, not invented.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('R-01: matriz de verbos de lifecycle histórico ("¿Cuándo X-amos...?") — tabla única, ES + EN + controles negativos', () => {
+    const ES_HISTORICAL_MATRIX: Array<{ verb: string; phrase: string; expectStatusHints: string[] | null }> = [
+        { verb: 'aceptamos', phrase: '¿Cuándo aceptamos lo de entrenar?', expectStatusHints: null },
+        { verb: 'confirmamos', phrase: '¿Cuándo confirmamos lo de entrenar?', expectStatusHints: null },
+        { verb: 'completamos', phrase: '¿Cuándo completamos lo de entrenar?', expectStatusHints: ['resolved'] },
+        { verb: 'resolvimos', phrase: '¿Cuándo resolvimos lo de entrenar?', expectStatusHints: null },
+        { verb: 'cancelamos', phrase: '¿Cuándo cancelamos lo de entrenar?', expectStatusHints: null },
+        { verb: 'rechazamos', phrase: '¿Cuándo rechazamos lo de entrenar?', expectStatusHints: null },
+        { verb: 'reabrimos', phrase: '¿Cuándo reabrimos lo de entrenar?', expectStatusHints: null },
+        { verb: 'reasignamos', phrase: '¿Cuándo reasignamos lo de entrenar?', expectStatusHints: null },
+    ];
+
+    for (const { verb, phrase, expectStatusHints } of ES_HISTORICAL_MATRIX) {
+        it(`ES "${verb}": textQuery limpio ("entrenar"), statusHints=${JSON.stringify(expectStatusHints)}, nunca ruteado a escritura -- determinístico, sin depender de clasificación del LLM`, async () => {
+            const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect(r.textQuery).toBe('entrenar');
+            expect(r.statusHints).toEqual(expectStatusHints);
+            expect(r.isWriteActionRequest).toBe(false);
+            expect(r.personHints).toEqual([]);
+        });
+    }
+
+    // EN: sólo las formas de participio/pasado que LIFECYCLE_TRANSITION_TABLE
+    // ya reconocía antes de este fix (completed/cancelled/canceled/rejected/
+    // reopened) -- "we cancel"/"we accept" (presente, sin -ed) NO son parte
+    // de este fix (gap EN preexistente, ver STOPWORDS/"we" -- confirmado
+    // idéntico antes y después de este cambio, fuera de alcance de R-01).
+    const EN_HISTORICAL_MATRIX: Array<{ verb: string; phrase: string; expectStatusHints: string[] | null }> = [
+        { verb: 'completed', phrase: 'When did we complete training?', expectStatusHints: ['resolved'] },
+        { verb: 'cancelled', phrase: 'training got cancelled', expectStatusHints: ['cancelled'] },
+        { verb: 'rejected', phrase: 'training was rejected', expectStatusHints: ['rejected'] },
+    ];
+    for (const { verb, phrase, expectStatusHints } of EN_HISTORICAL_MATRIX) {
+        it(`EN "${verb}": statusHints=${JSON.stringify(expectStatusHints)} -- misma tabla, sin lista EN separada`, async () => {
+            const r = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect(r.statusHints).toEqual(expectStatusHints);
+        });
+    }
+
+    describe('controles negativos — el stemming generalizado nunca inventa intención histórica donde no la hay', () => {
+        it('consulta de status actual simple ("¿Qué compromisos tengo?") -- sin statusHints, sin textQuery residual, intent commitment_query', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('¿Qué compromisos tengo?', {});
+            expect(r.statusHints).toBeNull();
+            expect(r.textQuery).toBeNull();
+            expect(r.intent).toBe('commitment_query');
+        });
+
+        it('count query ("¿Cuántos compromisos tengo?") -- cardinality=count, no contaminado por lifecycle-verb stripping', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('¿Cuántos compromisos tengo?', {});
+            const cardinality = classifyQueryCardinality('¿Cuántos compromisos tengo?', { intent: r.intent, proposalFocus: r.proposalFocus, wantsOverdueFocus: r.wantsOverdueFocus });
+            expect(cardinality).toBe('count');
+        });
+
+        it('overdue query ("¿Qué tengo vencido?") -- statusHints de overdue (proposed/accepted/counter_proposal), no un status cerrado inventado', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo vencido?', {});
+            expect(r.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+            expect(r.wantsOverdueFocus).toBe(true);
+        });
+
+        it('uso conversacional NO relacionado de un verbo similar en imperativo real ("Cancela mi suscripción de Netflix") -- el imperativo real sigue enrutando a escritura, nunca se confunde con la forma histórica "-amos"', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('Cancela mi suscripción de Netflix', {});
+            expect(r.isWriteActionRequest).toBe(true);
+            expect(r.statusHints).toBeNull();
+        });
+
+        it('lenguaje específico de proposal ("¿Qué falta por confirmar?") -- proposalFocus, nunca statusHints/lifecycle-verb stripping inventado', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('¿Qué falta por confirmar?', {});
+            expect(r.proposalFocus).toBe('waiting_for_others');
+            expect(r.statusHints).toBeNull();
+        });
+
+        it('saludo/entrada sin señal real ("Hola") -- ninguna señal inventada por el stemming generalizado', async () => {
+            const r = await new DeterministicInputInterpreter().interpret('Hola', {});
+            expect(r.statusHints).toBeNull();
+            expect(r.textQuery).toBeNull();
+            expect(generalContextHasRetrievableSignal(r.textQuery, r.personHints, r.timeExpression, r.wantsOverdueFocus, r.statusHints)).toBe(false);
+        });
+    });
+
+    it('acción histórica ("¿cuándo cancelamos X?") nunca colapsa a filtro de status actual ("compromisos cancelados") -- separación explícita exigida por el ticket', async () => {
+        const historical = await new DeterministicInputInterpreter().interpret('¿Cuándo cancelamos lo de entrenar?', {});
+        expect(historical.statusHints).toBeNull(); // nunca ['cancelled'] -- eso sería el filtro de status ACTUAL, una pregunta distinta
+        expect(historical.textQuery).toBe('entrenar');
+
+        const currentStatusFilter = await new DeterministicInputInterpreter().interpret('¿Qué compromisos cancelados tengo?', {});
+        expect(currentStatusFilter.statusHints).toEqual(['cancelled']); // esta SÍ es la forma adjetivo/status actual -- señal distinta, intencional
     });
 });
 

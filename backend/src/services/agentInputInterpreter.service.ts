@@ -168,7 +168,59 @@ const WRITE_ACTION_KEYWORDS = wordBounded(
     + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
     + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
 );
-const CLOSED_STATUS_KEYWORDS = wordBounded('resuelt[oa]s?|resolved|cerrad[oa]s?|closed|cancelad[oa]s?|cancelled|canceled|rechazad[oa]s?|rejected|complet[ae]\\w*|completed');
+// PING — R-01 CANONICAL LIFECYCLE VERB TABLE (audit finding: "completamos"
+// had short-stem/general conjugation coverage via `complet[ae]\w*` that no
+// sibling closed-status verb received — cancelar/resolver/rechazar had only
+// their adjective/past-participle form, never the equivalent "-amos"
+// indicative form asked in "¿cuándo cancelamos/resolvimos/rechazamos X?").
+// ONE table is the single source of truth for every canonical closed-status
+// verb family (adjective form used for CURRENT-status filtering via
+// CLOSED_STATUS_KEYWORDS/extractStatusHints, "-amos" form used for
+// HISTORICAL-action stripping via LIFECYCLE_HISTORICAL_VERB_KEYWORDS below)
+// — no verb gets a wildcard the others lack, because both regex fragments
+// are derived from the same row, never hand-duplicated per verb.
+// Scope is deliberately exactly the 3 statuses that already have a real
+// adjective/current-status keyword family (resolved/cancelled/rejected,
+// mirroring OPEN_STATUS_KEYWORDS' own scope) — accept/confirm/counter_propose
+// map to 'proposed'/'accepted'/'counter_proposal', which are already covered
+// by OPEN_STATUS_KEYWORDS ("pendiente"/"abierto") as CURRENT-status language;
+// their own "-amos" HISTORICAL form is already handled by the existing,
+// separate CONFIRMATION_CONTROL_WORDS list (M-2 TEST 1 root fix) — reused
+// as-is below, never duplicated into this table.
+interface LifecycleTransitionEntry {
+    status: CanonicalCommitmentStatus;
+    // Forma adjetivo/participio (estado actual) — ES+EN, sin conjugación.
+    adjectiveForms: string;
+    // Forma histórica "-amos"/"-imos" (acción ya ocurrida, primera persona
+    // plural) — ES+EN, la forma con la que se PREGUNTA por algo ya hecho en
+    // conjunto ("¿cuándo cancelamos/resolvimos/rechazamos X?").
+    historicalVerbForms: string;
+}
+const LIFECYCLE_TRANSITION_TABLE: readonly LifecycleTransitionEntry[] = [
+    { status: 'resolved', adjectiveForms: 'resuelt[oa]s?|resolved|cerrad[oa]s?|closed|complet[ae]\\w*|completed', historicalVerbForms: 'completamos|resolvimos|completed|resolved' },
+    { status: 'cancelled', adjectiveForms: 'cancelad[oa]s?|cancelled|canceled', historicalVerbForms: 'cancelamos|reabrimos|cancelled|canceled|reopened' },
+    { status: 'rejected', adjectiveForms: 'rechazad[oa]s?|rejected', historicalVerbForms: 'rechazamos|rejected' },
+];
+const CLOSED_STATUS_KEYWORDS = wordBounded(LIFECYCLE_TRANSITION_TABLE.map((e) => e.adjectiveForms).join('|'));
+// PING — R-01: forma histórica "-amos" para cancelar/resolver/reabrir/
+// rechazar/reasignar (aceptar/confirmar ya cubiertos por
+// CONFIRMATION_CONTROL_WORDS, reutilizado tal cual, nunca duplicado aquí) --
+// derivada de la MISMA tabla que CLOSED_STATUS_KEYWORDS, más "reasignamos"
+// (transición canónica sin adjetivo/status propio, sólo forma histórica).
+const LIFECYCLE_HISTORICAL_VERB_KEYWORDS = wordBounded(
+    LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned',
+);
+function stripLifecycleHistoricalVerbs(text: string): string {
+    const pattern = new RegExp(LIFECYCLE_HISTORICAL_VERB_KEYWORDS.source, 'giu');
+    return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
+}
+// R-01: fragmento ES "-amos" reutilizable por agentContextBuilder.service.ts
+// (MEMORY_EPISODIC_VERBS) para las transiciones que este archivo posee
+// canónicamente (cerrado/cancelado/rechazado + reasignar) -- nunca una
+// segunda lista hand-mantenida en paralelo para esas mismas transiciones.
+// aceptar/confirmar/proponer/hablar quedan fuera a propósito: no son
+// closed-status transitions y agentContextBuilder.service.ts ya los posee.
+export const CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES = 'completamos|resolvimos|cancelamos|reabrimos|rechazamos|reasignamos';
 const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|tell me about');
 
 // Palabras a excluir del textQuery residual — question words, verbos de
@@ -253,6 +305,10 @@ function isControlLanguageOnly(text: string): boolean {
         || COMMITMENT_KEYWORDS.test(tok)
         || OPEN_STATUS_KEYWORDS.test(tok)
         || CLOSED_STATUS_KEYWORDS.test(tok)
+        // R-01: forma histórica "-amos" (cancelamos/resolvimos/reabrimos/
+        // rechazamos/reasignamos) es lenguaje de control tanto como su
+        // forma adjetivo ya cubierta arriba -- mismo principio.
+        || LIFECYCLE_HISTORICAL_VERB_KEYWORDS.test(tok)
     ));
 }
 
@@ -612,17 +668,13 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
     // ningún grupo y el filtro de status quedaba null).
     if (OVERDUE_KEYWORDS.test(input) || OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
     if (CLOSED_STATUS_KEYWORDS.test(input)) {
-        const closed: CanonicalCommitmentStatus[] = [];
-        // "completado"/"completamos"/"completed" es el verbo con el que la
-        // gente describe en lenguaje natural lo que el mobile muestra como
-        // "Completado" -- ese estado de UI/acción es 'resolved' en el
-        // esquema canónico V2 ('completed' dejó de ser un status propio, ver
-        // commitmentStatus.ts). Nunca un status nuevo, sólo otro sinónimo de
-        // 'resolved' junto a "resuelto".
-        if (/resuelt|resolved|complet[ae]\w*|completed/i.test(input)) closed.push('resolved');
-        if (/cancelad|cancell?ed/i.test(input)) closed.push('cancelled');
-        if (/rechazad|rejected/i.test(input)) closed.push('rejected');
-        return closed.length > 0 ? closed : ['resolved', 'cancelled', 'rejected'];
+        // R-01: cada status se prueba contra la MISMA entrada de
+        // LIFECYCLE_TRANSITION_TABLE que ya construyó CLOSED_STATUS_KEYWORDS
+        // -- nunca una segunda lista de regex hand-duplicada por status.
+        const closed = LIFECYCLE_TRANSITION_TABLE
+            .filter((entry) => wordBounded(entry.adjectiveForms).test(input))
+            .map((entry) => entry.status);
+        return closed.length > 0 ? closed : LIFECYCLE_TRANSITION_TABLE.map((entry) => entry.status);
     }
     return null;
 }
@@ -644,6 +696,14 @@ function extractTextQuery(input: string, personHints: string[]): string | null {
     // estructuralmente en statusHints, nunca deben sobrevivir como
     // textQuery (ver stripStatusLanguage).
     cleaned = stripStatusLanguage(cleaned);
+    // R-01: "cancelamos"/"resolvimos"/"reabrimos"/"rechazamos"/"reasignamos"
+    // (forma histórica "-amos", nunca cubierta por stripStatusLanguage/
+    // CLOSED_STATUS_KEYWORDS -- ésas son formas adjetivo/status actual, no
+    // la forma con la que se pregunta por una acción ya ocurrida) tampoco
+    // deben sobrevivir como textQuery, por el mismo principio ya aplicado a
+    // "completamos" arriba y a "aceptamos"/"confirmamos" vía
+    // stripConfirmationControlWords más abajo.
+    cleaned = stripLifecycleHistoricalVerbs(cleaned);
     // M-1H v6: mismo principio para "esperando"/"por aceptar"/"falta que
     // acepte" -- ya capturado estructuralmente en proposalFocus.
     cleaned = stripProposalFocusLanguage(cleaned);
