@@ -35,7 +35,7 @@ import type {
     AgentResponseStatus,
     AgentSynthesisInput,
 } from '../types/agentResponse';
-import type { AgentContext, QueryCardinality } from '../types/agentContext';
+import type { AgentContext } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
 import { formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
@@ -187,25 +187,29 @@ function memoryAgreesWithCanonicalCurrentState(memory: { predicate: string; obje
 // already-resolved canonical target set) and context.memoryFacts/
 // historicalMemoryFacts (unscoped raw evidence) are both in scope
 // simultaneously, right before evidence is frozen into the prompt/allowlist.
-// Reuses the EXISTING queryCardinality signal (already the canonical
-// single-vs-broad distinction in this exact file — see
-// enforceExhaustiveCoverage below, gated the same way on
-// queryCardinality==='exhaustive_list') instead of inventing a new
-// heuristic: 'exhaustive_list' is the only cardinality that means "the user
-// asked for a listing/comparison across multiple items" (see
-// classifyQueryCardinality's own docs — proposalFocus/wantsOverdueFocus/
-// generic commitment_query all map there). Every other cardinality
-// (focused_lookup/summary/count/unknown) names or targets something
-// specific, so when exactly one commitment was canonically resolved for a
-// non-exhaustive_list query, memory belonging to any OTHER commitment_status
-// is off-target by definition, not merely historical -- it is dropped
-// entirely (never sent to the model, never citable), not just disclaimed.
+//
+// M-2 TEST 2B ROOT-CAUSE FIX ("Cuando cancelamos lo de entrenar?" —
+// contaminated with the confirmed proposal's + an unrelated proposal's
+// memory, both matching the word "entrenar", producing 4 recuerdo(s) instead
+// of the 1 real cancellation fact and starving synthesis of a single
+// groundable claim): queryCardinality is an LLM-influenced classification
+// (classifyQueryCardinality can resolve to 'exhaustive_list' from the raw
+// interpretation's intent, e.g. a generic 'commitment_query' instead of
+// 'recall', for a query that is in fact about exactly one resolved
+// commitment). Canonical entity scoping is a Core decision, never one the
+// LLM's own cardinality guess should be able to disable — "LLM suggests,
+// Ping Core decides" (README invariant). commitments.length===1 is already
+// the complete, sufficient signal for "exactly one canonical target was
+// resolved"; queryCardinality adds no additional information to THIS
+// decision and must never suppress it. (queryCardinality keeps its other,
+// legitimate uses elsewhere in this file, e.g. enforceExhaustiveCoverage —
+// only its authority over this single-target memory-scoping decision is
+// removed.)
 function excludeOffTargetCommitmentMemory<T extends { predicate: string }>(
     memories: T[],
     commitments: AgentContext['commitments'],
-    queryCardinality: QueryCardinality,
 ): T[] {
-    if (commitments.length !== 1 || queryCardinality === 'exhaustive_list') return memories;
+    if (commitments.length !== 1) return memories;
     const targetId = commitments[0].id;
     return memories.filter((m) => !m.predicate.startsWith('commitment_status:') || m.predicate.slice('commitment_status:'.length) === targetId);
 }
@@ -270,7 +274,6 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         memory: excludeOffTargetCommitmentMemory(
             [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])],
             context.commitments,
-            context.queryCardinality,
         ).map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
             observedAtLocal: formatEventTimestampInZone(m.observedAt, context.timezone, locale),
