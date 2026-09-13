@@ -2,7 +2,7 @@
 // backend/src/controllers/agent.controller.ts). Deliberately separate from
 // legacy-ai.ts (/ai/ask, ai_messages) -- the two coexist, this file never
 // imports from or writes to the legacy module.
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { apiClient, ApiError } from '../client';
 import { API_URL, getAuthHeaders } from '../client';
@@ -489,11 +489,33 @@ export function useAgentAuthorize() {
     });
 }
 
+// PING — STALE STATE AFTER AGENT EXECUTION FIX: this mutation can create or
+// mutate a commitment, a commitment_proposal, or a message (any of the 5
+// registered write tools -- send_message/create_commitment/
+// respond_to_proposal/reschedule_commitment/complete_commitment), but had
+// NO cache invalidation at all, unlike every other mutating flow in the app
+// (see useCreateCommitment/useCreateSharedCommitmentProposal above, the
+// established pattern this reuses verbatim). Without this, a screen the
+// user navigates to AFTER the agent reports "Acción completada" (Compromisos,
+// Hoy/insights dashboard, the originating chat) could keep showing
+// pre-mutation cached data. Invalidates the same superset of query keys the
+// app's own direct commitment/proposal mutations already invalidate --
+// never a new invalidation concept, just applied where it was missing.
 export function useAgentExecute() {
+    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (authorizationId: string): Promise<AgentExecutionResult> => {
             const raw = await apiClient.post('/agent/execute', { authorizationId });
             return parseAgentExecution(raw);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['insights'] });
+            queryClient.invalidateQueries({ queryKey: ['commitments'] });
+            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
         },
     });
 }
