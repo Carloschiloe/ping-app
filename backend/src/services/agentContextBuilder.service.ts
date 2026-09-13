@@ -178,6 +178,42 @@ async function safeInterpret(interpreter: AgentInputInterpreter, input: string, 
 // budget conservó ítems que el filtro de proposalFocus iba a descartar de
 // todos modos. El budget final se aplica DESPUÉS del filtro estructural (ver
 // buildAgentContext) — sólo concatena y ordena, nunca trunca.
+// PING — M-2 MULTI-ENTITY CONTEXT FIX v2 (physical regression #2, staging
+// c47ffdc): "Cuando completamos lo de entrenar?" still narrated cancelled/
+// rejected/confirmed/accepted evidence as if it answered the completion
+// question, even after the requested-transition guard stopped depending on
+// context.commitments.length===1. Root cause: the guard's replacement
+// (resolveRequestedTransitionTargetCommitment) resolved the target entity
+// FROM the structured lineage of the LLM's OWN claims -- if the model never
+// happened to cite the real commitment directly (citing only the homonym
+// proposal's memory/events instead, which is exactly what a model narrating
+// "confirmado"/"aceptado"/"rechazado" would naturally do), Core had no
+// independent signal of its own and the guard could not act. That made the
+// LLM indirectly authoritative over entity resolution -- exactly the
+// "LLM chooses claims -> claims determine target entity" anti-pattern this
+// ticket's directive forbids. Invariant: "LLM SUGGESTS. PING CORE DECIDES."
+// requires target resolution to happen BEFORE synthesis ever runs, from
+// data Core already deterministically retrieved -- never reconstructed from
+// what the model chose to talk about.
+//
+// resolveRequestedTransitionTarget is the fix: given the FINAL, already
+// merged+filtered+budgeted `commitments` (identical to what synthesis will
+// receive), filters to entityType==='commitment' (a commitment_proposal can
+// never own a CommitmentEventType -- commitment_events is written
+// exclusively by commitment.service.ts#applyCommitmentTransition) and
+// returns that single real commitment's id ONLY when retrieval surfaced
+// EXACTLY one. Zero real commitments (nothing to verify) or more than one
+// (genuine ambiguity between two entities that could each legitimately own
+// the requested transition) both return null -- never guessed, mirroring
+// enforceCanonicalDominance's own "0 or >1 == no adivinar" precedent. Called
+// ONLY when requestedTransition is non-null (an ordinary status query never
+// pays this cost or risks this behavior).
+function resolveRequestedTransitionTarget(commitments: RetrievalCommitment[], requestedTransition: readonly unknown[] | null): string | null {
+    if (!requestedTransition || requestedTransition.length === 0) return null;
+    const realCommitments = commitments.filter((c) => c.entityType === 'commitment');
+    return realCommitments.length === 1 ? realCommitments[0].id : null;
+}
+
 function mergeCommitmentSources(
     commitments: RetrievalCommitment[],
     proposals: RetrievalCommitment[],
@@ -1155,6 +1191,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,
+        requestedTransitionTargetCommitmentId: resolveRequestedTransitionTarget(commitments, interpretation.requestedTransition),
         explicitPersonMention: canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId,
         proposalFocus: interpretation.proposalFocus,
         queryCardinality,

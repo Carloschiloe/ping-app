@@ -650,44 +650,45 @@ export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentCo
 // transition asked about, not just SOME transition of SOME related entity.
 //
 // This guard is the deterministic verifier: given context.requestedTransition
-// (Core-derived, see agentInputInterpreter.service.ts#extractRequestedTransition),
-// resolves the ONE canonical commitment the answer is actually about and
-// checks whether ANY claim actually cites evidence (a commitment_event or a
-// commitment_status memory) that both (a) belongs to that exact commitment
-// (via the SAME structured lineage deriveCommitmentIdFromSourceRef already
-// uses) and (b) represents one of the requested event types. If real
-// matching evidence exists, claims pass through completely unchanged --
-// this guard only ever REPLACES the claim set, never edits/enriches it,
-// exactly when it can prove the requested transition never happened for
-// this entity. It never fires when requestedTransition is null (an ordinary
-// "what is the status of X" question is untouched).
+// (Core-derived, see agentInputInterpreter.service.ts#extractRequestedTransition)
+// and context.requestedTransitionTargetCommitmentId (Core-derived at CONTEXT
+// BUILDING time, see agentContextBuilder.service.ts#resolveRequestedTransitionTarget
+// -- NEVER reconstructed here from claims), checks whether ANY claim actually
+// cites evidence (a commitment_event or a commitment_status memory) that
+// both (a) belongs to that exact commitment (via the SAME structured lineage
+// deriveCommitmentIdFromSourceRef already uses) and (b) represents one of
+// the requested event types. If real matching evidence exists, claims pass
+// through completely unchanged -- this guard only ever REPLACES the claim
+// set, never edits/enriches it, exactly when it can prove the requested
+// transition never happened for this entity. It never fires when
+// requestedTransition is null (an ordinary "what is the status of X"
+// question is untouched), nor when requestedTransitionTargetCommitmentId is
+// null (Core itself could not deterministically resolve a single target --
+// genuine ambiguity or nothing to check, never guessed here either).
 //
-// PING — M-2 MULTI-ENTITY CONTEXT FIX (proven physical regression: staging
-// 81be76a, "Cuando completamos lo de entrenar?"): an earlier version of this
-// guard scoped itself to `context.commitments.length === 1`, mirroring
-// excludeOffTargetCommitmentMemory's precedent. That conflated RETRIEVAL
-// cardinality with CANONICAL ENTITY RESOLUTION -- retrieveCommitmentProposals
-// runs independently of retrieveCommitments and legitimately returns a
-// lexically-similar but semantically DISTINCT entity (the real bug: proposal
-// "Entrenar"/rejected co-retrieved alongside commitment "entrenar"/cancelled,
-// both merged into context.commitments by mergeCommitmentSources), which
-// silently disabled the guard exactly when it mattered most. The fix:
-// resolveRequestedTransitionTargetCommitment below determines the target
-// entity from STRUCTURED EVIDENCE LINEAGE ALREADY PRESENT IN THE MODEL'S OWN
-// CLAIMS (the exact same deriveStructuredCommitmentLineage/
-// deriveCommitmentIdFromSourceRef machinery enforceCanonicalDominance
-// already uses, never a second/conflicting identity system, never lexical
-// title comparison) -- restricted to real `commitment` rows only (never
-// `commitment_proposal`: commitment_events is written exclusively by
-// commitment.service.ts#applyCommitmentTransition, so a CommitmentEventType
-// can never legitimately describe a proposal's lifecycle; a proposal cannot
-// satisfy, nor disable, a commitment-focused requested-transition check).
-// context.commitments.length is never consulted by this guard any more --
-// only how many DISTINCT real commitments the claims' own structured
-// lineage actually implicates. Zero implicated (nothing to verify against)
-// or more than one (genuine unresolved ambiguity) both no-op, exactly like
-// enforceCanonicalDominance's own "0 or >1 candidates == no adivinar" rule --
-// never guessed, never defaulted to the first retrieved row.
+// PING — M-2 MULTI-ENTITY CONTEXT FIX v2 (physical regression #2, PROVEN on
+// staging c47ffdc via real end-to-end trace with the actual LLM interpreter
+// AND synthesizer): the PREVIOUS version of this guard
+// (resolveRequestedTransitionTargetCommitment, since removed) resolved the
+// target entity from the structured lineage of the LLM's OWN claims. That
+// architecture was proven unsafe by the directive for this exact ticket:
+// if the model's claims never happened to cite the real commitment directly
+// (e.g. narrating "confirmado"/"aceptado"/"rechazado" from evidence that
+// only structurally resolves to the homonym proposal, or from evidence Core
+// could not derive lineage for at all), Core had ZERO independent signal of
+// its own to know which canonical entity the user actually asked about --
+// making the LLM indirectly authoritative over entity resolution. That is
+// exactly the "LLM chooses claims -> claims determine target entity"
+// anti-pattern the invariant "LLM SUGGESTS. PING CORE DECIDES." forbids.
+// The fix moves target resolution OUT of synthesis entirely and into
+// context building (deterministic, runs before ANY LLM call, using the
+// exact same final `commitments` array synthesis will receive) -- this
+// guard now only ever READS the already-resolved
+// context.requestedTransitionTargetCommitmentId, never derives identity
+// from claims. Order is now the one the ticket's directive requires:
+// user query -> deterministic requestedTransition -> deterministic focused
+// entity resolution -> canonical target E -> canonical transition evidence
+// for E -> LLM synthesis -> deterministic verification -> truthful answer.
 const REQUESTED_TRANSITION_STATUS_EQUIVALENTS: Record<string, readonly string[]> = {
     resolved: ['action_completed', 'resolved'],
     cancelled: ['cancelled'],
@@ -708,76 +709,17 @@ function buildTransitionAbsenceClaim(commitment: AgentContext['commitments'][num
     return { text, sourceRefs: [ref] };
 }
 
-// Resuelve la ÚNICA entidad commitment real (nunca commitment_proposal) que
-// el linaje estructurado de los claims YA implica -- reutiliza exactamente
-// deriveStructuredCommitmentLineage (mismo mecanismo que
-// enforceCanonicalDominance) en vez de inventar una segunda forma de
-// resolver identidad. Une el linaje de TODOS los claims (a diferencia de
-// enforceCanonicalDominance, que evalúa candidateClaims uno por uno para
-// decidir A QUIÉN enriquecer, este guard sólo necesita saber CUÁNTAS
-// entidades commitment distintas está discutiendo la respuesta en total).
-// Filtra a `entityType==='commitment'` explícitamente -- commitment_events
-// se escribe EXCLUSIVAMENTE por commitment.service.ts#applyCommitmentTransition
-// (ver auditoría de esta sesión), así que un commitment_proposal jamás puede
-// legítimamente aparecer como dueño de un CommitmentEventType; incluirlo
-// aquí sería exactamente el bug original (la proposal "Entrenar"/rejected
-// disfrazándose de evidencia sobre el commitment "entrenar"). Devuelve null
-// tanto para "cero implicadas" (nada que verificar) como para "más de una"
-// (ambigüedad genuina) -- ambos casos deben desactivar el guard, nunca
-// adivinar cuál es la real (mismo principio "0 o >1 == no adivinar" que
-// enforceCanonicalDominance ya aplica para su propio fallback léxico).
-function resolveRequestedTransitionTargetCommitment(claims: AgentClaim[], context: AgentContext): AgentContext['commitments'][number] | null {
-    // Filtra a entityType==='commitment' PRIMERO, antes de cualquier conteo
-    // de ambigüedad -- una commitment_proposal (aunque comparta título/texto
-    // con un claim, aunque el modelo la cite directamente) nunca participa
-    // ni de "cuántas entidades reales hay" ni de "cuál es el target": no
-    // puede legítimamente poseer un CommitmentEventType (commitment_events
-    // sólo lo escribe commitment.service.ts#applyCommitmentTransition), así
-    // que estructuralmente no puede satisfacer NI desactivar este guard.
-    const realCommitments = context.commitments.filter((c) => c.entityType === 'commitment');
-    if (realCommitments.length === 0) return null;
-    const commitmentById = new Map(realCommitments.map((c) => [c.id, c]));
-
-    const implicatedIds = new Set<string>();
-    for (const claim of claims) {
-        for (const id of deriveStructuredCommitmentLineage(claim, context)) {
-            if (commitmentById.has(id)) implicatedIds.add(id);
-        }
-        // Una cita DIRECTA a un commitment (sourceType:'commitment') ya es
-        // linaje estructurado por definición -- deriveCommitmentIdFromSourceRef
-        // ya la cubre (devuelve ref.sourceId tal cual para 'commitment'), pero
-        // se deja explícito aquí para que quede claro que una cita directa a
-        // una commitment_proposal NUNCA cuenta como linaje hacia un commitment,
-        // ni siquiera si esa proposal comparte id/título con nada -- son
-        // namespaces de id distintos, nunca se confunden por construcción.
-    }
-    // >1 commitment REAL implicado por el linaje de los claims -- ambigüedad
-    // genuina entre dos entidades que SÍ podrían legítimamente poseer la
-    // transición pedida; nunca se adivina cuál. (Una proposal nunca puede
-    // aportar a este conteo, por el filtro de arriba -- ver invariante del
-    // ticket: "presence of unrelated candidate entities must NOT disable
-    // verification".)
-    if (implicatedIds.size > 1) return null;
-    if (implicatedIds.size === 1) {
-        const [onlyId] = implicatedIds;
-        return commitmentById.get(onlyId) ?? null;
-    }
-    // Ningún claim tiene linaje estructurado hacia NINGÚN commitment real
-    // (ej. sólo cita un commitment_event/memory de una entidad ajena, o
-    // ninguna evidencia tipada en absoluto) -- si exactamente UN commitment
-    // real existe en el contexto retrieval y ninguna cita lo contradice
-    // apuntando a otro, ese es el target inequívoco (la cardinalidad de
-    // RETRIEVAL para proposals nunca cuenta aquí, por diseño de este
-    // ticket). Más de un commitment real sin ningún linaje que los
-    // distinga sí sigue siendo ambigüedad genuina -- nunca se adivina cuál.
-    return realCommitments.length === 1 ? realCommitments[0] : null;
-}
-
 export function enforceRequestedTransitionEvidence(claims: AgentClaim[], context: AgentContext, evidence: SerializedEvidence, language: 'es' | 'en'): AgentClaim[] {
     if (!context.requestedTransition || context.requestedTransition.length === 0) return claims;
     if (claims.length === 0) return claims;
-    const commitment = resolveRequestedTransitionTargetCommitment(claims, context);
-    if (!commitment) return claims; // 0 o >1 commitment real implicado -- ambigüedad genuina o nada que verificar, nunca adivina
+    // Target ya resuelto DETERMINÍSTICAMENTE en context building -- nunca
+    // reconstruido aquí a partir de las citas de los claims (ver el header
+    // de este bloque). null = Core no pudo resolver un único commitment real
+    // (cero o más de uno) -- ambigüedad genuina o nada que verificar, este
+    // guard nunca adivina.
+    if (!context.requestedTransitionTargetCommitmentId) return claims;
+    const commitment = context.commitments.find((c) => c.id === context.requestedTransitionTargetCommitmentId && c.entityType === 'commitment');
+    if (!commitment) return claims; // defensivo: el id resuelto siempre debería estar en context.commitments, pero nunca se inventa una entidad si no lo está
     const eventTypes = context.requestedTransition;
 
     const hasMatchingEvidence = claims.some((claim) => claim.sourceRefs.some((ref) => {

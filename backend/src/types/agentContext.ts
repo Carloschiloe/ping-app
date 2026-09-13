@@ -240,6 +240,24 @@ export interface AgentContext {
     // síntesis pueda verificar evidencia sin re-derivar el verbo de texto
     // libre.
     requestedTransition: readonly CommitmentEventType[] | null;
+    // PING — M-2 MULTI-ENTITY CONTEXT FIX v2 (physical regression #2, proven
+    // on staging c47ffdc): la entidad canónica objetivo de requestedTransition
+    // DEBE resolverse determinísticamente en CONTEXT BUILDING -- nunca a
+    // partir del linaje estructurado de los claims que el LLM produjo (eso
+    // seguía dejando al LLM indirectamente autoritativo sobre resolución de
+    // entidad: si el modelo nunca cita el commitment real, o cita únicamente
+    // evidencia ajena/de la proposal, Core no tenía ninguna señal propia,
+    // independiente del modelo, para saber cuál era el commitment real
+    // preguntado). Ver agentContextBuilder.service.ts#resolveRequestedTransitionTarget
+    // -- el ÚNICO commitment real (entityType==='commitment', nunca
+    // commitment_proposal) presente en `commitments` ya filtrado/mergeado,
+    // cuando y sólo cuando hay EXACTAMENTE uno. null cuando no hay
+    // requestedTransition, cuando no hay ningún commitment real, o cuando
+    // hay más de uno (ambigüedad genuina -- nunca se adivina cuál). La
+    // síntesis (enforceRequestedTransitionEvidence) usa este id
+    // DIRECTAMENTE, nunca reconstruye una segunda resolución de identidad a
+    // partir de los claims.
+    requestedTransitionTargetCommitmentId: string | null;
     // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 1/3)
     // — señal canónica EXPLÍCITA del AgentQueryPlan: true sólo si el input
     // crudo realmente contiene una referencia textual a una persona (ver

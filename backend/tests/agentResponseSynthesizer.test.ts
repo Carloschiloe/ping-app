@@ -41,6 +41,7 @@ function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
         capabilityGaps: [],
         retrievalPlan: [],
         requestedTransition: null,
+        requestedTransitionTargetCommitmentId: null,
         ...overrides,
     };
 }
@@ -1943,6 +1944,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [entrenarCommitment()] as any, events: [cancelEvent()] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
             timezone: 'America/Santiago',
         });
         const model = fakeModel(claimPayload([{
@@ -1982,6 +1984,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
             commitments: [realCommitment, homonymProposal] as any, // AMBAS entidades, exactamente como en producción
             events: [cancelEvt] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
             timezone: 'America/Santiago',
         });
         // Reproduce el patrón real de 4 claims/4 fuentes reportado
@@ -2010,6 +2013,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [entrenarCommitment()] as any, events: [cancelEvent()] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['cancelled'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
             timezone: 'America/Santiago',
         });
         const model = fakeModel(claimPayload([{
@@ -2039,6 +2043,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [realCommitment, homonymProposal] as any, events: [cancelEvt] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['cancelled'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
             timezone: 'America/Santiago',
         });
         const model = fakeModel(claimPayload([{
@@ -2062,7 +2067,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
     it('proposal rechazada NUNCA satisface una transición commitment-pedida, ni siquiera citada directamente como si fuera evidencia de completado', () => {
         const realCommitment = commitment('cm-real', { title: 'entrenar', status: 'cancelled' });
         const homonymProposal = proposal('prop-1', { title: 'Entrenar', status: 'rejected' });
-        const ctx = baseContext({ commitments: [realCommitment, homonymProposal] as any, requestedTransition: ['action_completed', 'resolved'] });
+        const ctx = baseContext({ commitments: [realCommitment, homonymProposal] as any, requestedTransition: ['action_completed', 'resolved'], requestedTransitionTargetCommitmentId: 'cm-real' });
         const claims = [
             { text: 'El compromiso "entrenar" está cancelado.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-real' }] },
             { text: 'Se completó según la propuesta.', sourceRefs: [{ sourceType: 'commitment_proposal' as const, sourceId: 'prop-1' }] },
@@ -2092,6 +2097,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [spidermanCommitment] as any, events: [resolvedEvent] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: 'spiderman-id',
             timezone: 'America/Santiago',
         });
         const model = fakeModel(claimPayload([{
@@ -2114,6 +2120,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [spidermanCommitment] as any, historicalMemoryFacts: [mem] as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: 'spiderman-id',
             timezone: 'America/Santiago',
         });
         const model = fakeModel(claimPayload([{
@@ -2130,10 +2137,17 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
     // Ítem 7 de la matriz de este ticket: la línea base Spiderman debe
     // seguir resolviendo SÓLO "Ver Spiderman" incluso con la entidad
     // ajena "Spiderman el Viernes" (cancelled, comparte la palabra léxica
-    // "Spiderman") presente en el mismo context.commitments -- prueba que
-    // el fix de conteo de ambigüedad (filtra por linaje, no por título) no
-    // reintroduce la contaminación cruzada que 6d242f0 ya había resuelto.
-    it('3c. Spiderman con la entidad ajena "Spiderman el Viernes" (cancelled) también presente en context.commitments -- el guard resuelve "Ver Spiderman" vía linaje estructurado, la entidad ajena nunca contamina', async () => {
+    // "Spiderman") presente en el mismo context.commitments. Con 2
+    // commitments REALES presentes, resolveRequestedTransitionTarget (context
+    // building, v2 del fix) no puede resolver un target único -- deja
+    // requestedTransitionTargetCommitmentId=null a propósito (nunca
+    // configurado aquí) y ESTE guard correctamente no interviene. La
+    // corrección sigue viniendo de enforceCanonicalDominance (6d242f0):
+    // el claim del modelo ya cita evt-resolved-sp con linaje estructurado
+    // exclusivo hacia "Ver Spiderman", así que pasa intacto sin que
+    // "Spiderman el Viernes" contamine nada -- prueba que ambos guards
+    // coexisten en capas sin regresión.
+    it('3c. Spiderman con la entidad ajena "Spiderman el Viernes" (cancelled) también presente en context.commitments -- requestedTransitionTargetCommitmentId queda null (2 reales, ambigüedad genuina para ESTE guard), enforceCanonicalDominance sigue resolviendo correctamente vía linaje', async () => {
         const spidermanCommitment = commitment('spiderman-id', { title: 'Ver Spiderman', status: 'resolved' });
         const unrelatedFriday = commitment('spiderman-friday-id', { title: 'Spiderman el Viernes', status: 'cancelled' });
         const resolvedEvent = retrievalEvent('evt-resolved-sp', {
@@ -2167,6 +2181,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const ctx = baseContext({
             evidenceFound: true, commitments: [c] as any, events: resolvedThenReopened as any,
             queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: 'cm-x',
         });
         const model = fakeModel(claimPayload([{ text: 'Se completó el 10 de septiembre.', sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-r' }] }]));
         const synthesizer = new LlmResponseSynthesizer({ model });
@@ -2179,7 +2194,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
     it('5. transición pedida nunca ocurrió pero OTRA transición sí (mismo commitment) -- ausencia, nunca sustitución (matriz ítem 5)', () => {
         const c = commitment('cm-x', { title: 'entrenar', status: 'rejected' });
         const rejectedEvent = retrievalEvent('evt-rej', { commitmentId: 'cm-x', eventType: 'rejected', newStatus: 'rejected' });
-        const ctx = baseContext({ commitments: [c] as any, events: [rejectedEvent] as any, requestedTransition: ['cancelled'] });
+        const ctx = baseContext({ commitments: [c] as any, events: [rejectedEvent] as any, requestedTransition: ['cancelled'], requestedTransitionTargetCommitmentId: 'cm-x' });
         const claims = [{ text: 'Se rechazó.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-rej' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }, { sourceType: 'commitment_event' as const, sourceId: 'evt-rej' }] } as any;
 
@@ -2193,7 +2208,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const c = commitment('cm-real', { title: 'entrenar', status: 'cancelled' });
         // evento perteneciente a OTRO commitment (simulando la proposal "Entrenar" rechazada, entidad distinta) -- deriveCommitmentIdFromSourceRef debe descartarlo por no pertenecer a cm-real.
         const otherEntityEvent = retrievalEvent('evt-other', { commitmentId: 'proposal-distinta-id', eventType: 'resolved', newStatus: 'resolved' });
-        const ctx = baseContext({ commitments: [c] as any, events: [otherEntityEvent] as any, requestedTransition: ['action_completed', 'resolved'] });
+        const ctx = baseContext({ commitments: [c] as any, events: [otherEntityEvent] as any, requestedTransition: ['action_completed', 'resolved'], requestedTransitionTargetCommitmentId: 'cm-real' });
         const claims = [{ text: 'Se completó.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-other' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-real' }, { sourceType: 'commitment_event' as const, sourceId: 'evt-other' }] } as any;
 
@@ -2205,7 +2220,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
     it('7. memoria stale reclama la transición pedida pero el evento canónico NO la respalda -- no fabrica una respuesta positiva desde memoria sola cuando el predicate no representa esa transición (matriz ítem 8)', () => {
         const c = commitment('cm-x', { title: 'entrenar', status: 'cancelled' });
         const staleMemory = memoryFact('mem-stale', { predicate: 'commitment_status:cm-x', objectValue: 'resolved', isCurrent: false });
-        const ctx = baseContext({ commitments: [c] as any, historicalMemoryFacts: [staleMemory] as any, requestedTransition: ['cancelled'] });
+        const ctx = baseContext({ commitments: [c] as any, historicalMemoryFacts: [staleMemory] as any, requestedTransition: ['cancelled'], requestedTransitionTargetCommitmentId: 'cm-x' });
         const claims = [{ text: 'Se completó según lo que recuerdo.', sourceRefs: [{ sourceType: 'memory' as const, sourceId: 'mem-stale' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }, { sourceType: 'memory' as const, sourceId: 'mem-stale' }] } as any;
 
@@ -2216,7 +2231,7 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
 
     it('8. due_at plausible para la transición pedida pero SIN evento -- nunca sustituye due_at por evidencia de ocurrencia (matriz ítem 11)', () => {
         const c = commitment('cm-x', { title: 'entrenar', status: 'accepted', dueAt: '2026-09-11T11:00:00Z' });
-        const ctx = baseContext({ commitments: [c] as any, events: [], requestedTransition: ['action_completed', 'resolved'] });
+        const ctx = baseContext({ commitments: [c] as any, events: [], requestedTransition: ['action_completed', 'resolved'], requestedTransitionTargetCommitmentId: 'cm-x' });
         const claims = [{ text: 'Debía completarse el 11 de septiembre.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] } as any;
 
@@ -2234,18 +2249,43 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
     });
 
-    // PING — M-2 MULTI-ENTITY CONTEXT FIX: más de un commitment REAL presente
-    // en context.commitments ya NO desactiva el guard por sí solo -- si los
-    // claims del modelo tienen linaje estructurado hacia exactamente UNO de
-    // ellos (aquí, 'cm-1', vía cita directa 'commitment'), ese es el target
-    // inequívoco y la verificación SÍ corre. La cardinalidad de retrieval
-    // (cuántas filas trajo la query) nunca es lo mismo que "cuál entidad
-    // resolvió el linaje estructurado" -- el segundo commitment ('cm-2') es
-    // simplemente irrelevante para esta pregunta, ninguna cita lo menciona.
-    it('10a. más de un commitment real en contexto, pero el linaje estructurado de los claims resuelve exactamente UNO -- el guard SÍ verifica ese, el otro commitment presente es simplemente irrelevante', () => {
+    // PING — M-2 MULTI-ENTITY CONTEXT FIX v2 (physical regression #2):
+    // ARQUITECTURALMENTE, este guard YA NO decide "cuál es el target" a
+    // partir de qué cita el claim del modelo -- ese fue precisamente el
+    // anti-patrón que causó la regresión física #2 (el LLM, al no citar el
+    // commitment real, dejaba a Core sin ninguna señal propia). Con 2
+    // commitments reales presentes en retrieval y SIN una resolución
+    // determinística de context building (requestedTransitionTargetCommitmentId
+    // nunca configurado aquí -> null), este guard correctamente NO
+    // interviene, incluso si por casualidad UN claim cita 'cm-1'
+    // directamente -- la cardinalidad de retrieval (2 commitments reales)
+    // es exactamente la señal que hace esto ambiguo para el CONTEXT
+    // BUILDER, y esa decisión nunca se reconstruye aquí a partir de qué
+    // citó el modelo.
+    it('10a. más de un commitment real en contexto, sin resolución determinística de context building (requestedTransitionTargetCommitmentId=null) -- el guard nunca interviene, sin importar qué haya citado el claim del modelo', () => {
         const ctx = baseContext({
             commitments: [commitment('cm-1', { title: 'entrenar', status: 'accepted' }), commitment('cm-2', { title: 'estudiar', status: 'accepted' })] as any,
             requestedTransition: ['resolved'],
+        });
+        const claims = [{ text: 'Está aceptado.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] }];
+        const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] } as any;
+
+        expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
+    });
+
+    // Complemento de 10a: cuando context building SÍ resolvió un target
+    // determinístico (exactamente 1 commitment real existe en retrieval),
+    // el guard verifica ese target normalmente incluso si OTRO commitment
+    // (ej. una proposal, o un segundo commitment de una consulta distinta
+    // que igual terminó en el mismo context por alguna otra razón legítima)
+    // también está presente -- el punto de v2 es que la RESOLUCIÓN es
+    // siempre determinística, nunca que "más de una entidad presente"
+    // deba implicar sospecha perpetua.
+    it('10a-bis. exactamente 1 commitment real (requestedTransitionTargetCommitmentId resuelto por context building) -- el guard SÍ verifica normalmente, ausencia real produce ausencia', () => {
+        const ctx = baseContext({
+            commitments: [commitment('cm-1', { title: 'entrenar', status: 'accepted' })] as any,
+            requestedTransition: ['resolved'],
+            requestedTransitionTargetCommitmentId: 'cm-1',
         });
         const claims = [{ text: 'Está aceptado.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] } as any;

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DeterministicInputInterpreter } from '../src/services/agentInputInterpreter.service';
 import type { BuildAgentContextOptions } from '../src/services/agentContextBuilder.service';
 import type { AgentContextInput } from '../src/types/agentContext';
+import { synthesizeAgentResponse, type AgentSynthesisModel } from '../src/services/agentResponseSynthesizer.service';
 
 // IMPORTANTE (M-1D.1): buildAgentContext ahora usa LlmInputInterpreter como
 // intérprete PRIMARIO por defecto, que llamaría a la red real de OpenAI si
@@ -726,6 +727,150 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
 
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'entrenar' }), expect.any(Number));
         expect(ctx.commitments).toHaveLength(1);
+    });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PING — M-2 MULTI-ENTITY CONTEXT FIX v2: INTEGRATION-LEVEL regression
+    // for the second proven physical failure (staging c47ffdc physically
+    // FAILED "Cuando completamos lo de entrenar?" with the exact same
+    // cancelled/rejected/confirmed/accepted contamination the first fix was
+    // supposed to have eliminated). Root cause proven by real end-to-end
+    // tracing (real LlmInputInterpreter + real LlmResponseSynthesizer):
+    // the PREVIOUS guard resolved its target entity from the structured
+    // lineage of the LLM's OWN claims -- an architecture this ticket's
+    // directive explicitly forbids ("LLM chooses claims -> claims determine
+    // target entity" makes the LLM indirectly authoritative over entity
+    // resolution, violating "LLM SUGGESTS. PING CORE DECIDES."). This suite
+    // exercises the REAL pipeline -- interpreter -> buildAgentContext
+    // (real merge of commitment + proposal candidates via
+    // mergeCommitmentSources, exactly as retrieveCommitments/
+    // retrieveCommitmentProposals independently return in production) ->
+    // synthesizeAgentResponse -- never just the isolated guard helper, so a
+    // regression in how context building wires requestedTransitionTargetCommitmentId
+    // would be caught here even if the guard's own unit tests still passed.
+    // ═══════════════════════════════════════════════════════════════════
+    describe('M-2 MULTI-ENTITY CONTEXT FIX v2: real pipeline integration -- interpreter + context building (commitment/proposal merge) + synthesis', () => {
+        const REAL_COMMITMENT_ID = '9e39edeb-d7b0-467d-9073-f0848251c7d3';
+        const HOMONYM_PROPOSAL_ID = '0d718396-bab7-424a-834f-24ab19630f8b';
+
+        function realCommitmentFixture(overrides: Partial<Record<string, any>> = {}) {
+            return commitmentFixture({
+                id: REAL_COMMITMENT_ID, title: 'entrenar', status: 'cancelled',
+                dueAt: '2026-09-11T11:00:00Z', createdAt: '2026-09-10T16:34:46.819Z',
+                provenance: { sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID },
+                ...overrides,
+            });
+        }
+        function homonymProposalFixture(overrides: Partial<Record<string, any>> = {}) {
+            return proposalFixture({
+                id: HOMONYM_PROPOSAL_ID, title: 'Entrenar', status: 'rejected',
+                provenance: { sourceType: 'commitment_proposal', sourceId: HOMONYM_PROPOSAL_ID, commitmentId: null },
+                ...overrides,
+            });
+        }
+
+        it('1. "Cuando completamos lo de entrenar?" against real mixed retrieval (commitment cancelled + homonym proposal rejected, real historical memories for accepted/confirmed/cancelled/rejected) -> truthful absence, NEVER cancellation/rejection/confirmation/acceptance narrated as completion', async () => {
+            const createdEvent = { id: 'evt-created', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'created', previousStatus: null, newStatus: 'accepted', createdAt: '2026-09-10T16:34:46.819Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-created' } };
+            const cancelledEvent = { id: 'evt-cancelled', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'cancelled', previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.390Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' } };
+            const memAccepted = { id: 'mem-accepted', memoryType: 'episodic' as const, subjectPersonId: null, subjectContactId: null, canonicalText: 'El compromiso "entrenar" fue aceptado.', predicate: `commitment_status:${REAL_COMMITMENT_ID}`, objectValue: 'accepted', observedAt: '2026-09-10T16:34:46.819Z', validFrom: null, validUntil: null, status: 'active' as const, isCurrent: false, supersededBy: null, confidence: 1, sensitivity: 'normal' as const, evidenceRefs: [], sourceType: 'commitment' as const, sourceId: REAL_COMMITMENT_ID, conversationId: null };
+            const memCancelled = { ...memAccepted, id: 'mem-cancelled', canonicalText: 'El compromiso "entrenar" fue cancelado.', objectValue: 'cancelled', observedAt: '2026-09-11T14:43:49.390Z' };
+            const memConfirmed = { id: 'mem-confirmed', memoryType: 'episodic' as const, subjectPersonId: null, subjectContactId: null, canonicalText: 'La propuesta "Entrenar" fue confirmada.', predicate: `commitment_status:${HOMONYM_PROPOSAL_ID}`, objectValue: 'accepted', observedAt: '2026-09-10T13:34:00.000Z', validFrom: null, validUntil: null, status: 'active' as const, isCurrent: false, supersededBy: null, confidence: 1, sensitivity: 'normal' as const, evidenceRefs: [], sourceType: 'commitment_proposal' as const, sourceId: HOMONYM_PROPOSAL_ID, conversationId: null };
+            const memRejected = { ...memConfirmed, id: 'mem-rejected', canonicalText: 'La propuesta "Entrenar" fue rechazada.', objectValue: 'rejected', observedAt: '2026-09-11T14:40:03.000Z' };
+
+            mockRetrieveCommitments.mockResolvedValue([realCommitmentFixture()] as any);
+            mockRetrieveCommitmentProposals.mockResolvedValue([homonymProposalFixture()] as any);
+            mockRetrieveCommitmentEvents.mockResolvedValue([createdEvent, cancelledEvent] as any);
+            mockRetrieveMemory.mockResolvedValue([memAccepted, memCancelled, memConfirmed, memRejected] as any);
+
+            const phrase = 'Cuando completamos lo de entrenar?';
+            const context = await withDeterministicInterpreter({ actorUserId: 'u1', input: phrase, conversationId: 'conv-1' });
+
+            // Context-building-level assertions -- the deterministic target
+            // resolution must have already happened HERE, before any LLM
+            // synthesis call.
+            expect(context.requestedTransition).toEqual(['action_completed', 'resolved']);
+            expect(context.commitments.map((c: any) => ({ id: c.id, entityType: c.entityType }))).toEqual([
+                { id: REAL_COMMITMENT_ID, entityType: 'commitment' },
+                { id: HOMONYM_PROPOSAL_ID, entityType: 'commitment_proposal' },
+            ]);
+            expect((context as any).requestedTransitionTargetCommitmentId).toBe(REAL_COMMITMENT_ID);
+
+            // Reproduces the EXACT physical contamination pattern the model
+            // produced on staging c47ffdc: 4 claims, narrating cancellation/
+            // rejection/confirmation/acceptance as if any answered the
+            // completion question, citing the historical memories above.
+            const claimPayload = JSON.stringify({
+                claims: [
+                    { text: 'El compromiso "entrenar" fue cancelado el 11 de septiembre de 2026 a las 11:43.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-cancelled' }] },
+                    { text: 'El compromiso "Entrenar" fue rechazado el 11 de septiembre de 2026 a las 11:40.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-rejected' }] },
+                    { text: 'El compromiso "entrenar" fue confirmado el 10 de septiembre de 2026 a las 13:34.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-confirmed' }] },
+                    { text: 'El compromiso "entrenar" fue aceptado el 10 de septiembre de 2026 a las 13:34.', sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-accepted' }] },
+                ],
+            });
+            const model: AgentSynthesisModel = { modelName: 'fake', synthesize: vi.fn(async () => claimPayload) };
+            const response = await synthesizeAgentResponse({ input: phrase, context }, { model });
+
+            expect(response.status).toBe('answered');
+            const answer = (response as any).answer as string;
+            expect(answer).not.toMatch(/cancel/i);
+            expect(answer).not.toMatch(/rechaz/i);
+            expect(answer).not.toMatch(/confirm/i);
+            expect(answer).not.toMatch(/acept/i);
+            expect(answer.toLowerCase()).toMatch(/no encuentro evidencia/);
+            expect((response as any).citations).toEqual([{ sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID }]);
+        });
+
+        it('2. mandatory regression: "Cuando cancelamos lo de entrenar?" against the SAME mixed retrieval -- cancellation semantics preserved (11 Sep 2026 11:43)', async () => {
+            const cancelledEvent = { id: 'evt-cancelled', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'cancelled', previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.390Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' } };
+
+            mockRetrieveCommitments.mockResolvedValue([realCommitmentFixture()] as any);
+            mockRetrieveCommitmentProposals.mockResolvedValue([homonymProposalFixture()] as any);
+            mockRetrieveCommitmentEvents.mockResolvedValue([cancelledEvent] as any);
+            mockRetrieveMemory.mockResolvedValue([] as any);
+
+            const phrase = 'Cuando cancelamos lo de entrenar?';
+            const context = await withDeterministicInterpreter({ actorUserId: 'u1', input: phrase, conversationId: 'conv-1' });
+            expect((context as any).requestedTransitionTargetCommitmentId).toBe(REAL_COMMITMENT_ID);
+
+            const claimPayload = JSON.stringify({
+                claims: [{ text: 'Cancelamos el compromiso "entrenar" el 11 de septiembre de 2026 a las 11:43.', sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-cancelled' }] }],
+            });
+            const model: AgentSynthesisModel = { modelName: 'fake', synthesize: vi.fn(async () => claimPayload) };
+            const response = await synthesizeAgentResponse({ input: phrase, context }, { model });
+
+            expect(response.status).toBe('answered');
+            expect((response as any).answer).toMatch(/cancel/i);
+            expect((response as any).answer).toMatch(/11:43/);
+        });
+
+        it('3. mandatory regression: "Cuando completamos lo de ver Spiderman?" -- resolves ONLY "Ver Spiderman" (resolved, 10 Sep 2026 22:33), unrelated "Spiderman el Viernes" excluded', async () => {
+            const spidermanCommitment = commitmentFixture({ id: 'spiderman-id', title: 'Ver Spiderman', status: 'resolved', provenance: { sourceType: 'commitment', sourceId: 'spiderman-id' } });
+            const unrelatedFriday = commitmentFixture({ id: 'spiderman-friday-id', title: 'Spiderman el Viernes', status: 'cancelled', provenance: { sourceType: 'commitment', sourceId: 'spiderman-friday-id' } });
+            const resolvedEvent = { id: 'evt-resolved', commitmentId: 'spiderman-id', actorUserId: 'u1', eventType: 'resolved', previousStatus: 'accepted', newStatus: 'resolved', createdAt: '2026-09-11T01:33:00.000Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' } };
+
+            mockRetrieveCommitments.mockResolvedValue([spidermanCommitment, unrelatedFriday] as any);
+            mockRetrieveCommitmentEvents.mockResolvedValue([resolvedEvent] as any);
+
+            const phrase = 'Cuando completamos lo de ver Spiderman?';
+            const context = await withDeterministicInterpreter({ actorUserId: 'u1', input: phrase, conversationId: 'conv-1' });
+            // 2 commitments reales presentes -- resolución determinística de
+            // ESTE guard queda null a propósito (ambigüedad genuina para él),
+            // exactamente como el caso 3c del suite del synthesizer;
+            // enforceCanonicalDominance (6d242f0) sigue siendo quien
+            // realmente evita la contaminación aquí vía linaje estructurado.
+            expect((context as any).requestedTransitionTargetCommitmentId).toBeNull();
+
+            const claimPayload = JSON.stringify({
+                claims: [{ text: 'Completamos "Ver Spiderman" el 10 de septiembre de 2026 a las 22:33.', sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-resolved' }] }],
+            });
+            const model: AgentSynthesisModel = { modelName: 'fake', synthesize: vi.fn(async () => claimPayload) };
+            const response = await synthesizeAgentResponse({ input: phrase, context }, { model });
+
+            expect(response.status).toBe('answered');
+            expect((response as any).answer).toMatch(/complet/i);
+            expect((response as any).answer).not.toMatch(/viernes/i);
+            expect((response as any).citations.some((c: any) => c.sourceId === 'spiderman-friday-id')).toBe(false);
+        });
     });
 
     it('LLM textQuery=null para una consulta NO histórica normal SÍ puede seguir corriendo sin filtro (comportamiento previo intacto, este fix está acotado a isHistoricalLifecycleQuery)', async () => {
