@@ -122,6 +122,25 @@ export function describeCitationTypes(citations: AgentCitation[] | undefined): s
     return citations.map((c) => CITATION_TYPE_LABELS[c.sourceType] ?? 'Fuente');
 }
 
+// PING — STATUS COLLAPSE FIX: AgentResponseStatus was captured on the chat
+// message (appendAgentMessage above) but never read at render time --
+// 'answered'/'no_evidence'/'capability_gap' all rendered through the exact
+// same generic bubble, indistinguishable from each other. This can
+// misrepresent an explicit absence-of-evidence or capability-gap response
+// as an ordinary confident answer -- exactly the truthfulness gap this
+// backend's own synthesis pipeline goes to great lengths to avoid
+// server-side (see agentResponseSynthesizer.service.ts's deterministic
+// no_evidence/capability_gap templates), undone by collapsing it back to
+// one bubble client-side. 'answered' intentionally returns null (the
+// normal case needs no extra label) -- only genuinely non-confident
+// statuses get one, same convention as isClarification/isUnsupported's
+// existing turnLabel treatment right above this in AgentPreviewScreen.tsx.
+export function describeStatusLabel(status: AgentResponseStatus | undefined): string | null {
+    if (status === 'no_evidence') return 'Sin evidencia suficiente';
+    if (status === 'capability_gap') return 'Esto todavía no lo puedo hacer';
+    return null;
+}
+
 export const AGENT_SUGGESTED_STARTERS = [
     '¿Qué pendientes tengo esta semana?',
     '¿Qué habíamos hablado del viaje?',

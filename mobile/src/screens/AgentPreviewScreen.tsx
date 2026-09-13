@@ -18,7 +18,7 @@ import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
     appendExecutionMessage, appendUserMessage,
-    canSendInput, describeCitationsSummary, describeCitationTypes, type AgentChatMessage,
+    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -201,6 +201,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const renderItem = ({ item }: { item: AgentChatMessage }) => {
         const isUser = item.role === 'user';
         const citationsSummary = describeCitationsSummary(item.citations);
+        const statusLabel = describeStatusLabel(item.status);
         const isPlanCard = !!item.planPresentation && !!item.rawPlan;
         const isExecutionCard = !!item.executionResult && !!item.executionPresentation;
         const isActivePlan = isPlanCard
@@ -229,6 +230,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                         <>
                             {item.isClarification && <Text style={styles.turnLabel}>Necesito aclarar algo</Text>}
                             {item.isUnsupported && <Text style={styles.turnLabel}>Esta acción aún no está disponible</Text>}
+                            {!item.isClarification && !item.isUnsupported && statusLabel && <Text style={styles.turnLabel}>{statusLabel}</Text>}
                             <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
                         </>
                     )}

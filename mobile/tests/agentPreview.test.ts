@@ -51,7 +51,7 @@ import {
 } from '../src/api/query-modules/agent';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentMessage, appendErrorMessage, appendUserMessage,
-    canSendInput, describeCitationsSummary, describeCitationTypes,
+    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel,
 } from '../src/utils/agentChat';
 
 const post = vi.mocked(apiClient.post);
@@ -238,6 +238,27 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(AGENT_SUGGESTED_STARTERS.length).toBeGreaterThanOrEqual(3);
         for (const s of AGENT_SUGGESTED_STARTERS) expect(typeof s).toBe('string');
     });
+
+    // PING — STATUS COLLAPSE FIX: AgentResponseStatus llegaba hasta
+    // AgentChatMessage.status (appendAgentMessage) pero nunca se leía en el
+    // render -- 'answered'/'no_evidence'/'capability_gap' se veían como la
+    // misma burbuja genérica, indistinguibles entre sí. Esto podía
+    // presentar una respuesta explícita de "sin evidencia" o "no puedo
+    // hacer esto todavía" como si fuera una respuesta confiada normal.
+    describe('describeStatusLabel: distingue no_evidence/capability_gap de una respuesta confiada normal', () => {
+        it('"answered" (el caso normal) no requiere ninguna etiqueta extra', () => {
+            expect(describeStatusLabel('answered')).toBeNull();
+        });
+        it('"no_evidence" -- etiqueta explícita, nunca indistinguible de una respuesta confiada', () => {
+            expect(describeStatusLabel('no_evidence')).toBe('Sin evidencia suficiente');
+        });
+        it('"capability_gap" -- etiqueta explícita, nunca indistinguible de una respuesta confiada', () => {
+            expect(describeStatusLabel('capability_gap')).toBe('Esto todavía no lo puedo hacer');
+        });
+        it('undefined (mensaje sin status, ej. de usuario) -- null, nunca inventa una etiqueta', () => {
+            expect(describeStatusLabel(undefined)).toBeNull();
+        });
+    });
 });
 
 // ─── Endpoint mock integration (sección 35) ─────────────────────────────────
@@ -325,6 +346,19 @@ describe('M-1G.1: citation tap — área táctil real, no sólo el texto pequeñ
     it('el modal de fuentes sigue abriendo con las fuentes reales del item tocado (no se rediseñó)', () => {
         expect(screenSource).toContain("<Modal visible={!!citationsSheetFor}");
         expect(screenSource).toContain('describeCitationTypes(citationsSheetFor?.citations)');
+    });
+});
+
+describe('STATUS COLLAPSE FIX: AgentPreviewScreen.tsx efectivamente renderiza la etiqueta de status, no sólo la calcula', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('importa describeStatusLabel y lo llama con item.status en renderItem', () => {
+        expect(screenSource).toContain('describeStatusLabel');
+        expect(screenSource).toMatch(/const statusLabel = describeStatusLabel\(item\.status\);/);
+    });
+
+    it('renderiza statusLabel como turnLabel cuando no es una aclaración/acción no soportada (nunca superpone dos etiquetas)', () => {
+        expect(screenSource).toMatch(/!item\.isClarification && !item\.isUnsupported && statusLabel && <Text style=\{styles\.turnLabel\}>\{statusLabel\}<\/Text>/);
     });
 });
 
