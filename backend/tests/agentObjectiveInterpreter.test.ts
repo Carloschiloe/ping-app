@@ -330,19 +330,189 @@ describe('PING — CREATE_COMMITMENT TITLE FIDELITY FIX: LlmObjectiveInterpreter
         expect(obj.targetEntities.entityHints[0]).toBe('entrenar');
     });
 
-    it('the override only applies to create_commitment_or_proposal/create_personal_commitment -- a reschedule/complete/respond objectiveType with an explicit-title-shaped phrase is never touched (entityHints there means an EXISTING entity reference, not a new title)', async () => {
+    // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: this invariant
+    // was later PROVEN WRONG by a second physical failure -- reschedule_
+    // existing_commitment/complete_existing_commitment/respond_to_existing_proposal
+    // entityHints ALSO needed the same Core-side normalization (see
+    // agentObjectiveInterpreter.test.ts's own "RESCHEDULE EXISTING
+    // COMMITMENT RESOLUTION FIX" describe block below for the full
+    // coverage). The boundary that's actually real: the override only
+    // ever applies to objective types where entityHints[0] means a target
+    // identity at all (create/reschedule/complete/respond) -- it must
+    // never touch communicate_message/communicate_and_wait, where
+    // entityHints has no meaning and the real payload lives in
+    // verbatimMessageHint/communicateContentCandidate instead.
+    it('the override never applies to communicate_message/communicate_and_wait -- entityHints has no target-identity meaning there, so it is never normalized even if it happens to contain generic/polluted-looking text', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'communicate_message',
+            personHints: ['Alejandra'], entityHints: ['un compromiso'], timeHint: null,
+            decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            verbatimMessageHint: 'llegaré tarde',
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Dile a Alejandra que llegaré tarde', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('un compromiso');
+    });
+});
+
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX. Physical iPhone
+// failure: a real commitment titled "prueba caché Ping" was visibly
+// present in Compromisos (created moments earlier via the same Agent
+// Preview session), but "Reprograma el compromiso prueba caché Ping para
+// hoy a las 19:30" returned capability_gap "No encontré ningún compromiso
+// o propuesta que coincida con 'compromiso prueba caché Ping para hoy a
+// las 19:30'" -- the polluted string in the error message IS the
+// entityHint that was actually extracted, proving the loss happened before
+// retrieval, in extraction itself.
+//
+// ROOT CAUSE (proven, not guessed, by direct reproduction of the extractor
+// before writing any fix): extractEntityHint's ENTITY_STOP_MARKER contains
+// a bare `\bel\b`/`\bal\b` -- for "Reprograma el compromiso prueba caché
+// Ping para hoy a las 19:30", afterVerb=" el compromiso prueba caché Ping
+// para hoy a las 19:30" and the stop marker matched on the very FIRST
+// word ("el"), truncating the prefix to EMPTY before the old post-hoc
+// article-strip (which only ever handled a bare "la"/"el", never a real
+// noun like "compromiso" following it) got a chance to run. The empty
+// prefix then fell into the suffix-fallback path added for create_commitment
+// ("Agenda para mañana a las 8 revisar informe") and swallowed the ENTIRE
+// remainder verbatim -- reproduced character-for-character against the
+// real physical error text.
+//
+// FIX: (1) GENERIC_TARGET_NOUN_PREFIX strips a leading generic-object-noun
+// (with or without a leading article) BEFORE any stop-marker logic runs,
+// so the stop-marker search only ever begins at the real target text.
+// (2) A NEW dedicated extractRescheduleTargetHint (deterministic path) and
+// normalizeMutationTargetHint (LLM path) use the REAL canonical date parser
+// (date-parser.service.ts#parseDateFromText -- never a second,
+// divergent implementation) to find and strip the exact trailing NEW-due-date
+// SPAN, contextually, never a first-occurrence "para" stop-word guess --
+// this is what correctly preserves a legitimate title containing "para"
+// ("comprar comida PARA perro") while still stripping a genuinely trailing
+// date clause. Both paths reuse extractExplicitTitle first (same function
+// already proven for create_commitment) so an explicit/quoted title always
+// dominates.
+describe('PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: DeterministicObjectiveInterpreter extracts the clean target hint, never polluted by generic nouns or the new-date clause', () => {
+    const interpreter = new DeterministicObjectiveInterpreter();
+
+    it('REAL PHYSICAL FIXTURE: "Reprograma el compromiso prueba caché Ping para hoy a las 19:30" -> entityHints[0] === "prueba caché Ping", never the polluted string from the physical error', async () => {
+        const obj = await interpreter.interpret('Reprograma el compromiso prueba caché Ping para hoy a las 19:30', CTX);
+        expect(obj.objectiveType).toBe('reschedule_existing_commitment');
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+        expect(obj.targetEntities.entityHints[0]).not.toBe('compromiso prueba caché Ping para hoy a las 19:30');
+        expect(obj.timeConstraints.rawHint).toBeTruthy();
+    });
+
+    it('"Reprograma prueba caché Ping para mañana a las 10" (no generic noun at all) -> target still "prueba caché Ping"', async () => {
+        const obj = await interpreter.interpret('Reprograma prueba caché Ping para mañana a las 10', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('"Cambia la fecha del compromiso prueba caché Ping para mañana" -> the longer generic-noun phrase is fully stripped', async () => {
+        const obj = await interpreter.interpret('Cambia la fecha del compromiso prueba caché Ping para mañana', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('"Mueve la tarea llamar a Pedro para el viernes a las 9" -> target "llamar a Pedro" (generic noun "tarea" removed, real content preserved)', async () => {
+        const obj = await interpreter.interpret('Mueve la tarea llamar a Pedro para el viernes a las 9', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('llamar a Pedro');
+        expect(obj.timeConstraints.rawHint).toBeTruthy();
+    });
+
+    it('"Reprograma la reunión revisión semanal para el lunes a las 8" -> target "revisión semanal"', async () => {
+        const obj = await interpreter.interpret('Reprograma la reunión revisión semanal para el lunes a las 8', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('revisión semanal');
+    });
+
+    it('quoted title, no generic noun: \'Reprograma "prueba caché Ping" para hoy a las 19:30\' -> target "prueba caché Ping" exactly, no quote characters retained', async () => {
+        const obj = await interpreter.interpret('Reprograma "prueba caché Ping" para hoy a las 19:30', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('quoted title WITH generic noun: \'Reprograma el compromiso "prueba caché Ping" para hoy a las 19:30\' -> target "prueba caché Ping" (explicit quote wins over the generic noun)', async () => {
+        const obj = await interpreter.interpret('Reprograma el compromiso "prueba caché Ping" para hoy a las 19:30', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('NEGATIVE CASE (do not introduce another broad stop-word bug): "Reprograma comprar comida para perro para mañana a las 10" -> target "comprar comida para perro" INTACT, only the final temporal clause removed, "para" inside the real title survives', async () => {
+        const obj = await interpreter.interpret('Reprograma comprar comida para perro para mañana a las 10', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('comprar comida para perro');
+        expect(obj.targetEntities.entityHints[0]).not.toBe('comprar comida');
+        expect(obj.timeConstraints.rawHint).toBeTruthy();
+    });
+
+    it('NO-REGRESSION: "Mueve Entrenar al viernes." (pre-existing test fixture, trailing period) still extracts "Entrenar" cleanly -- the fix must never re-break an already-correct case, including when trailing sentence punctuation follows a dangling connector word', async () => {
+        const obj = await interpreter.interpret('Mueve Entrenar al viernes.', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('Entrenar');
+        expect(obj.timeConstraints.rawHint).toMatch(/viernes/i);
+    });
+
+    it('generic noun alone with no real target text -> no entity hint, blocking ambiguity, never a fabricated target', async () => {
+        const obj = await interpreter.interpret('Reprograma el compromiso para mañana', CTX);
+        expect(obj.targetEntities.entityHints).toEqual([]);
+        expect(obj.ambiguities.some((a) => a.kind === 'blocking' && a.field === 'targetEntity')).toBe(true);
+    });
+});
+
+describe('PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: normalizeMutationTargetHint (LLM path) — Core deterministically re-derives the target even when the LLM itself returns a polluted hint', () => {
+    it('LLM returns the EXACT polluted string from the physical error -- Core normalizes it to "prueba caché Ping"', async () => {
         const model = fakeModel(JSON.stringify({
             objectiveType: 'reschedule_existing_commitment',
-            personHints: [], entityHints: ['un compromiso'], timeHint: 'el viernes',
+            personHints: [], entityHints: ['compromiso prueba caché Ping para hoy a las 19:30'],
+            timeHint: 'hoy a las 19:30', decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Reprograma el compromiso prueba caché Ping para hoy a las 19:30', CTX);
+        expect(obj.source).toBe('llm');
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('LLM already returns the correct clean target -- normalization is a no-op, never corrupts an already-good hint', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'reschedule_existing_commitment',
+            personHints: [], entityHints: ['prueba caché Ping'], timeHint: 'hoy a las 19:30',
             decisionHint: null, draftOnly: false, responsibleHint: null,
             followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
         }));
         const interpreter = new LlmObjectiveInterpreter({ model });
-        const obj = await interpreter.interpret('Mueve un compromiso que se llame prueba caché Ping al viernes', CTX);
-        // El override NUNCA se aplica a este objectiveType -- se deja el
-        // hint del modelo tal cual, incluso si "coincidentemente" es
-        // genérico; resolver una entidad EXISTENTE es responsabilidad del
-        // planner/retrieval, no de este extractor de títulos nuevos.
-        expect(obj.targetEntities.entityHints[0]).toBe('un compromiso');
+        const obj = await interpreter.interpret('Reprograma el compromiso prueba caché Ping para hoy a las 19:30', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
+    });
+
+    it('LLM returns a polluted hint for the negative case too -- Core preserves "para perro" inside the title, never re-truncates at the wrong "para"', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'reschedule_existing_commitment',
+            personHints: [], entityHints: ['comprar comida para perro para mañana a las 10'],
+            timeHint: 'mañana a las 10', decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Reprograma comprar comida para perro para mañana a las 10', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('comprar comida para perro');
+    });
+
+    it('applies to complete_existing_commitment too: LLM returns "la tarea llamar a Pedro" -- Core normalizes the generic noun away (no date clause to strip for this objective type)', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'complete_existing_commitment',
+            personHints: [], entityHints: ['la tarea llamar a Pedro'], timeHint: null,
+            decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Completa la tarea llamar a Pedro', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('llamar a Pedro');
+    });
+
+    it('applies to respond_to_existing_proposal too: LLM returns "la propuesta de entrenar" -- Core normalizes it to "entrenar"', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'respond_to_existing_proposal',
+            personHints: [], entityHints: ['la propuesta de entrenar'], timeHint: null,
+            decisionHint: 'approve', draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Acepta la propuesta de entrenar', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('entrenar');
     });
 });

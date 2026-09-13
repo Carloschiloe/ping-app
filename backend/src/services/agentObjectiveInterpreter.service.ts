@@ -24,6 +24,7 @@ import { agentObjectiveInterpretationPayloadSchema } from '../schemas/agentObjec
 import { isAiConfigured } from './synthesis.service';
 import type { AgentObjective, AgentObjectiveType, MessageContentCandidate } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
+import { parseDateFromText } from './date-parser.service';
 
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
@@ -149,11 +150,37 @@ export function proposeCommunicateContent(sourceUtterance: string, personHint: s
 // durante el testing end-to-end de este mismo módulo).
 const ENTITY_STOP_MARKER = /\b(?:al|el|por|para|a las|el próximo|next|on|by|ma[ñn]ana|hoy|pasado ma[ñn]ana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo|tomorrow|today)\b/iu;
 
-function extractEntityHint(afterVerb: string): string | null {
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX (root cause A+C):
+// a leading generic-object-noun-plus-article prefix ("el compromiso ",
+// "la tarea ", "la reunión ", "la fecha del compromiso ") must be stripped
+// BEFORE ENTITY_STOP_MARKER ever runs, never after -- ENTITY_STOP_MARKER
+// itself contains a bare `\bel\b`/`\bal\b`, so for "el compromiso prueba
+// caché Ping para hoy a las 19:30" the stop marker matched on the very
+// FIRST word ("el"), truncating the prefix to empty BEFORE the old
+// post-hoc article-strip (which only ever handled a bare "la"/"el", never
+// a real noun like "compromiso"/"tarea" following it) got a chance to run
+// -- the empty prefix then fell into the suffix-fallback path added for
+// create_commitment ("Agenda para mañana a las 8 revisar informe") and
+// swallowed the ENTIRE remainder verbatim, including the generic noun and
+// the full trailing date clause: "compromiso prueba caché Ping para hoy a
+// las 19:30" -- reproduced exactly, character for character, against the
+// real physical retrieval failure message. Stripping the prefix FIRST
+// means the stop-marker search only ever begins at the REAL target text,
+// so "el compromiso prueba caché Ping para..." now correctly stops at the
+// trailing "para hoy..." with "prueba caché Ping" as the clean prefix --
+// no suffix-fallback path is ever reached for this class of input.
+// El artículo es OPCIONAL en cada alternativa (nunca sólo "el compromiso"/
+// "la tarea") -- un hint ya parcialmente normalizado (p.ej. por el LLM,
+// que a veces despoja el artículo pero deja el sustantivo genérico) puede
+// llegar como "compromiso X" sin "el" delante; ambas formas deben limpiarse
+// igual, nunca sólo una.
+const GENERIC_TARGET_NOUN_PREFIX = /^\s*(?:(?:la fecha d(?:el|e la) )?(?:la |el )?compromiso(?: de| del)?|(?:la )?propuesta(?: de)?|(?:la )?tarea(?: de)?|(?:la )?reuni[óo]n(?: de)?|(?:la )?cita(?: de)?|la|el)\s+/iu;
+
+function extractEntityHint(afterVerbRaw: string): string | null {
+    const afterVerb = afterVerbRaw.replace(GENERIC_TARGET_NOUN_PREFIX, ' ');
     const stopMatch = afterVerb.match(ENTITY_STOP_MARKER);
     const raw = stopMatch ? afterVerb.slice(0, stopMatch.index) : afterVerb;
     const trimmed = raw
-        .replace(/^(?:la propuesta de|el compromiso de|la|el)\s+/iu, '')
         // Puntuación final de oración (nunca parte real del título) — sin
         // esto, "Completa Entrenar." extraía "Entrenar." (con punto), que
         // luego nunca hacía match por substring contra el título real
@@ -199,6 +226,108 @@ function stripLeadingTimeTokens(text: string): string {
         if (remaining === before) break;
     }
     return remaining.trim();
+}
+
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX (root cause A,
+// negative-case protection): reschedule is the ONLY mutation objective
+// whose target-hint text is immediately followed by a NEW due-date clause
+// in the same utterance ("Reprograma <target> para <new date>") -- accept/
+// reject/complete never have this trailing clause, so this is applied
+// ONLY in the reschedule branch below, never inside extractEntityHint
+// itself. A naive "strip from the first stop-word" approach (what
+// ENTITY_STOP_MARKER/extractEntityHint already do, correctly, for
+// everything else) is UNSAFE here specifically because "para" is both the
+// temporal connector ("para mañana") AND ordinary Spanish vocabulary that
+// can legitimately appear inside a real title ("comprar comida PARA
+// perro") -- stripping at the FIRST "para" would wrongly truncate that
+// title to "comprar comida". This function instead reuses the REAL
+// canonical date parser (date-parser.service.ts#parseDateFromText, the
+// exact same one the planner itself calls a few lines later to compute
+// newDueAt -- never a second, divergent date-recognition implementation)
+// to find the actual matched date SPAN (its `textRef`) and removes only
+// that precise trailing substring plus a dangling connector word left
+// behind ("para "/"el "/"al "/"a las N") -- "comprar comida para perro
+// para mañana a las 10" correctly keeps "comprar comida para perro" intact
+// because chrono's own match is anchored to "mañana a las 10", never to
+// the first unrelated "para".
+function stripTrailingDateSpan(afterVerb: string, now: Date, timezone: string): string {
+    const parsed = parseDateFromText(afterVerb, now, timezone);
+    if (!parsed || !parsed.textRef) return afterVerb;
+    const idx = afterVerb.toLowerCase().lastIndexOf(parsed.textRef.toLowerCase());
+    if (idx === -1) return afterVerb;
+    let result = afterVerb.slice(0, idx) + afterVerb.slice(idx + parsed.textRef.length);
+    for (;;) {
+        const before = result;
+        // Trailing sentence punctuation ("Mueve Entrenar al viernes." ->
+        // textRef="viernes" only, leaving "al ." behind) must be stripped
+        // BEFORE the $-anchored connector-word regexes below, or a period/
+        // comma sitting after the dangling connector blocks their `$`
+        // anchor from ever matching -- confirmed real regression:
+        // "Mueve Entrenar al viernes." lost its own trailing "al" and kept
+        // "Entrenar al" as the (wrong) target hint until this ran first.
+        result = result.replace(/[.,;:!?]+\s*$/u, ' ');
+        result = result.replace(/\s+a las\s+\d{1,2}(?::\d{2})?\s*$/iu, ' ');
+        result = result.replace(/\s+(?:para|el|al|a las?)\s*$/iu, ' ');
+        if (result === before) break;
+    }
+    return result;
+}
+
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX ("LLM suggests —
+// Core decides"): the LLM is the PRIMARY interpreter in production. If it
+// returns a polluted entityHints[0] for a mutation objective (e.g.
+// "compromiso prueba caché Ping para hoy a las 19:30" instead of "prueba
+// caché Ping"), agentPlanner.service.ts would pass that polluted string
+// straight into resolveEntityHint's honest substring-containment check
+// (never a best-guess/fuzzy match), and it would never match the real
+// canonical title -- retrieval fails, exactly the physical error observed
+// ('No encontré ningún compromiso o propuesta que coincida with "..."').
+// This function is Core's DETERMINISTIC re-derivation, reusing the exact
+// same extractExplicitTitle/GENERIC_TARGET_NOUN_PREFIX/
+// stripTrailingDateSpan logic already proven above for the deterministic
+// path -- never a second, divergent normalization. It is a pure text
+// transform (no LLM call, no I/O) applied to whatever the LLM (or the
+// deterministic interpreter) already put in entityHints[0], so it also
+// self-heals a still-polluted deterministic-path hint if one somehow
+// slips through. `isReschedule` gates the date-span-stripping step only
+// -- accept/reject/complete/respond never have a trailing date clause to
+// strip, so running that step there would be a no-op at best and a
+// needless risk at worst.
+function normalizeMutationTargetHint(hint: string, sourceUtterance: string, isReschedule: boolean): string {
+    const explicitTitle = extractExplicitTitle(hint) ?? extractExplicitTitle(sourceUtterance);
+    if (explicitTitle) return explicitTitle;
+
+    let normalized = hint.replace(GENERIC_TARGET_NOUN_PREFIX, '').trim();
+    if (isReschedule) {
+        normalized = stripTrailingDateSpan(normalized, new Date(), 'UTC').trim();
+    }
+    return normalized.length > 0 ? normalized : hint;
+}
+
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: the deterministic
+// reschedule branch's own target-hint extraction. Deliberately does NOT
+// call extractEntityHint (which still applies ENTITY_STOP_MARKER, a
+// first-occurrence stop-word cut) -- after stripTrailingDateSpan has
+// already surgically removed the real trailing date SPAN, re-running a
+// first-"para" stop-word search over what remains would wrongly re-cut a
+// legitimate title that itself contains "para" ("comprar comida PARA
+// perro" -> stopped at "comprar comida", losing "para perro" a second
+// time). Order is: (1) prefer an explicit title marker/quotes if present
+// (same extractExplicitTitle used for create_commitment and by
+// normalizeMutationTargetHint for the LLM path -- never a third
+// implementation), (2) strip the trailing date span via the real date
+// parser, (3) strip a leading generic-object-noun-plus-article prefix, (4)
+// trim trailing punctuation. No stop-word truncation at any point past
+// step (2) -- the date span is the ONLY thing ever removed from the
+// middle/end of the remaining text.
+function extractRescheduleTargetHint(afterVerb: string): string | null {
+    const explicitTitle = extractExplicitTitle(afterVerb);
+    if (explicitTitle) return explicitTitle;
+
+    const withoutDate = stripTrailingDateSpan(afterVerb, new Date(), 'UTC');
+    const withoutPrefix = withoutDate.replace(GENERIC_TARGET_NOUN_PREFIX, ' ');
+    const trimmed = withoutPrefix.replace(/[.,;:!?]+\s*$/u, '').trim();
+    return trimmed.length > 0 ? trimmed : null;
 }
 
 // PING — CREATE_COMMITMENT TITLE FIDELITY FIX (root cause, M-3 objective
@@ -372,7 +501,14 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         const rescheduleMatch = matchVerb(RESCHEDULE_VERB, text);
         if (rescheduleMatch) {
             const afterVerb = text.slice((rescheduleMatch.index ?? 0) + rescheduleMatch[0].length);
-            const entityHint = extractEntityHint(afterVerb);
+            // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: uses
+            // extractRescheduleTargetHint, NOT extractEntityHint -- see
+            // that function's own comment for why a stop-word-based
+            // extractor is unsafe once the trailing date clause is already
+            // removed (it would wrongly re-truncate a title that itself
+            // legitimately contains "para", e.g. "comprar comida para
+            // perro").
+            const entityHint = extractRescheduleTargetHint(afterVerb);
             const obj = baseObjective('reschedule_existing_commitment', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
             obj.timeConstraints.rawHint = timeHint;
@@ -577,13 +713,37 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     // re-derives the marker deterministically from the RAW input and, when
     // found, overrides whatever the LLM proposed. Only for objective types
     // that create/name an entity (create_commitment_or_proposal,
-    // create_personal_commitment) -- never for communicate_*/respond_to_*/
-    // reschedule_*/complete_* objectives, where entityHints means something
-    // else (an EXISTING commitment/proposal reference, not a new title to
-    // create).
+    // create_personal_commitment) -- entityHints here means a NEW title to
+    // create, never an existing-entity reference.
     if (payload.objectiveType === 'create_commitment_or_proposal' || payload.objectiveType === 'create_personal_commitment') {
         const explicitTitle = extractExplicitTitle(input);
         if (explicitTitle) obj.targetEntities.entityHints = [explicitTitle];
+    }
+    // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: for the
+    // mutation objectives (reschedule/complete/respond), entityHints[0] is
+    // a reference to an EXISTING commitment/proposal that
+    // agentPlanner.service.ts#resolveEntityHint retrieves with an honest
+    // substring-containment check against the real title (never a
+    // best-guess/fuzzy match) -- any pollution (a generic object noun, or
+    // for reschedule specifically, the trailing NEW-due-date clause)
+    // breaks that match entirely and surfaces as a false "no encontré
+    // ningún compromiso" even when the target demonstrably exists (the
+    // exact physical failure: "Reprograma el compromiso prueba caché Ping
+    // para hoy a las 19:30" with a real "prueba caché Ping" commitment
+    // already in the database). normalizeMutationTargetHint reuses the
+    // SAME extractExplicitTitle/generic-noun-prefix/date-span logic
+    // already proven above for the deterministic path -- Core's
+    // deterministic re-derivation, never a second target-identification
+    // system, and it never trusts the LLM's raw entityHints[0] as sole
+    // authority for target identity.
+    if (
+        (payload.objectiveType === 'reschedule_existing_commitment'
+            || payload.objectiveType === 'complete_existing_commitment'
+            || payload.objectiveType === 'respond_to_existing_proposal')
+        && obj.targetEntities.entityHints[0]
+    ) {
+        const isReschedule = payload.objectiveType === 'reschedule_existing_commitment';
+        obj.targetEntities.entityHints = [normalizeMutationTargetHint(obj.targetEntities.entityHints[0], input, isReschedule)];
     }
     obj.timeConstraints.rawHint = payload.timeHint;
     obj.constraints.decisionHint = payload.decisionHint;

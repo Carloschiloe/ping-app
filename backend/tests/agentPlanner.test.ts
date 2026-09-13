@@ -397,6 +397,111 @@ describe('planRescheduleOrCompleteOrRespond — entity resolution (sección 13)'
     });
 });
 
+// PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX. These tests
+// exercise the REAL resolveEntityHint substring-containment filter inside
+// agentPlanner.service.ts (never mocked -- only retrieveCommitments/
+// retrieveCommitmentProposals below it are mocked, the same pattern
+// already used throughout this file) against a fixture matching the real
+// physical staging commitment (id a5f2728f-34e0-4f8f-a11b-c94f1ab148d3,
+// title "prueba caché Ping", status "accepted", owner
+// d672add7-bb7e-4ce6-b01d-4fbbdb35539b, archived_at null -- confirmed via
+// a direct read-only Supabase query before writing any fix). This proves
+// the full chain: a clean entityHint (already fixed upstream in
+// agentObjectiveInterpreter.service.ts, tested there directly) resolves to
+// the EXACT canonical commitment ID, the planner preserves that ID through
+// to the tool step, and the authorization preview cites the real title.
+const PRUEBA_CACHE_PING_ID = 'a5f2728f-34e0-4f8f-a11b-c94f1ab148d3';
+function pruebaCachePingFixture(overrides: Partial<RetrievalCommitment> = {}): RetrievalCommitment {
+    return commitmentFixture({
+        id: PRUEBA_CACHE_PING_ID, title: 'prueba caché Ping', status: 'accepted',
+        ownerUserId: CARLOS, assignedToUserId: CARLOS, conversationId: null,
+        dueAt: '2026-09-13T21:30:00.000Z',
+        ...overrides,
+    });
+}
+
+describe('PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: end-to-end resolution against the real physical staging commitment shape', () => {
+    it('REAL PHYSICAL FIXTURE: clean entityHint "prueba caché Ping" resolves uniquely to the canonical commitment ID, plan targets reschedule_commitment, authorization preview cites the real title, new due time preserved', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([pruebaCachePingFixture()]);
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-13T22:30:00.000Z'), textRef: 'hoy a las 19:30' });
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+            sourceUtterance: 'Reprograma el compromiso prueba caché Ping para hoy a las 19:30',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.failureMode).toBeUndefined();
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('reschedule_commitment');
+        // ID canónico preservado -- nunca re-resuelto por título después de
+        // la autorización, el plan referencia la entidad real por ID.
+        expect((result.steps[0].arguments as any).commitmentId ?? (result.steps[0].arguments as any).id).toBe(PRUEBA_CACHE_PING_ID);
+        expect((result.steps[0].arguments as any).newDueAt).toBe(new Date('2026-09-13T22:30:00.000Z').toISOString());
+        // La autorización/preview cita el TÍTULO real, nunca un genérico.
+        expect(result.steps[0].operation).toContain('prueba caché Ping');
+        expect(result.steps[0].provenance.canonicalSourceRefs).toContainEqual({ sourceType: 'commitment', sourceId: PRUEBA_CACHE_PING_ID });
+    });
+
+    it('a still-polluted entityHint (if one somehow reached the planner) never matches the real title via the honest substring filter -- entity_not_found, never a best-guess against the wrong record', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([pruebaCachePingFixture()]);
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-13T22:30:00.000Z'), textRef: 'hoy a las 19:30' });
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['compromiso prueba caché Ping para hoy a las 19:30'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('entity_not_found');
+        expect(result.steps).toEqual([]);
+    });
+
+    it('a similarly-titled PROPOSAL never becomes the target of a commitment reschedule when a real commitment with the same title also exists -- ambiguity, never a silent wrong-type resolution (structured entityType, never lexical similarity, decides)', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([pruebaCachePingFixture()]);
+        retrieveCommitmentProposalsMock.mockResolvedValue([
+            commitmentFixture({ id: 'proposal-1', entityType: 'commitment_proposal', title: 'prueba caché Ping', status: 'pending' }),
+        ]);
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        // Ambos títulos hacen match por substring -- 2 candidatos reales,
+        // nunca colapsados en uno solo por similitud léxica. El commitment
+        // real nunca se ejecuta silenciosamente contra la proposal, ni
+        // viceversa.
+        expect(result.blockingAmbiguities[0]?.field).toBe('targetEntity');
+        expect(result.blockingAmbiguities[0]?.candidates).toHaveLength(2);
+        expect(result.steps).toEqual([]);
+    });
+
+    it('two similarly-named COMMITMENTS -> ambiguity, never mutates an arbitrary one', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([
+            pruebaCachePingFixture({ id: 'c1' }),
+            pruebaCachePingFixture({ id: 'c2', title: 'prueba caché Ping 2' }),
+        ]);
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities[0]?.field).toBe('targetEntity');
+        expect(result.blockingAmbiguities[0]?.candidates).toHaveLength(2);
+    });
+
+    it('successful reschedule changes ONLY dueAt -- title/status are never rewritten by the reschedule tool arguments', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([pruebaCachePingFixture({ status: 'accepted' })]);
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-13T22:30:00.000Z'), textRef: 'hoy a las 19:30' });
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        const args = result.steps[0].arguments as any;
+        expect(Object.keys(args).some((k) => /title|status/i.test(k))).toBe(false);
+    });
+});
+
 // ─── MEMORY-INFORMED PLANNING (sección 29/30, escenario H del ticket M-3) ──
 function memoryFixture(overrides: Record<string, any> = {}) {
     return {
