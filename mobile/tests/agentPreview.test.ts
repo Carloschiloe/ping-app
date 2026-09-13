@@ -461,3 +461,111 @@ describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgen
         expect(compromisosSource).toMatch(/queryKey: \['all-commitments-dashboard'\]/);
     });
 });
+
+// PING — COPY / PASTE / CLIPBOARD UX (MESSAGING + AGENT). Audit confirmed
+// external->Ping paste already worked natively for both composers (plain
+// controlled TextInput, no contextMenuHidden/editable-false blocking props,
+// no auto-send/Agent-invocation side effect on change) -- so this section
+// only certifies (a) that invariant continues to hold, and (b) the new
+// Ping->external copy affordance added to AgentPreviewScreen.tsx: long-press
+// on a plain-text bubble (user message or agent prose response) copies
+// item.text via expo-clipboard + expo-haptics, the exact pattern
+// ChatScreen.tsx already uses for normal chat messages. PlanCard/
+// ExecutionCard bubbles are deliberately excluded (structured cards with
+// their own interactive controls / no single "primary text" -- directive:
+// "Do not blindly make entire cards selectable if that damages card
+// interaction").
+describe('PING — COPY / PASTE / CLIPBOARD UX: Agent Preview composer paste (external -> Ping) is native, unblocked, and never auto-sends', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('composer TextInput has no paste-blocking props (contextMenuHidden, or editable unconditionally false)', () => {
+        const inputBlock = screenSource.slice(
+            screenSource.indexOf('placeholder="Escribe tu pregunta…"') - 40,
+            screenSource.indexOf('placeholder="Escribe tu pregunta…"') + 400,
+        );
+        expect(inputBlock).not.toMatch(/contextMenuHidden/);
+        expect(inputBlock).not.toMatch(/editable=\{false\}/);
+    });
+
+    it('composer is a plain controlled TextInput (value/onChangeText), preserving existing draft behavior', () => {
+        expect(screenSource).toMatch(/value=\{inputText\}\s*\n\s*onChangeText=\{handleInputChange\}/);
+    });
+
+    it('preserves the existing canonical maxLength (2000) -- never arbitrarily truncated or changed by this task', () => {
+        expect(screenSource).toContain('maxLength={2000}');
+    });
+
+    it('handleInputChange never sends/dispatches an Agent turn as a side effect of text changing -- paste only changes composer text until explicit Send', () => {
+        const fnMatch = screenSource.match(/const handleInputChange = \(value: string\) => \{[^]*?\n    \};/);
+        expect(fnMatch).not.toBeNull();
+        expect(fnMatch![0]).not.toMatch(/sendInput|useAgentTurn|POST|apiClient/);
+    });
+});
+
+describe('PING — COPY / PASTE / CLIPBOARD UX: Ping -> external copy for Agent Preview bubbles (user messages + agent prose responses)', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('imports expo-clipboard and expo-haptics using the same namespace-import style already used by ChatScreen.tsx (no new dependency added)', () => {
+        expect(screenSource).toContain("import * as Haptics from 'expo-haptics';");
+        expect(screenSource).toContain("import * as Clipboard from 'expo-clipboard';");
+    });
+
+    it('handleCopyMessage copies via Clipboard.setStringAsync and gives haptic feedback -- no intrusive alert/modal', () => {
+        const fnMatch = screenSource.match(/const handleCopyMessage = async \(text: string\) => \{[^]*?\n    \};/);
+        expect(fnMatch).not.toBeNull();
+        const body = fnMatch![0];
+        expect(body).toMatch(/Clipboard\.setStringAsync\(text\)/);
+        expect(body).toMatch(/Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Success\)/);
+        expect(body).not.toMatch(/Alert\.alert/);
+    });
+
+    it('a plain-text bubble (not PlanCard/ExecutionCard) is long-press-copyable, wired to handleCopyMessage(item.text) -- the message body only, never a sender/date prefix', () => {
+        const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
+        expect(renderItemMatch).not.toBeNull();
+        const body = renderItemMatch![0];
+        expect(body).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
+        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+    });
+
+    it('PlanCard and ExecutionCard bubbles are excluded from long-press-copy -- isCopyable is false whenever isPlanCard or isExecutionCard is true, so their own Confirm/Cancel interaction is never shadowed', () => {
+        expect(screenSource).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
+    });
+
+    it('the copyable bubble container still renders AgentPlanCard/AgentExecutionCard and the follow-up/citations/retry children unchanged -- copy affordance wraps the existing bubble, it does not replace its content', () => {
+        const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
+        const body = renderItemMatch![0];
+        expect(body).toMatch(/<AgentPlanCard/);
+        expect(body).toMatch(/<AgentExecutionCard result=\{item\.executionResult!\} presentation=\{item\.executionPresentation!\} \/>/);
+        expect(body).toMatch(/item\.followUp\?\.options/);
+        expect(body).toMatch(/citationsSummary &&/);
+        expect(body).toMatch(/item\.error && item\.retryInput/);
+    });
+});
+
+// item.text is the SAME unified field certified pure-prose (never a raw
+// status enum, id, or JSON payload) by the AGENT RESPONSE LANGUAGE
+// CONSISTENCY work above -- copying it can never leak internal metadata,
+// satisfying the directive's "Copy content invariant" without any extra
+// sanitization step (there is nothing to sanitize: the field already never
+// carries anything but human-readable text for every branch that renders
+// it: normal answer, clarification, unsupported/capability_gap, and any
+// status-labeled response).
+describe('PING — COPY / PASTE / CLIPBOARD UX: copy content invariant -- clipboard text can never contain internal IDs/enums/JSON for Agent bubbles', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('copy is wired to item.text exclusively -- never item.rawPlan, item.executionResult, item.status, or any other structured/internal field', () => {
+        const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
+        const body = renderItemMatch![0];
+        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+        expect(body).not.toMatch(/onLongPress: \(\) => handleCopyMessage\(JSON\.stringify/);
+        expect(body).not.toMatch(/handleCopyMessage\(item\.status\)/);
+        expect(body).not.toMatch(/handleCopyMessage\(item\.rawPlan/);
+    });
+
+    it('handleCopyMessage itself performs no JSON.stringify / field-concatenation -- it copies exactly the string it is given, byte for byte (preserves line breaks, accents, emoji, URLs, punctuation)', () => {
+        const fnMatch = screenSource.match(/const handleCopyMessage = async \(text: string\) => \{[^]*?\n    \};/);
+        const body = fnMatch![0];
+        expect(body).not.toMatch(/JSON\.stringify/);
+        expect(body).toMatch(/Clipboard\.setStringAsync\(text\)/);
+    });
+});

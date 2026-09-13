@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import {
     mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
     type AgentFollowUpOption, type AgentVoiceTranscriptResult,
@@ -147,6 +149,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
 
     const handleSend = () => sendInput(inputText);
     const handleRetry = (retryInput: string) => sendInput(retryInput);
+    const handleCopyMessage = async (text: string) => {
+        if (!text) return;
+        await Clipboard.setStringAsync(text);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
     const handleStarterPress = (starter: string) => handleInputChange(starter);
     const handleFollowUpOptionPress = (option: AgentFollowUpOption) => handleInputChange(option.label);
     const handleInputChange = (value: string) => {
@@ -208,14 +215,27 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
             && turnState.pendingPlan?.turn.plan.planId === item.rawPlan?.plan.planId
             && ['plan_ready', 'authorizing', 'executing'].includes(turnState.phase);
 
+        const isCopyable = !isPlanCard && !isExecutionCard && !!item.text;
+        const BubbleContainer = isCopyable ? TouchableOpacity : View;
+
         return (
             <View style={[styles.messageRow, isUser ? styles.userRow : styles.agentRow]}>
-                <View style={[
-                    styles.bubble,
-                    isUser ? styles.userBubble : styles.agentBubble,
-                    (isPlanCard || isExecutionCard) && styles.richCardBubble,
-                    item.error && styles.errorBubble,
-                ]}>
+                <BubbleContainer
+                    style={[
+                        styles.bubble,
+                        isUser ? styles.userBubble : styles.agentBubble,
+                        (isPlanCard || isExecutionCard) && styles.richCardBubble,
+                        item.error && styles.errorBubble,
+                    ]}
+                    {...(isCopyable
+                        ? {
+                            activeOpacity: 0.7,
+                            onLongPress: () => handleCopyMessage(item.text),
+                            accessibilityRole: 'button' as const,
+                            accessibilityLabel: 'Copiar mensaje',
+                        }
+                        : {})}
+                >
                     {isPlanCard ? (
                         <AgentPlanCard
                             presentation={item.planPresentation!}
@@ -268,7 +288,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                             <Text style={styles.retryText}>Reintentar</Text>
                         </TouchableOpacity>
                     )}
-                </View>
+                </BubbleContainer>
             </View>
         );
     };
