@@ -218,10 +218,22 @@ export function CommitmentDetailSheet({
                         </TouchableOpacity>
                     )}
 
+                    {/* PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX: onCancel is the
+                        SAME prop CommitmentRow.tsx wires to useCancelCommitment
+                        (POST /commitments/:id/cancel, status -> cancelled) --
+                        never the real archive_commitment_with_evidence RPC
+                        (status unchanged, only archived_at set, reached instead
+                        via CommitmentDetailSheet's own deletion/archive flow
+                        elsewhere). This button was labeled "Archivar" while
+                        performing a cancel -- the wrong lifecycle transition
+                        name for what actually happens. Label now matches
+                        CommitmentRow.tsx's own established "Cancelar" wording
+                        for the identical onCancel action; the endpoint/behavior
+                        itself is unchanged. */}
                     {!isFinished && !isProposal && onCancel && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => { onClose(); onCancel(item.id); }}>
                             <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Archivar</Text>
+                            <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Cancelar</Text>
                         </TouchableOpacity>
                     )}
                 </View>

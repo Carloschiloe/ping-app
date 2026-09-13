@@ -145,7 +145,6 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Used by:** Main `Hoy` tab and parity-sensitive Agent answers.
 **Tests:** `mobile/tests/overdueUiAgentParity.test.ts`, `mobile/tests/overdueSemantics.test.ts`, `backend/tests/overdueUiAgentParity.test.ts`, `backend/tests/overdueSemantics.test.ts`.
 **Common symptoms:** wrong overdue count, proposal shown overdue, UI/Agent disagreement.
-**Usually do not read:** `mobile/src/screens/HoyScreen.tsx`; it exists but is not the current tab entry point.
 
 ### Attachments
 

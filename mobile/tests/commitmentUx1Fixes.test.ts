@@ -21,8 +21,15 @@ const COMMITMENT_ROW_SRC = fs.readFileSync(
 const AGREEMENT_SRC = fs.readFileSync(
     path.join(__dirname, '..', 'src/utils/agreement.ts'), 'utf-8',
 );
-const HOY_SCREEN_SRC = fs.readFileSync(
-    path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8',
+// PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX: src/screens/HoyScreen.tsx was
+// dead code (zero importers, confirmed via docs/generated/import-index.json
+// -- importedBy: []) and has been deleted. The real, currently-reachable
+// archive/cancel UI for a canonical commitment is CommitmentDetailSheet.tsx
+// (opened from InsightsScreen.tsx, the actual current Hoy/Compromisos
+// surface) -- this is what FIX 2's own "Archivar/Cancelar" wording actually
+// needs to stay correct against now.
+const COMMITMENT_DETAIL_SHEET_SRC = fs.readFileSync(
+    path.join(__dirname, '..', 'src/components/compromisos/CommitmentDetailSheet.tsx'), 'utf-8',
 );
 
 const CARLOS = 'carlos-id';
@@ -114,12 +121,24 @@ describe('FIX 2 — vocabulario "Cancelar" para el commitment canónico', () => 
     });
 });
 
-describe('FIX 2 — el archivo REAL de Hoy (archived_at, irreversible) permanece intacto y separado', () => {
-    it('HoyScreen.tsx conserva su propio flujo "Archivar compromiso" -> deleteCommitment (DELETE /commitments/:id, archive_commitment_with_evidence), nunca tocado por este fix', () => {
-        expect(HOY_SCREEN_SRC).toMatch(/Archivar compromiso/);
-        expect(HOY_SCREEN_SRC).toMatch(/deleteCommitment/);
+// PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX (segunda regresión encontrada
+// tras eliminar HoyScreen.tsx muerto): CommitmentDetailSheet.tsx exponía un
+// botón etiquetado "Archivar" que en realidad llamaba a onCancel (la MISMA
+// prop que CommitmentRow.tsx ya conecta a useCancelCommitment -> POST
+// /commitments/:id/cancel, status -> cancelled) -- nunca al RPC real de
+// archivo (archive_commitment_with_evidence, que sólo marca archived_at,
+// nunca cambia status). Corregido para usar la MISMA palabra "Cancelar" que
+// CommitmentRow.tsx ya usa para esta acción -- el endpoint/comportamiento
+// no cambia, sólo la etiqueta deja de nombrar la transición equivocada.
+describe('FIX 2 — CommitmentDetailSheet.tsx: la etiqueta del botón coincide con la transición real que ejecuta (onCancel -> cancelar, nunca "Archivar")', () => {
+    it('el botón conectado a onCancel dice "Cancelar" (misma palabra que CommitmentRow.tsx ya usa para la MISMA prop/endpoint), nunca "Archivar"', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{\(\) => \{ onClose\(\); onCancel\(item\.id\); \}\}>\s*<Ionicons name="trash-outline"[^]*?>Cancelar</);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).not.toMatch(/>Archivar</);
     });
     it('CommitmentRow.tsx nunca importa ni llama deleteCommitment/useDeleteCommitment -- su "Cancelar" nunca se convierte en el archive real', () => {
         expect(COMMITMENT_ROW_SRC).not.toMatch(/deleteCommitment|useDeleteCommitment/);
+    });
+    it('CommitmentDetailSheet.tsx tampoco importa ni llama deleteCommitment/useDeleteCommitment -- su botón de cancelar nunca se convierte en el archive real', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).not.toMatch(/deleteCommitment|useDeleteCommitment/);
     });
 });
