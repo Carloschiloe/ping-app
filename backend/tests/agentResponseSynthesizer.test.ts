@@ -1997,6 +1997,28 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(response.answer).toMatch(/[Cc]ompletamos|completado/i);
     });
 
+    it('3b. misma línea base Spiderman, pero citada vía memory (commitment_status:<id>, objectValue="resolved") -- el camino REAL de producción, no sólo commitment_event: dispatchCommitmentStatusMemoryEvent siempre graba objectValue=newStatus', async () => {
+        const spidermanCommitment = commitment('spiderman-id', { title: 'Ver Spiderman', status: 'resolved' });
+        const mem = memoryFact('mem-spiderman-resolved', {
+            predicate: 'commitment_status:spiderman-id', objectValue: 'resolved',
+            observedAt: '2026-09-10T22:33:00.000Z', sourceType: 'commitment', sourceId: 'spiderman-id', isCurrent: false,
+        });
+        const ctx = baseContext({
+            evidenceFound: true, commitments: [spidermanCommitment] as any, historicalMemoryFacts: [mem] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            timezone: 'America/Santiago',
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'Completamos "Ver Spiderman" el 10 de septiembre de 2026 a las 22:33.',
+            sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-spiderman-resolved' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando completamos lo de Ver Spiderman?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).toMatch(/[Cc]ompletamos|completado/i);
+    });
+
     it('4. transición pedida existe pero el estado ACTUAL cambió después -- la ocurrencia histórica sigue siendo respondible desde el evento, el guard no la bloquea', async () => {
         const c = commitment('cm-x', { title: 'entrenar', status: 'reopened' });
         const resolvedThenReopened = [
