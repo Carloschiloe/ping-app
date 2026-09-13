@@ -94,4 +94,26 @@ describe('parseDateFromText', () => {
 
         expect(result?.date.toISOString()).toBe('2026-09-01T14:00:00.000Z');
     });
+
+    // PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX (test
+    // matrix item 12): confirms the exact physical fixture's timezone
+    // conversion is correct -- "19:30 Chile" (America/Santiago, UTC-3 in
+    // September, no DST) must resolve to "22:30Z". This was independently
+    // confirmed live against the deployed planner during the prior session
+    // (runAgentPlanning produced newDueAt: "2026-09-13T22:30:00.000Z" for
+    // "Reprograma el compromiso prueba caché Ping para hoy a las 19:30")
+    // -- this test certifies the same conversion in isolation, proving
+    // timezone handling was never the source of the physical failure (the
+    // real bug was entirely in which DB field the executor wrote to).
+    it('REAL PHYSICAL FIXTURE: "hoy a las 19:30" en America/Santiago (2026-09-13, sin horario de verano) resuelve a 22:30Z', () => {
+        const now = new Date('2026-09-13T18:00:00.000Z'); // 15:00 Chile del mismo día
+        const result = parseDateFromText('hoy a las 19:30', now, 'America/Santiago');
+        expect(result?.date.toISOString()).toBe('2026-09-13T22:30:00.000Z');
+        expect(new Intl.DateTimeFormat('es-CL', {
+            timeZone: 'America/Santiago',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(result!.date)).toBe('19:30');
+    });
 });

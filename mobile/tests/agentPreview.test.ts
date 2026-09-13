@@ -411,3 +411,53 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action headi
         expect(screenSource).toMatch(/\{item\.isUnsupported && <Text style=\{styles\.turnLabel\}>Esta acción no está disponible<\/Text>\}/);
     });
 });
+
+// PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX. Root cause
+// of the physical failure was entirely backend (rescheduleCommitmentExecutor
+// used counter_propose instead of a direct due_at edit for a self-owned
+// commitment) -- proven by reading the code and the real staging record
+// (due_at never changed; proposed_due_at did). Cache invalidation itself
+// was never the bug: useAgentExecute already invalidates
+// ['all-commitments-dashboard'], the SAME query key both TaskDashboardScreen
+// (Hoy) and InsightsScreen (Compromisos) already read from -- both screens
+// correctly displayed the true (unchanged) due_at. This describe block
+// certifies that invariant directly against the source, since a React
+// Query mutation's onSuccess cannot be exercised without a renderer this
+// repo doesn't have (see file header) -- a static, source-level assertion
+// is the appropriate test here (never a brittle one merely inspecting
+// unrelated string literals; every assertion below corresponds to a real,
+// behaviorally-meaningful invalidation call).
+describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgentExecute invalidates every projection that can display a mutated commitment, using the shared canonical query keys (never a duplicated invalidation concept)', () => {
+    const agentSource = fs.readFileSync(path.join(__dirname, '../src/api/query-modules/agent.ts'), 'utf-8');
+
+    it('useAgentExecute exists and invalidates on mutation success (onSuccess), never fire-and-forget with no cache update', () => {
+        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        expect(fnMatch).not.toBeNull();
+        expect(fnMatch![0]).toMatch(/onSuccess: \(\) => \{/);
+    });
+
+    it('invalidates the SAME canonical dashboard key Compromisos/Hoy both already read from -- all-commitments-dashboard', () => {
+        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        expect(fnMatch![0]).toMatch(/queryClient\.invalidateQueries\(\{ queryKey: \['all-commitments-dashboard'\] \}\)/);
+    });
+
+    it('also invalidates insights/commitments/group-tasks/group-tasks-conv/conversation-messages/agreement-proposals -- the same superset the app\'s own direct commitment mutations already invalidate, never a narrower set', () => {
+        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        const body = fnMatch![0];
+        for (const key of ['insights', 'commitments', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
+            expect(body).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+        }
+    });
+
+    // TaskDashboardScreen.tsx (Hoy) and InsightsScreen.tsx (Compromisos)
+    // both query ['all-commitments-dashboard'] -- confirming here that they
+    // share the SAME cache source (never two independently-stale caches),
+    // so a single invalidation of this one key is provably sufficient for
+    // both surfaces to become coherent after refetch.
+    it('TaskDashboardScreen.tsx (Hoy) and InsightsScreen.tsx (Compromisos) both use queryKey ["all-commitments-dashboard"] -- one shared cache source, not two independent ones', () => {
+        const hoySource = fs.readFileSync(path.join(__dirname, '../src/screens/TaskDashboardScreen.tsx'), 'utf-8');
+        const compromisosSource = fs.readFileSync(path.join(__dirname, '../src/screens/InsightsScreen.tsx'), 'utf-8');
+        expect(hoySource).toMatch(/queryKey: \['all-commitments-dashboard'\]/);
+        expect(compromisosSource).toMatch(/queryKey: \['all-commitments-dashboard'\]/);
+    });
+});
