@@ -1,5 +1,8 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import type { AgentPlanPresentation } from '../../api/query-modules/agent';
 import { useAppTheme } from '../../theme/ThemeContext';
 
@@ -11,13 +14,47 @@ interface AgentPlanCardProps {
     onCancel: () => void;
 }
 
+// PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: builds ONLY
+// human-readable visible prose (headline/labels/descriptions already
+// rendered as <Text> above) -- never planId/toolId/internal enums/JSON.
+function buildPlanCopyText(presentation: AgentPlanPresentation): string {
+    const lines: string[] = [presentation.headline];
+    for (const step of presentation.stepPresentations) {
+        lines.push(step.headline);
+        if (step.recipientLabel) lines.push(`Persona: ${step.recipientLabel}`);
+        if (step.contentPreview) lines.push(`"${step.contentPreview}"`);
+        if (step.dateLabel) lines.push(`Cuándo: ${step.dateLabel}`);
+        lines.push(step.effectDescription);
+        if (step.conditionLabel) lines.push(`Condición: ${step.conditionLabel}`);
+    }
+    if (presentation.riskLabel) lines.push(presentation.riskLabel);
+    return lines.join('\n');
+}
+
 export function AgentPlanCard({ presentation, active, busy, onConfirm, onCancel }: AgentPlanCardProps) {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
 
+    const handleCopy = async () => {
+        await Clipboard.setStringAsync(buildPlanCopyText(presentation));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+
     return (
         <View style={styles.card} accessibilityRole="summary" accessibilityLabel={presentation.headline}>
-            <Text style={styles.eyebrow}>Plan para confirmar</Text>
+            <View style={styles.headerRow}>
+                <Text style={styles.eyebrow}>Plan para confirmar</Text>
+                <TouchableOpacity
+                    onPress={handleCopy}
+                    style={styles.copyButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Copiar plan"
+                >
+                    <Ionicons name="copy-outline" size={16} color={theme.colors.text.muted} />
+                    <Text style={styles.copyText}>Copiar</Text>
+                </TouchableOpacity>
+            </View>
             <Text style={styles.headline}>{presentation.headline}</Text>
 
             {presentation.stepPresentations.map((step, index) => (
@@ -69,7 +106,10 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
             width: '100%', minWidth: 0, borderRadius: 16, padding: 14,
             backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border,
         },
-        eyebrow: { color: theme.colors.info, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 5 },
+        headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 },
+        eyebrow: { color: theme.colors.info, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+        copyButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 4 },
+        copyText: { color: theme.colors.text.muted, fontSize: 12, fontWeight: '600' },
         headline: { color: theme.colors.text.primary, fontSize: 17, lineHeight: 23, fontWeight: '700', marginBottom: 10 },
         step: { paddingVertical: 10, borderTopWidth: 1, borderTopColor: theme.colors.border },
         stepIndex: { color: theme.colors.text.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 3 },

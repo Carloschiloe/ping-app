@@ -1,5 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import type { AgentExecutionFailureCode, AgentExecutionResult, AgentPlanPresentation } from '../../api/query-modules/agent';
 import { useAppTheme } from '../../theme/ThemeContext';
 
@@ -33,14 +36,52 @@ function failureCopy(code?: AgentExecutionFailureCode): string {
     }
 }
 
+// PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: builds ONLY
+// human-readable visible prose (the exact same lines rendered as <Text>
+// below) -- never authorizationId/stepId/toolId/failureCode/internal
+// entity refs.
+function buildExecutionCopyText(result: AgentExecutionResult, labelFor: (stepId: string) => string): string {
+    const lines: string[] = [STATUS_TITLES[result.status]];
+    for (const step of result.executedSteps) lines.push(`✓ ${labelFor(step.stepId)} — verificado`);
+    for (const step of result.failedSteps) {
+        lines.push(`✕ ${labelFor(step.stepId)}`);
+        lines.push(failureCopy(step.failureCode));
+    }
+    for (const step of result.waitingSteps) {
+        lines.push(`◷ ${labelFor(step.stepId)}`);
+        lines.push(step.waitingOn || 'Depende de una condición futura.');
+    }
+    if (result.requiresFurtherAuthorization) {
+        lines.push('La acción futura no se ejecutará automáticamente; requerirá una nueva confirmación.');
+    }
+    return lines.join('\n');
+}
+
 export function AgentExecutionCard({ result, presentation }: AgentExecutionCardProps) {
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const labelFor = (stepId: string) => presentation.stepPresentations.find((step) => step.stepId === stepId)?.headline || 'Acción del plan';
 
+    const handleCopy = async () => {
+        await Clipboard.setStringAsync(buildExecutionCopyText(result, labelFor));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+
     return (
         <View style={styles.card} accessibilityRole="summary" accessibilityLabel={STATUS_TITLES[result.status]}>
-            <Text style={styles.title}>{STATUS_TITLES[result.status]}</Text>
+            <View style={styles.headerRow}>
+                <Text style={styles.title}>{STATUS_TITLES[result.status]}</Text>
+                <TouchableOpacity
+                    onPress={handleCopy}
+                    style={styles.copyButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Copiar resultado"
+                >
+                    <Ionicons name="copy-outline" size={16} color={theme.colors.text.muted} />
+                    <Text style={styles.copyText}>Copiar</Text>
+                </TouchableOpacity>
+            </View>
             {result.executedSteps.map((step) => (
                 <Text key={`ok-${step.stepId}`} style={styles.success}>✓ {labelFor(step.stepId)} — verificado</Text>
             ))}
@@ -66,7 +107,10 @@ export function AgentExecutionCard({ result, presentation }: AgentExecutionCardP
 function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
     return StyleSheet.create({
         card: { width: '100%', minWidth: 0, borderRadius: 16, padding: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-        title: { color: theme.colors.text.primary, fontSize: 16, lineHeight: 22, fontWeight: '700', marginBottom: 8 },
+        headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+        title: { color: theme.colors.text.primary, fontSize: 16, lineHeight: 22, fontWeight: '700' },
+        copyButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 4 },
+        copyText: { color: theme.colors.text.muted, fontSize: 12, fontWeight: '600' },
         row: { marginTop: 8 },
         success: { color: theme.colors.success, fontSize: 14, lineHeight: 20, marginTop: 5 },
         failure: { color: theme.colors.danger, fontSize: 14, lineHeight: 20, fontWeight: '600' },

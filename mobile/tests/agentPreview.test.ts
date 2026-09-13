@@ -569,3 +569,108 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: copy content invariant -- clipbo
         expect(body).toMatch(/Clipboard\.setStringAsync\(text\)/);
     });
 });
+
+// PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS. Prior audit
+// deliberately excluded AgentPlanCard/AgentExecutionCard from the
+// long-press-copy added to AgentPreviewScreen.tsx (own interactive
+// Confirm/Cancel controls, no single "primary text"). This closes that gap
+// with an explicit, unobtrusive "Copiar" button inside each card header --
+// never a long-press on the whole card, so it cannot interfere with
+// Confirmar/Cancelar/retry/citation taps. Both cards build their clipboard
+// text from a pure helper function that only concatenates the exact same
+// presentation-layer strings already rendered as <Text> -- never
+// planId/authorizationId/toolId/stepId/internal enums/JSON.
+describe('PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: AgentPlanCard exposes an explicit Copiar action, separate from Confirmar/Cancelar', () => {
+    const cardSource = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentPlanCard.tsx'), 'utf-8');
+
+    it('imports expo-clipboard and expo-haptics using the same namespace-import style as the rest of the app (no new dependency)', () => {
+        expect(cardSource).toContain("import * as Haptics from 'expo-haptics';");
+        expect(cardSource).toContain("import * as Clipboard from 'expo-clipboard';");
+    });
+
+    it('renders a "Copiar" button wired to handleCopy, separate from the cancelButton/confirmButton TouchableOpacitys', () => {
+        expect(cardSource).toMatch(/accessibilityLabel="Copiar plan"[^]*?<Text style=\{styles\.copyText\}>Copiar<\/Text>/);
+        expect(cardSource).toMatch(/onPress=\{handleCopy\}/);
+    });
+
+    it('handleCopy calls Clipboard.setStringAsync + success haptic only -- never onConfirm/onCancel, never touches active/busy state', () => {
+        const fnMatch = cardSource.match(/const handleCopy = async \(\) => \{[^]*?\n    \};/);
+        expect(fnMatch).not.toBeNull();
+        const body = fnMatch![0];
+        expect(body).toMatch(/Clipboard\.setStringAsync\(buildPlanCopyText\(presentation\)\)/);
+        expect(body).toMatch(/Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Success\)/);
+        expect(body).not.toMatch(/onConfirm\(\)|onCancel\(\)/);
+    });
+
+    it('buildPlanCopyText only concatenates human-readable presentation fields (headline/recipientLabel/contentPreview/dateLabel/effectDescription/conditionLabel/riskLabel) -- the exact same fields already rendered as <Text> in the card', () => {
+        const fnMatch = cardSource.match(/function buildPlanCopyText\(presentation: AgentPlanPresentation\): string \{[^]*?\n\}/);
+        expect(fnMatch).not.toBeNull();
+        const body = fnMatch![0];
+        for (const field of ['headline', 'recipientLabel', 'contentPreview', 'dateLabel', 'effectDescription', 'conditionLabel', 'riskLabel']) {
+            expect(body).toContain(field);
+        }
+    });
+
+    it('buildPlanCopyText never references planId, planDigest, objectiveType, toolId, or stepId, and never JSON.stringify -- clipboard content excludes every internal identifier/enum/payload', () => {
+        const fnMatch = cardSource.match(/function buildPlanCopyText\(presentation: AgentPlanPresentation\): string \{[^]*?\n\}/);
+        const body = fnMatch![0];
+        for (const forbidden of ['planId', 'planDigest', 'objectiveType', 'toolId', 'stepId', 'JSON.stringify']) {
+            expect(body).not.toContain(forbidden);
+        }
+    });
+
+    it('the Confirmar button (confirmButton) still calls only onConfirm, and Cancelar (cancelButton) still calls only onCancel -- copy button addition does not alter either callback', () => {
+        expect(cardSource).toMatch(/style=\{styles\.cancelButton\}\s*\n\s*onPress=\{onCancel\}/);
+        expect(cardSource).toMatch(/style=\{\[styles\.confirmButton, busy && styles\.disabledButton\]\}\s*\n\s*onPress=\{onConfirm\}/);
+    });
+});
+
+describe('PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: AgentExecutionCard exposes an explicit Copiar action for the execution/result prose', () => {
+    const cardSource = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentExecutionCard.tsx'), 'utf-8');
+
+    it('imports expo-clipboard and expo-haptics using the same namespace-import style as the rest of the app (no new dependency)', () => {
+        expect(cardSource).toContain("import * as Haptics from 'expo-haptics';");
+        expect(cardSource).toContain("import * as Clipboard from 'expo-clipboard';");
+    });
+
+    it('renders a "Copiar" button wired to handleCopy in the card header, alongside (never replacing) the status title', () => {
+        expect(cardSource).toMatch(/accessibilityLabel="Copiar resultado"[^]*?<Text style=\{styles\.copyText\}>Copiar<\/Text>/);
+        expect(cardSource).toMatch(/onPress=\{handleCopy\}/);
+        expect(cardSource).toMatch(/<Text style=\{styles\.title\}>\{STATUS_TITLES\[result\.status\]\}<\/Text>/);
+    });
+
+    it('handleCopy calls Clipboard.setStringAsync + success haptic only -- this card has no confirm/cancel/retry callbacks to protect, but copy must still be read-only (no state mutation)', () => {
+        const fnMatch = cardSource.match(/const handleCopy = async \(\) => \{[^]*?\n    \};/);
+        expect(fnMatch).not.toBeNull();
+        const body = fnMatch![0];
+        expect(body).toMatch(/Clipboard\.setStringAsync\(buildExecutionCopyText\(result, labelFor\)\)/);
+        expect(body).toMatch(/Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Success\)/);
+    });
+
+    it('buildExecutionCopyText uses STATUS_TITLES (human-readable) and labelFor (resolves to a step headline, never a raw stepId) plus failureCopy (human-readable), matching exactly what is rendered', () => {
+        const fnMatch = cardSource.match(/function buildExecutionCopyText\([^]*?\n\}/);
+        expect(fnMatch).not.toBeNull();
+        const body = fnMatch![0];
+        expect(body).toMatch(/STATUS_TITLES\[result\.status\]/);
+        expect(body).toMatch(/labelFor\(step\.stepId\)/);
+        expect(body).toMatch(/failureCopy\(step\.failureCode\)/);
+    });
+
+    it('buildExecutionCopyText never references authorizationId, createdEntityRefs, updatedEntityRefs, toolId, or raw stepId text, and never JSON.stringify -- clipboard content excludes every internal identifier/payload', () => {
+        const fnMatch = cardSource.match(/function buildExecutionCopyText\([^]*?\n\}/);
+        const body = fnMatch![0];
+        for (const forbidden of ['authorizationId', 'createdEntityRefs', 'updatedEntityRefs', 'toolId', 'JSON.stringify']) {
+            expect(body).not.toContain(forbidden);
+        }
+        // stepId is used only as labelFor's lookup argument (`labelFor(step.stepId)`),
+        // never concatenated into a copied line on its own -- confirmed by
+        // asserting every stepId occurrence is inside a labelFor(...) call.
+        const rawStepIdUsages = (body.match(/step\.stepId/g) || []).length;
+        const labelForCalls = (body.match(/labelFor\(step\.stepId\)/g) || []).length;
+        expect(rawStepIdUsages).toBe(labelForCalls);
+    });
+
+    it('AgentExecutionResult itself has no interactive callbacks (no onConfirm/onCancel/onRetry props) -- copy is the only action in this card, so there is nothing else the Copiar button could interfere with', () => {
+        expect(cardSource).not.toMatch(/onConfirm|onCancel|onRetry/);
+    });
+});
