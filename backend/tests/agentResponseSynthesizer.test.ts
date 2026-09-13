@@ -1957,6 +1957,55 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(response.answer.toLowerCase()).toMatch(/no encuentro evidencia|entrenar/);
     });
 
+    // PING — M-2 MULTI-ENTITY CONTEXT FIX: reproducción EXACTA de la
+    // regresión física real reportada contra staging 81be76a. Datos reales:
+    // commitment "entrenar" (9e39edeb-..., cancelled, eventos created/
+    // accepted/cancelled, NUNCA resolved/action_completed) + proposal
+    // homónima "Entrenar" (0d718396-..., rejected) -- retrieveCommitments Y
+    // retrieveCommitmentProposals corren independientemente sobre el mismo
+    // textQuery léxico "entrenar" y AMBAS entidades legítimamente aterrizan
+    // en context.commitments vía mergeCommitmentSources (nunca un bug de
+    // retrieval en sí -- cada entidad es real y visible para el actor). El
+    // guard anterior se autodesactivaba con context.commitments.length!==1;
+    // el fix resuelve el target ignorando la proposal por completo (nunca
+    // puede poseer un CommitmentEventType) y usando el ÚNICO commitment real
+    // presente, sin que la proposal contamine el conteo de ambigüedad.
+    it('1b. reproducción EXACTA de la regresión física (staging 81be76a): commitment "entrenar" real + proposal homónima "Entrenar" AMBAS en context.commitments -- el guard resuelve el commitment real como target y produce ausencia, la proposal nunca satisface ni desactiva la verificación', async () => {
+        const realCommitment = commitment('9e39edeb-d7b0-467d-9073-f0848251c7d3', { title: 'entrenar', status: 'cancelled' });
+        const homonymProposal = proposal('0d718396-bab7-424a-834f-24ab19630f8b', { title: 'Entrenar', status: 'rejected' });
+        const cancelEvt = retrievalEvent('evt-cancel-real', {
+            commitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3', eventType: 'cancelled',
+            previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.536Z',
+        });
+        const ctx = baseContext({
+            evidenceFound: true,
+            commitments: [realCommitment, homonymProposal] as any, // AMBAS entidades, exactamente como en producción
+            events: [cancelEvt] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            timezone: 'America/Santiago',
+        });
+        // Reproduce el patrón real de 4 claims/4 fuentes reportado
+        // físicamente: dos claims de estado ACTUAL (uno por entidad, citando
+        // cada una directamente) más dos claims "históricos" citando la
+        // proposal rechazada como si fuera evidencia de una transición del
+        // commitment -- exactamente la contaminación cruzada que el guard
+        // debe eliminar.
+        const model = fakeModel(claimPayload([
+            { text: 'El compromiso "entrenar" está en estado cancelled.', sourceRefs: [{ sourceType: 'commitment', sourceId: '9e39edeb-d7b0-467d-9073-f0848251c7d3' }] },
+            { text: 'El compromiso "Entrenar" está en estado rejected.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: '0d718396-bab7-424a-834f-24ab19630f8b' }] },
+            { text: 'El compromiso "entrenar" estuvo en estado confirmed el 10 de septiembre de 2026 a las 13:34.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: '0d718396-bab7-424a-834f-24ab19630f8b' }] },
+            { text: 'El compromiso "entrenar" estuvo en estado accepted el 10 de septiembre de 2026 a las 13:34.', sourceRefs: [{ sourceType: 'commitment_proposal', sourceId: '0d718396-bab7-424a-834f-24ab19630f8b' }] },
+        ]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando completamos lo de entrenar ?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).not.toMatch(/rejected|rechaz/i);
+        expect(response.answer).not.toMatch(/confirmed|confirm/i);
+        expect(response.answer).not.toMatch(/accepted|acept/i);
+        expect(response.answer.toLowerCase()).toMatch(/no encuentro evidencia|entrenar/);
+    });
+
     it('2. preserva la línea base física certificada: "Cuando cancelamos lo de entrenar?" (evento cancelled real) SÍ pasa -- misma transición pedida y evidenciada', async () => {
         const ctx = baseContext({
             evidenceFound: true, commitments: [entrenarCommitment()] as any, events: [cancelEvent()] as any,
@@ -1973,6 +2022,65 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(response.status).toBe('answered');
         expect(response.answer).toMatch(/[Cc]ancel/);
         expect(response.citations).toContainEqual({ sourceType: 'commitment_event', sourceId: 'evt-cancel' });
+    });
+
+    // Ítem 2 de la matriz de este ticket: el mismo contexto mixto
+    // (commitment real + proposal homónima) NO debe bloquear una pregunta
+    // cuya transición SÍ está evidenciada -- el guard nunca es "todo o
+    // nada" respecto de la presencia de la proposal, sólo importa si el
+    // commitment real resuelto tiene o no la evidencia pedida.
+    it('2b. mismo contexto mixto (commitment real "entrenar" + proposal homónima "Entrenar") -- "Cuando cancelamos lo de entrenar?" SÍ tiene evidencia real y responde exitosamente, la proposal presente no lo bloquea', async () => {
+        const realCommitment = commitment('9e39edeb-d7b0-467d-9073-f0848251c7d3', { title: 'entrenar', status: 'cancelled' });
+        const homonymProposal = proposal('0d718396-bab7-424a-834f-24ab19630f8b', { title: 'Entrenar', status: 'rejected' });
+        const cancelEvt = retrievalEvent('evt-cancel-mixed', {
+            commitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3', eventType: 'cancelled',
+            previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.536Z',
+        });
+        const ctx = baseContext({
+            evidenceFound: true, commitments: [realCommitment, homonymProposal] as any, events: [cancelEvt] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['cancelled'],
+            timezone: 'America/Santiago',
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'Cancelamos el compromiso "entrenar" el 11 de septiembre de 2026 a las 11:43.',
+            sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-cancel-mixed' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando cancelamos lo de entrenar?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).toMatch(/[Cc]ancel/);
+        expect(response.citations).toContainEqual({ sourceType: 'commitment_event', sourceId: 'evt-cancel-mixed' });
+    });
+
+    // Ítem 3/4 de la matriz de este ticket: una proposal rechazada nunca
+    // satisface una transición commitment-pedida, y una consulta
+    // proposal-focused sigue resolviendo lifecycle de proposal con
+    // normalidad (enforceProposalLifecycleTruth, no este guard, sigue
+    // siendo dueño de esa semántica -- este guard nunca interviene cuando
+    // no hay ningún commitment real involucrado).
+    it('proposal rechazada NUNCA satisface una transición commitment-pedida, ni siquiera citada directamente como si fuera evidencia de completado', () => {
+        const realCommitment = commitment('cm-real', { title: 'entrenar', status: 'cancelled' });
+        const homonymProposal = proposal('prop-1', { title: 'Entrenar', status: 'rejected' });
+        const ctx = baseContext({ commitments: [realCommitment, homonymProposal] as any, requestedTransition: ['action_completed', 'resolved'] });
+        const claims = [
+            { text: 'El compromiso "entrenar" está cancelado.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-real' }] },
+            { text: 'Se completó según la propuesta.', sourceRefs: [{ sourceType: 'commitment_proposal' as const, sourceId: 'prop-1' }] },
+        ];
+        const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-real' }] } as any;
+
+        const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
+        expect(result).toHaveLength(1);
+        expect(result[0].text).not.toMatch(/complet/i);
+    });
+
+    it('consulta proposal-focused (sin ningún commitment real en contexto) -- este guard nunca interviene, deja la semántica de proposal lifecycle a enforceProposalLifecycleTruth', () => {
+        const homonymProposal = proposal('prop-1', { title: 'Entrenar', status: 'rejected' });
+        const ctx = baseContext({ commitments: [homonymProposal] as any, requestedTransition: ['rejected'] });
+        const claims = [{ text: 'La propuesta "Entrenar" fue rechazada.', sourceRefs: [{ sourceType: 'commitment_proposal' as const, sourceId: 'prop-1' }] }];
+        const evidence = { allowedSourceRefs: [{ sourceType: 'commitment_proposal' as const, sourceId: 'prop-1' }] } as any;
+
+        expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
     });
 
     it('3. preserva la línea base física certificada: "Cuando completamos lo de Ver Spiderman?" (evento resolved real) SÍ pasa', async () => {
@@ -2017,6 +2125,37 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
 
         expect(response.status).toBe('answered');
         expect(response.answer).toMatch(/[Cc]ompletamos|completado/i);
+    });
+
+    // Ítem 7 de la matriz de este ticket: la línea base Spiderman debe
+    // seguir resolviendo SÓLO "Ver Spiderman" incluso con la entidad
+    // ajena "Spiderman el Viernes" (cancelled, comparte la palabra léxica
+    // "Spiderman") presente en el mismo context.commitments -- prueba que
+    // el fix de conteo de ambigüedad (filtra por linaje, no por título) no
+    // reintroduce la contaminación cruzada que 6d242f0 ya había resuelto.
+    it('3c. Spiderman con la entidad ajena "Spiderman el Viernes" (cancelled) también presente en context.commitments -- el guard resuelve "Ver Spiderman" vía linaje estructurado, la entidad ajena nunca contamina', async () => {
+        const spidermanCommitment = commitment('spiderman-id', { title: 'Ver Spiderman', status: 'resolved' });
+        const unrelatedFriday = commitment('spiderman-friday-id', { title: 'Spiderman el Viernes', status: 'cancelled' });
+        const resolvedEvent = retrievalEvent('evt-resolved-sp', {
+            commitmentId: 'spiderman-id', eventType: 'resolved', previousStatus: 'accepted', newStatus: 'resolved',
+            createdAt: '2026-09-11T01:33:00.000Z',
+        });
+        const ctx = baseContext({
+            evidenceFound: true, commitments: [spidermanCommitment, unrelatedFriday] as any, events: [resolvedEvent] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            timezone: 'America/Santiago',
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'Completamos "Ver Spiderman" el 10 de septiembre de 2026 a las 22:33.',
+            sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-resolved-sp' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando completamos lo de Ver Spiderman?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).toMatch(/[Cc]ompletamos|completado/i);
+        expect(response.answer).not.toMatch(/[Vv]iernes/);
+        expect(response.citations.some((c: any) => c.sourceId === 'spiderman-friday-id')).toBe(false);
     });
 
     it('4. transición pedida existe pero el estado ACTUAL cambió después -- la ocurrencia histórica sigue siendo respondible desde el evento, el guard no la bloquea', async () => {
@@ -2095,12 +2234,50 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
     });
 
-    it('10. multi-entidad (más de un commitment en contexto) -- fuera de alcance de este guard, nunca adivina cuál commitment verificar, claims pasan intactos', () => {
+    // PING — M-2 MULTI-ENTITY CONTEXT FIX: más de un commitment REAL presente
+    // en context.commitments ya NO desactiva el guard por sí solo -- si los
+    // claims del modelo tienen linaje estructurado hacia exactamente UNO de
+    // ellos (aquí, 'cm-1', vía cita directa 'commitment'), ese es el target
+    // inequívoco y la verificación SÍ corre. La cardinalidad de retrieval
+    // (cuántas filas trajo la query) nunca es lo mismo que "cuál entidad
+    // resolvió el linaje estructurado" -- el segundo commitment ('cm-2') es
+    // simplemente irrelevante para esta pregunta, ninguna cita lo menciona.
+    it('10a. más de un commitment real en contexto, pero el linaje estructurado de los claims resuelve exactamente UNO -- el guard SÍ verifica ese, el otro commitment presente es simplemente irrelevante', () => {
         const ctx = baseContext({
-            commitments: [commitment('cm-1', { title: 'entrenar' }), commitment('cm-2', { title: 'estudiar' })] as any,
+            commitments: [commitment('cm-1', { title: 'entrenar', status: 'accepted' }), commitment('cm-2', { title: 'estudiar', status: 'accepted' })] as any,
             requestedTransition: ['resolved'],
         });
-        const claims = [{ text: 'algo', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] }];
+        const claims = [{ text: 'Está aceptado.', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] }];
+        const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] } as any;
+
+        const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
+        expect(result).toHaveLength(1);
+        expect(result[0].text).not.toMatch(/aceptado/i); // sin evento 'resolved'/'action_completed' real -- ausencia, no sustitución
+    });
+
+    // Ambigüedad GENUINA: dos commitments reales, y ningún claim tiene
+    // linaje estructurado que distinga cuál de los dos es el target --
+    // aquí sí se exige "no adivinar" (matriz ítem 6 del ticket de este
+    // turno: "guard does not guess").
+    it('10b. ambigüedad genuina: dos commitments reales, ningún claim con linaje hacia ninguno -- el guard nunca adivina, claims pasan intactos', () => {
+        const ctx = baseContext({
+            commitments: [commitment('cm-1', { title: 'entrenar' }), commitment('cm-2', { title: 'entrenar también' })] as any,
+            requestedTransition: ['resolved'],
+        });
+        const claims = [{ text: 'algo sin ninguna fuente tipada de commitment', sourceRefs: [{ sourceType: 'message' as const, sourceId: 'msg-1' }] }];
+        const evidence = { allowedSourceRefs: [] } as any;
+
+        expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
+    });
+
+    it('10c. ambigüedad genuina: dos commitments reales, y los claims tienen linaje estructurado hacia AMBOS -- el guard nunca adivina cuál es el target, claims pasan intactos', () => {
+        const c1 = commitment('cm-1', { title: 'entrenar' });
+        const c2 = commitment('cm-2', { title: 'entrenar también' });
+        const ctx = baseContext({ commitments: [c1, c2] as any, requestedTransition: ['resolved'] });
+        const claims = [
+            { text: 'x1', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-1' }] },
+            { text: 'x2', sourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-2' }] },
+        ];
         const evidence = { allowedSourceRefs: [] } as any;
 
         expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
