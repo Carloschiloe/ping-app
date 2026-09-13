@@ -369,7 +369,18 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     let query = supabaseAdmin
         .from('commitments')
         .select(COMMITMENT_SELECT)
-        .or(visibilityFilter);
+        .or(visibilityFilter)
+        // PING — ARCHIVED COMMITMENT LEAKAGE FIX: archived_at is a soft-
+        // delete/visibility concern (deleteCommitment IS archiveCommitment,
+        // commitment.service.ts) -- listCommitments (the mobile REST list)
+        // already excludes it via the identical `.is('archived_at', null)`
+        // filter (commitment.service.ts:532), but this Agent-facing
+        // retrieval path never did, so an archived commitment (one the
+        // user believes they deleted) could still be cited/counted/
+        // narrated by the Agent even though it never appears in the mobile
+        // UI. Same filter, same canonical meaning, applied where it was
+        // missing -- never a new visibility concept.
+        .is('archived_at', null);
 
     // M-1G.2: para "¿Qué tengo vencido?" ordenar por due_at ascendente (lo
     // más vencido primero) en vez de por creación — de lo contrario un
@@ -414,6 +425,8 @@ export async function retrieveVisibleCommitmentById(actorUserId: string, commitm
         .select(COMMITMENT_SELECT)
         .eq('id', commitmentId)
         .or(visibilityFilter)
+        // Same archived-commitment exclusion as retrieveCommitments above.
+        .is('archived_at', null)
         .maybeSingle();
     if (error) throw new AppError(error.message, 500);
     return data ? toRetrievalCommitment(data) : null;

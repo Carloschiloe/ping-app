@@ -413,6 +413,36 @@ describe('M-1B: retrieveCommitments', () => {
         await expect(retrieveCommitments({ actorUserId: 'u1' }, 20)).resolves.toEqual([]);
     });
 
+    // PING — ARCHIVED COMMITMENT LEAKAGE FIX: retrieveCommitments (the Agent-
+    // facing retrieval path) previously never excluded archived_at, unlike
+    // listCommitments (the mobile REST list, commitment.service.ts:532) --
+    // an archived commitment (deleteCommitment IS archiveCommitment) could
+    // still be cited/counted/narrated by the Agent even though the user
+    // believes they deleted it and it never appears in the mobile UI.
+    it('excluye commitments archivados (archived_at no nulo) de la misma forma que listCommitments -- aplica .is("archived_at", null)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1' }, 20);
+        expect(mock.getIsCalls('commitments')).toContainEqual(['archived_at', null]);
+    });
+
+    it('retrieveVisibleCommitmentById también excluye commitments archivados -- misma exclusión, mismo filtro', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: row(), error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveVisibleCommitmentById } = await import('../src/services/retrieval.service');
+
+        await retrieveVisibleCommitmentById('u1', 'cm1');
+        expect(mock.getIsCalls('commitments')).toContainEqual(['archived_at', null]);
+    });
+
     it('aplica el límite pedido a la consulta', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],

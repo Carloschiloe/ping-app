@@ -15,6 +15,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
     const updates: Record<string, any[]> = {};
     const eqCalls: Record<string, Array<[string, any]>> = {};
     const inCalls: Record<string, Array<[string, any]>> = {};
+    const isCalls: Record<string, Array<[string, any]>> = {};
     const selectCalls: Record<string, any[]> = {};
     const orCalls: Record<string, string[]> = {};
     const textSearchCalls: Record<string, Array<[string, string, any]>> = {};
@@ -62,7 +63,10 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
                 (textSearchCalls[table] = textSearchCalls[table] || []).push([column, query, options]);
                 return chain;
             }),
-            is: vi.fn(() => chain),
+            is: vi.fn((column: string, value: any) => {
+                (isCalls[table] = isCalls[table] || []).push([column, value]);
+                return chain;
+            }),
             not: vi.fn(() => chain),
             order: vi.fn(() => chain),
             limit: vi.fn(() => chain),
@@ -98,6 +102,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
         getUpdateCalls: (table: string) => updates[table] || [],
         getEqCalls: (table: string) => eqCalls[table] || [],
         getInCalls: (table: string) => inCalls[table] || [],
+        getIsCalls: (table: string) => isCalls[table] || [],
         getSelectCalls: (table: string) => selectCalls[table] || [],
         getOrCalls: (table: string) => orCalls[table] || [],
         getTextSearchCalls: (table: string) => textSearchCalls[table] || [],
