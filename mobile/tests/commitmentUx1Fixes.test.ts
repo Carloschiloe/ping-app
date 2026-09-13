@@ -529,3 +529,67 @@ describe('ARCHIVE UX AUDIT + IMPLEMENTATION — "Archivar" ahora existe como acc
         expect(hookBlockMatch![1]).not.toMatch(/queryKey: \['commitments'\]/);
     });
 });
+
+// PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE
+// INVALIDATION CONSISTENCY: useCommitmentLifecycleInvalidation() (the
+// canonical invalidation owner used by resolve/cancel/reopen/
+// action-completed/counter-propose/reassign/schedule-follow-up/archive/
+// restore) did not invalidate ['agreement-proposals'], while
+// useAgentExecute (the Agent-driven mutation path) already did -- a manual
+// (non-Agent) lifecycle mutation could leave Compromisos/Hoy's proposals
+// section stale. Fixed by adding the key to the single canonical owner,
+// never by duplicating a one-off invalidation into each of the 7 call
+// sites individually.
+describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE INVALIDATION CONSISTENCY: useCommitmentLifecycleInvalidation() is the single canonical owner, and now includes agreement-proposals', () => {
+    const COMMITMENTS_API_SRC = fs.readFileSync(
+        path.join(__dirname, '..', 'src/api/query-modules/commitments.ts'), 'utf-8',
+    );
+
+    function lifecycleInvalidationBody(): string {
+        const match = COMMITMENTS_API_SRC.match(/function useCommitmentLifecycleInvalidation\(\) \{[^]*?\n\}/);
+        expect(match).not.toBeNull();
+        return match![0];
+    }
+
+    it('the canonical owner invalidates agreement-proposals alongside every other canonical key -- not a narrower set than useAgentExecute', () => {
+        const body = lifecycleInvalidationBody();
+        for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
+            expect(body).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+        }
+    });
+
+    it('useResolveCommitment (resolve), useCancelCommitment (cancel), useReopenCommitment (reopen), useCounterProposeCommitment (counter-propose), and useReassignCommitment (reassign) all call the canonical invalidate() -- none reimplements its own one-off invalidation list', () => {
+        for (const hookName of ['useResolveCommitment', 'useCancelCommitment', 'useReopenCommitment', 'useCounterProposeCommitment', 'useReassignCommitment']) {
+            const hookMatch = COMMITMENTS_API_SRC.match(new RegExp(`export const ${hookName} = \\(\\) => \\{[^]*?\\n\\};`));
+            expect(hookMatch, `${hookName} not found`).not.toBeNull();
+            expect(hookMatch![0]).toMatch(/const invalidate = useCommitmentLifecycleInvalidation\(\);/);
+        }
+    });
+
+    it('useArchiveCommitment and useRestoreCommitment still call the canonical invalidate() AND separately invalidate archived-commitments -- the fix is additive, their existing archived-list behavior is preserved unchanged', () => {
+        for (const hookName of ['useArchiveCommitment', 'useRestoreCommitment']) {
+            const hookMatch = COMMITMENTS_API_SRC.match(new RegExp(`export const ${hookName} = \\(\\) => \\{[^]*?\\n\\};`));
+            expect(hookMatch, `${hookName} not found`).not.toBeNull();
+            const body = hookMatch![0];
+            expect(body).toMatch(/const invalidate = useCommitmentLifecycleInvalidation\(\);/);
+            expect(body).toMatch(/invalidate\(\);/);
+            expect(body).toMatch(/queryClient\.invalidateQueries\(\{ queryKey: \['archived-commitments'\] \}\)/);
+        }
+    });
+
+    it('no duplicate per-hook reimplementation of the canonical invalidation list was introduced -- exactly one function defines the shared key set', () => {
+        const definitions = (COMMITMENTS_API_SRC.match(/function useCommitmentLifecycleInvalidation\(\)/g) || []).length;
+        expect(definitions).toBe(1);
+    });
+
+    it('useAgentExecute (mobile/src/api/query-modules/agent.ts) invalidation set is unchanged and still matches the canonical lifecycle set exactly -- Agent execution invalidation remains green', () => {
+        const AGENT_API_SRC = fs.readFileSync(
+            path.join(__dirname, '..', 'src/api/query-modules/agent.ts'), 'utf-8',
+        );
+        const fnMatch = AGENT_API_SRC.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        expect(fnMatch).not.toBeNull();
+        for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
+            expect(fnMatch![0]).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+        }
+    });
+});

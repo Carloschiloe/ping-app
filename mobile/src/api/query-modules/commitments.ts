@@ -288,6 +288,19 @@ export const useMarkCommitmentDone = () => {
     };
 };
 
+// PING — LIFECYCLE INVALIDATION OWNER: agreement-proposals was missing here
+// while useAgentExecute (mobile/src/api/query-modules/agent.ts) already
+// invalidates it on every Agent-driven lifecycle mutation -- the same
+// commitment_proposals-affecting transitions (resolve/cancel/reopen/
+// counter-propose/reassign) can change what Compromisos/Hoy's proposals
+// section should show (e.g. reassign changes proposed_responsible_user_id,
+// counter-propose changes latest_counterproposal_due_at), so a manual
+// (non-Agent) mutation through this canonical owner must invalidate the
+// same projection the Agent path already does. Adding it HERE (the single
+// canonical owner) rather than duplicating it into each of the 7 call
+// sites individually -- several already did that ad hoc (see
+// useCreateSharedCommitmentProposal etc. above), which is exactly the
+// one-off drift this owner exists to prevent.
 function useCommitmentLifecycleInvalidation() {
     const queryClient = useQueryClient();
     return () => {
@@ -297,6 +310,7 @@ function useCommitmentLifecycleInvalidation() {
         queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
         queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
         queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
     };
 }
 

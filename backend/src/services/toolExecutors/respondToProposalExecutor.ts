@@ -10,6 +10,13 @@ import { getAgreementProposals, respondToSharedProposal } from '../commitmentPro
 import { AppError } from '../../utils/AppError';
 import type { ToolExecutor, ToolExecutionContext, ToolExecutionOutcome } from '../../types/agentExecution';
 
+// Ver createCommitmentExecutor.ts/rescheduleCommitmentExecutor.ts: PostgREST
+// nunca devuelve un timestamptz como el mismo literal ISO con el que se
+// escribió -- comparar el instante real, nunca el string crudo.
+function sameInstant(a: string, b: string): boolean {
+    return new Date(a).getTime() === new Date(b).getTime();
+}
+
 export const respondToProposalExecutor: ToolExecutor = {
     toolId: 'respond_to_proposal',
     version: 1,
@@ -38,12 +45,33 @@ export const respondToProposalExecutor: ToolExecutor = {
             // fila de respuesta del actor debe reflejar la decisión real.
             const refreshed = await getAgreementProposals(context.actorUserId);
             const after = refreshed.find((p: any) => p.id === proposalId);
-            const expectedApproved = decision === 'approve';
             const verified = decision === 'approve'
-                ? !!after && after.actor_has_approved === true
+                ? !!after && after.id === proposalId && after.actor_has_approved === true
                 : decision === 'reject'
-                    ? !after || after.status === 'rejected' || (after as any).actor_role === 'none'
-                    : !!after; // counter_propose: la proposal sigue existiendo con nueva fecha propuesta
+                    ? !after || (after.id === proposalId && (after.status === 'rejected' || (after as any).actor_role === 'none'))
+                    // PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS:
+                    // counter_propose previously accepted mere `!!after`
+                    // (the proposal merely still existing, with NO check
+                    // that its date actually changed) -- this MUST
+                    // independently confirm: (1) same target proposal id,
+                    // (2) it still corresponds to a real pending
+                    // counter-proposal (status: 'counter_proposal', per
+                    // toAgreementView), (3) the canonical persisted date
+                    // (proposed_due_at, sourced from
+                    // latest_counterproposal_due_at) represents the SAME
+                    // INSTANT as the authorized proposedDueAt -- never the
+                    // pre-write cache, the request payload, or mere
+                    // existence, and (4) the actor who made this
+                    // counter-proposal is the same actor who is executing
+                    // it now (never someone else's stale counter-proposal
+                    // read as if it were this authorized one).
+                    : !!after
+                        && after.id === proposalId
+                        && after.status === 'counter_proposal'
+                        && !!proposedDueAt
+                        && !!after.proposed_due_at
+                        && sameInstant(after.proposed_due_at, proposedDueAt)
+                        && after.latest_counterproposal_by_user_id === context.actorUserId;
 
             return {
                 status: verified ? 'succeeded' : 'failed_terminal',

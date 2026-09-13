@@ -38,12 +38,23 @@ export const completeCommitmentExecutor: ToolExecutor = {
         try {
             const updated = await resolveCommitment(context.actorUserId, commitmentId, resolutionResult);
 
-            const verified = updated.status === 'resolved';
+            // PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS: status
+            // alone is insufficient -- commitment.service.ts#applyCommitmentTransition
+            // requires resolutionResult (tool schema also enforces
+            // z.string().trim().min(1)) and persists it VERBATIM after a
+            // trim (patch.resolution_result = extra.resolutionResult.trim(),
+            // no further normalization in commitmentTransitions.ts) -- so
+            // the authorized value must exactly match what the canonical
+            // RPC actually persisted, trimmed the same way, never assumed
+            // equal merely because the RPC call succeeded.
+            const verified = updated.id === commitmentId
+                && updated.status === 'resolved'
+                && updated.resolution_result === resolutionResult.trim();
             return {
                 status: verified ? 'succeeded' : 'failed_terminal',
                 failureCode: verified ? undefined : 'verification_failed',
                 verified,
-                resultRef: { commitmentId, status: updated.status },
+                resultRef: { commitmentId, status: updated.status, resolutionResult: updated.resolution_result },
                 updatedEntityRefs: [{ entityType: 'commitment', entityId: commitmentId }],
             };
         } catch (err) {

@@ -93,17 +93,121 @@ describe('respondToProposalExecutor — TOCTOU / authorization / verification (M
         expect(outcome.createdEntityRefs).toEqual([]);
     });
 
-    it('counter_propose exitoso: la proposal sigue existiendo tras la relectura -- verified:true', async () => {
-        mockGetAgreementProposals
-            .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
-            .mockResolvedValueOnce([{ id: 'prop-1' }]);
-        mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+    // PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS: counter_propose
+    // previously accepted mere `!!after` (the proposal merely still
+    // existing) -- these cases prove the strengthened contract: same
+    // target id, real pending counter-proposal status, the canonical
+    // persisted date represents the SAME INSTANT as the authorized
+    // proposedDueAt (never the request payload or pre-write cache), and
+    // the counter-proposal author matches the executing actor.
+    describe('counter_propose — canonical post-write verification (never mere existence)', () => {
+        it('exact match: persisted proposed_due_at represents the same instant as authorized proposedDueAt -- verified:true', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([{
+                    id: 'prop-1',
+                    status: 'counter_proposal',
+                    proposed_due_at: '2026-10-01T10:00:00.000Z',
+                    latest_counterproposal_by_user_id: 'actor-1',
+                }]);
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
 
-        const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
 
-        expect(outcome.status).toBe('succeeded');
-        expect(outcome.verified).toBe(true);
-        expect(mockRespondToSharedProposal).toHaveBeenCalledWith('actor-1', 'prop-1', 'counter_propose', { proposedDueAt: '2026-10-01T10:00:00Z' });
+            expect(outcome.status).toBe('succeeded');
+            expect(outcome.verified).toBe(true);
+            expect(mockRespondToSharedProposal).toHaveBeenCalledWith('actor-1', 'prop-1', 'counter_propose', { proposedDueAt: '2026-10-01T10:00:00Z' });
+        });
+
+        it('timezone-equivalent instant (different literal, same instant) -- verified:true, instant-safe comparison', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([{
+                    id: 'prop-1',
+                    status: 'counter_proposal',
+                    proposed_due_at: '2026-10-01T07:00:00-03:00', // same instant as 10:00Z
+                    latest_counterproposal_by_user_id: 'actor-1',
+                }]);
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.status).toBe('succeeded');
+            expect(outcome.verified).toBe(true);
+        });
+
+        it('different instant persisted -- NOT verified, never claims success on a mismatched date', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([{
+                    id: 'prop-1',
+                    status: 'counter_proposal',
+                    proposed_due_at: '2026-10-02T10:00:00.000Z', // wrong day
+                    latest_counterproposal_by_user_id: 'actor-1',
+                }]);
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.status).toBe('failed_terminal');
+            expect(outcome.failureCode).toBe('verification_failed');
+            expect(outcome.verified).toBe(false);
+        });
+
+        it('unchanged/pre-write proposed date (write silently no-opped) -- NOT verified', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true, proposed_due_at: '2026-09-01T10:00:00.000Z' }])
+                .mockResolvedValueOnce([{
+                    id: 'prop-1',
+                    status: 'counter_proposal',
+                    proposed_due_at: '2026-09-01T10:00:00.000Z', // never actually changed
+                    latest_counterproposal_by_user_id: 'actor-1',
+                }]);
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.verified).toBe(false);
+        });
+
+        it('proposal merely existing (old weak contract: `{ id: "prop-1" }` with no status/date) -- NOT sufficient, NOT verified', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([{ id: 'prop-1' }]); // exists, but no proof the mutation actually landed
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.verified).toBe(false);
+            expect(outcome.status).toBe('failed_terminal');
+        });
+
+        it('wrong target id in the refreshed list (different proposal matched by coincidence) -- NOT verified', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([]); // prop-1 not found post-write at all
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.verified).toBe(false);
+        });
+
+        it('counter-proposal authored by a different actor than the one executing now -- NOT verified (never trusts someone else\'s stale counter-proposal)', async () => {
+            mockGetAgreementProposals
+                .mockResolvedValueOnce([{ id: 'prop-1', actor_can_respond: true }])
+                .mockResolvedValueOnce([{
+                    id: 'prop-1',
+                    status: 'counter_proposal',
+                    proposed_due_at: '2026-10-01T10:00:00.000Z',
+                    latest_counterproposal_by_user_id: 'someone-else',
+                }]);
+            mockRespondToSharedProposal.mockResolvedValueOnce({ commitment: null } as any);
+
+            const outcome = await respondToProposalExecutor.execute(ctx(), { proposalId: 'prop-1', decision: 'counter_propose', proposedDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome.verified).toBe(false);
+        });
     });
 
     it('el RPC lanza un AppError con código Postgres 42501 (RLS/permiso) -- mapea a not_authorized, failed_terminal, nunca relanza', async () => {
