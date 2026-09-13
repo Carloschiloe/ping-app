@@ -163,6 +163,7 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Tests:** `backend/tests/attachmentService.test.ts`, `backend/tests/privateFileService.test.ts`, `backend/tests/postgres/attachmentCore.integration.sql`, `mobile/tests/uploadContainment.test.ts`, `mobile/tests/privateFiles.test.ts`.
 **Common symptoms:** signed URL persisted, attachment stuck pending, duplicate claim, outsider read.
 **Usually do not read:** Avatar upload paths unless `resourceType=profile` is involved.
+**Known non-blocking debt (audited, not an authorization leak):** `attachmentApplication.service.ts#listExpiredMessageAttachments` (wraps `list_expired_message_attachments`, `20260831010000_message_attachment_core.sql`) exists to enumerate expired `pending`/`uploaded` attachments never completed into a message, but is never invoked by any cron/worker (`cronCoordinator.ts` has no attachment references) — an abandoned upload's storage object accumulates indefinitely. Confirmed safe: `authorize_message_attachment_read`/`getAttachmentForActor` keep it reachable only by its own uploader, never by anyone else. There is also no companion delete RPC or Storage-removal call anywhere in the codebase today — actually closing this requires new deletion machinery (a new RPC + Storage API call + cron wiring), not just invoking existing code, so it was left as documented debt rather than built speculatively.
 
 ### Audio
 
