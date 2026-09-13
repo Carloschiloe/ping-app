@@ -615,3 +615,62 @@ describe('OBSERVABILITY -- structured, non-sensitive trace fields for the enrich
         }
     });
 });
+
+// PING — AGENT RESPONSE LANGUAGE CONSISTENCY. Root cause of the physical
+// failure lived exactly at this boundary: AgentPlanOrchestratorInput
+// already carried `locale` (threaded in from agentTurn.service.ts), but
+// runAgentPlanning never copied it into the AgentPlannerInput it builds for
+// planObjective -- silently dropped, never reaching the planner's
+// objectiveType 'unsupported' branch, the ONE hardcoded-English
+// failureMessage in the whole planner. These tests exercise the REAL
+// DeterministicObjectiveInterpreter (no mocking of interpretation itself)
+// with the exact physical utterance -- it genuinely classifies as
+// 'unsupported' (no verb pattern matches "Borra"), so this certifies the
+// full runAgentPlanning -> planObjective round trip, not just the planner
+// in isolation.
+describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: runAgentPlanning propagates locale into the planner, the exact boundary where it was previously dropped', () => {
+    it('REAL PHYSICAL FIXTURE via runAgentPlanning: Spanish "Borra definitivamente todos mis compromisos y elimina todos sus registros históricos" with locale="es-CL" -> Spanish failureMessage, capability-gapped, never an executable plan', async () => {
+        const plan = await runAgentPlanning({
+            actorUserId: ACTOR_ID,
+            input: 'Borra definitivamente todos mis compromisos y elimina todos sus registros históricos',
+            locale: 'es-CL',
+        }, { objectiveInterpreter });
+
+        expect(plan.objective.objectiveType).toBe('unsupported');
+        expect(plan.status).toBe('draft');
+        expect(plan.canExecute).toBe(false);
+        expect(plan.steps).toEqual([]);
+        expect(plan.validation.issues[0]?.code).toBe('unsupported_capability');
+        expect(plan.validation.issues[0]?.message).not.toMatch(/I can't plan an action/i);
+        expect(plan.validation.issues[0]?.message).toMatch(/todavía no puedo realizar esa acción/i);
+        expect(plan.humanReadableSummary).not.toMatch(/I can't plan an action/i);
+    });
+
+    it('same physical fixture WITHOUT an explicit locale still resolves to Spanish via the utterance itself -- locale is the primary signal, never the only one', async () => {
+        const plan = await runAgentPlanning({
+            actorUserId: ACTOR_ID,
+            input: 'Borra definitivamente todos mis compromisos y elimina todos sus registros históricos',
+        }, { objectiveInterpreter });
+
+        expect(plan.validation.issues[0]?.message).toMatch(/todavía no puedo realizar esa acción/i);
+    });
+
+    it('English unsupported request with locale="en-US" -> English failureMessage preserved end to end through runAgentPlanning, never translated', async () => {
+        const plan = await runAgentPlanning({
+            actorUserId: ACTOR_ID,
+            input: 'Permanently delete all my commitments and erase all their historical records',
+            locale: 'en-US',
+        }, { objectiveInterpreter });
+
+        expect(plan.objective.objectiveType).toBe('unsupported');
+        expect(plan.validation.issues[0]?.message).toMatch(/I can't plan an action/i);
+        expect(plan.validation.issues[0]?.message).not.toMatch(/todavía no puedo/i);
+    });
+
+    it('failureMode/validation code stays the canonical English enum "unsupported_capability" in both languages -- only the user-visible message text follows locale, never the internal identifier', async () => {
+        const es = await runAgentPlanning({ actorUserId: ACTOR_ID, input: 'Borra todo', locale: 'es-CL' }, { objectiveInterpreter });
+        const en = await runAgentPlanning({ actorUserId: ACTOR_ID, input: 'Delete everything', locale: 'en-US' }, { objectiveInterpreter });
+        expect(es.validation.issues[0]?.code).toBe('unsupported_capability');
+        expect(en.validation.issues[0]?.code).toBe('unsupported_capability');
+    });
+});

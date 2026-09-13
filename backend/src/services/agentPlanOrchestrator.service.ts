@@ -24,6 +24,7 @@ import { tracePlan } from '../utils/planTrace';
 import type { AgentObjective, AgentPlan, AgentPlanFailureMode, AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 import { LOW_CONFIDENCE_ACTION_THRESHOLD } from './agentVoice.service';
+import { detectAgentLanguage } from '../utils/agentLanguage';
 
 // ─── Canonical deterministic-first routing (sección: "ONE owner of agent
 // input -> deterministic-first interpretation -> optional semantic
@@ -194,6 +195,13 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         timezone: input.timezone,
         traceId: input.traceId,
         contextReferents: input.contextReferents,
+        // PING — AGENT RESPONSE LANGUAGE CONSISTENCY (root cause fix):
+        // AgentPlanOrchestratorInput already carried `locale` (threaded in
+        // from agentTurn.service.ts) but it was never copied into
+        // plannerInput -- silently dropped at exactly this boundary, the
+        // reason the planner's one hardcoded-English fallback message
+        // could never have followed the user's actual language.
+        locale: input.locale,
     };
 
     const draft = await planObjective(plannerInput);
@@ -209,7 +217,13 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
     } else if (draft.failureMode) {
         status = 'draft';
         failureMode = draft.failureMode;
-        validationIssues = { valid: false, issues: [{ code: draft.failureMode, message: draft.failureMessage ?? 'Plan could not be built.' }] };
+        // PING — AGENT RESPONSE LANGUAGE CONSISTENCY: practically
+        // unreachable (every failureMode-setting branch in
+        // agentPlanner.service.ts already sets failureMessage), but this
+        // English literal is still user-visible text -- same detector,
+        // same invariant, defense-in-depth against ever leaking English
+        // into a Spanish session even in this residual path.
+        validationIssues = { valid: false, issues: [{ code: draft.failureMode, message: draft.failureMessage ?? (detectAgentLanguage(input.input, input.locale) === 'es' ? 'No se pudo construir un plan.' : 'Plan could not be built.') }] };
     } else {
         const { validation, correctedSteps } = validateAgentPlan(draft.steps);
         validationIssues = validation;

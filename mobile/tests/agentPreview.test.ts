@@ -389,3 +389,25 @@ describe('M-1G.1: legacy coexistence — sin cambios de diseño, sólo el fix de
         expect(screenSource).toContain("{ label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') }");
     });
 });
+
+// PING — AGENT RESPONSE LANGUAGE CONSISTENCY audit (unsupported-action
+// heading truthfulness, separate from the backend body-text fix): "Esta
+// acción AÚN no está disponible" implied a guaranteed future promise Ping's
+// product semantics don't make for every case routed here -- this same
+// heading also covers structurally unsupported destructive requests (e.g.
+// "Borra definitivamente todos mis compromisos..."), which will never
+// become available via this path. Neutral wording ("no está disponible",
+// no "aún"/"todavía") stays truthful whether or not a given unsupported
+// action is ever added later.
+describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action heading is truthful, never implies a guaranteed future promise', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('renders "Esta acción no está disponible", never "aún no está disponible"', () => {
+        expect(screenSource).toContain('Esta acción no está disponible');
+        expect(screenSource).not.toMatch(/Esta acción aún no está disponible/);
+    });
+
+    it('the heading is still gated on item.isUnsupported exactly as before -- only the wording changed, not the condition/placement', () => {
+        expect(screenSource).toMatch(/\{item\.isUnsupported && <Text style=\{styles\.turnLabel\}>Esta acción no está disponible<\/Text>\}/);
+    });
+});

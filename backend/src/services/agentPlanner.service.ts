@@ -27,6 +27,7 @@ import type {
 } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
 import type { ContextReferent } from '../types/agentInput';
+import { detectAgentLanguage } from '../utils/agentLanguage';
 
 export interface AgentPlannerInput {
     objective: AgentObjective;
@@ -36,6 +37,16 @@ export interface AgentPlannerInput {
     timezone?: string;
     traceId?: string;
     contextReferents?: ContextReferent[];
+    // PING — AGENT RESPONSE LANGUAGE CONSISTENCY: the real device locale
+    // (BCP-47), already threaded through agentTurn.service.ts /
+    // agentPlanOrchestrator.service.ts, was previously dropped exactly at
+    // the boundary into this planner -- the one root cause of the
+    // "I can't plan an action..." English leak in a Spanish session (see
+    // the objectiveType 'unsupported' branch below). Used with the SAME
+    // canonical detector the read/query path already uses
+    // (detectAgentLanguage, utils/agentLanguage.ts), never a second
+    // localization system.
+    locale?: string;
 }
 
 interface DraftOutcome {
@@ -714,8 +725,30 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
         case 'respond_to_existing_proposal':
             return planRescheduleOrCompleteOrRespond(objective, input);
         case 'unsupported':
-        default:
-            return { steps: [], blockingAmbiguities: [], failureMode: 'unsupported_capability', failureMessage: 'I can\'t plan an action for that request yet — I can only preview communicate/create/reschedule/complete/respond actions today.' };
+        default: {
+            // PING — AGENT RESPONSE LANGUAGE CONSISTENCY (root cause fix):
+            // this was the ONLY hardcoded-English failureMessage in this
+            // entire file (every sibling branch above is Spanish, e.g. "No
+            // te corresponde responder a esta propuesta...") -- a Spanish
+            // session hitting an unsupported objectiveType (physical case:
+            // "Borra definitivamente todos mis compromisos y elimina todos
+            // sus registros históricos") got this one message back in
+            // English while everything else in the same UI stayed Spanish.
+            // detectAgentLanguage is the SAME canonical detector
+            // agentResponseSynthesizer.service.ts already uses for its own
+            // capability_gap/no_evidence templates (utils/agentLanguage.ts)
+            // -- never a second localization system. `input.locale` is the
+            // real device locale, now threaded all the way from
+            // agentTurn.service.ts through agentPlanOrchestrator.service.ts
+            // into AgentPlannerInput (it was silently dropped at that exact
+            // boundary before this fix, even though the orchestrator's own
+            // input already carried it).
+            const language = detectAgentLanguage(objective.sourceUtterance, input.locale);
+            const failureMessage = language === 'es'
+                ? 'Todavía no puedo realizar esa acción. Actualmente puedo ayudarte a comunicar, crear, reprogramar, completar o responder compromisos.'
+                : 'I can\'t plan an action for that request yet — I can only preview communicate/create/reschedule/complete/respond actions today.';
+            return { steps: [], blockingAmbiguities: [], failureMode: 'unsupported_capability', failureMessage };
+        }
     }
 }
 

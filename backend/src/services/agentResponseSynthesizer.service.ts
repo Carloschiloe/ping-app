@@ -40,6 +40,14 @@ import { isCommitmentOverdue } from '../utils/overdueSemantics';
 import { formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
+// PING — AGENT RESPONSE LANGUAGE CONSISTENCY: detectTemplateLanguage moved
+// to utils/agentLanguage.ts (renamed detectAgentLanguage) so
+// agentPlanner.service.ts's write/planning path can reuse the EXACT SAME
+// detector instead of the planner staying language-blind (the real root
+// cause of the "I can't plan an action..." English leak in a Spanish
+// session) -- re-exported here under the original name so no other call
+// site in this file needs to change.
+import { detectAgentLanguage as detectTemplateLanguage } from '../utils/agentLanguage';
 
 // ─── Status (sección 6) ──────────────────────────────────────────────────────
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
@@ -54,31 +62,13 @@ export function deriveStatus(context: AgentContext): AgentResponseStatus {
     return 'answered';
 }
 
-// ─── Idioma (sección 13, hardened M-1G.1) — la señal primaria es el locale
-// real del dispositivo (BCP-47, ej. "es-CL"/"en-US"), ya enviado por mobile
-// en cada request y hasta ahora ignorado en este camino. El regex de abajo
-// pasa a ser sólo el fallback cuando no hay locale reconocido: la evidencia
-// real de staging (M-1G-S2, caso "Crea un compromiso para llamar a Alejandra
-// por favor") mostró que una frase española sin palabras interrogativas no
-// dispara ninguna señal del regex y cae al default fijo a inglés, pese a
-// locale="es-CL" ya disponible. No hardcodea ningún país -- sólo lee el
-// subtag de idioma del locale, funciona para cualquier "es-*"/"en-*". Cuando
-// SÍ hay modelo (camino 'answered'), el prompt también recibe este locale
-// como refuerzo (ver buildSynthesisPrompt) además de su propia instrucción
-// de responder en el idioma del input. ──────────────────────────────────────
-const ENGLISH_SIGNAL = /\b(what|who|when|where|did|does|the|and|with|about)\b/i;
-const SPANISH_SIGNAL = /[áéíóúñ¿¡]|(\b(qué|quien|quién|cuando|cuándo|con|sobre|el|la|los|las)\b)/i;
-function detectTemplateLanguage(input: string, locale?: string): 'es' | 'en' {
-    const localeLang = locale?.split('-')[0]?.toLowerCase();
-    if (localeLang === 'es') return 'es';
-    if (localeLang === 'en') return 'en';
-
-    const hasSpanish = SPANISH_SIGNAL.test(input);
-    const hasEnglish = ENGLISH_SIGNAL.test(input);
-    if (hasSpanish && !hasEnglish) return 'es';
-    if (hasEnglish && !hasSpanish) return 'en';
-    return hasSpanish ? 'es' : 'en'; // empate o ninguna señal, y locale ausente/no reconocido -> español sólo como último desempate, nunca el default fijo del servidor
-}
+// ─── Idioma (sección 13, hardened M-1G.1; canonical detector now shared,
+// see utils/agentLanguage.ts) — la señal primaria es el locale real del
+// dispositivo (BCP-47, ej. "es-CL"/"en-US"), ya enviado por mobile en cada
+// request. El regex de fallback sólo actúa cuando no hay locale
+// reconocido. Cuando SÍ hay modelo (camino 'answered'), el prompt también
+// recibe este locale como refuerzo (ver buildSynthesisPrompt) además de su
+// propia instrucción de responder en el idioma del input. ──────────────────
 
 // ─── Serialización compacta del contexto (sección 29) ───────────────────────
 // Nunca se manda el objeto AgentContext completo — sólo los campos que el

@@ -710,3 +710,81 @@ describe('objectiveType unsupported -> failureMode unsupported_capability, nunca
         expect(result.steps).toEqual([]);
     });
 });
+
+// PING — AGENT RESPONSE LANGUAGE CONSISTENCY. Physical iPhone failure: the
+// Spanish request "Borra definitivamente todos mis compromisos y elimina
+// todos sus registros históricos" was correctly capability-gapped (no
+// destructive-deletion capability exists, never will via this path), but
+// the body text came back in English -- "I can't plan an action for that
+// request yet...". ROOT CAUSE (proven, not guessed): this was the ONLY
+// hardcoded-English failureMessage anywhere in agentPlanner.service.ts --
+// all 9 other failureMessage sites are already hand-written Spanish. The
+// planner had ZERO language awareness (no `locale` field on
+// AgentPlannerInput at all) even though agentPlanOrchestrator.service.ts's
+// own input already carried `locale` (threaded from agentTurn.service.ts)
+// -- it was silently dropped at the exact boundary where plannerInput was
+// constructed, never reaching planObjectiveDraft. Fixed by (1) adding
+// `locale` to AgentPlannerInput, (2) actually copying it into plannerInput
+// in the orchestrator, (3) using detectAgentLanguage (utils/agentLanguage.ts,
+// the SAME canonical detector agentResponseSynthesizer.service.ts already
+// used for its own capability_gap/no_evidence templates -- moved there so
+// both layers share one detector, never two) to pick the failureMessage
+// language for objectiveType 'unsupported'.
+describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: objectiveType unsupported failureMessage follows the user language, never hardcoded English', async () => {
+    const { planObjective } = await import('../src/services/agentPlanner.service');
+
+    it('REAL PHYSICAL FIXTURE: Spanish "Borra definitivamente todos mis compromisos y elimina todos sus registros históricos" -> Spanish failureMessage, NEVER "I can\'t plan an action..."', async () => {
+        const objective = baseObjective({
+            objectiveType: 'unsupported',
+            sourceUtterance: 'Borra definitivamente todos mis compromisos y elimina todos sus registros históricos',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date(), locale: 'es-CL' });
+        expect(result.failureMode).toBe('unsupported_capability');
+        expect(result.steps).toEqual([]);
+        expect(result.failureMessage).not.toMatch(/I can't plan an action/i);
+        expect(result.failureMessage).toMatch(/todavía no puedo realizar esa acción/i);
+    });
+
+    it('Spanish detected purely from sourceUtterance when locale is absent -- same result, locale is the primary signal but never the only one', async () => {
+        const objective = baseObjective({
+            objectiveType: 'unsupported',
+            sourceUtterance: 'Borra definitivamente todos mis compromisos y elimina todos sus registros históricos',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMessage).not.toMatch(/I can't plan an action/i);
+        expect(result.failureMessage).toMatch(/todavía no puedo realizar esa acción/i);
+    });
+
+    it('English unsupported request with locale="en-US" -> English failureMessage preserved, never translated to Spanish', async () => {
+        const objective = baseObjective({
+            objectiveType: 'unsupported',
+            sourceUtterance: 'Permanently delete all my commitments and erase all their historical records',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date(), locale: 'en-US' });
+        expect(result.failureMode).toBe('unsupported_capability');
+        expect(result.failureMessage).toMatch(/I can't plan an action/i);
+        expect(result.failureMessage).not.toMatch(/todavía no puedo/i);
+    });
+
+    it('English detected purely from sourceUtterance when locale is absent -- same result', async () => {
+        const objective = baseObjective({
+            objectiveType: 'unsupported',
+            sourceUtterance: 'Permanently delete all my commitments and erase all their historical records',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMessage).toMatch(/I can't plan an action/i);
+    });
+
+    it('failureMode itself is NEVER translated -- internal enum stays "unsupported_capability" regardless of language', async () => {
+        const es = await planObjective({ objective: baseObjective({ objectiveType: 'unsupported', sourceUtterance: 'Borra todo' }), actorUserId: CARLOS, now: new Date(), locale: 'es-CL' });
+        const en = await planObjective({ objective: baseObjective({ objectiveType: 'unsupported', sourceUtterance: 'Delete everything' }), actorUserId: CARLOS, now: new Date(), locale: 'en-US' });
+        expect(es.failureMode).toBe('unsupported_capability');
+        expect(en.failureMode).toBe('unsupported_capability');
+    });
+
+    it('no executable plan/step is ever created for the destructive-deletion request in either language -- capability-gapped, never silently planned', async () => {
+        const es = await planObjective({ objective: baseObjective({ objectiveType: 'unsupported', sourceUtterance: 'Borra definitivamente todos mis compromisos' }), actorUserId: CARLOS, now: new Date(), locale: 'es-CL' });
+        expect(es.steps).toEqual([]);
+        expect(es.blockingAmbiguities).toEqual([]);
+    });
+});

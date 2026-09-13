@@ -229,7 +229,13 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     ) : (
                         <>
                             {item.isClarification && <Text style={styles.turnLabel}>Necesito aclarar algo</Text>}
-                            {item.isUnsupported && <Text style={styles.turnLabel}>Esta acción aún no está disponible</Text>}
+                            {/* PING — AGENT RESPONSE LANGUAGE CONSISTENCY audit: "aún" implies
+                                a guaranteed future promise Ping's product semantics don't make for
+                                every case routed here (e.g. destructive bulk deletion, which this
+                                same heading also covers) -- neutral wording that's truthful for
+                                both "not yet, might come later" and "structurally unsupported"
+                                cases, never overpromising either way. */}
+                            {item.isUnsupported && <Text style={styles.turnLabel}>Esta acción no está disponible</Text>}
                             {!item.isClarification && !item.isUnsupported && statusLabel && <Text style={styles.turnLabel}>{statusLabel}</Text>}
                             <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
                         </>
