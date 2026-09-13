@@ -385,6 +385,7 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Tests:** `mobile/tests/agentPreview.test.ts`, `mobile/tests/agentTurnUx.test.ts`, `mobile/tests/agentVoiceInput.test.ts`.
 **Common symptoms:** confirm enabled twice, stale plan card, wrong retry state, local semantic routing.
 **Usually do not read:** `mobile/src/screens/PingAIScreen.tsx`; it is a separate legacy surface.
+**Known non-blocking debt (audited, not a bug):** citations are shown as a bare count + type-label list (`describeCitationsSummary`/`describeCitationTypes`, `agentChat.ts`) — the backend already computes full per-claim provenance (`AgentResponse.claims[].sourceRefs`), but mobile's `AgentRespondResult` type never models `claims`, only the deduplicated `citations` list, and there is no tap-through from a citation to the actual cited commitment/message. A user can see "this answer is backed by 2 sources" but not verify *which* commitment/message those are. Real click-through would need a new `claims` field on the mobile type plus navigation wiring — a UX feature addition, not a one-line fix, so left as documented debt.
 
 ### Staging / deployment
 
