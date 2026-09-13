@@ -675,11 +675,21 @@ describe('M-1G.3: "vencido"/"overdue" nunca sobrevive como textQuery (causa raí
 //      Spiderman" fuera una persona real sin resolver.
 // ═══════════════════════════════════════════════════════════════════════════
 describe('M-2 TEST 1 ROOT FIX: "completamos"/"lo de X" nunca rompe la resolución del título canónico', () => {
-    it('reproducción exacta: "Cuando completamos lo de Ver Spiderman?" -> sin personHint falso, textQuery=título exacto, status=resolved, nunca ruteado a escritura', async () => {
+    // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4):
+    // statusHints=['resolved'] era un efecto secundario ACCIDENTAL del
+    // mismo wildcard `complet[ae]\w*` que matcheaba "completamos" -- nunca
+    // el punto real de este test (personHints/textQuery/isWriteActionRequest).
+    // Narrow correctamente a status=resolved habría sido, de hecho,
+    // incorrecto por simetría: si "Ver Spiderman" hubiera sido cancelled en
+    // vez de resolved, el mismo bug habría excluido a Spiderman de
+    // retrieveCommitments -- exactamente la falla física real que ocurrió
+    // para "entrenar" (cancelled). null es el valor correcto: una pregunta
+    // histórica nunca debe filtrar por status ACTUAL, sólo pedir un tema.
+    it('reproducción exacta: "Cuando completamos lo de Ver Spiderman?" -> sin personHint falso, textQuery=título exacto, sin filtro de status actual, nunca ruteado a escritura', async () => {
         const r = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de Ver Spiderman?', {});
         expect(r.personHints).toEqual([]);
         expect(r.textQuery).toBe('Ver Spiderman');
-        expect(r.statusHints).toEqual(['resolved']);
+        expect(r.statusHints).toBeNull();
         expect(r.isWriteActionRequest).toBe(false);
     });
 
@@ -759,7 +769,15 @@ describe('R-01: matriz de verbos de lifecycle histórico ("¿Cuándo X-amos...?"
     const ES_HISTORICAL_MATRIX: Array<{ verb: string; phrase: string; expectStatusHints: string[] | null }> = [
         { verb: 'aceptamos', phrase: '¿Cuándo aceptamos lo de entrenar?', expectStatusHints: null },
         { verb: 'confirmamos', phrase: '¿Cuándo confirmamos lo de entrenar?', expectStatusHints: null },
-        { verb: 'completamos', phrase: '¿Cuándo completamos lo de entrenar?', expectStatusHints: ['resolved'] },
+        // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4):
+        // el viejo adjectiveForms `complet[ae]\w*` matcheaba por accidente
+        // la propia forma histórica "completamos" (wildcard abierto) --
+        // extractStatusHints() lo trataba como filtro de status ACTUAL
+        // (resolved), lo que en producción real excluía "entrenar"
+        // (status=cancelled) de retrieveCommitments por completo. Ahora
+        // "completamos" nunca activa un filtro de status -- igual que
+        // "resolvimos"/"cancelamos"/etc, ya correctos antes de este fix.
+        { verb: 'completamos', phrase: '¿Cuándo completamos lo de entrenar?', expectStatusHints: null },
         { verb: 'resolvimos', phrase: '¿Cuándo resolvimos lo de entrenar?', expectStatusHints: null },
         { verb: 'cancelamos', phrase: '¿Cuándo cancelamos lo de entrenar?', expectStatusHints: null },
         { verb: 'rechazamos', phrase: '¿Cuándo rechazamos lo de entrenar?', expectStatusHints: null },
@@ -782,8 +800,14 @@ describe('R-01: matriz de verbos de lifecycle histórico ("¿Cuándo X-amos...?"
     // reopened) -- "we cancel"/"we accept" (presente, sin -ed) NO son parte
     // de este fix (gap EN preexistente, ver STOPWORDS/"we" -- confirmado
     // idéntico antes y después de este cambio, fuera de alcance de R-01).
+    // PING — STATUS-HINTS FALSE POSITIVE FIX: "complete" (base verb form,
+    // as in "When did we complete X?") never matches the fixed, closed
+    // adjectiveForms enumeration (complet[oa]s?|completad[oa]s?|completed)
+    // -- only unambiguous adjective/participle forms do -- so this
+    // historical question now correctly gets statusHints=null, same as
+    // every other verb in this matrix.
     const EN_HISTORICAL_MATRIX: Array<{ verb: string; phrase: string; expectStatusHints: string[] | null }> = [
-        { verb: 'completed', phrase: 'When did we complete training?', expectStatusHints: ['resolved'] },
+        { verb: 'completed', phrase: 'When did we complete training?', expectStatusHints: null },
         { verb: 'cancelled', phrase: 'training got cancelled', expectStatusHints: ['cancelled'] },
         { verb: 'rejected', phrase: 'training was rejected', expectStatusHints: ['rejected'] },
     ];

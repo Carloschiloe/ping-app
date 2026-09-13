@@ -552,6 +552,32 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
         textQuery: commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery,
+        // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4,
+        // proven via real end-to-end trace against real staging data): this
+        // field was NEVER brought under Core's deterministic authority the
+        // way textQuery was (M-2 RETRIEVAL LAYER FIX, above) -- it silently
+        // fell through the `...rawInterpretation` spread to whatever the
+        // LLM itself suggested. The real physical failure traced to
+        // exactly this: the LLM's own statusHints for "Cuando completamos
+        // lo de entrenar ?" came back as
+        // ['proposed','accepted','counter_proposal'] (the OPEN-status
+        // filter, completely unrelated to a completion question), which
+        // made retrieveCommitments exclude the real target commitment
+        // "entrenar" (status='cancelled') from context.commitments entirely
+        // -- so requestedTransitionTargetCommitmentId resolved to null and
+        // the requested-transition guard never even got a target to verify
+        // against. Deliberately scoped to isHistoricalLifecycleQuery
+        // specifically (not the broader commitmentSignalConfident, which
+        // also covers confident proposalFocus queries -- a different
+        // concern with its own filtering via filterByProposalFocus, never
+        // statusHints): a historical lifecycle query ("¿cuándo X-amos Y?")
+        // asks about a past OCCURRENCE, never about the entity's CURRENT
+        // status, so it must never filter retrieval by current status at
+        // all -- Core forces null here, the only value consistent with
+        // that semantics (not even the deterministic value, since the
+        // requested transition itself is what the answer must verify
+        // against, never a retrieval-narrowing status filter).
+        statusHints: isHistoricalLifecycleQuery(input.input) ? null : rawInterpretation.statusHints,
         topicHints: commitmentSignalConfident
             ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
             : rawInterpretation.topicHints,

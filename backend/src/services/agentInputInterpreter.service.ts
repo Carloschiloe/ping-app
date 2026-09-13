@@ -219,7 +219,25 @@ interface LifecycleTransitionEntry {
     historicalVerbForms: string;
 }
 const LIFECYCLE_TRANSITION_TABLE: readonly LifecycleTransitionEntry[] = [
-    { status: 'resolved', adjectiveForms: 'resuelt[oa]s?|resolved|cerrad[oa]s?|closed|complet[ae]\\w*|completed', historicalVerbForms: 'completamos|resolvimos|completed|resolved' },
+    // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4, proven
+    // on staging via real pipeline trace against real staging data): the
+    // old adjectiveForms entry used `complet[ae]\w*` -- an open wildcard
+    // meant to cover completo/completa/completos/completas/completado/
+    // completada/completados/completadas, but `\w*` also matches ANY
+    // further word characters, so it silently matched the historical VERB
+    // form "completamos" too (`complet` + `a` + `mos`). That made
+    // extractStatusHints() misclassify "¿Cuándo completamos X?" (a
+    // historical-occurrence question) as a CURRENT-status filter query for
+    // status='resolved' -- which then excluded the real target commitment
+    // "entrenar" (status='cancelled') from retrieveCommitments entirely,
+    // reproducing the exact physical contamination this ticket chain has
+    // been fixing (the requested-transition guard never even got a
+    // resolvable target because the commitment vanished from context
+    // upstream, one retrieval layer earlier than any guard could act).
+    // Fixed with an explicit, closed enumeration -- same style as every
+    // other entry in this table, never an open wildcard that could
+    // silently absorb a future historical verb form again.
+    { status: 'resolved', adjectiveForms: 'resuelt[oa]s?|resolved|cerrad[oa]s?|closed|complet[oa]s?|completad[oa]s?|completed', historicalVerbForms: 'completamos|resolvimos|completed|resolved' },
     { status: 'cancelled', adjectiveForms: 'cancelad[oa]s?|cancelled|canceled', historicalVerbForms: 'cancelamos|reabrimos|cancelled|canceled|reopened' },
     { status: 'rejected', adjectiveForms: 'rechazad[oa]s?|rejected', historicalVerbForms: 'rechazamos|rejected' },
 ];

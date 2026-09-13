@@ -820,6 +820,64 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
             expect((response as any).citations).toEqual([{ sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID }]);
         });
 
+        // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4):
+        // reproduces the EXACT real physical failure traced against real
+        // staging data (via direct Supabase read during the incident
+        // investigation) -- the real "entrenar" commitment IS present and
+        // visible (archived_at=null, owner matches actor), but the LLM's
+        // OWN interpretation of "Cuando completamos lo de entrenar ?"
+        // returned statusHints=['proposed','accepted','counter_proposal']
+        // (the OPEN-status filter -- completely unrelated to a completion
+        // question, confirmed via live network trace against the real
+        // OpenAI model). Before this fix, that LLM-suggested statusHints
+        // fell through uncontrolled into retrieveCommitments' `statuses`
+        // param, which then filtered OUT the real commitment (status=
+        // 'cancelled', not in the open set) -- context.commitments became
+        // empty, requestedTransitionTargetCommitmentId resolved to null,
+        // and the requested-transition guard could never even find a
+        // target to verify, exactly reproducing the physical 4-claim
+        // contamination. This test simulates that exact LLM output via
+        // mockInterpreter (never a synthetic-only fixture) and asserts
+        // retrieveCommitments is called WITHOUT any status filter.
+        it('1b. STATUS-HINTS FALSE POSITIVE: real commitment IS visible/unarchived, but the LLM hallucinates statusHints=open-only for a completion question -- Core must override it to null, never let it exclude the real target from retrieval', async () => {
+            const createdEvent = { id: 'evt-created', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'created', previousStatus: null, newStatus: 'accepted', createdAt: '2026-09-10T16:34:46.819Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-created' } };
+            const cancelledEvent = { id: 'evt-cancelled', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'cancelled', previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.390Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' } };
+
+            mockRetrieveCommitments.mockResolvedValue([realCommitmentFixture()] as any);
+            mockRetrieveCommitmentProposals.mockResolvedValue([homonymProposalFixture()] as any);
+            mockRetrieveCommitmentEvents.mockResolvedValue([createdEvent, cancelledEvent] as any);
+            mockRetrieveMemory.mockResolvedValue([] as any);
+
+            const phrase = 'Cuando completamos lo de entrenar ?';
+            // Simula EXACTAMENTE el output real observado del LLM para esta
+            // frase física (capturado vía traza de red real durante la
+            // investigación del incidente): intent/textQuery correctos,
+            // pero statusHints alucinado al bucket "open".
+            const interpreter = mockInterpreter(interpretationFixture({
+                intent: 'commitment_query', textQuery: 'entrenar', statusHints: ['proposed', 'accepted', 'counter_proposal'],
+                requestedTransition: ['action_completed', 'resolved'],
+            }));
+            const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+            const context = await buildAgentContext({ actorUserId: 'u1', input: phrase, conversationId: 'conv-1' }, { interpreter });
+
+            expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ statuses: undefined }), expect.any(Number));
+            expect(context.commitments.map((c: any) => c.id)).toContain(REAL_COMMITMENT_ID);
+            expect((context as any).requestedTransitionTargetCommitmentId).toBe(REAL_COMMITMENT_ID);
+
+            const claimPayload = JSON.stringify({
+                claims: [
+                    { text: 'El compromiso "entrenar" fue cancelado el 11 de septiembre de 2026 a las 11:43.', sourceRefs: [{ sourceType: 'commitment_event', sourceId: 'evt-cancelled' }] },
+                ],
+            });
+            const model: AgentSynthesisModel = { modelName: 'fake', synthesize: vi.fn(async () => claimPayload) };
+            const response = await synthesizeAgentResponse({ input: phrase, context }, { model });
+
+            expect(response.status).toBe('answered');
+            const answer = (response as any).answer as string;
+            expect(answer).not.toMatch(/cancel/i);
+            expect(answer.toLowerCase()).toMatch(/no encuentro evidencia/);
+        });
+
         // PING — M-2 FINAL PHYSICAL GAP: reproduces the SECOND, narrower
         // physical partial-failure on staging 3080c13 -- after fixing the
         // multi-entity contamination, the model started producing a SINGLE
