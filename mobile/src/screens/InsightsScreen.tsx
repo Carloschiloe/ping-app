@@ -19,7 +19,7 @@ import {
     useAcceptCommitment, useResolveCommitment, useReopenCommitment,
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
     useRespondToCommitmentProposal, useConfirmCommitmentProposal,
-    useWithdrawCommitmentProposal,
+    useWithdrawCommitmentProposal, useArchiveCommitment,
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
@@ -128,6 +128,7 @@ export default function InsightsScreen() {
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
+    const { mutateAsync: archiveCommitment } = useArchiveCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
@@ -184,6 +185,14 @@ export default function InsightsScreen() {
     const handleCancel = useCallback((id: string) => {
         cancelCommitment({ id });
     }, [cancelCommitment]);
+
+    // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: dueño real es
+    // archiveCommitment (archived_at, status intacto) -- nunca la misma
+    // mutación que handleCancel (status -> cancelled). Wiring nuevo, el
+    // endpoint/RPC ya existían y ya estaban probados en backend.
+    const handleArchive = useCallback((id: string) => {
+        archiveCommitment(id);
+    }, [archiveCommitment]);
 
     const handleReopen = useCallback((id: string) => {
         reopenCommitment(id);
@@ -633,6 +642,7 @@ export default function InsightsScreen() {
                 onReopen={handleReopen}
                 onCancel={handleCancel}
                 onConfirmRequest={handleRequestConfirm}
+                onArchive={handleArchive}
             />
 
             <RescheduleModal
@@ -773,6 +783,7 @@ export default function InsightsScreen() {
                         onCancel={handleCancel}
                         onReject={handleRejectProposal}
                         onWithdraw={handleWithdrawProposal}
+                        onArchive={handleArchive}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (

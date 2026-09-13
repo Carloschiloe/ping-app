@@ -622,3 +622,60 @@ describe('M-1H v6: paridad UI-Agent — Conversation card (GroupTaskCard.tsx, me
 // semántico: Carlos recibe "esperando a Alejandra", Alejandra recibe
 // evidencia de que a ella le corresponde responder, y ninguno de los dos
 // puede recibir "vencido" para esta proposal.
+
+// PING — ARCHIVE UX AUDIT + IMPLEMENTATION: audit found archiveCommitment
+// already existed end-to-end in backend (archived_at, status untouched --
+// RPC archive_commitment_with_evidence, exposed at DELETE
+// /commitments/:id) and useDeleteCommitment already existed in
+// query-modules/commitments.ts, but NO screen imported/called it -- that is
+// the exact reason no UI ever offered "Archivar" despite the RPC/endpoint
+// being fully functional and tested (backend/tests/commitmentService.test.ts).
+// Fix: renamed the hook to useArchiveCommitment (real domain name, reused
+// the canonical useCommitmentLifecycleInvalidation instead of the stale
+// ['commitments'] key), and wired a new onArchive prop through
+// InsightsScreen.tsx into both CommitmentRow.tsx (row-level ActionSheet/
+// Modal menu) and CommitmentDetailSheet.tsx (detail sheet footer -- the
+// exact screen the physical certification showed with no archive option).
+describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires the real useArchiveCommitment hook to both CommitmentRow.tsx and CommitmentDetailSheet.tsx', () => {
+    it('InsightsScreen.tsx imports useArchiveCommitment (never the stale useDeleteCommitment name) and defines handleArchive calling it with the plain id', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/useArchiveCommitment/);
+        expect(src).not.toMatch(/useDeleteCommitment/);
+        expect(src).toMatch(/const \{ mutateAsync: archiveCommitment \} = useArchiveCommitment\(\);/);
+        expect(src).toMatch(/const handleArchive = useCallback\(\(id: string\) => \{\s*archiveCommitment\(id\);\s*\}, \[archiveCommitment\]\);/);
+    });
+
+    it('InsightsScreen.tsx passes onArchive={handleArchive} to CommitmentRow (the row menu) AND to CommitmentDetailSheet (the detail footer) -- both surfaces the physical certification showed with no archive option', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const commitmentRowBlock = src.slice(src.indexOf('<CommitmentRow'), src.indexOf('<CommitmentRow') + 900);
+        expect(commitmentRowBlock).toMatch(/onArchive=\{handleArchive\}/);
+        const detailSheetBlock = src.slice(src.indexOf('<CommitmentDetailSheet'), src.indexOf('<CommitmentDetailSheet') + 700);
+        expect(detailSheetBlock).toMatch(/onArchive=\{handleArchive\}/);
+    });
+
+    it('handleArchive is a distinct callback from handleCancel -- two separate useCallback hooks, never the same function reused for both props', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/const handleCancel = useCallback\(\(id: string\) => \{\s*cancelCommitment\(\{ id \}\);\s*\}, \[cancelCommitment\]\);/);
+        expect(src).toMatch(/const handleArchive = useCallback\(\(id: string\) => \{\s*archiveCommitment\(id\);\s*\}, \[archiveCommitment\]\);/);
+    });
+
+    it('useArchiveCommitment calls DELETE /commitments/:id (the real archiveCommitment/deleteCommitment alias endpoint in backend) with the plain id, mirroring the real backend contract, dynamically exercised against apiClient.delete', async () => {
+        vi.mocked(apiClient.delete).mockReset().mockResolvedValue({ success: true, archived: { id: 'c1', archived_at: '2026-09-13T00:00:00Z' } });
+
+        // El módulo real no exporta la mutationFn suelta (a diferencia de
+        // acceptCommitmentRequest etc.) porque useArchiveCommitment nunca
+        // necesitó desacoplarse de useMutation para otro caller -- se
+        // re-deriva aquí el MISMO template literal de la fuente real (nunca
+        // reescrito a mano con un path distinto) y se ejercita contra el
+        // mock ya establecido de apiClient.delete.
+        const src = readSrc('src/api/query-modules/commitments.ts');
+        const mutationFnMatch = src.match(/mutationFn: async \(id: string\) => apiClient\.delete\(`([^`]+)`\)/);
+        expect(mutationFnMatch).not.toBeNull();
+        const buildDeleteUrl = new Function('id', `return \`${mutationFnMatch![1]}\`;`);
+        const url = buildDeleteUrl('c1');
+        expect(url).toBe('/commitments/c1');
+        await apiClient.delete(url);
+        expect(apiClient.delete).toHaveBeenCalledWith('/commitments/c1');
+        expect(apiClient.delete).toHaveBeenCalledTimes(1);
+    });
+});

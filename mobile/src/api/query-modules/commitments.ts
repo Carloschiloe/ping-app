@@ -418,13 +418,25 @@ export const useCreateContact = () => {
     });
 };
 
-export const useDeleteCommitment = () => {
-    const queryClient = useQueryClient();
+// PING — ARCHIVE UX AUDIT + IMPLEMENTATION: dueño canónico ya existía en
+// backend (commitment.service.ts archiveCommitment -> RPC
+// archive_commitment_with_evidence, sólo llena archived_at, status
+// permanece igual -- ver backend/tests/commitmentService.test.ts) y ya
+// estaba expuesto en DELETE /commitments/:id (deleteCommitment es alias de
+// archiveCommitment), pero ningún componente mobile importaba este hook
+// (useDeleteCommitment, antes con este mismo nombre y una invalidación
+// obsoleta ['commitments'] -- la query real que usan Hoy/Compromisos es
+// ['all-commitments-dashboard'], ver useCommitmentLifecycleInvalidation).
+// Por eso NINGUNA UI ofrecía "Archivar": el endpoint/RPC/campo ya
+// funcionaban de punta a punta, sólo faltaba el wiring. Renombrado a
+// useArchiveCommitment (nombre de dominio real, nunca "delete" -- esto
+// nunca borra la fila) y reutiliza la misma invalidación canónica que
+// cancel/resolve/reopen.
+export const useArchiveCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
     return useMutation({
         mutationFn: async (id: string) => apiClient.delete(`/commitments/${id}`),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-        },
+        onSuccess: invalidate,
     });
 };
 

@@ -37,6 +37,15 @@ interface CommitmentRowProps {
     // responder -- "retirar por Alejandra" sería el mismo error que
     // "rechazar por Alejandra" ya prohibido para onReject.
     onWithdraw?: (commitment: any) => void;
+    // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: archiveCommitment ya existía
+    // completo en backend (archived_at, status intacto -- ver
+    // commitment.service.ts) pero ninguna UI lo ofrecía (hallazgo físico:
+    // el menú de un commitment resuelto/cancelado sólo tenía Ver
+    // detalle/Ver conversación/Cerrar, sin forma de archivar). "Archivar"
+    // NUNCA reemplaza "Cancelar {tarea/reunión}" (transición de dominio
+    // real, status -> cancelled) -- son dos acciones independientes que
+    // pueden coexistir en un commitment activo.
+    onArchive?: (id: string) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -70,6 +79,7 @@ export function CommitmentRow({
     onCancel,
     onReject,
     onWithdraw,
+    onArchive,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -256,6 +266,17 @@ export function CommitmentRow({
                 // confundirse entre sí en ningún estado, incluido un
                 // commitment activo donde AMBAS podrían coexistir.
                 onCancel && !isFinished && !isProposal ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
+                // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: "Archivar" sólo
+                // llena archived_at (soft-delete/visibilidad, ver
+                // commitment.service.ts archiveCommitment) -- nunca cambia
+                // status, nunca reemplaza "Cancelar {tarea/reunión}" (esa es
+                // la única fila que hace status -> cancelled). Disponible en
+                // cualquier estado de un commitment canónico ya materializado
+                // (activo, resuelto, cancelado) -- nunca para una
+                // commitment_proposal (nunca tuvo su propia fila
+                // archived_at; retirarla usa onWithdraw, un concepto
+                // distinto).
+                onArchive && !isProposal ? 'Archivar' : null,
             ].filter(Boolean) as string[];
             const destructiveButtonIndex = canRespondToProposal
                 ? options.indexOf('Rechazar propuesta')
@@ -271,6 +292,7 @@ export function CommitmentRow({
                     else if (opt === 'Ver conversación') goToChat();
                     else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
                     else if (opt === 'Retirar propuesta' && onWithdraw) onWithdraw(c);
+                    else if (opt === 'Archivar' && onArchive) onArchive(c.id);
                     else if (opt.startsWith('Cancelar ') && onCancel) onCancel(c.id);
                 }
             );
@@ -405,6 +427,17 @@ export function CommitmentRow({
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
                                 <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>{`Cancelar ${isMeeting ? 'reunión' : 'tarea'}`}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {/* PING — ARCHIVE UX AUDIT + IMPLEMENTATION: mismo
+                            criterio que la rama iOS -- disponible para un
+                            commitment canónico en cualquier estado (activo,
+                            resuelto, cancelado), nunca para una proposal,
+                            nunca cambia status (sólo archived_at). */}
+                        {onArchive && !isProposal && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onArchive(c.id); }}>
+                                <Ionicons name="archive-outline" size={18} color={theme.colors.text.secondary} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.text.secondary }]}>Archivar</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>

@@ -22,6 +22,16 @@ interface CommitmentDetailSheetProps {
     onReschedule?: (item: any) => void;
     onReopen?: (id: string) => void;
     onCancel?: (id: string) => void;
+    // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: physical certification
+    // showed this exact footer (Ver en chat / Reprogramar / Completar /
+    // Cancelar for an active item; Ver detalle/Ver conversación/Reabrir for
+    // a finished one) with NO way to archive -- archiveCommitment already
+    // existed end-to-end in backend (archived_at, status untouched) but no
+    // UI called it. Independent from onCancel (status -> cancelled):
+    // Archivar never changes status, only archived_at, and is valid in
+    // every commitment state (active, resolved, cancelled), never for a
+    // proposal.
+    onArchive?: (id: string) => void;
     // M-1H v5 — abre el mismo ConfirmCommitmentModal ya usado desde la fila
     // (handleRequestConfirm), para aceptar una commitment_proposal o
     // confirmar un commitment canónico desde el detalle. "Proponer otra
@@ -47,6 +57,7 @@ export function CommitmentDetailSheet({
     onReopen,
     onCancel,
     onConfirmRequest,
+    onArchive,
 }: CommitmentDetailSheetProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -234,6 +245,22 @@ export function CommitmentDetailSheet({
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => { onClose(); onCancel(item.id); }}>
                             <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Cancelar</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* PING — ARCHIVE UX AUDIT + IMPLEMENTATION: hallazgo
+                        físico real -- este footer no ofrecía NINGUNA acción
+                        para archivar, en ningún estado (activo, resuelto,
+                        cancelado), pese a que archiveCommitment ya existía
+                        completo en backend. Disponible para un commitment
+                        canónico ya materializado en cualquier estado --
+                        nunca para una proposal (nunca tuvo su propia fila
+                        archived_at). Independiente de onCancel: nunca
+                        cambia status, sólo archived_at. */}
+                    {!isProposal && onArchive && (
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onArchive(item.id); }}>
+                            <Ionicons name="archive-outline" size={16} color={theme.colors.text.secondary} />
+                            <Text style={[styles.actionBtnText, { color: theme.colors.text.secondary }]}>Archivar</Text>
                         </TouchableOpacity>
                     )}
                 </View>
