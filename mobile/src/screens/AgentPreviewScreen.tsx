@@ -231,6 +231,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                         ? {
                             activeOpacity: 0.7,
                             onLongPress: () => handleCopyMessage(item.text),
+                            delayLongPress: 350,
                             accessibilityRole: 'button' as const,
                             accessibilityLabel: 'Copiar mensaje',
                         }

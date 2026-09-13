@@ -674,3 +674,48 @@ describe('PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: AgentExecutionCa
         expect(cardSource).not.toMatch(/onConfirm|onCancel|onRetry/);
     });
 });
+
+// PING — USER-WRITTEN TEXT COPY / PASTE PHYSICAL GAP. Re-audits the exact
+// same invariants certified in the prior copy/paste session, plus the two
+// items this session's audit specifically targeted: (1) delayLongPress
+// alignment with the proven ChatScreen.tsx/MessageItem.tsx pattern (350ms,
+// not RN's 500ms default), and (2) an explicit proof that the Agent
+// composer TextInput is not wrapped by any Pressable/gesture element that
+// could intercept long-press-to-select before it reaches the TextInput.
+describe('PING — USER-WRITTEN TEXT COPY / PASTE: Agent composer text-before-send remains natively selectable/copyable/pasteable, and the own-message bubble long-press-copy is reliable (delayLongPress aligned with chat)', () => {
+    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+
+    it('the composer TextInput element is not wrapped by an enclosing TouchableOpacity/Pressable/gesture element that could swallow long-press-to-select', () => {
+        const tagIndex = screenSource.indexOf('placeholder="Escribe tu pregunta…"');
+        const immediateWrapperBlock = screenSource.slice(Math.max(0, tagIndex - 200), tagIndex);
+        expect(immediateWrapperBlock).not.toMatch(/<TouchableOpacity|<Pressable|<GestureDetector|<PanGestureHandler/);
+    });
+
+    it('the composer TextInput still has no contextMenuHidden/selectTextOnFocus, preserving native Copiar/Cortar/Pegar/Seleccionar todo', () => {
+        const tagIndex = screenSource.indexOf('placeholder="Escribe tu pregunta…"');
+        const inputBlock = screenSource.slice(tagIndex - 40, tagIndex + 400);
+        expect(inputBlock).not.toMatch(/contextMenuHidden/);
+        expect(inputBlock).not.toMatch(/selectTextOnFocus/);
+    });
+
+    it('the copyable bubble long-press uses delayLongPress={350}, matching the proven ChatScreen.tsx/MessageItem.tsx pattern exactly (not RN\'s 500ms default)', () => {
+        const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
+        const body = renderItemMatch![0];
+        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+        expect(body).toMatch(/delayLongPress: 350/);
+    });
+
+    it('isCopyable is not gated on item.role -- the user\'s own sent bubble and the agent\'s bubble both qualify identically whenever plain text exists', () => {
+        const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
+        const body = renderItemMatch![0];
+        expect(body).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
+        expect(body).not.toMatch(/isCopyable = isUser/);
+        expect(body).not.toMatch(/isCopyable = !isUser/);
+    });
+
+    it('appendUserMessage (the function that creates the user\'s own sent bubble) populates item.text with the exact composer input, so the own-bubble copy always has real content to copy', () => {
+        const chatUtilSource = fs.readFileSync(path.join(__dirname, '../src/utils/agentChat.ts'), 'utf-8');
+        expect(chatUtilSource).toMatch(/export function appendUserMessage\(messages: AgentChatMessage\[\], text: string\)/);
+        expect(chatUtilSource).toMatch(/role: 'user', text,/);
+    });
+});
