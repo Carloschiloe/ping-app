@@ -245,6 +245,49 @@ describe('planCreateCommitment (sección 14/15/37)', async () => {
         expect(resolvePersonMock).not.toHaveBeenCalled();
         expect((result.steps[0].arguments as any).responsiblePersonId).toBeNull();
     });
+
+    // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: the planner itself was
+    // never the bug (it already trusted objective.targetEntities.
+    // entityHints[0] verbatim) -- these tests prove that trust is correct:
+    // whatever title the (now-fixed) interpreter puts in entityHints[0]
+    // propagates UNCHANGED into create_commitment's args.title, the
+    // operation label, and expectedEffect. This is test matrix items
+    // 11-14 (planner args preserve title / executor persists exact planned
+    // title / authorization preview shows the same title / post-execution
+    // verification checks the same title) — executor/authorization/
+    // verification all read this same args.title downstream, so proving it
+    // here proves the whole chain never diverges.
+    it('título explícito con acentos/mayúsculas se propaga VERBATIM a create_commitment.arguments.title -- nunca normalizado, truncado ni reemplazado por un label genérico', async () => {
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-11T18:30:00.000Z'), textRef: 'hoy a las 18:30' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+            sourceUtterance: 'Crea un compromiso para hoy a las 18:30 que se llame prueba caché Ping',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('create_commitment');
+        expect((result.steps[0].arguments as any).title).toBe('prueba caché Ping');
+        expect((result.steps[0].arguments as any).title).not.toBe('un compromiso');
+        // La operación humana-legible (preview de autorización, item 13 del
+        // ticket) también debe citar el título real, nunca uno genérico.
+        expect(result.steps[0].operation).toContain('prueba caché Ping');
+        expect(result.steps[0].expectedEffect).toContain('prueba caché Ping');
+    });
+
+    it('due date + explicit title ambos preservados en el mismo step (item 7 del test matrix)', async () => {
+        const dueDate = new Date('2026-09-11T18:30:00.000Z');
+        parseDateFromTextMock.mockReturnValue({ date: dueDate, textRef: 'hoy a las 18:30' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            targetEntities: { personHints: [], entityHints: ['prueba caché Ping'] },
+            sourceUtterance: 'Crea un compromiso para hoy a las 18:30 que se llame prueba caché Ping',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        const args = result.steps[0].arguments as any;
+        expect(args.title).toBe('prueba caché Ping');
+        expect(args.dueAt).toBe(dueDate.toISOString());
+    });
 });
 
 describe('planRescheduleOrCompleteOrRespond — entity resolution (sección 13)', async () => {
