@@ -48,7 +48,7 @@ function wb(alternatives: string): RegExp {
 const ACCEPT_VERB = wb('acept[oa]\\w*|aprueba\\w*|apruebo|approve[sd]?|accept(?:s|ed)?');
 const REJECT_VERB = wb('rechaz\\w*|reject(?:s|ed)?');
 const RESCHEDULE_VERB = wb('mueve\\w*|cambia\\w*|reprogram\\w*|posp\\w*|reschedule[sd]?|move[sd]?');
-const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|complete[sd]?|finish(?:es|ed)?');
+const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|resuelve\\w*|complete[sd]?|finish(?:es|ed)?|resolve[sd]?');
 const PERSONAL_REMINDER_VERB = wb("recu[ée]rdame|remind\\s+me");
 const CREATE_VERB = wb('agend[ao]\\w*|programa\\w*|crea\\w*');
 // Verbos de comunicación explícita — chequeados ANTES que accept/reject
@@ -176,6 +176,58 @@ const ENTITY_STOP_MARKER = /\b(?:al|el|por|para|a las|el próximo|next|on|by|ma[
 // igual, nunca sólo una.
 const GENERIC_TARGET_NOUN_PREFIX = /^\s*(?:(?:la fecha d(?:el|e la) )?(?:la |el )?compromiso(?: de| del)?|(?:la )?propuesta(?: de)?|(?:la )?tarea(?: de)?|(?:la )?reuni[óo]n(?: de)?|(?:la )?cita(?: de)?|la|el)\s+/iu;
 
+// PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
+// (root cause): "Completa el compromiso dejar excavadora en parcela
+// indicando como resultado: prueba cierre Ping correcta" has the exact
+// same shape as reschedule's "<target> para <new date>" -- a trailing
+// clause introduced by an explicit connector that is NOT part of the
+// entity title. Unlike ENTITY_STOP_MARKER (which stops at the FIRST
+// occurrence of any of these words, unsafe here because "resultado"/
+// "con"/"para"/"indicando" can legitimately appear inside a real title,
+// per this ticket's own "preserve legitimate titles" requirement), this
+// marker is only ever applied AFTER the verb, and only its FIRST
+// occurrence in the remaining text is treated as the split point --
+// exactly mirroring how stripTrailingDateSpan finds the date clause via
+// a real parser rather than a naive stop-word cut. Ordered longest/most
+// explicit alternative first so "indicando como resultado" is preferred
+// over a bare "resultado" appearing later by coincidence.
+const COMPLETION_RESULT_MARKER = /\b(?:indicando como resultado|con el resultado|con resultado|indicando que qued[óo]|indicando que|resultado)\s*:?\s*/iu;
+
+// "Marca como completado <target>" / "Marca como terminado <target>" /
+// "Marca como resuelto <target>" — a filler clause between the verb
+// ("marca") and the real target, never part of the entity title itself.
+// Anchored to the START of afterVerb only (never searched mid-string),
+// so it can only ever strip a genuine leading filler, never coincidental
+// occurrences of these words inside a real title later in the sentence.
+const COMPLETION_VERB_FILLER_PREFIX = /^\s*como\s+(?:completado|terminado|resuelto)\s+/iu;
+
+// Splits "<target> <connector> <result text>" into { target, result }.
+// Returns result:null when no explicit result-clause marker is present
+// (the caller then falls back to the whole remainder as the target, and
+// complete_commitment gets a default resolutionResult -- never silently
+// invents result text that was never said). The marker is searched for
+// only ONCE (indexOf-based via the regex's own match), so a title that
+// itself happens to contain a marker word AFTER the real result clause
+// (unlikely, but never assumed impossible) is not re-split a second time.
+function extractCompletionTargetAndResult(afterVerbRaw: string): { target: string | null; result: string | null } {
+    const afterVerb = afterVerbRaw.replace(COMPLETION_VERB_FILLER_PREFIX, '');
+    const match = afterVerb.match(COMPLETION_RESULT_MARKER);
+    if (!match || match.index === undefined) {
+        const target = extractEntityHint(afterVerb);
+        return { target, result: null };
+    }
+
+    const beforeMarker = afterVerb.slice(0, match.index);
+    const afterMarker = afterVerb.slice(match.index + match[0].length);
+
+    const target = extractEntityHint(beforeMarker);
+    const result = afterMarker
+        .replace(/[.,;:!?]+\s*$/u, '')
+        .trim();
+
+    return { target, result: result.length > 0 ? result : null };
+}
+
 function extractEntityHint(afterVerbRaw: string): string | null {
     const afterVerb = afterVerbRaw.replace(GENERIC_TARGET_NOUN_PREFIX, ' ');
     const stopMatch = afterVerb.match(ENTITY_STOP_MARKER);
@@ -302,6 +354,40 @@ function normalizeMutationTargetHint(hint: string, sourceUtterance: string, isRe
         normalized = stripTrailingDateSpan(normalized, new Date(), 'UTC').trim();
     }
     return normalized.length > 0 ? normalized : hint;
+}
+
+// PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX:
+// the LLM is the PRIMARY interpreter in production (same principle as
+// normalizeMutationTargetHint's own comment above for reschedule) --
+// if it returns entityHints[0] polluted with a trailing result clause
+// ("dejar excavadora en parcela indicando como resultado: prueba cierre
+// Ping correcta" instead of "dejar excavadora en parcela"),
+// agentPlanner.service.ts's honest substring-containment resolveEntityHint
+// check never matches the real canonical title, reproducing the exact
+// physical failure ('No encontré ningún compromiso ... que coincida').
+// Core's deterministic re-derivation here reuses the EXACT SAME
+// COMPLETION_RESULT_MARKER/extractCompletionTargetAndResult logic already
+// proven for the deterministic path above -- never a second, divergent
+// extraction. Runs against BOTH the LLM's own hint and the raw source
+// utterance (the LLM might have already stripped the result clause
+// itself, in which case the source utterance is what still carries it)
+// so the result text is recovered even when the LLM's entityHints[0] was
+// already clean but desiredOutcomeHint was not populated. If the LLM's
+// hint contains no result marker at all, it is returned unchanged after
+// only the generic-noun-prefix strip already applied above -- never
+// invents a split that was never signalled in the text.
+function extractCompletionResultFromMutationHint(hint: string, sourceUtterance: string): { target: string; result: string | null } {
+    const fromHint = extractCompletionTargetAndResult(hint);
+    if (fromHint.result) return { target: fromHint.target ?? hint, result: fromHint.result };
+
+    const completeMatch = matchVerb(COMPLETE_VERB, sourceUtterance);
+    const afterVerb = completeMatch ? sourceUtterance.slice((completeMatch.index ?? 0) + completeMatch[0].length) : sourceUtterance;
+    const fromSource = extractCompletionTargetAndResult(afterVerb);
+    if (fromSource.result && fromSource.target && hint.toLowerCase().includes(fromSource.target.toLowerCase())) {
+        return { target: fromSource.target, result: fromSource.result };
+    }
+
+    return { target: hint, result: null };
 }
 
 // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: the deterministic
@@ -526,9 +612,18 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         const completeMatch = matchVerb(COMPLETE_VERB, text);
         if (completeMatch) {
             const afterVerb = text.slice((completeMatch.index ?? 0) + completeMatch[0].length);
-            const entityHint = extractEntityHint(afterVerb);
+            // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT
+            // EXTRACTION FIX: the entity target and the completion result
+            // clause must stay structurally separate -- see
+            // extractCompletionTargetAndResult's own comment. When no
+            // explicit result marker is present, `result` is null and
+            // desiredOutcome keeps baseObjective's whole-input default
+            // (the planner then falls back to a generic resolution
+            // string) -- never invents result text that was never said.
+            const { target: entityHint, result } = extractCompletionTargetAndResult(afterVerb);
             const obj = baseObjective('complete_existing_commitment', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
+            if (result) obj.desiredOutcome = result;
             obj.confidence = entityHint ? 0.8 : 0.2;
             if (!entityHint) {
                 obj.ambiguities.push({ field: 'targetEntity', kind: 'blocking', reason: 'No pude identificar cuál compromiso quieres completar.' });
@@ -736,6 +831,7 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     // deterministic re-derivation, never a second target-identification
     // system, and it never trusts the LLM's raw entityHints[0] as sole
     // authority for target identity.
+    let completionResultFromHint: string | null = null;
     if (
         (payload.objectiveType === 'reschedule_existing_commitment'
             || payload.objectiveType === 'complete_existing_commitment'
@@ -743,13 +839,37 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
         && obj.targetEntities.entityHints[0]
     ) {
         const isReschedule = payload.objectiveType === 'reschedule_existing_commitment';
-        obj.targetEntities.entityHints = [normalizeMutationTargetHint(obj.targetEntities.entityHints[0], input, isReschedule)];
+        if (payload.objectiveType === 'complete_existing_commitment') {
+            // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT
+            // EXTRACTION FIX: split BEFORE the generic normalization step
+            // below runs on the still-polluted hint (normalizeMutationTargetHint
+            // has no result-clause awareness and would otherwise leave the
+            // result text glued to the target).
+            const explicitTitle = extractExplicitTitle(obj.targetEntities.entityHints[0]) ?? extractExplicitTitle(input);
+            if (explicitTitle) {
+                obj.targetEntities.entityHints = [explicitTitle];
+            } else {
+                const { target, result } = extractCompletionResultFromMutationHint(obj.targetEntities.entityHints[0], input);
+                obj.targetEntities.entityHints = [normalizeMutationTargetHint(target, input, false)];
+                completionResultFromHint = result;
+            }
+        } else {
+            obj.targetEntities.entityHints = [normalizeMutationTargetHint(obj.targetEntities.entityHints[0], input, isReschedule)];
+        }
     }
     obj.timeConstraints.rawHint = payload.timeHint;
     obj.constraints.decisionHint = payload.decisionHint;
     obj.constraints.draftOnly = payload.draftOnly;
     obj.constraints.responsibleHint = payload.responsibleHint;
-    obj.desiredOutcome = payload.desiredOutcomeHint || input.trim();
+    // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION
+    // FIX: Core's deterministically re-derived result clause dominates a
+    // conflicting/absent desiredOutcomeHint for this objective type --
+    // same "LLM suggests, Core decides" precedence already established
+    // for entityHints above. The LLM's own desiredOutcomeHint is still
+    // preferred when Core found no explicit result marker in the text
+    // (e.g. a genuinely free-form restatement the model produced), never
+    // silently discarded.
+    obj.desiredOutcome = completionResultFromHint || payload.desiredOutcomeHint || input.trim();
     // The model may propose the outgoing message ONLY as a verbatim
     // candidate string (never trusted for its content here) — Core
     // (agentPlanner.service.ts) independently proves this actually occurs

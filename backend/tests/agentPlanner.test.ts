@@ -502,6 +502,91 @@ describe('PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: end-to-end res
     });
 });
 
+// PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX.
+// Same end-to-end shape as the reschedule block above, against the real
+// physical failure fixture: "Completa el compromiso dejar excavadora en
+// parcela indicando como resultado: prueba cierre Ping correcta" wrongly
+// produced a polluted entityHint (the whole remainder including the
+// result clause), which never matched the real title "dejar excavadora
+// en parcela" via the honest substring-containment filter -- exactly the
+// physical error message reproduced. Now that
+// agentObjectiveInterpreter.service.ts separates target from result
+// (tested directly there), this proves the planner receives the clean
+// entityHint, resolves the correct canonical commitment ID, and passes
+// the extracted result text (never the interpreter's raw sourceUtterance)
+// as resolutionResult.
+const DEJAR_EXCAVADORA_ID = 'e1f2a3b4-c5d6-47e8-9f01-a2b3c4d5e6f7';
+function dejarExcavadoraFixture(overrides: Partial<RetrievalCommitment> = {}): RetrievalCommitment {
+    return commitmentFixture({
+        id: DEJAR_EXCAVADORA_ID, title: 'dejar excavadora en parcela', status: 'accepted',
+        ownerUserId: CARLOS, assignedToUserId: CARLOS, conversationId: null,
+        ...overrides,
+    });
+}
+
+describe('PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX: end-to-end resolution against the real physical failure fixture', () => {
+    it('REAL PHYSICAL FIXTURE: clean entityHint "dejar excavadora en parcela" (already separated upstream) resolves uniquely to the canonical commitment ID, plan targets complete_commitment with the exact extracted resolutionResult, never the raw polluted sourceUtterance', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([dejarExcavadoraFixture()]);
+        const objective = baseObjective({
+            objectiveType: 'complete_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['dejar excavadora en parcela'] },
+            desiredOutcome: 'prueba cierre Ping correcta',
+            sourceUtterance: 'Completa el compromiso dejar excavadora en parcela indicando como resultado: prueba cierre Ping correcta',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.failureMode).toBeUndefined();
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('complete_commitment');
+        const args = result.steps[0].arguments as any;
+        expect(args.commitmentId).toBe(DEJAR_EXCAVADORA_ID);
+        expect(args.resolutionResult).toBe('prueba cierre Ping correcta');
+        expect(args.resolutionResult).not.toMatch(/indicando|Completa el compromiso/i);
+        expect(result.steps[0].operation).toContain('dejar excavadora en parcela');
+        expect(result.steps[0].provenance.canonicalSourceRefs).toContainEqual({ sourceType: 'commitment', sourceId: DEJAR_EXCAVADORA_ID });
+    });
+
+    it('a still-polluted entityHint (if one somehow reached the planner) never matches the real title via the honest substring filter -- entity_not_found, never a best-guess against the wrong record (this is the exact physical failure mode BEFORE the interpreter-level fix)', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([dejarExcavadoraFixture()]);
+        const objective = baseObjective({
+            objectiveType: 'complete_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['dejar excavadora en parcela indicando como resultado: prueba cierre Ping correcta'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('entity_not_found');
+        expect(result.steps).toEqual([]);
+    });
+
+    it('two similarly-named commitments -> ambiguity, never silently completes an arbitrary one', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([
+            dejarExcavadoraFixture({ id: 'c1' }),
+            dejarExcavadoraFixture({ id: 'c2', title: 'dejar excavadora en parcela norte' }),
+        ]);
+        const objective = baseObjective({
+            objectiveType: 'complete_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['dejar excavadora en parcela'] },
+            desiredOutcome: 'prueba cierre Ping correcta',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities[0]?.field).toBe('targetEntity');
+        expect(result.blockingAmbiguities[0]?.candidates).toHaveLength(2);
+        expect(result.steps).toEqual([]);
+    });
+
+    it('nonexistent target -> entity_not_found, truthful no-evidence, never a fabricated match', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([]);
+        const objective = baseObjective({
+            objectiveType: 'complete_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['dejar excavadora en parcela'] },
+            desiredOutcome: 'prueba cierre Ping correcta',
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('entity_not_found');
+        expect(result.steps).toEqual([]);
+    });
+});
+
 // ─── MEMORY-INFORMED PLANNING (sección 29/30, escenario H del ticket M-3) ──
 function memoryFixture(overrides: Record<string, any> = {}) {
     return {
