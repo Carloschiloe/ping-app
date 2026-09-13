@@ -29,6 +29,8 @@ export const reopenCommitment = commitmentLifecycle.reopenCommitment;
 export const reassignCommitment = commitmentLifecycle.reassignCommitment;
 export const scheduleFollowUp = commitmentLifecycle.scheduleFollowUp;
 export const archiveCommitment = commitmentLifecycle.archiveCommitment;
+export const restoreCommitment = commitmentLifecycle.restoreCommitment;
+export const getArchivedCommitments = commitmentLifecycle.getArchivedCommitments;
 
 // Legacy /postpone adapter. It names an old route but executes the canonical
 // counter-proposal transition and evidence RPC.

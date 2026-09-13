@@ -32,6 +32,12 @@ interface CommitmentDetailSheetProps {
     // every commitment state (active, resolved, cancelled), never for a
     // proposal.
     onArchive?: (id: string) => void;
+    // PING — ARCHIVE LIFECYCLE COMPLETION: contraparte simétrica de
+    // onArchive, ofrecida SOLO cuando el item ya está archivado (isArchived
+    // derivado de item.archived_at). Limpia archived_at exclusivamente --
+    // nunca reabre/completa/cancela; el status canónico ya existente decide
+    // qué acciones vuelven a estar disponibles una vez restaurado.
+    onRestore?: (id: string) => void;
     // M-1H v5 — abre el mismo ConfirmCommitmentModal ya usado desde la fila
     // (handleRequestConfirm), para aceptar una commitment_proposal o
     // confirmar un commitment canónico desde el detalle. "Proponer otra
@@ -58,6 +64,7 @@ export function CommitmentDetailSheet({
     onCancel,
     onConfirmRequest,
     onArchive,
+    onRestore,
 }: CommitmentDetailSheetProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -70,6 +77,12 @@ export function CommitmentDetailSheet({
     const waiting = getWaitingLabel(item, currentUserId, contacts);
 
     const isFinished = ['resolved', 'cancelled', 'rejected'].includes(status);
+    // PING — ARCHIVE LIFECYCLE COMPLETION: archive is a VISIBILITY state,
+    // orthogonal to isFinished -- an active, resolved, or cancelled
+    // commitment can all be archived. While archived, this footer offers
+    // ONLY Ver en chat/Restaurar -- never Reprogramar/Completar/Cancelar,
+    // regardless of the underlying canonical status.
+    const isArchived = !!item.archived_at;
     // M-1H v5 — REGLA PRINCIPAL (hallazgo real físico, caso "Entrenar"): este
     // sheet mostraba "Completar"/"Archivar"/"Reprogramar" para CUALQUIER
     // item no finalizado, incluida una commitment_proposal pendiente -- eso
@@ -200,29 +213,37 @@ export function CommitmentDetailSheet({
                     {/* M-1H v5 (sección 17, regla principal): Reprogramar/Completar/
                         Archivar son transiciones de un commitment YA activo --
                         nunca se ofrecen para una commitment_proposal pendiente,
-                        sea cual sea su status derivado o fecha. */}
-                    {!isFinished && !isProposal && onReschedule && (
+                        sea cual sea su status derivado o fecha.
+                        PING — ARCHIVE LIFECYCLE COMPLETION: !isArchived añadido
+                        a cada guard de mutación de este footer -- un commitment
+                        archivado (activo, resuelto o cancelado) sólo ofrece
+                        Ver en chat/Restaurar, nunca estas acciones. */}
+                    {!isFinished && !isProposal && !isArchived && onReschedule && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onReschedule(item); }}>
                             <Ionicons name="calendar-outline" size={16} color={theme.colors.accent} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.accent }]}>Reprogramar</Text>
                         </TouchableOpacity>
                     )}
 
-                    {!isFinished && primaryAction === 'accept' && onConfirmRequest && (
+                    {!isFinished && !isArchived && primaryAction === 'accept' && onConfirmRequest && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onConfirmRequest(item); }}>
                             <Ionicons name="checkmark" size={16} color={theme.colors.white} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>{isProposal ? 'Aceptar' : 'Confirmar'}</Text>
                         </TouchableOpacity>
                     )}
 
-                    {!isFinished && !isProposal && primaryAction === 'complete' && onMarkDone && (
+                    {!isFinished && !isProposal && !isArchived && primaryAction === 'complete' && onMarkDone && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onMarkDone(item.id); }}>
                             <Ionicons name="checkmark" size={16} color={theme.colors.white} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Completar</Text>
                         </TouchableOpacity>
                     )}
 
-                    {isFinished && !isProposal && onReopen && (
+                    {/* PING — ARCHIVE LIFECYCLE COMPLETION: Reabrir requires
+                        the item to be visible (!isArchived) -- restoring
+                        first is the only path back to visibility; it never
+                        reopens on its own (status stays identical). */}
+                    {isFinished && !isProposal && !isArchived && onReopen && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onReopen(item.id); }}>
                             <Ionicons name="refresh-outline" size={16} color={theme.colors.white} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Reabrir</Text>
@@ -241,7 +262,7 @@ export function CommitmentDetailSheet({
                         CommitmentRow.tsx's own established "Cancelar" wording
                         for the identical onCancel action; the endpoint/behavior
                         itself is unchanged. */}
-                    {!isFinished && !isProposal && onCancel && (
+                    {!isFinished && !isProposal && !isArchived && onCancel && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => { onClose(); onCancel(item.id); }}>
                             <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Cancelar</Text>
@@ -256,11 +277,25 @@ export function CommitmentDetailSheet({
                         canónico ya materializado en cualquier estado --
                         nunca para una proposal (nunca tuvo su propia fila
                         archived_at). Independiente de onCancel: nunca
-                        cambia status, sólo archived_at. */}
-                    {!isProposal && onArchive && (
+                        cambia status, sólo archived_at. Nunca ofrecido si YA
+                        está archivado -- ver Restaurar abajo. */}
+                    {!isProposal && !isArchived && onArchive && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onArchive(item.id); }}>
                             <Ionicons name="archive-outline" size={16} color={theme.colors.text.secondary} />
                             <Text style={[styles.actionBtnText, { color: theme.colors.text.secondary }]}>Archivar</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* PING — ARCHIVE LIFECYCLE COMPLETION: "Restaurar" es la
+                        ÚNICA mutación ofrecida mientras isArchived es true
+                        (junto con Ver en chat, de sólo lectura, arriba).
+                        Limpia archived_at exclusivamente -- nunca reabre,
+                        completa ni cancela; el status canónico intacto
+                        decide qué vuelve a estar disponible después. */}
+                    {!isProposal && isArchived && onRestore && (
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onRestore(item.id); }}>
+                            <Ionicons name="arrow-undo-outline" size={16} color={theme.colors.white} />
+                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Restaurar</Text>
                         </TouchableOpacity>
                     )}
                 </View>

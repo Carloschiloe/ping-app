@@ -146,6 +146,15 @@ select pg_temp.assert_true(
     and has_function_privilege('service_role', 'public.archive_commitment_with_evidence(uuid,uuid)', 'EXECUTE'),
     'archive RPC execution must be service_role-only'
 );
+-- PING — ARCHIVE LIFECYCLE COMPLETION: restore_commitment_with_evidence
+-- must have the identical service_role-only grant as its archive
+-- counterpart -- never callable directly by anon/authenticated.
+select pg_temp.assert_true(
+    not has_function_privilege('anon', 'public.restore_commitment_with_evidence(uuid,uuid)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.restore_commitment_with_evidence(uuid,uuid)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.restore_commitment_with_evidence(uuid,uuid)', 'EXECUTE'),
+    'restore RPC execution must be service_role-only'
+);
 
 -- Authenticated clients cannot call write RPCs or update the aggregate directly.
 set local role authenticated;
@@ -405,6 +414,56 @@ select pg_temp.assert_true(
     ),
     'archive must preserve the row and add evidence'
 );
+
+-- PING — ARCHIVE LIFECYCLE COMPLETION: restore is the symmetric operation
+-- -- clears archived_at, records its own Event/Audit evidence, and (the
+-- invariant this whole feature exists to prove) never touches `status`.
+select pg_temp.assert_true(
+    (select status from public.commitments where id = :'commitment_id'::uuid) = 'cancelled',
+    'commitment must still be cancelled before restore (archive is orthogonal to lifecycle)'
+);
+
+set local role service_role;
+select (public.restore_commitment_with_evidence(
+    :'commitment_id'::uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+)).id;
+reset role;
+
+select pg_temp.assert_true(
+    exists (
+        select 1 from public.commitments
+        where id = :'commitment_id'::uuid and archived_at is null and status = 'cancelled'
+    )
+    and exists (
+        select 1 from public.commitment_events
+        where commitment_id = :'commitment_id'::uuid and event_type = 'restored'
+    )
+    and exists (
+        select 1 from public.commitment_audit_records
+        where commitment_id = :'commitment_id'::uuid and action = 'commitment_restored'
+    ),
+    'restore must clear archived_at, preserve status, and add symmetric evidence'
+);
+
+-- Restoring an already-unarchived commitment must fail loudly, never
+-- silently succeed as a no-op -- the RPC's own guard (archived_at is null
+-- -> raise exception) is what makes double-restore detectable, exactly
+-- like double-archive already is.
+do $$
+begin
+    set local role service_role;
+    begin
+        perform public.restore_commitment_with_evidence(
+            :'commitment_id'::uuid,
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        );
+        raise exception 'restoring an already-unarchived commitment unexpectedly succeeded';
+    exception when sqlstate 'P0001' then
+        null;
+    end;
+    reset role;
+end $$;
 
 select 'C-2 PostgreSQL Commitment Core integration passed' as result;
 

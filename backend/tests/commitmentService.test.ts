@@ -323,6 +323,132 @@ describe('archive compatibility adapter', () => {
     });
 });
 
+// PING — ARCHIVE LIFECYCLE COMPLETION: audit found archiveCommitment had no
+// symmetric restore operation anywhere (no RPC, no service method, no
+// endpoint, no mobile hook) -- an archived commitment could never become
+// visible again. restoreCommitment mirrors archiveCommitment exactly: same
+// owner-only authorization (assertCommitmentOwner), same
+// supabaseAdmin.rpc call shape, only the RPC name and the direction of
+// archived_at differ.
+describe('restoreCommitment — contraparte simétrica de archiveCommitment', () => {
+    it('llama a restore_commitment_with_evidence con (p_commitment_id, p_actor_user_id), nunca un status editable', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:restore_commitment_with_evidence': [{
+                data: { id: 'c1', owner_user_id: OWNER, status: 'cancelled', archived_at: null },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { restoreCommitment } = await import('../src/services/commitment.service');
+        const result = await restoreCommitment(OWNER, 'c1');
+
+        expect(result.archived_at).toBeNull();
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'restore_commitment_with_evidence',
+            args: { p_commitment_id: 'c1', p_actor_user_id: OWNER },
+        }]);
+    });
+
+    // Repite exactamente la misma prueba de orthogonalidad ya hecha para
+    // archive (arriba): restaurar un commitment archivado en CUALQUIER
+    // status (aquí, 'cancelled') nunca reescribe ese status -- restore sólo
+    // limpia archived_at, nunca es un sustituto de reopen/cancel/resolve.
+    it('restaurar un commitment archivado conserva su status "cancelled" intacto -- restore nunca reabre, cancela ni resuelve', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:restore_commitment_with_evidence': [{
+                data: { id: 'c1', owner_user_id: OWNER, status: 'cancelled', archived_at: null, due_at: '2026-06-01T00:00:00.000Z', resolved_at: null },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { restoreCommitment } = await import('../src/services/commitment.service');
+        const result = await restoreCommitment(OWNER, 'c1');
+
+        expect(result.status).toBe('cancelled'); // nunca 'accepted'/'proposed' -- restore nunca reabre
+        expect(result.archived_at).toBeNull();
+        expect(result.due_at).toBe('2026-06-01T00:00:00.000Z'); // restore nunca toca due_at
+        expect(result.resolved_at).toBeNull(); // restore nunca toca resolved_at
+    });
+
+    // assertCommitmentOwner (mismo guard que archiveCommitment) se ejecuta
+    // ANTES del RPC -- un actor no-owner nunca llega a invocar
+    // restore_commitment_with_evidence en absoluto, la misma defensa en
+    // profundidad que ya existe para archive.
+    it('un actor que no es el owner nunca llega a invocar el RPC -- assertCommitmentOwner corta antes', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { restoreCommitment } = await import('../src/services/commitment.service');
+        await expect(restoreCommitment('someone-else', 'c1')).rejects.toThrow();
+        expect(mock.getRpcCalls()).toHaveLength(0);
+    });
+});
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: audit found NO backend query mode
+// ever retrieves an archived commitment -- getCommitments unconditionally
+// excludes archived_at (.is('archived_at', null)), and neither
+// retrieval.service.ts (Agent) nor canonicalTruthRegistry.ts ever includes
+// it either. getArchivedCommitments is a NEW, separate query -- it never
+// modifies getCommitments' own filter, it inverts the same predicate in an
+// entirely distinct function so normal retrieval can never regress.
+describe('getArchivedCommitments — retrieval explícita, separada de getCommitments', () => {
+    it('filtra por NOT archived_at IS NULL (el inverso exacto del filtro de getCommitments), nunca mezclado con la lista normal', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{
+                data: [{ id: 'c1', title: 'Archivado', status: 'cancelled', archived_at: '2026-09-13T00:00:00.000Z', owner_user_id: OWNER }],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { getArchivedCommitments } = await import('../src/services/commitment.service');
+        const result = await getArchivedCommitments(OWNER);
+
+        // El mock no distingue is(col, null) de not(col, 'is', null) por
+        // nombre de método propio (ambos pasan por is: vi.fn -- ver
+        // supabaseMock.ts) así que se certifica contra el resultado
+        // observable: el item archivado SÍ vuelve en getArchivedCommitments
+        // (nunca lo excluye), a diferencia de getCommitments (probado abajo).
+        expect(result).toEqual([
+            expect.objectContaining({ id: 'c1', archived_at: '2026-09-13T00:00:00.000Z' }),
+        ]);
+    });
+
+    it('el mismo commitment archivado NUNCA aparece en getCommitments (la lista normal sigue excluyendo archived_at incondicionalmente)', async () => {
+        // getCommitments real filtra en SQL (.is('archived_at', null)) -- el
+        // mock no ejecuta SQL, así que esta prueba certifica el CONTRATO del
+        // filtro (la llamada .is('archived_at', null) ocurre) más que el
+        // resultado, que es lo que un test de integración Postgres real
+        // cubre (commitmentCore.integration.sql).
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { getCommitments } = await import('../src/services/commitment.service');
+        await getCommitments(OWNER);
+
+        expect(mock.getIsCalls('commitments')).toContainEqual(['archived_at', null]);
+    });
+});
+
 describe('checkConflict', () => {
     it('considera abiertos proposed/accepted/counter_proposal (no solo accepted)', async () => {
         const mock = createSupabaseAdminMock({

@@ -340,6 +340,45 @@ export const deleteCommitment = async (req: Request, res: Response): Promise<voi
     }
 };
 
+// PING — ARCHIVE LIFECYCLE COMPLETION: symmetric counterpart to
+// deleteCommitment above -- same shape, same error mapping (P0001 -> 409
+// for the RPC's "not archived" guard, 42501 -> 403 for the owner check,
+// P0002 -> 404), only the direction of archived_at differs.
+export const restoreCommitment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const commitmentId = req.params.id as string;
+
+        const data = await commitmentService.restoreCommitment(userId, commitmentId);
+        res.status(200).json({ success: true, restored: toLegacyCommitmentShape(data) });
+    } catch (error: any) {
+        handleError(res, 'restoreCommitment', error);
+    }
+};
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: explicit archived-only listing.
+// GET /commitments (getCommitments above) must keep excluding archived_at
+// unconditionally -- this is a SEPARATE endpoint, never a query-param
+// branch on the same one, so a caller can never accidentally see archived
+// items mixed into a normal list.
+export const getArchivedCommitments = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.user || !req.user.id) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const userId = req.user.id;
+        const data = await commitmentService.getArchivedCommitments(userId);
+        res.status(200).json(toLegacyCommitmentListShape(data));
+    } catch (error: any) {
+        handleError(res, 'getArchivedCommitments', error);
+    }
+};
+
 export const pingCommitment = async (req: Request, res: Response): Promise<void> => {
     try {
         if (!req.user || !req.user.id) {

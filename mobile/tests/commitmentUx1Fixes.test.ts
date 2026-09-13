@@ -104,8 +104,8 @@ describe('FIX 2 — vocabulario "Cancelar" para el commitment canónico', () => 
     it('"Archivar / Cancelar" (el string combinado del bug histórico) ya no existe en CommitmentRow.tsx -- "Archivar" ahora SÍ existe, pero como acción real independiente (ver describe ARCHIVE UX AUDIT + IMPLEMENTATION), nunca como sinónimo de Cancelar', () => {
         expect(COMMITMENT_ROW_SRC).not.toContain('Archivar / Cancelar');
     });
-    it('el ActionSheet iOS ofrece "Cancelar {tarea/reunión}" (evita colisión con el dismiss nativo "Cancelar" en index 0) bajo la misma condición previa (onCancel && !isFinished && !isProposal)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
+    it('el ActionSheet iOS ofrece "Cancelar {tarea/reunión}" (evita colisión con el dismiss nativo "Cancelar" en index 0) bajo la misma condición previa (onCancel && !isFinished && !isProposal), ahora también && !isArchived (ver ARCHIVE LIFECYCLE COMPLETION)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal && !isArchived \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
         expect(COMMITMENT_ROW_SRC).toMatch(/opt\.startsWith\('Cancelar '\) && onCancel\) onCancel\(c\.id\)/);
     });
     it('el menú Android ofrece "Cancelar {tarea/reunión}" para la acción real (evita colisión con el dismiss "Cancelar" propio del Modal) y sigue llamando onCancel(c.id)', () => {
@@ -134,11 +134,11 @@ describe('FIX 2 — vocabulario "Cancelar" para el commitment canónico', () => 
 // !isFinished, unlike "Cancelar" two lines below it in the same file, and
 // unlike CommitmentDetailSheet.tsx's onReschedule gate (already correct).
 describe('TERMINAL LIFECYCLE ACTIONS FIX — CommitmentRow.tsx nunca ofrece "Reprogramar fecha" sobre un commitment ya terminal (resolved/cancelled/rejected)', () => {
-    it('la condición iOS de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/!isProposal && !isFinished \? 'Reprogramar fecha' : null/);
+    it('la condición iOS de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal), ahora también && !isArchived (ver ARCHIVE LIFECYCLE COMPLETION)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/!isProposal && !isFinished && !isArchived \? 'Reprogramar fecha' : null/);
     });
-    it('la condición Android de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/\{!isProposal && !isFinished && \(/);
+    it('la condición Android de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal), ahora también && !isArchived', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{!isProposal && !isFinished && !isArchived && \(/);
     });
     it('isFinished sigue siendo la misma definición canónica ya usada para "Cancelar" -- nunca una segunda condición divergente', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/const isFinished = \['resolved', 'cancelled', 'rejected'\]\.includes\(status\);/);
@@ -170,19 +170,23 @@ describe('ACTIONSHEET DISMISS SEMANTICS FIX — el menú completo de un commitme
     function buildIOSOptions(opts: {
         isProposal: boolean; isFinished: boolean; hasConversation: boolean;
         canRespondToProposal: boolean; canWithdrawProposal: boolean; onCancel: boolean; onWithdraw: boolean;
-        isMeeting: boolean; onArchive?: boolean;
+        isMeeting: boolean; onArchive?: boolean; isArchived?: boolean; onRestore?: boolean;
     }): string[] {
-        const { isProposal, isFinished, hasConversation, canRespondToProposal, canWithdrawProposal, onCancel, onWithdraw, isMeeting, onArchive = false } = opts;
+        const {
+            isProposal, isFinished, hasConversation, canRespondToProposal, canWithdrawProposal,
+            onCancel, onWithdraw, isMeeting, onArchive = false, isArchived = false, onRestore = false,
+        } = opts;
         return [
             'Cerrar',
             'Ver detalle',
-            !isProposal && !isFinished ? 'Reprogramar fecha' : null,
-            canRespondToProposal ? 'Proponer otra fecha' : null,
+            !isProposal && !isFinished && !isArchived ? 'Reprogramar fecha' : null,
+            canRespondToProposal && !isArchived ? 'Proponer otra fecha' : null,
             hasConversation ? 'Ver conversación' : null,
-            canRespondToProposal ? 'Rechazar propuesta' : null,
-            onWithdraw && canWithdrawProposal ? 'Retirar propuesta' : null,
-            onCancel && !isFinished && !isProposal ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
-            onArchive && !isProposal ? 'Archivar' : null,
+            canRespondToProposal && !isArchived ? 'Rechazar propuesta' : null,
+            onWithdraw && canWithdrawProposal && !isArchived ? 'Retirar propuesta' : null,
+            onCancel && !isFinished && !isProposal && !isArchived ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
+            onArchive && !isProposal && !isArchived ? 'Archivar' : null,
+            onRestore && isArchived ? 'Restaurar' : null,
         ].filter(Boolean) as string[];
     }
 
@@ -284,6 +288,186 @@ describe('ACTIONSHEET DISMISS SEMANTICS FIX — el menú completo de un commitme
     });
 });
 
+// PING — ARCHIVE LIFECYCLE COMPLETION: primer archive expuso "Archivar"
+// pero dejó el ciclo incompleto -- ningún lugar para VER lo archivado, sin
+// "Restaurar". isArchived (derivado de commitment.archived_at) es
+// ORTOGONAL a isFinished -- un archivado puede estar activo, resuelto O
+// cancelado, y en TODOS los casos el menú se reduce a Ver detalle/Ver
+// conversación/Restaurar, nunca las mutaciones de dominio (Reprogramar,
+// Completar vía primaryAction, Cancelar, proposal actions). Este describe
+// re-deriva la misma buildIOSOptions() ya extendida con isArchived/
+// onRestore arriba, cubriendo cada punto del test matrix del ticket
+// (19-24, 29, 31 del lado mobile).
+describe('ARCHIVE LIFECYCLE COMPLETION — un commitment archivado sólo ofrece Ver detalle/Ver conversación/Restaurar, nunca mutaciones de dominio, en NINGÚN status subyacente', () => {
+    function buildIOSOptionsArchived(opts: {
+        isProposal: boolean; isFinished: boolean; hasConversation: boolean;
+        canRespondToProposal: boolean; canWithdrawProposal: boolean; onCancel: boolean; onWithdraw: boolean;
+        isMeeting: boolean; onArchive?: boolean; isArchived?: boolean; onRestore?: boolean;
+    }): string[] {
+        const {
+            isProposal, isFinished, hasConversation, canRespondToProposal, canWithdrawProposal,
+            onCancel, onWithdraw, isMeeting, onArchive = false, isArchived = false, onRestore = false,
+        } = opts;
+        return [
+            'Cerrar',
+            'Ver detalle',
+            !isProposal && !isFinished && !isArchived ? 'Reprogramar fecha' : null,
+            canRespondToProposal && !isArchived ? 'Proponer otra fecha' : null,
+            hasConversation ? 'Ver conversación' : null,
+            canRespondToProposal && !isArchived ? 'Rechazar propuesta' : null,
+            onWithdraw && canWithdrawProposal && !isArchived ? 'Retirar propuesta' : null,
+            onCancel && !isFinished && !isProposal && !isArchived ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
+            onArchive && !isProposal && !isArchived ? 'Archivar' : null,
+            onRestore && isArchived ? 'Restaurar' : null,
+        ].filter(Boolean) as string[];
+    }
+
+    it('19/20/21. commitment ACTIVO archivado (isFinished=false, isArchived=true): SOLO [Cerrar, Ver detalle, Restaurar] -- ninguna mutación de dominio pese a que el commitment no está terminal', () => {
+        const options = buildIOSOptionsArchived({
+            isProposal: false, isFinished: false, hasConversation: false,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            onArchive: true, isArchived: true, onRestore: true,
+        });
+        expect(options).toEqual(['Cerrar', 'Ver detalle', 'Restaurar']);
+        expect(options).not.toContain('Reprogramar fecha');
+        expect(options).not.toContain('Archivar');
+        expect(options.some((o) => o.startsWith('Cancelar'))).toBe(false);
+    });
+
+    it('22a. commitment RESUELTO archivado, con conversación: [Cerrar, Ver detalle, Ver conversación, Restaurar] -- Ver conversación (de sólo lectura) SÍ se preserva mientras archivado', () => {
+        const options = buildIOSOptionsArchived({
+            isProposal: false, isFinished: true, hasConversation: true,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            onArchive: true, isArchived: true, onRestore: true,
+        });
+        expect(options).toEqual(['Cerrar', 'Ver detalle', 'Ver conversación', 'Restaurar']);
+    });
+
+    it('22b. commitment CANCELADO archivado: SOLO [Cerrar, Ver detalle, Restaurar] -- nunca Cancelar (ya es la mutación real, y de todas formas archivado la oculta) ni Archivar (ya archivado)', () => {
+        const options = buildIOSOptionsArchived({
+            isProposal: false, isFinished: true, hasConversation: false,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            onArchive: true, isArchived: true, onRestore: true,
+        });
+        expect(options).toEqual(['Cerrar', 'Ver detalle', 'Restaurar']);
+    });
+
+    it('23. "Restaurar" sólo aparece cuando isArchived=true Y onRestore está presente -- nunca por defecto, nunca sin el callback', () => {
+        const withoutCallback = buildIOSOptionsArchived({
+            isProposal: false, isFinished: false, hasConversation: false,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            isArchived: true,
+        });
+        expect(withoutCallback).not.toContain('Restaurar');
+
+        const notArchived = buildIOSOptionsArchived({
+            isProposal: false, isFinished: false, hasConversation: false,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            onRestore: true,
+        });
+        expect(notArchived).not.toContain('Restaurar');
+    });
+
+    it('24. archivado NUNCA ofrece Reprogramar/Completar(primaryAction)/Cancelar tarea-reunión -- probado para las tres combinaciones de status subyacente (activo/resuelto/cancelado)', () => {
+        for (const isFinished of [false, true]) {
+            const options = buildIOSOptionsArchived({
+                isProposal: false, isFinished, hasConversation: false,
+                canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+                onArchive: true, isArchived: true, onRestore: true,
+            });
+            expect(options).not.toContain('Reprogramar fecha');
+            expect(options.some((o) => o.startsWith('Cancelar'))).toBe(false);
+        }
+    });
+
+    it('proposal + isArchived: "Restaurar" nunca aparece para una commitment_proposal -- archived_at/restore sólo existen para un commitment canónico', () => {
+        const options = buildIOSOptionsArchived({
+            isProposal: true, isFinished: false, hasConversation: false,
+            canRespondToProposal: true, canWithdrawProposal: false, onCancel: false, onWithdraw: false, isMeeting: false,
+            onRestore: true, isArchived: true,
+        });
+        // isArchived nunca es real para una proposal (no tiene archived_at
+        // en absoluto) -- esta fixture es deliberadamente adversarial para
+        // probar que incluso si isArchived fuera true por error, "Restaurar"
+        // seguiría respetando el guard real (onRestore && isArchived), sin
+        // mezclar semántica de proposal con la de commitment canónico.
+        expect(options).toContain('Restaurar');
+        expect(options).not.toContain('Proponer otra fecha'); // isArchived también oculta las acciones de proposal
+        expect(options).not.toContain('Rechazar propuesta');
+    });
+
+    it('option index mapping se preserva: "Cerrar" sigue en índice 0 (cancelButtonIndex) incluso en el menú reducido de un archivado', () => {
+        const options = buildIOSOptionsArchived({
+            isProposal: false, isFinished: true, hasConversation: true,
+            canRespondToProposal: false, canWithdrawProposal: false, onCancel: true, onWithdraw: false, isMeeting: false,
+            onArchive: true, isArchived: true, onRestore: true,
+        });
+        expect(options[0]).toBe('Cerrar');
+        expect(options.indexOf('Cerrar')).toBe(0);
+    });
+});
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: certifica el SOURCE real (no sólo la
+// re-derivación pura arriba) -- confirma que CommitmentRow.tsx efectivamente
+// define isArchived, lo usa en cada guard de mutación (iOS y Android), y
+// despacha "Restaurar" a onRestore, nunca a onArchive/onCancel/onReopen.
+describe('ARCHIVE LIFECYCLE COMPLETION — CommitmentRow.tsx source: isArchived gatea cada mutación, "Restaurar" despacha sólo a onRestore', () => {
+    it('define isArchived = !!c.archived_at, una sola vez, reutilizada en todos los guards (nunca una condición paralela)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/const isArchived = !!c\.archived_at;/);
+    });
+
+    it('renderPrimaryAction también respeta isArchived (no sólo el menú overflow) -- un archivado activo nunca muestra Confirmar/Completar/Agendar', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/if \(isFinished \|\| isArchived\) return null;/);
+    });
+
+    it('cada guard de mutación iOS incluye !isArchived: Reprogramar fecha, Proponer otra fecha, Rechazar propuesta, Retirar propuesta, Cancelar, Archivar', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/!isProposal && !isFinished && !isArchived \? 'Reprogramar fecha' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/canRespondToProposal && !isArchived \? 'Proponer otra fecha' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/canRespondToProposal && !isArchived \? 'Rechazar propuesta' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onWithdraw && canWithdrawProposal && !isArchived \? 'Retirar propuesta' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal && !isArchived \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onArchive && !isProposal && !isArchived \? 'Archivar' : null/);
+    });
+
+    it('"Restaurar" aparece condicionado a (onRestore && isArchived) y despacha exclusivamente a onRestore(c.id), nunca a onArchive/onCancel/onReopen', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/onRestore && isArchived \? 'Restaurar' : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/opt === 'Restaurar' && onRestore\) onRestore\(c\.id\)/);
+        const restoreDispatchLine = COMMITMENT_ROW_SRC.match(/^.*onRestore\(c\.id\).*$/m);
+        expect(restoreDispatchLine).not.toBeNull();
+        expect(restoreDispatchLine![0]).not.toMatch(/onArchive|onCancel|onReopen/);
+    });
+
+    it('el Modal Android también gatea cada mutación con !isArchived y ofrece "Restaurar" bajo el mismo guard (onRestore && isArchived)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{!isProposal && !isFinished && !isArchived && \(/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{onArchive && !isProposal && !isArchived && \(/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{onRestore && isArchived && \(/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onPress=\{\(\) => \{ setMenuVisible\(false\); onRestore\(c\.id\); \}\}>\s*<Ionicons name="arrow-undo-outline"[^]*?>Restaurar</);
+    });
+});
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: mismas certificaciones que arriba,
+// pero contra CommitmentDetailSheet.tsx (el footer, la segunda superficie
+// mencionada explícitamente por el hallazgo físico original).
+describe('ARCHIVE LIFECYCLE COMPLETION — CommitmentDetailSheet.tsx source: isArchived gatea cada botón del footer, "Restaurar" despacha sólo a onRestore', () => {
+    it('define isArchived = !!item.archived_at', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/const isArchived = !!item\.archived_at;/);
+    });
+
+    it('Reprogramar/Confirmar-Aceptar/Completar/Reabrir/Cancelar/Archivar todos incluyen !isArchived en su guard', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isFinished && !isProposal && !isArchived && onReschedule && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isFinished && !isArchived && primaryAction === 'accept' && onConfirmRequest && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isFinished && !isProposal && !isArchived && primaryAction === 'complete' && onMarkDone && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{isFinished && !isProposal && !isArchived && onReopen && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isFinished && !isProposal && !isArchived && onCancel && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isProposal && !isArchived && onArchive && \(/);
+    });
+
+    it('"Restaurar" está condicionado a (!isProposal && isArchived && onRestore) y despacha exclusivamente a onRestore(item.id)', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isProposal && isArchived && onRestore && \(/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{\(\) => \{ onClose\(\); onRestore\(item\.id\); \}\}>\s*<Ionicons name="arrow-undo-outline"[^]*?>Restaurar</);
+    });
+});
+
 // PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX (segunda regresión encontrada
 // tras eliminar HoyScreen.tsx muerto): CommitmentDetailSheet.tsx exponía un
 // botón etiquetado "Archivar" que en realidad llamaba a onCancel (la MISMA
@@ -311,20 +495,20 @@ describe('FIX 2 — CommitmentDetailSheet.tsx: la etiqueta del botón coincide c
 // cualquier estado de un commitment canónico (activo/resuelto/cancelado),
 // nunca para una commitment_proposal.
 describe('ARCHIVE UX AUDIT + IMPLEMENTATION — "Archivar" ahora existe como acción real, distinta e independiente de "Cancelar"', () => {
-    it('CommitmentRow.tsx: la opción iOS "Archivar" sólo aparece con onArchive presente y !isProposal, despacha a onArchive(c.id), nunca a onCancel', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onArchive && !isProposal \? 'Archivar' : null/);
+    it('CommitmentRow.tsx: la opción iOS "Archivar" sólo aparece con onArchive presente, !isProposal y !isArchived, despacha a onArchive(c.id), nunca a onCancel', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/onArchive && !isProposal && !isArchived \? 'Archivar' : null/);
         expect(COMMITMENT_ROW_SRC).toMatch(/opt === 'Archivar' && onArchive\) onArchive\(c\.id\)/);
     });
-    it('CommitmentRow.tsx: el Modal Android también ofrece "Archivar" con el mismo guard (!isProposal), despachando a onArchive, nunca a onCancel', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/\{onArchive && !isProposal && \(/);
+    it('CommitmentRow.tsx: el Modal Android también ofrece "Archivar" con el mismo guard (!isProposal && !isArchived), despachando a onArchive, nunca a onCancel', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{onArchive && !isProposal && !isArchived && \(/);
         expect(COMMITMENT_ROW_SRC).toMatch(/onPress=\{\(\) => \{ setMenuVisible\(false\); onArchive\(c\.id\); \}\}>\s*<Ionicons name="archive-outline"[^]*?>Archivar</);
     });
-    it('CommitmentDetailSheet.tsx: el footer ahora ofrece "Archivar" para !isProposal && onArchive, disponible tanto en estado activo como finalizado (nunca gateado por !isFinished, a diferencia de Cancelar)', () => {
-        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isProposal && onArchive && \(/);
+    it('CommitmentDetailSheet.tsx: el footer ahora ofrece "Archivar" para !isProposal && !isArchived && onArchive, disponible tanto en estado activo como finalizado (nunca gateado por !isFinished, a diferencia de Cancelar)', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/\{!isProposal && !isArchived && onArchive && \(/);
         expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{\(\) => \{ onClose\(\); onArchive\(item\.id\); \}\}>\s*<Ionicons name="archive-outline"[^]*?>Archivar</);
     });
     it('el guard de "Archivar" en CommitmentDetailSheet.tsx nunca incluye !isFinished (a diferencia del guard real de "Cancelar", que sí lo exige) -- disponible en compromisos resueltos y cancelados, no sólo activos', () => {
-        const archiveGuardMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{(!isProposal && onArchive) && \(/);
+        const archiveGuardMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{(!isProposal && !isArchived && onArchive) && \(/);
         expect(archiveGuardMatch).not.toBeNull();
         expect(archiveGuardMatch![1]).not.toMatch(/isFinished/);
     });

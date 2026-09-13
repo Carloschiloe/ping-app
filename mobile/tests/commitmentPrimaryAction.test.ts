@@ -121,10 +121,10 @@ describe('M-1H v5: CommitmentDetailSheet — nunca ofrece Completar/Archivar/Rep
     const path = await import('node:path');
     const src = fs.readFileSync(path.join(__dirname, '..', 'src/components/compromisos/CommitmentDetailSheet.tsx'), 'utf-8');
 
-    it('Reprogramar/Completar/Archivar están todos condicionados a "!isProposal"', () => {
-        expect(src).toMatch(/!isFinished && !isProposal && onReschedule/);
-        expect(src).toMatch(/!isFinished && !isProposal && primaryAction === 'complete' && onMarkDone/);
-        expect(src).toMatch(/!isFinished && !isProposal && onCancel/);
+    it('Reprogramar/Completar/Archivar están todos condicionados a "!isProposal" (y, desde ARCHIVE LIFECYCLE COMPLETION, también a "!isArchived")', () => {
+        expect(src).toMatch(/!isFinished && !isProposal && !isArchived && onReschedule/);
+        expect(src).toMatch(/!isFinished && !isProposal && !isArchived && primaryAction === 'complete' && onMarkDone/);
+        expect(src).toMatch(/!isFinished && !isProposal && !isArchived && onCancel/);
     });
 
     it('ofrece "Aceptar"/"Confirmar" vía onConfirmRequest cuando primaryAction==="accept" (mismo modal que la fila)', () => {

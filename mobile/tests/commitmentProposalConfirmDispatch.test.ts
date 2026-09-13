@@ -460,8 +460,11 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
     it('CommitmentRow.tsx: ambas opciones sólo aparecen cuando canRespondToProposal es true, y usan onOpenReschedule/onReject existentes', () => {
         const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
         expect(src).toMatch(/canRespondToProposal = isProposal && primaryAction === 'accept'/);
-        expect(src).toMatch(/canRespondToProposal \? 'Proponer otra fecha' : null/);
-        expect(src).toMatch(/canRespondToProposal \? 'Rechazar propuesta' : null/);
+        // PING — ARCHIVE LIFECYCLE COMPLETION: both now also require
+        // !isArchived -- an archived proposal-derived commitment must never
+        // offer these mutations either.
+        expect(src).toMatch(/canRespondToProposal && !isArchived \? 'Proponer otra fecha' : null/);
+        expect(src).toMatch(/canRespondToProposal && !isArchived \? 'Rechazar propuesta' : null/);
         // "Reprogramar fecha"/"Cancelar" (transiciones de commitment activo)
         // nunca se ofrecen para una proposal NI para un commitment ya en
         // estado terminal (resolved/cancelled/rejected) -- PING TERMINAL
@@ -469,7 +472,7 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
         // !isProposal, nunca !isFinished, así que un commitment YA resuelto
         // seguía ofreciendo reprogramar (backend ya lo rechazaba con 409,
         // pero el menú nunca debió ofrecerlo).
-        expect(src).toMatch(/!isProposal && !isFinished \? 'Reprogramar fecha' : null/);
+        expect(src).toMatch(/!isProposal && !isFinished && !isArchived \? 'Reprogramar fecha' : null/);
         expect(src).toMatch(/onCancel && !isFinished && !isProposal/);
     });
 
@@ -677,5 +680,87 @@ describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires t
         await apiClient.delete(url);
         expect(apiClient.delete).toHaveBeenCalledWith('/commitments/c1');
         expect(apiClient.delete).toHaveBeenCalledTimes(1);
+    });
+});
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: archive shipped without any way to
+// SEE archived items or bring them back (no restore RPC, no endpoint, no
+// mobile hook, no UI -- confirmed by full-repo audit before writing any
+// code). This describe certifies the complete round trip: a dedicated
+// archived-only query (GET /commitments/archived, never a filter on the
+// normal GET /commitments), a symmetric restore mutation (POST
+// /commitments/:id/restore, RPC restore_commitment_with_evidence -- clears
+// archived_at only, never touches status), and InsightsScreen.tsx wiring
+// both into the Archivados segment (reached from the existing filter
+// drawer, never a fifth main tab) and into both CommitmentRow.tsx/
+// CommitmentDetailSheet.tsx via onRestore.
+describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useRestoreCommitment hooks and InsightsScreen.tsx Archivados wiring', () => {
+    it('useArchivedCommitments queries GET /commitments/archived under its own query key (never mixed into all-commitments-dashboard)', () => {
+        const src = readSrc('src/api/query-modules/commitments.ts');
+        expect(src).toMatch(/export const useArchivedCommitments = \(\) => \{/);
+        const hookBlock = src.match(/export const useArchivedCommitments = \(\) => \{([^]*?)\n\};/);
+        expect(hookBlock).not.toBeNull();
+        expect(hookBlock![1]).toMatch(/queryKey: \['archived-commitments'\]/);
+        expect(hookBlock![1]).toMatch(/apiClient\.get\('\/commitments\/archived'\)/);
+    });
+
+    it('useRestoreCommitment posts to POST /commitments/:id/restore and invalidates BOTH the canonical dashboard query and archived-commitments', () => {
+        const src = readSrc('src/api/query-modules/commitments.ts');
+        expect(src).toMatch(/export const useRestoreCommitment = \(\) => \{/);
+        const hookBlock = src.match(/export const useRestoreCommitment = \(\) => \{([^]*?)\n\};/);
+        expect(hookBlock).not.toBeNull();
+        expect(hookBlock![1]).toMatch(/apiClient\.post\(`\/commitments\/\$\{id\}\/restore`, \{\}\)/);
+        expect(hookBlock![1]).toMatch(/useCommitmentLifecycleInvalidation/);
+        expect(hookBlock![1]).toMatch(/queryClient\.invalidateQueries\(\{ queryKey: \['archived-commitments'\] \}\)/);
+    });
+
+    it('useArchiveCommitment ALSO invalidates archived-commitments on success (so a freshly archived item appears in Archivados without a manual pull-to-refresh)', () => {
+        const src = readSrc('src/api/query-modules/commitments.ts');
+        const hookBlock = src.match(/export const useArchiveCommitment = \(\) => \{([^]*?)\n\};/);
+        expect(hookBlock).not.toBeNull();
+        expect(hookBlock![1]).toMatch(/queryClient\.invalidateQueries\(\{ queryKey: \['archived-commitments'\] \}\)/);
+    });
+
+    it('InsightsScreen.tsx imports useArchivedCommitments/useRestoreCommitment, defines handleRestore calling restoreCommitment(id), distinct from handleArchive', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/useArchivedCommitments, useRestoreCommitment/);
+        expect(src).toMatch(/const \{ mutateAsync: restoreCommitment \} = useRestoreCommitment\(\);/);
+        expect(src).toMatch(/const handleRestore = useCallback\(\(id: string\) => \{\s*restoreCommitment\(id\);\s*\}, \[restoreCommitment\]\);/);
+    });
+
+    it('InsightsScreen.tsx passes onRestore={handleRestore} to CommitmentRow AND CommitmentDetailSheet (both surfaces get the same symmetric restore path as archive)', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const commitmentRowBlock = src.slice(src.indexOf('<CommitmentRow'), src.indexOf('<CommitmentRow') + 1000);
+        expect(commitmentRowBlock).toMatch(/onRestore=\{handleRestore\}/);
+        const detailSheetBlock = src.slice(src.indexOf('<CommitmentDetailSheet'), src.indexOf('<CommitmentDetailSheet') + 800);
+        expect(detailSheetBlock).toMatch(/onRestore=\{handleRestore\}/);
+    });
+
+    it('InsightsScreen.tsx MainSegment type includes "archivados" and the segment/currentSegmentData wiring reads it -- no fifth main tab is introduced, this reuses the same SectionList/segment state machine', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).toMatch(/type MainSegment = 'pendientes' \| 'encargados' \| 'historial' \| 'archivados';/);
+        expect(src).toMatch(/if \(segment === 'archivados'\) return archivadosData;/);
+    });
+
+    it('the Archivados entry point lives inside the existing filter drawer (setFilterDrawerVisible), never as a fifth visible segment button next to Pendientes/Encargados/Historial', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        // Exactly 3 segment buttons remain wired to setSegment with a
+        // literal segment name inside the segmented control section --
+        // "archivados" must not be one of the visible segment buttons.
+        const segmentControlBlock = src.slice(src.indexOf('Segmented Control'), src.indexOf('SECTION LIST DATA'));
+        expect(segmentControlBlock).not.toMatch(/setSegment\('archivados'\)/);
+        expect(src).toMatch(/onPress=\{\(\) => \{\s*setSegment\('archivados'\);\s*setFilterDrawerVisible\(false\);\s*\}\}/);
+    });
+
+    it('archivadosData groups by REAL canonical status (Activos/Resueltos/Cancelados/Rechazados), never presenting "archivado" itself as a lifecycle status', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const archivadosBlock = src.slice(src.indexOf('const archivadosData'), src.indexOf('const currentSegmentData'));
+        expect(archivadosBlock).toMatch(/title: '📌 Activos'/);
+        expect(archivadosBlock).toMatch(/title: '✅ Resueltos'/);
+        expect(archivadosBlock).toMatch(/title: '🚫 Cancelados'/);
+        expect(archivadosBlock).toMatch(/title: '❌ Rechazados'/);
+        // The grouping predicate reads normalizeCommitmentStatus(c.status),
+        // the real canonical status -- never a synthetic "archived" bucket.
+        expect(archivadosBlock).toMatch(/const status = normalizeCommitmentStatus\(c\.status\);/);
     });
 });

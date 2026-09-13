@@ -202,6 +202,12 @@ router.delete('/messages/:id', requireAuth, messageController.deleteMessage);
 
 // Commitments
 router.get('/commitments/check-conflict', requireAuth, commitmentController.checkConflict);
+// PING — ARCHIVE LIFECYCLE COMPLETION: explicit archived-only listing,
+// registered before the plain '/commitments' route (same pattern as
+// check-conflict above) -- a separate endpoint, never a query-param branch
+// on getCommitments, so normal retrieval can never accidentally include
+// archived items.
+router.get('/commitments/archived', requireAuth, commitmentController.getArchivedCommitments);
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
 router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
 router.post('/commitment-proposals', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createProposal);
@@ -224,6 +230,9 @@ router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommi
 router.post('/commitments/:id/operation-action', requireAuth, operationEnabled, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
 router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
+// PING — ARCHIVE LIFECYCLE COMPLETION: symmetric counterpart to DELETE
+// above -- clears archived_at only, same owner authorization.
+router.post('/commitments/:id/restore', requireAuth, commitmentController.restoreCommitment);
 
 router.patch('/operation-checklist-run-items/:id/toggle', requireAuth, operationEnabled, validateRequest(operationSchema.toggleChecklistItemSchema), operationController.toggleChecklistItem);
 

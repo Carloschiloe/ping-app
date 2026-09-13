@@ -20,6 +20,7 @@ import {
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
     useRespondToCommitmentProposal, useConfirmCommitmentProposal,
     useWithdrawCommitmentProposal, useArchiveCommitment,
+    useArchivedCommitments, useRestoreCommitment,
 } from '../api/queries';
 import { performCommitmentConfirm } from '../utils/commitmentConfirmDispatch';
 import { isCommitmentOverdue } from '../utils/commitmentDisplay';
@@ -34,7 +35,13 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-type MainSegment = 'pendientes' | 'encargados' | 'historial';
+// PING — ARCHIVE LIFECYCLE COMPLETION: 'archivados' reuses the existing
+// segment machinery (same SectionList, same CommitmentRow renderer) rather
+// than a new screen or a fifth main tab -- entered via the filter drawer
+// (the "top-right filter/settings control" already visible on Compromisos),
+// never rendered as a fifth visible segment button next to
+// Pendientes/Encargados/Historial.
+type MainSegment = 'pendientes' | 'encargados' | 'historial' | 'archivados';
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'resolved' | 'cancelled' | 'rejected';
 type TypeFilter = 'all' | 'tasks' | 'meetings';
 type OriginFilter = 'all' | 'chat' | 'direct';
@@ -122,13 +129,29 @@ export default function InsightsScreen() {
     const { data: contacts = [] } = useContacts();
     const { data: participants = [] } = useGroupParticipants(detailItem?.conversation_id || null);
 
-    useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+    // PING — ARCHIVE LIFECYCLE COMPLETION: separate query, separate key
+    // (['archived-commitments'], see useArchivedCommitments) -- GET
+    // /commitments/archived is a distinct endpoint, never a client-side
+    // filter over `commitments` above (which never contains archived
+    // items in the first place, since GET /commitments always excludes
+    // them). Only fetched/refetched when the segment is actually visible.
+    const {
+        data: archivedCommitments = [],
+        refetch: refetchArchived,
+        isRefetching: isRefetchingArchived,
+    } = useArchivedCommitments();
+
+    useFocusEffect(useCallback(() => {
+        refetch();
+        refetchArchived();
+    }, [refetch, refetchArchived]));
 
     const { mutateAsync: acceptCommitment } = useAcceptCommitment();
     const { mutate: resolveCommitment } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
     const { mutateAsync: archiveCommitment } = useArchiveCommitment();
+    const { mutateAsync: restoreCommitment } = useRestoreCommitment();
     const { mutateAsync: updateCommitment } = useUpdateCommitment();
     const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
@@ -193,6 +216,16 @@ export default function InsightsScreen() {
     const handleArchive = useCallback((id: string) => {
         archiveCommitment(id);
     }, [archiveCommitment]);
+
+    // PING — ARCHIVE LIFECYCLE COMPLETION: dueño real es restoreCommitment
+    // (archived_at -> null, status intacto) -- nunca reopen/cancel/resolve.
+    // Distinta mutación de handleReopen (abajo): restaurar sólo devuelve
+    // visibilidad, reabrir cambia status. Ambas pueden aplicarse en
+    // secuencia (restaurar primero, reabrir después) pero nunca se
+    // colapsan en una sola acción.
+    const handleRestore = useCallback((id: string) => {
+        restoreCommitment(id);
+    }, [restoreCommitment]);
 
     const handleReopen = useCallback((id: string) => {
         reopenCommitment(id);
@@ -473,11 +506,69 @@ export default function InsightsScreen() {
         return { sections, totalCount: list.length };
     }, [filteredCommitments]);
 
+    // ─── Segment 4: ARCHIVADOS ────────────────────────────────────────────────
+    // PING — ARCHIVE LIFECYCLE COMPLETION: archived commitments come from a
+    // SEPARATE query (archivedCommitments, GET /commitments/archived) --
+    // never filtered out of `commitments` above (which never contains them
+    // in the first place). Grouped by their REAL canonical status (never
+    // presented as if "archived" were itself a lifecycle status, per the
+    // ticket's explicit rule) -- same three buckets as Historial plus
+    // "Activos" for an archived item whose status was never terminal.
+    // Search/type/origin filters still apply (searchQuery, typeFilter,
+    // originFilter via the same predicate shape as filteredCommitments);
+    // statusFilter/selectedPersonId are intentionally not reapplied here --
+    // this segment has its own dedicated filter chips in the drawer.
+    const archivadosData = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        const list = archivedCommitments.filter((c: any) => {
+            if (query) {
+                const titleMatch = (c.title || '').toLowerCase().includes(query);
+                const ownerMatch = (c.owner?.full_name || '').toLowerCase().includes(query);
+                const assigneeMatch = (c.assignee?.full_name || '').toLowerCase().includes(query);
+                if (!titleMatch && !ownerMatch && !assigneeMatch) return false;
+            }
+            if (typeFilter === 'tasks' && classifyMeeting(c)) return false;
+            if (typeFilter === 'meetings' && !classifyMeeting(c)) return false;
+            if (originFilter === 'chat' && !c.message_id) return false;
+            if (originFilter === 'direct' && c.message_id) return false;
+            return true;
+        });
+
+        const active: any[] = [];
+        const resolved: any[] = [];
+        const cancelled: any[] = [];
+        const rejected: any[] = [];
+
+        list.forEach((c: any) => {
+            const status = normalizeCommitmentStatus(c.status);
+            if (status === 'resolved') resolved.push(c);
+            else if (status === 'cancelled') cancelled.push(c);
+            else if (status === 'rejected') rejected.push(c);
+            else active.push(c);
+        });
+
+        const sortByArchivedDesc = (arr: any[]) => arr.sort((a, b) => {
+            const dateA = a.archived_at || a.created_at;
+            const dateB = b.archived_at || b.created_at;
+            return new Date(dateB).getTime() - new Date(dateA).getTime();
+        });
+
+        const sections = [
+            { title: '📌 Activos', data: sortByArchivedDesc(active) },
+            { title: '✅ Resueltos', data: sortByArchivedDesc(resolved) },
+            { title: '🚫 Cancelados', data: sortByArchivedDesc(cancelled) },
+            { title: '❌ Rechazados', data: sortByArchivedDesc(rejected) },
+        ].filter(s => s.data.length > 0);
+
+        return { sections, totalCount: list.length };
+    }, [archivedCommitments, searchQuery, typeFilter, originFilter]);
+
     const currentSegmentData = useMemo(() => {
         if (segment === 'pendientes') return pendientesData;
         if (segment === 'encargados') return encargadosData;
+        if (segment === 'archivados') return archivadosData;
         return historialData;
-    }, [segment, pendientesData, encargadosData, historialData]);
+    }, [segment, pendientesData, encargadosData, historialData, archivadosData]);
 
     // ─── Active Filter Chips Helper ───────────────────────────────────────────
     const activePersonName = useMemo(() => {
@@ -491,6 +582,7 @@ export default function InsightsScreen() {
         let copy = 'No tienes compromisos pendientes.';
         if (segment === 'encargados') copy = 'No estás esperando compromisos de otras personas.';
         if (segment === 'historial') copy = 'Aún no tienes compromisos cerrados.';
+        if (segment === 'archivados') copy = 'No tienes compromisos archivados.';
 
         if (hasFiltersActive || searchQuery) {
             copy = 'No se encontraron compromisos con los filtros aplicados.';
@@ -528,6 +620,30 @@ export default function InsightsScreen() {
                     <TouchableOpacity activeOpacity={1} style={[styles.filterSheet, { backgroundColor: theme.colors.surface }]}>
                         <View style={styles.filterSheetHandle} />
                         <Text style={[styles.filterSheetTitle, { color: theme.colors.text.primary }]}>Filtrar Compromisos</Text>
+
+                        {/* PING — ARCHIVE LIFECYCLE COMPLETION: entry point
+                            for the Archivados view, inside the same
+                            top-right filter/settings drawer already used to
+                            switch context on Compromisos -- never a fifth
+                            main tab, never a separate navigation
+                            architecture. Toggles the segment directly and
+                            closes the drawer (archived items have their own
+                            dedicated filter chips below, not the
+                            status/tipo/origen ones meant for the other
+                            three segments). */}
+                        <TouchableOpacity
+                            style={[styles.archivedEntryRow, { borderColor: theme.colors.border }, segment === 'archivados' && { backgroundColor: theme.colors.accentSoft }]}
+                            onPress={() => {
+                                setSegment('archivados');
+                                setFilterDrawerVisible(false);
+                            }}
+                        >
+                            <Ionicons name="archive-outline" size={18} color={segment === 'archivados' ? theme.colors.accent : theme.colors.text.secondary} />
+                            <Text style={[styles.archivedEntryText, { color: segment === 'archivados' ? theme.colors.accent : theme.colors.text.primary }]}>
+                                Archivados ({archivadosData.totalCount})
+                            </Text>
+                            <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
+                        </TouchableOpacity>
 
                         {/* Contextual Status Options per Segment */}
                         <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>ESTADO</Text>
@@ -643,6 +759,7 @@ export default function InsightsScreen() {
                 onCancel={handleCancel}
                 onConfirmRequest={handleRequestConfirm}
                 onArchive={handleArchive}
+                onRestore={handleRestore}
             />
 
             <RescheduleModal
@@ -784,6 +901,7 @@ export default function InsightsScreen() {
                         onReject={handleRejectProposal}
                         onWithdraw={handleWithdrawProposal}
                         onArchive={handleArchive}
+                        onRestore={handleRestore}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (
@@ -793,7 +911,13 @@ export default function InsightsScreen() {
                 )}
                 ListEmptyComponent={renderEmpty}
                 contentContainerStyle={styles.listContent}
-                refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={theme.colors.accent} />}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={segment === 'archivados' ? isRefetchingArchived : isRefetching}
+                        onRefresh={segment === 'archivados' ? refetchArchived : refetch}
+                        tintColor={theme.colors.accent}
+                    />
+                }
                 showsVerticalScrollIndicator={false}
             />
         </SafeAreaView>
@@ -974,6 +1098,21 @@ const createStyles = (theme: any) => StyleSheet.create({
         fontSize: 17,
         fontWeight: '700',
         marginBottom: 14,
+    },
+    archivedEntryRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        borderRadius: 10,
+        borderWidth: StyleSheet.hairlineWidth,
+        marginBottom: 14,
+    },
+    archivedEntryText: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '600',
     },
     filterGroupLabel: {
         fontSize: 11,

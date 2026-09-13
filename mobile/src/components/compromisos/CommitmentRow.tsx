@@ -46,6 +46,13 @@ interface CommitmentRowProps {
     // real, status -> cancelled) -- son dos acciones independientes que
     // pueden coexistir en un commitment activo.
     onArchive?: (id: string) => void;
+    // PING — ARCHIVE LIFECYCLE COMPLETION: contraparte simétrica de
+    // onArchive, ofrecida SOLO cuando el commitment ya está archivado
+    // (isArchived, derivado de c.archived_at). Restaurar limpia
+    // archived_at únicamente -- nunca reabre, completa ni cancela; el
+    // status canónico ya existente decide qué acciones vuelven a estar
+    // disponibles una vez restaurado.
+    onRestore?: (id: string) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -80,6 +87,7 @@ export function CommitmentRow({
     onReject,
     onWithdraw,
     onArchive,
+    onRestore,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -95,6 +103,16 @@ export function CommitmentRow({
     // día ni la exclusión de proposals), que sí marcaba "Entrenar" en rojo.
     const isOverdueItem = isCommitmentOverdue(c);
     const isFinished = ['resolved', 'cancelled', 'rejected'].includes(status);
+    // PING — ARCHIVE LIFECYCLE COMPLETION: archive is a VISIBILITY state,
+    // orthogonal to lifecycle status (isFinished above) -- archived_at can
+    // be set on an active, resolved, OR cancelled commitment. While
+    // archived, every mutation action (Reprogramar, Completar, Cancelar,
+    // Proponer otra fecha, Rechazar/Retirar propuesta) must be hidden; the
+    // only actions offered are Ver detalle/Ver conversación/Restaurar.
+    // Restoring first (clearing archived_at) is what makes those actions
+    // reappear, gated by the commitment's UNCHANGED canonical status --
+    // never a shortcut that skips the restore step.
+    const isArchived = !!c.archived_at;
     const primaryAction = getCommitmentPrimaryAction(c, currentUserId);
     const isProposal = c._isAgreementProposal === true;
     // M-1H v6 (Gap A, secciones 2/6): "Proponer otra fecha"/"Rechazar
@@ -165,7 +183,11 @@ export function CommitmentRow({
     // persona (caso real "Entrenar"), NUNCA se ofrece "Confirmar" -- se
     // muestra en cambio "Esperando a <persona>", sin acción disponible.
     const renderPrimaryAction = () => {
-        if (isFinished) return null;
+        // PING — ARCHIVE LIFECYCLE COMPLETION: an archived commitment must
+        // never offer its primary mutation button either -- not only the
+        // overflow menu. An active (non-finished) commitment CAN be
+        // archived, so isFinished alone is not enough here.
+        if (isFinished || isArchived) return null;
 
         // Sección 9/11/12: "waiting" ya no renderiza su propio badge aquí --
         // el statusLabel actor-aware/lifecycle-aware se muestra como línea
@@ -253,11 +275,16 @@ export function CommitmentRow({
                 // this menu offered it anyway for ANY non-proposal item
                 // regardless of status. Same !isFinished guard "Cancelar"
                 // already uses two lines below -- never a new concept.
-                !isProposal && !isFinished ? 'Reprogramar fecha' : null,
-                canRespondToProposal ? 'Proponer otra fecha' : null,
+                // PING — ARCHIVE LIFECYCLE COMPLETION: !isArchived added to
+                // every mutation guard in this array -- an archived
+                // commitment must show ONLY Ver detalle/Ver conversación/
+                // Restaurar, never Reprogramar/Completar/Cancelar/proposal
+                // actions, regardless of its underlying canonical status.
+                !isProposal && !isFinished && !isArchived ? 'Reprogramar fecha' : null,
+                canRespondToProposal && !isArchived ? 'Proponer otra fecha' : null,
                 hasConversation ? 'Ver conversación' : null,
-                canRespondToProposal ? 'Rechazar propuesta' : null,
-                onWithdraw && canWithdrawProposal ? 'Retirar propuesta' : null,
+                canRespondToProposal && !isArchived ? 'Rechazar propuesta' : null,
+                onWithdraw && canWithdrawProposal && !isArchived ? 'Retirar propuesta' : null,
                 // FIX 2 (vocabulario "Cancelar tarea/reunión"): esta es la
                 // ÚNICA fila que invoca la mutación de dominio real
                 // (onCancel -> POST /commitments/:id/cancel). El dismiss del
@@ -265,7 +292,7 @@ export function CommitmentRow({
                 // SEMANTICS FIX arriba) -- las dos filas ya no pueden
                 // confundirse entre sí en ningún estado, incluido un
                 // commitment activo donde AMBAS podrían coexistir.
-                onCancel && !isFinished && !isProposal ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
+                onCancel && !isFinished && !isProposal && !isArchived ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
                 // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: "Archivar" sólo
                 // llena archived_at (soft-delete/visibilidad, ver
                 // commitment.service.ts archiveCommitment) -- nunca cambia
@@ -275,8 +302,16 @@ export function CommitmentRow({
                 // (activo, resuelto, cancelado) -- nunca para una
                 // commitment_proposal (nunca tuvo su propia fila
                 // archived_at; retirarla usa onWithdraw, un concepto
-                // distinto).
-                onArchive && !isProposal ? 'Archivar' : null,
+                // distinto). Nunca ofrecido si YA está archivado (isArchived
+                // -- ver Restaurar abajo, la única acción simétrica válida
+                // en ese estado).
+                onArchive && !isProposal && !isArchived ? 'Archivar' : null,
+                // PING — ARCHIVE LIFECYCLE COMPLETION: "Restaurar" es la
+                // ÚNICA mutación ofrecida mientras isArchived es true (junto
+                // con las acciones de sólo-lectura Ver detalle/Ver
+                // conversación arriba). Limpia archived_at exclusivamente --
+                // nunca reabre, completa ni cancela.
+                onRestore && isArchived ? 'Restaurar' : null,
             ].filter(Boolean) as string[];
             const destructiveButtonIndex = canRespondToProposal
                 ? options.indexOf('Rechazar propuesta')
@@ -293,6 +328,7 @@ export function CommitmentRow({
                     else if (opt === 'Rechazar propuesta' && onReject) onReject(c);
                     else if (opt === 'Retirar propuesta' && onWithdraw) onWithdraw(c);
                     else if (opt === 'Archivar' && onArchive) onArchive(c.id);
+                    else if (opt === 'Restaurar' && onRestore) onRestore(c.id);
                     else if (opt.startsWith('Cancelar ') && onCancel) onCancel(c.id);
                 }
             );
@@ -387,14 +423,16 @@ export function CommitmentRow({
                         </TouchableOpacity>
                         {/* PING — TERMINAL LIFECYCLE ACTIONS FIX: same !isFinished
                             guard as the iOS branch above and as "Cancelar" below --
-                            a terminal commitment can never be silently rescheduled. */}
-                        {!isProposal && !isFinished && (
+                            a terminal commitment can never be silently rescheduled.
+                            PING — ARCHIVE LIFECYCLE COMPLETION: !isArchived added
+                            to every mutation guard below, same criterion as iOS. */}
+                        {!isProposal && !isFinished && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
                                 <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>
                             </TouchableOpacity>
                         )}
-                        {canRespondToProposal && (
+                        {canRespondToProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
                                 <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
@@ -406,19 +444,19 @@ export function CommitmentRow({
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
-                        {canRespondToProposal && onReject && (
+                        {canRespondToProposal && onReject && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
                                 <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
                             </TouchableOpacity>
                         )}
-                        {onWithdraw && canWithdrawProposal && (
+                        {onWithdraw && canWithdrawProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onWithdraw(c); }}>
                                 <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Retirar propuesta</Text>
                             </TouchableOpacity>
                         )}
-                        {onCancel && !isFinished && !isProposal && (
+                        {onCancel && !isFinished && !isProposal && !isArchived && (
                             // FIX 2 (vocabulario "Cancelar tarea/reunión"):
                             // acción de dominio real (onCancel -> POST
                             // /commitments/:id/cancel). El dismiss del Modal
@@ -433,11 +471,22 @@ export function CommitmentRow({
                             criterio que la rama iOS -- disponible para un
                             commitment canónico en cualquier estado (activo,
                             resuelto, cancelado), nunca para una proposal,
-                            nunca cambia status (sólo archived_at). */}
-                        {onArchive && !isProposal && (
+                            nunca cambia status (sólo archived_at). Nunca
+                            ofrecido si YA está archivado -- ver Restaurar. */}
+                        {onArchive && !isProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onArchive(c.id); }}>
                                 <Ionicons name="archive-outline" size={18} color={theme.colors.text.secondary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.secondary }]}>Archivar</Text>
+                            </TouchableOpacity>
+                        )}
+                        {/* PING — ARCHIVE LIFECYCLE COMPLETION: "Restaurar"
+                            es la ÚNICA mutación ofrecida mientras
+                            isArchived es true. Limpia archived_at
+                            exclusivamente -- nunca reabre/completa/cancela. */}
+                        {onRestore && isArchived && (
+                            <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onRestore(c.id); }}>
+                                <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.accent} />
+                                <Text style={[styles.androidMenuText, { color: theme.colors.accent }]}>Restaurar</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>

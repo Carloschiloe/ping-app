@@ -35,12 +35,12 @@ describe('proposer ve "Retirar propuesta"', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/const canWithdrawProposal = isProposer && status === 'proposed';/);
         expect(COMMITMENT_ROW_SRC).not.toMatch(/canWithdrawProposal = isProposer && c\.status === 'pending'/);
     });
-    it('el ActionSheet iOS ofrece "Retirar propuesta" gated por onWithdraw && canWithdrawProposal', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onWithdraw && canWithdrawProposal \? 'Retirar propuesta' : null/);
+    it('el ActionSheet iOS ofrece "Retirar propuesta" gated por onWithdraw && canWithdrawProposal (y, desde ARCHIVE LIFECYCLE COMPLETION, también !isArchived)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/onWithdraw && canWithdrawProposal && !isArchived \? 'Retirar propuesta' : null/);
         expect(COMMITMENT_ROW_SRC).toMatch(/opt === 'Retirar propuesta' && onWithdraw\) onWithdraw\(c\)/);
     });
     it('el menú Android (Modal) ofrece el mismo item bajo la misma condición', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/\{onWithdraw && canWithdrawProposal && \(/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{onWithdraw && canWithdrawProposal && !isArchived && \(/);
         expect(COMMITMENT_ROW_SRC).toMatch(/Retirar propuesta<\/Text>/);
     });
 });
@@ -93,8 +93,8 @@ describe('tapping "Retirar propuesta" llama al endpoint de proposal reject', () 
 
 describe('el path canónico de cancelación de commitment permanece intacto', () => {
     it('onCancel sigue gated por !isProposal (nunca reutilizado por el withdraw de proposal)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
-        expect(COMMITMENT_ROW_SRC).toMatch(/\{onCancel && !isFinished && !isProposal && \(/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal && !isArchived \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{onCancel && !isFinished && !isProposal && !isArchived && \(/);
     });
     it('el handler onWithdraw es una prop y una rama de código separadas de onCancel -- nunca la misma función ni el mismo endpoint', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/onWithdraw\?: \(commitment: any\) => void;/);
@@ -184,7 +184,7 @@ describe('el botón de dismiss nativo "Cerrar" no envía ninguna request (antes 
         expect(COMMITMENT_ROW_SRC).toMatch(/<Ionicons name="close-outline"[^]*?>Cerrar</);
     });
     it('la acción de dominio real "Cancelar {tarea/reunión}" nunca se confunde con el dismiss -- distinta etiqueta, distinto texto, distinto callback (onCancel vs. sólo cerrar el menú)', () => {
-        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal && !isArchived \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
         expect(COMMITMENT_ROW_SRC).not.toMatch(/'Cerrar'.*onCancel/);
     });
 });

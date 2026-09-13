@@ -434,9 +434,52 @@ export const useCreateContact = () => {
 // cancel/resolve/reopen.
 export const useArchiveCommitment = () => {
     const invalidate = useCommitmentLifecycleInvalidation();
+    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (id: string) => apiClient.delete(`/commitments/${id}`),
-        onSuccess: invalidate,
+        onSuccess: () => {
+            invalidate();
+            // PING — ARCHIVE LIFECYCLE COMPLETION: la lista de archivados es
+            // una query separada (['archived-commitments'], nunca mezclada
+            // con ['all-commitments-dashboard']) -- debe refrescarse también
+            // para que un archive recién hecho aparezca ahí sin necesitar un
+            // pull-to-refresh manual.
+            queryClient.invalidateQueries({ queryKey: ['archived-commitments'] });
+        },
+    });
+};
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: retrieval explícita y separada para
+// la vista Archivados -- GET /commitments/archived es un endpoint nuevo,
+// nunca una variante de GET /commitments (que sigue excluyendo
+// archived_at incondicionalmente, ver backend/commitment.service.ts
+// getCommitments). Reutiliza el mismo shape de commitment que ya consumen
+// CommitmentRow.tsx/CommitmentDetailSheet.tsx.
+export const useArchivedCommitments = () => {
+    return useQuery({
+        queryKey: ['archived-commitments'],
+        queryFn: async () => apiClient.get('/commitments/archived'),
+    });
+};
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: contraparte simétrica de
+// useArchiveCommitment -- POST /commitments/:id/restore (RPC
+// restore_commitment_with_evidence) limpia archived_at únicamente, el
+// status canónico permanece exactamente igual (ver backend
+// commitmentService.test.ts "restaurar un commitment archivado conserva su
+// status"). Invalida AMBAS queries: la lista de archivados (el item ya no
+// pertenece ahí) y el dashboard canónico (el item vuelve a aparecer en
+// Pendientes/Encargados/Historial según su status real, sin necesitar
+// ninguna transición adicional).
+export const useRestoreCommitment = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => apiClient.post(`/commitments/${id}/restore`, {}),
+        onSuccess: () => {
+            invalidate();
+            queryClient.invalidateQueries({ queryKey: ['archived-commitments'] });
+        },
     });
 };
 

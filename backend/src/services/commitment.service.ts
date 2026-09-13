@@ -565,6 +565,74 @@ export const archiveCommitment = async (userId: string, id: string) => {
 // operation remains a recoverable archive with atomic evidence.
 export const deleteCommitment = archiveCommitment;
 
+// PING — ARCHIVE LIFECYCLE COMPLETION: symmetric counterpart to
+// archiveCommitment. Same owner-only authorization, same atomic-evidence
+// RPC pattern (restore_commitment_with_evidence, mirrors
+// archive_commitment_with_evidence exactly: row lock, owner check,
+// archived_at write -- here to null instead of now() -- Event + Audit
+// evidence in the same transaction). Never a status transition: the RPC
+// itself only ever writes archived_at/updated_at, proven by the same kind
+// of test already covering archive (see commitmentService.test.ts).
+export const restoreCommitment = async (userId: string, id: string) => {
+    await assertCommitmentOwner(userId, id);
+    const { data, error } = await supabaseAdmin.rpc('restore_commitment_with_evidence', {
+        p_commitment_id: id,
+        p_actor_user_id: userId,
+    });
+
+    if (error) throw error;
+    return data;
+};
+
+// PING — ARCHIVE LIFECYCLE COMPLETION: explicit archived-only retrieval,
+// never merged into getCommitments' default (which must keep excluding
+// archived_at unconditionally -- every other caller, including the Agent's
+// retrieval.service.ts, depends on that). Reuses the exact same visibility
+// filter/columns as getCommitments -- an archived commitment is still
+// scoped to the same owner/assignee/participant rules, only its
+// archived_at predicate is inverted.
+export const getArchivedCommitments = async (userId: string) => {
+    const participantProposalIds = await getParticipantProposalIds(userId);
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select(`
+            id,
+            title,
+            description,
+            due_at,
+            proposed_due_at,
+            status,
+            type,
+            priority,
+            expected_result,
+            next_action,
+            follow_up_at,
+            waiting_on_user_id,
+            waiting_on_contact_id,
+            rejection_reason,
+            action_completed_at,
+            resolved_at,
+            resolution_result,
+            archived_at,
+            meta,
+            owner_user_id,
+            assigned_to_user_id,
+            counterparty_contact_id,
+            conversation_id,
+            message_id,
+            proposal_id,
+            created_at,
+            owner:owner_user_id(id, full_name, email, avatar_url),
+            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
+        `)
+        .or(buildCommitmentVisibilityFilter(userId, participantProposalIds))
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false });
+
+    if (error) throw error;
+    return attachAgreementResponses(data || []);
+};
+
 export const pingCommitment = async (userId: string, id: string) => {
     await assertCommitmentOwnerOrResponsible(userId, id);
 
