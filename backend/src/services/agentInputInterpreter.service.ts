@@ -21,6 +21,7 @@ import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation
 import { isAiConfigured } from './synthesis.service';
 import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
+import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
 export interface InterpreterContext {
     conversationId?: string;
@@ -259,6 +260,57 @@ const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
 // aceptar/confirmar/proponer/hablar quedan fuera a propósito: no son
 // closed-status transitions y agentContextBuilder.service.ts ya los posee.
 export const CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES = 'completamos|resolvimos|cancelamos|reabrimos|rechazamos|reasignamos';
+
+// PING — M-2 HISTORICAL TRANSITION ABSENCE FIX (audit finding: "Cuando
+// completamos lo de entrenar?" narrated cancelled/rejected/confirmed/
+// accepted evidence instead of representing that NO completion event
+// exists for the resolved canonical commitment). Root cause: the specific
+// lifecycle transition the user asked about ("completar") never survived
+// past raw text into a structured signal -- synthesis received only a bag
+// of evidence and had to infer, unverified, which transition the question
+// was actually about. REQUESTED_TRANSITION_TABLE is a NEW, finer-grained
+// table, deliberately separate from LIFECYCLE_TRANSITION_TABLE (which
+// groups verbs by resulting CanonicalCommitmentStatus for textQuery
+// stripping/current-status filtering -- a coarser grouping where
+// "completamos"/"resolvimos" collapse to the same 'resolved' status). This
+// table maps each historical verb form to the exact CommitmentEventType(s)
+// that would constitute real evidence of that specific transition having
+// occurred -- "completar" accepts either 'action_completed' or 'resolved'
+// (both are genuine completion signals in the canonical event vocabulary,
+// see commitmentTransitions.ts; the physically-certified Spiderman baseline
+// used a real 'resolved' event for this exact verb), while "cancelar"/
+// "rechazar"/"reabrir"/"reasignar"/"aceptar"/"confirmar" each map to their
+// own single, distinct, unambiguous event type. Reuses the SAME canonical
+// lifecycle vocabulary already established (LIFECYCLE_TRANSITION_TABLE's
+// verb forms + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS) -- no new vocabulary,
+// only a finer mapping of the vocabulary that already exists.
+interface RequestedTransitionEntry {
+    verbForms: string;
+    eventTypes: readonly CommitmentEventType[];
+}
+const REQUESTED_TRANSITION_TABLE: readonly RequestedTransitionEntry[] = [
+    { verbForms: 'completamos|complete|completed', eventTypes: ['action_completed', 'resolved'] },
+    { verbForms: 'resolvimos|resolved', eventTypes: ['resolved'] },
+    { verbForms: 'cancelamos|cancelled|canceled', eventTypes: ['cancelled'] },
+    { verbForms: 'rechazamos|rejected', eventTypes: ['rejected'] },
+    { verbForms: 'reabrimos|reopened', eventTypes: ['reopened'] },
+    { verbForms: 'reasignamos|reassigned', eventTypes: ['reassigned'] },
+    { verbForms: 'aceptamos', eventTypes: ['accepted'] },
+    { verbForms: 'confirmamos', eventTypes: ['accepted'] },
+];
+// Extrae el CommitmentEventType[] pedido a partir del texto crudo -- null si
+// la pregunta no menciona ningún verbo canónico de lifecycle (nunca inventa
+// una transición donde no hay señal léxica real). El orden de la tabla
+// decide en caso de que el texto mencionara más de un verbo (no se espera en
+// la práctica, dado que HISTORICAL_LIFECYCLE_QUERY_PATTERN ya exige "cuándo"
+// + UN verbo inmediatamente después).
+export function extractRequestedTransition(input: string): readonly CommitmentEventType[] | null {
+    for (const entry of REQUESTED_TRANSITION_TABLE) {
+        if (wordBounded(entry.verbForms).test(input)) return entry.eventTypes;
+    }
+    return null;
+}
+
 const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|tell me about');
 
 // Palabras a excluir del textQuery residual — question words, verbos de
@@ -861,6 +913,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const wantsAudio = AUDIO_KEYWORDS.test(trimmed);
         const wantsOverdueFocus = OVERDUE_KEYWORDS.test(trimmed);
         const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints);
+        const requestedTransition = extractRequestedTransition(trimmed);
 
         return {
             intent,
@@ -870,6 +923,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             textQuery,
             timeExpression,
             statusHints,
+            requestedTransition,
             wantsCommitments: intent !== 'document_search' && (intent !== 'general_context' || generalContextRetrievable),
             wantsMessages: intent !== 'general_context' || generalContextRetrievable,
             wantsTranscriptions: intent === 'recall' || intent === 'message_search' || wantsAudio,
@@ -907,6 +961,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         textQuery: input.trim() || null,
         timeExpression: null,
         statusHints: null,
+        requestedTransition: extractRequestedTransition(input),
         wantsCommitments: false,
         wantsMessages: false,
         wantsTranscriptions: false,
@@ -1015,7 +1070,7 @@ const STATUS_HINT_MAP: Record<string, CanonicalCommitmentStatus[]> = {
     closed: ['resolved', 'cancelled', 'rejected'],
 };
 
-function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelName: string): Interpretation {
+function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelName: string, rawInput: string): Interpretation {
     // M-1D.4 — opt-in explícito (sección 1/9 del ticket): `commitment_query`
     // describe el TIPO de entidad, `status` es un filtro adicional separado
     // que NUNCA debe asumirse por defecto. El modelo debe declarar POR QUÉ
@@ -1056,6 +1111,12 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // present textQuery/personHints/timeExpression justify it. This closes
     // the LLM path that produced the exact same "Hola" defect.
     const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, payload.personHints, payload.timeExpression, payload.wantsOverdueFocus, statusHints);
+    // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: derivado del INPUT CRUDO
+    // real, nunca del payload del LLM (invariante "LLM sugiere, Core
+    // decide" -- la transición pedida es una decisión determinística de
+    // Core sobre qué evidencia haría falta, no una interpretación que el
+    // modelo pueda sugerir libremente).
+    const requestedTransition = extractRequestedTransition(rawInput);
 
     return {
         intent: payload.intent,
@@ -1068,6 +1129,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         textQuery,
         timeExpression: payload.timeExpression,
         statusHints,
+        requestedTransition,
         wantsCommitments: payload.intent !== 'document_search'
             && (payload.intent !== 'general_context' || generalContextRetrievable || requested.has('commitments')),
         wantsMessages: payload.intent !== 'general_context' || generalContextRetrievable || requested.has('messages'),
@@ -1143,7 +1205,7 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
             return this.fallbackWith(input, context, 'schema_invalid');
         }
 
-        return mapPayloadToInterpretation(validation.data, this.model.modelName);
+        return mapPayloadToInterpretation(validation.data, this.model.modelName, input);
     }
 
     private async fallbackWith(input: string, context: InterpreterContext, reason: string): Promise<Interpretation> {

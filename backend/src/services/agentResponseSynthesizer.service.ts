@@ -152,7 +152,7 @@ interface SerializedContext {
     // memory and canonical truth AGREE, so the model must present the fact
     // as a coherent, non-uncertain statement, using canonicalText's
     // description of WHEN it happened alongside the current confirmed state.
-    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string; observedAtLocal: string; agreesWithCanonicalCurrentState: boolean }>;
+    memory: Array<{ id: string; canonicalText: string; isCurrent: boolean; confidence: number; observedAt: string; observedAtLocal: string; agreesWithCanonicalCurrentState: MemoryCanonicalAgreement }>;
 }
 
 // PING — M-2 CANONICAL DOMINANCE SYNTHESIS CONTRADICTION: a memory whose
@@ -168,14 +168,30 @@ interface SerializedContext {
 // compares the memory's recorded objectValue against the SAME canonical
 // commitment already present in this evidence payload (never a new lookup,
 // never re-deriving canonical truth here) -- conservative by construction:
-// any predicate shape it doesn't recognize, or a commitment it can't find in
-// evidence, returns false (never claims agreement it can't verify).
-function memoryAgreesWithCanonicalCurrentState(memory: { predicate: string; objectValue: string }, commitments: AgentContext['commitments']): boolean {
-    if (!memory.predicate.startsWith('commitment_status:')) return false;
+// any predicate shape it doesn't recognize returns 'disagrees' (never claims
+// agreement it can't verify).
+//
+// PING — M-2 HISTORICAL TRANSITION ABSENCE FIX (second proven bug): when the
+// canonical commitment is simply ABSENT from context.commitments (it exists
+// for real, retrieval just didn't surface it into this specific context --
+// a proven real case, "Cuando completamos lo de entrenar?" retrieved 4
+// unrelated commitments and never the real "entrenar"), the OLD binary
+// return collapsed this into `false` -- indistinguishable from "canonical
+// truth actually contradicts this memory". Those are NOT the same claim:
+// one is "Core verified this memory is stale", the other is "Core never got
+// to check". A tri-state makes the distinction structural: 'agrees' (real
+// match, safe to state plainly), 'disagrees' (real conflict, the existing
+// staleness disclaimer is correct and unweakened), 'unknown' (canonical
+// entity not present in this context -- Core genuinely cannot verify, so no
+// staleness/disagreement wording may be manufactured from that absence).
+export type MemoryCanonicalAgreement = 'agrees' | 'disagrees' | 'unknown';
+
+function memoryAgreementWithCanonicalCurrentState(memory: { predicate: string; objectValue: string }, commitments: AgentContext['commitments']): MemoryCanonicalAgreement {
+    if (!memory.predicate.startsWith('commitment_status:')) return 'disagrees';
     const commitmentId = memory.predicate.slice('commitment_status:'.length);
     const commitment = commitments.find((c) => c.id === commitmentId);
-    if (!commitment) return false;
-    return commitment.status === memory.objectValue;
+    if (!commitment) return 'unknown';
+    return commitment.status === memory.objectValue ? 'agrees' : 'disagrees';
 }
 
 // PING — M-2 ENTITY EVIDENCE CONTAMINATION: root cause was NOT a bad FTS
@@ -289,7 +305,7 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         ).map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
             observedAtLocal: formatEventTimestampInZone(m.observedAt, context.timezone, locale),
-            agreesWithCanonicalCurrentState: memoryAgreesWithCanonicalCurrentState(m, context.commitments),
+            agreesWithCanonicalCurrentState: memoryAgreementWithCanonicalCurrentState(m, context.commitments),
         })),
     };
     const totalBeforeBudget = full.commitments.length + full.events.length + full.messages.length + full.transcriptions.length + full.attachments.length + full.memory.length;
@@ -356,7 +372,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         'For "entityType":"commitment_proposal" you are given the exact participation facts, already resolved by the backend — never infer or guess any of them from "status" or dates yourself: "actorHasApproved" (the user already approved it), "actorCanRespond" (the user still needs to respond — accept, propose another date, or reject), "pendingResponderNamesSafe" (the real names of people whose approval is still missing), "isFullyApproved" (nothing more is needed, it is about to become a real commitment), and "proposalDatePassed" (its proposed date has already passed — this is informational only, it is NEVER the same as "overdue"). Phrase these naturally: if pendingResponderNamesSafe has names, say the proposal is waiting on them (e.g. "\'Entrenar\' is waiting for Alejandra to respond"); if proposalDatePassed is true, you may add that the proposed date has already passed, but always alongside who it is still waiting on, and NEVER phrase this as "overdue" or "vencido". If actorCanRespond is true, say the user still needs to respond to it themselves.',
         'Distinguish "we talked about X" (a message/transcript mentions a topic) from "we agreed to X" (only assert an agreement if a canonical commitment actually reflects it) — do not upgrade an informal remark into a commitment.',
         'Attachments are metadata references only (id, kind, filename) — never assert what a document says internally unless its actual text is given to you (it is not, in this version).',
-        '"memory" entries are DERIVED facts remembered from past interactions (never as authoritative as "commitments") — each has "isCurrent" (backend-computed, TRUST it exactly, never recompute it): true means still believed true now, false means the current truth for this fact lives in its canonical entity (a commitment, etc.), not in memory. isCurrent:false does NOT by itself mean the remembered fact is wrong or in doubt — check "agreesWithCanonicalCurrentState" (also backend-computed, TRUST it exactly) to know which: true means the canonical entity confirms the SAME state memory recorded (state it plainly, e.g. "X was completed on <date>, and it is still resolved now" — never add uncertainty like "but this may no longer be true"), false means it genuinely conflicts with a NEWER canonical state (only THEN phrase it as past and add that it may have changed). If a memory conflicts with a "commitment"/"commitment_proposal" about the same thing, the commitment always wins — memory never overrides canonical evidence. If asked "why do you know that" / "por qué sabes eso", cite the specific memory id that supports the claim.',
+        '"memory" entries are DERIVED facts remembered from past interactions (never as authoritative as "commitments") — each has "isCurrent" (backend-computed, TRUST it exactly, never recompute it): true means still believed true now, false means the current truth for this fact lives in its canonical entity (a commitment, etc.), not in memory. isCurrent:false does NOT by itself mean the remembered fact is wrong or in doubt — check "agreesWithCanonicalCurrentState" (also backend-computed, TRUST it exactly, one of "agrees"/"disagrees"/"unknown") to know which: "agrees" means the canonical entity confirms the SAME state memory recorded (state it plainly, e.g. "X was completed on <date>, and it is still resolved now" — never add uncertainty like "but this may no longer be true"); "disagrees" means it genuinely conflicts with a NEWER canonical state (only THEN phrase it as past and add that it may have changed); "unknown" means Core could not check the canonical entity at all for this memory — treat it exactly like "agrees" for phrasing purposes (state the remembered fact plainly, using its own date/time), and NEVER add a "may no longer be true"/uncertainty disclaimer in this case, because that would assert a disagreement Core never verified. If a memory conflicts with a "commitment"/"commitment_proposal" about the same thing, the commitment always wins — memory never overrides canonical evidence. If asked "why do you know that" / "por qué sabes eso", cite the specific memory id that supports the claim.',
         'When the user asks WHEN something happened (e.g. "cuándo aceptamos/completamos/cancelamos/reabrimos X?", "when did we accept/complete/cancel X?") and a "memory" entry answers it, you MUST use that entry\'s "observedAtLocal" string VERBATIM as the date/time in your answer — it is already correctly formatted and timezone-adjusted by the backend. NEVER reformat, reparse, or derive your own date/time string from "observedAt" (the raw ISO timestamp) yourself; NEVER drop the time-of-day that "observedAtLocal" already includes, and NEVER invent a time it does not contain.',
         'The SAME rule applies to "events" (commitment_event evidence, history of status changes): if you cite an event directly for a WHEN question, you MUST use its "createdAtLocal" string VERBATIM — never its raw "createdAt" (UTC ISO timestamp), never a time you compute yourself. "createdAtLocal" is already converted to the actor\'s real timezone.',
         ...(input.context.memoryQueryCardinality === 'provenance'
@@ -622,6 +638,84 @@ export function enforceCanonicalDominance(claims: AgentClaim[], context: AgentCo
     return [...claims, ...finalAdditions.map((a) => buildCanonicalStatusClaim(a.commitment, a.ref, language))];
 }
 
+// ─── Requested-transition evidence verification (M-2 HISTORICAL TRANSITION
+// ABSENCE FIX) ────────────────────────────────────────────────────────────
+// Physical bug: "Cuando completamos lo de entrenar?" -- the canonical
+// commitment "entrenar" has NO resolved/action_completed event at all (only
+// created/cancelled), yet the answer narrated cancelled/rejected/confirmed/
+// accepted facts as if any of them answered the completion question. Root
+// cause: the requested transition ("completar") never survived past raw
+// text into anything synthesis could verify -- the model had to infer,
+// unverified, whether its cited evidence actually proved the SPECIFIC
+// transition asked about, not just SOME transition of SOME related entity.
+//
+// This guard is the deterministic verifier: given context.requestedTransition
+// (Core-derived, see agentInputInterpreter.service.ts#extractRequestedTransition)
+// and exactly one resolved canonical commitment (mirrors
+// excludeOffTargetCommitmentMemory's own scoping precedent -- ambiguous/
+// multi-entity contexts are explicitly out of scope here, never guessed),
+// checks whether ANY claim actually cites evidence (a commitment_event or a
+// commitment_status memory) that both (a) belongs to that exact commitment
+// (via the SAME structured lineage deriveCommitmentIdFromSourceRef already
+// uses) and (b) represents one of the requested event types. If real
+// matching evidence exists, claims pass through completely unchanged --
+// this guard only ever REPLACES the claim set, never edits/enriches it,
+// exactly when it can prove the requested transition never happened for
+// this entity. It never runs for exhaustive_list/multi-entity queries
+// (never suppresses a legitimate list answer), and never fires when
+// requestedTransition is null (an ordinary "what is the status of X"
+// question is untouched).
+const REQUESTED_TRANSITION_STATUS_EQUIVALENTS: Record<string, readonly string[]> = {
+    resolved: ['action_completed', 'resolved'],
+    cancelled: ['cancelled'],
+    rejected: ['rejected'],
+    reopened: ['reopened'],
+    reassigned: ['reassigned'],
+    accepted: ['accepted', 'created'], // 'created' events already carry newStatus:'accepted' for a freshly-materialized commitment
+};
+
+function memoryRepresentsEventType(memory: { predicate: string; objectValue: string }, eventTypes: readonly string[]): boolean {
+    return REQUESTED_TRANSITION_STATUS_EQUIVALENTS[memory.objectValue]?.some((t) => (eventTypes as readonly string[]).includes(t)) ?? false;
+}
+
+function buildTransitionAbsenceClaim(commitment: AgentContext['commitments'][number], ref: AgentCitation, language: 'es' | 'en'): AgentClaim {
+    const text = language === 'es'
+        ? `Encontré el compromiso "${commitment.title}", pero no encuentro evidencia de que se haya producido esa transición.`
+        : `I found the commitment "${commitment.title}", but I don't find evidence that transition ever happened.`;
+    return { text, sourceRefs: [ref] };
+}
+
+export function enforceRequestedTransitionEvidence(claims: AgentClaim[], context: AgentContext, evidence: SerializedEvidence, language: 'es' | 'en'): AgentClaim[] {
+    if (!context.requestedTransition || context.requestedTransition.length === 0) return claims;
+    if (context.commitments.length !== 1) return claims; // ambigüedad/multi-entidad: fuera de alcance de este guard, nunca adivina
+    if (claims.length === 0) return claims;
+    const commitment = context.commitments[0];
+    const eventTypes = context.requestedTransition;
+
+    const hasMatchingEvidence = claims.some((claim) => claim.sourceRefs.some((ref) => {
+        if (deriveCommitmentIdFromSourceRef(ref, context) !== commitment.id) return false;
+        if (ref.sourceType === 'commitment_event') {
+            const event = context.events.find((e) => e.id === ref.sourceId);
+            return !!event && (eventTypes as readonly string[]).includes(event.eventType);
+        }
+        if (ref.sourceType === 'memory') {
+            const memory = [...context.memoryFacts, ...context.historicalMemoryFacts].find((m) => m.id === ref.sourceId);
+            return !!memory && memoryRepresentsEventType(memory, eventTypes);
+        }
+        return false;
+    }));
+    if (hasMatchingEvidence) return claims;
+
+    // Sin evidencia real de la transición pedida para ESTE commitment --
+    // reemplaza el set de claims completo por una única afirmación de
+    // ausencia, nunca deja que un claim de OTRA transición (cancelado/
+    // rechazado/confirmado/aceptado) quede en pie como si respondiera la
+    // pregunta hecha.
+    const ref = evidence.allowedSourceRefs.find((r) => isCommitmentLikeSourceType(r.sourceType) && r.sourceId === commitment.id);
+    if (!ref) return claims; // nunca citar fuera del boundary de evidencia ya serializado (M-1E.1) -- si ni el commitment mismo es citable, deja los claims del modelo tal cual
+    return [buildTransitionAbsenceClaim(commitment, ref, language)];
+}
+
 // ─── Memory historical disclosure guard (M-2) ───────────────────────────────
 // Invariante no negociable del ticket M-2: "nunca afirmar memoria vieja/en
 // conflicto como verdad actual". El prompt ya instruye esto (ver
@@ -679,8 +773,16 @@ export function enforceMemoryHistoricalDisclosure(claims: AgentClaim[], evidence
         const ref = evidence.allowedSourceRefs.find((r) => r.sourceType === 'memory' && r.sourceId === id);
         if (!ref) continue; // nunca citar fuera del boundary de evidencia ya serializado (M-1E.1)
         const memory = historicalById.get(id)!;
+        // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX (UNKNOWN ≠ FALSE): the
+        // canonical entity was never present in this context -- Core
+        // genuinely could not check, never that it checked and disagreed.
+        // Neither "may no longer be true" (asserts an unverified
+        // disagreement) nor "still matches current state" (asserts an
+        // unverified agreement) may be added -- skip silently, the model's
+        // own claim already states the plain historical fact.
+        if (memory.agreesWithCanonicalCurrentState === 'unknown') continue;
         additions.push(
-            memory.agreesWithCanonicalCurrentState
+            memory.agreesWithCanonicalCurrentState === 'agrees'
                 ? buildMemoryConfirmedCurrentClaim(memory, ref, language)
                 : buildMemoryHistoricalClaim(memory, ref, language),
         );
@@ -1174,11 +1276,20 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             return { ok: false, reason: 'no_supported_claims' };
         }
 
+        // M-2 HISTORICAL TRANSITION ABSENCE FIX: verifica ANTES que nada de
+        // enriquecimiento/dominancia canónica que la evidencia citada
+        // realmente pruebe la transición puntual pedida (ver
+        // enforceRequestedTransitionEvidence arriba) -- si no hay evidencia
+        // real de esa transición, reemplaza el set completo de claims por
+        // una única afirmación de ausencia; nunca deja que enriquecimiento
+        // posterior (dominancia canónica, vencidos, etc.) reintroduzca una
+        // narrativa sustituta sobre una transición distinta a la pedida.
+        const withRequestedTransitionEvidence = enforceRequestedTransitionEvidence(validClaims, context, evidence, language);
         // M-1F.1: refuerza prioridad canónica ANTES de ensamblar el answer —
         // nunca reemplaza/quita un claim histórico válido, sólo garantiza que
         // el estado vigente real esté presente cuando hay solape temático con
         // un commitment canónico que el modelo no citó.
-        const withCanonicalDominance = enforceCanonicalDominance(validClaims, context, evidence.allowedSourceRefs, language);
+        const withCanonicalDominance = enforceCanonicalDominance(withRequestedTransitionEvidence, context, evidence.allowedSourceRefs, language);
         // M-2: garantiza que ninguna memoria histórica citada quede sin su
         // aclaración de "esto era cierto antes" -- ver
         // enforceMemoryHistoricalDisclosure arriba.

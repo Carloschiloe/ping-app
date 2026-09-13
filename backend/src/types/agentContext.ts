@@ -7,6 +7,7 @@
 // This is preparation, not execution: nothing here decides a final answer,
 // runs a tool, writes data, or talks to the end user.
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
+import type { CommitmentEventType } from '../utils/commitmentTransitions';
 import type {
     PersonResolutionResult,
     RetrievalAttachment,
@@ -117,6 +118,16 @@ export interface Interpretation {
     textQuery: string | null;    // texto residual para FTS (M-1C) — null si no aporta
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"
+    // M-2 HISTORICAL TRANSITION ABSENCE FIX — el/los CommitmentEventType(s)
+    // que constituirían evidencia real de la transición histórica
+    // específicamente preguntada (ej. "¿cuándo completamos X?" ->
+    // ['action_completed','resolved']), null si la pregunta no nombra
+    // ningún verbo canónico de lifecycle. Distinto de `statusHints` (filtro
+    // de STATUS ACTUAL) -- éste es la transición puntual pedida, propagado
+    // estructuralmente para que la síntesis pueda VERIFICAR evidencia en vez
+    // de inferir de texto libre qué transición importa (ver
+    // agentInputInterpreter.service.ts#extractRequestedTransition).
+    requestedTransition: readonly CommitmentEventType[] | null;
     wantsCommitments: boolean;
     wantsMessages: boolean;
     wantsTranscriptions: boolean;
@@ -224,6 +235,11 @@ export interface AgentContext {
     intent: AgentIntent;
     // M-1G.1: ver Interpretation.wantsOverdueFocus.
     wantsOverdueFocus: boolean;
+    // M-2 HISTORICAL TRANSITION ABSENCE FIX — ver Interpretation.requestedTransition.
+    // Propagado a AgentContext (no sólo a Interpretation) para que la
+    // síntesis pueda verificar evidencia sin re-derivar el verbo de texto
+    // libre.
+    requestedTransition: readonly CommitmentEventType[] | null;
     // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", sección 1/3)
     // — señal canónica EXPLÍCITA del AgentQueryPlan: true sólo si el input
     // crudo realmente contiene una referencia textual a una persona (ver

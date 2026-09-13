@@ -685,6 +685,29 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
         expect(ctx.wantsOverdueFocus).toBe(true);
     });
 
+    // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: requestedTransition debe
+    // llegar intacto al AgentContext de salida, exactamente como
+    // wantsOverdueFocus arriba -- síntesis no puede verificar la transición
+    // pedida (ver agentResponseSynthesizer.service.ts#enforceRequestedTransitionEvidence)
+    // si Core no la propaga hasta aquí.
+    it('requestedTransition del output refleja exactamente lo que devolvió el intérprete', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ requestedTransition: ['action_completed', 'resolved'] }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'Cuando completamos lo de entrenar?' }, { interpreter });
+        expect(ctx.requestedTransition).toEqual(['action_completed', 'resolved']);
+    });
+
+    it('requestedTransition null (sin verbo de lifecycle en la pregunta) propaga null, nunca un array vacío inventado', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({ requestedTransition: null }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo?' }, { interpreter });
+        expect(ctx.requestedTransition).toBeNull();
+    });
+
+    it('DeterministicInputInterpreter real (sin mock) detecta "completamos" end-to-end hasta AgentContext.requestedTransition', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ status: 'cancelled' })] as any);
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuándo completamos lo de entrenar?' });
+        expect(ctx.requestedTransition).toEqual(['action_completed', 'resolved']);
+    });
+
     it('DeterministicInputInterpreter real (sin mock) detecta "vencido" end-to-end hasta AgentContext.wantsOverdueFocus', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ status: 'accepted', dueAt: '2026-01-01T00:00:00Z' })] as any);
         const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');

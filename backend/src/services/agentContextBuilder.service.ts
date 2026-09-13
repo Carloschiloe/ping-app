@@ -1138,6 +1138,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         timezone,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
+        requestedTransition: interpretation.requestedTransition,
         explicitPersonMention: canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId,
         proposalFocus: interpretation.proposalFocus,
         queryCardinality,

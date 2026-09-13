@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
-    generalContextHasRetrievableSignal, containsThirdPersonPronoun,
+    generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -841,6 +841,67 @@ describe('R-01: matriz de verbos de lifecycle histórico ("¿Cuándo X-amos...?"
 
         const currentStatusFilter = await new DeterministicInputInterpreter().interpret('¿Qué compromisos cancelados tengo?', {});
         expect(currentStatusFilter.statusHints).toEqual(['cancelled']); // esta SÍ es la forma adjetivo/status actual -- señal distinta, intencional
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: extractRequestedTransition /
+// Interpretation.requestedTransition. Reproduce físico: "Cuando completamos
+// lo de entrenar?" narró evidencia de cancelled/rejected/confirmed/accepted
+// como si respondiera la pregunta de COMPLETADO -- porque la transición
+// puntual pedida nunca sobrevivía como señal estructurada, sólo como texto
+// libre que el modelo debía inferir. Esta matriz certifica que Core deriva
+// determinísticamente el/los CommitmentEventType exactos que constituirían
+// evidencia real de la transición preguntada, SIEMPRE desde el input crudo
+// (nunca desde una sugerencia del LLM), y que sobrevive a través de los 3
+// caminos que construyen un Interpretation (determinístico, fallback, y el
+// mapper del payload LLM).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: extractRequestedTransition — matriz de verbos -> CommitmentEventType[] exacto', () => {
+    const MATRIX: Array<{ phrase: string; expected: string[] | null }> = [
+        { phrase: '¿Cuándo completamos lo de entrenar?', expected: ['action_completed', 'resolved'] },
+        { phrase: 'When did we complete training?', expected: ['action_completed', 'resolved'] },
+        { phrase: '¿Cuándo resolvimos lo de entrenar?', expected: ['resolved'] },
+        { phrase: '¿Cuándo cancelamos lo de entrenar?', expected: ['cancelled'] },
+        { phrase: '¿Cuándo rechazamos lo de entrenar?', expected: ['rejected'] },
+        { phrase: '¿Cuándo reabrimos lo de entrenar?', expected: ['reopened'] },
+        { phrase: '¿Cuándo reasignamos lo de entrenar?', expected: ['reassigned'] },
+        { phrase: '¿Cuándo aceptamos lo de entrenar?', expected: ['accepted'] },
+        { phrase: '¿Cuándo confirmamos lo de entrenar?', expected: ['accepted'] },
+        { phrase: '¿Qué compromisos tengo?', expected: null }, // sin verbo de lifecycle -> nunca inventa una transición
+        { phrase: 'Hola', expected: null },
+    ];
+    for (const { phrase, expected } of MATRIX) {
+        it(`"${phrase}" -> ${JSON.stringify(expected)}`, () => {
+            expect(extractRequestedTransition(phrase)).toEqual(expected);
+        });
+    }
+
+    it('propaga a través de DeterministicInputInterpreter.interpret (camino determinístico real, no sólo la función pura)', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Cuándo completamos lo de entrenar?', {});
+        expect(r.requestedTransition).toEqual(['action_completed', 'resolved']);
+    });
+
+    it('propaga a través de LlmInputInterpreter incluso cuando el LLM no menciona nada parecido en su payload (derivado SIEMPRE del input crudo, invariante "LLM sugiere, Core decide")', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', textQuery: 'entrenar' }));
+        const interpreter = new LlmInputInterpreter(model);
+        const r = await interpreter.interpret('¿Cuándo completamos lo de entrenar?', {});
+        expect(r.requestedTransition).toEqual(['action_completed', 'resolved']);
+    });
+
+    it('LlmInputInterpreter con fallback (modelo falla) también deriva requestedTransition del input crudo', async () => {
+        const interpreter = new LlmInputInterpreter(throwingModel());
+        const r = await interpreter.interpret('¿Cuándo cancelamos lo de entrenar?', {});
+        expect(r.requestedTransition).toEqual(['cancelled']);
+    });
+
+    it('consulta sin verbo de lifecycle -> requestedTransition null en los 3 caminos', async () => {
+        const det = await new DeterministicInputInterpreter().interpret('¿Qué compromisos tengo?', {});
+        expect(det.requestedTransition).toBeNull();
+
+        const model = fakeModel(validPayload({ intent: 'commitment_query' }));
+        const llm = await new LlmInputInterpreter(model).interpret('¿Qué compromisos tengo?', {});
+        expect(llm.requestedTransition).toBeNull();
     });
 });
 
