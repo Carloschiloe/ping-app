@@ -289,6 +289,38 @@ describe('archive compatibility adapter', () => {
         }]);
         expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
     });
+
+    // PING — TERMINAL LIFECYCLE ACTIONS AUDIT: archive is orthogonal to
+    // lifecycle status -- archive_commitment_with_evidence
+    // (20260828160000_commitment_core_canonical_writes.sql) only ever sets
+    // archived_at/updated_at in its own UPDATE statement, never `status`
+    // (confirmed by direct SQL read). This proves the JS-side call never
+    // passes a status field to the RPC either, and that archiving a
+    // commitment in ANY lifecycle status (here, already 'resolved') never
+    // rewrites that status -- archived_at controls visibility/retention
+    // only, never lifecycle truth.
+    it('archivar un commitment YA resuelto conserva su status "resolved" intacto -- archived_at nunca sustituye ni reescribe el status canónico', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:archive_commitment_with_evidence': [{
+                data: { id: 'c1', owner_user_id: OWNER, status: 'resolved', archived_at: '2026-08-28T20:00:00.000Z' },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { deleteCommitment } = await import('../src/services/commitmentApplication.service');
+        const result = await deleteCommitment(OWNER, 'c1');
+
+        expect(result.status).toBe('resolved'); // nunca 'cancelled' ni ningún otro valor -- archive nunca es un sustituto de lifecycle
+        expect(result.archived_at).toBeTruthy();
+        // El RPC real (archive_commitment_with_evidence) sólo acepta
+        // (p_commitment_id, p_actor_user_id) -- nunca un status editable.
+        expect(mock.getRpcCalls()[0].args).toEqual({ p_commitment_id: 'c1', p_actor_user_id: OWNER });
+    });
 });
 
 describe('checkConflict', () => {

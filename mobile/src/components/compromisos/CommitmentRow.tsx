@@ -221,7 +221,16 @@ export function CommitmentRow({
             const options = [
                 'Cancelar',
                 'Ver detalle',
-                !isProposal ? 'Reprogramar fecha' : null,
+                // PING — TERMINAL LIFECYCLE ACTIONS FIX: "Reprogramar fecha"
+                // (counter_propose) is only a valid transition from
+                // proposed/accepted/counter_proposal (COMMITMENT_TRANSITION_TABLE,
+                // commitmentTransitions.ts) -- a terminal commitment
+                // (resolved/cancelled/rejected) can never be silently
+                // rescheduled; backend already rejects this with 409, but
+                // this menu offered it anyway for ANY non-proposal item
+                // regardless of status. Same !isFinished guard "Cancelar"
+                // already uses two lines below -- never a new concept.
+                !isProposal && !isFinished ? 'Reprogramar fecha' : null,
                 canRespondToProposal ? 'Proponer otra fecha' : null,
                 hasConversation ? 'Ver conversación' : null,
                 canRespondToProposal ? 'Rechazar propuesta' : null,
@@ -342,7 +351,10 @@ export function CommitmentRow({
                             <Ionicons name="information-circle-outline" size={18} color={theme.colors.text.primary} />
                             <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver detalle</Text>
                         </TouchableOpacity>
-                        {!isProposal && (
+                        {/* PING — TERMINAL LIFECYCLE ACTIONS FIX: same !isFinished
+                            guard as the iOS branch above and as "Cancelar" below --
+                            a terminal commitment can never be silently rescheduled. */}
+                        {!isProposal && !isFinished && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
                                 <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>

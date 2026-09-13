@@ -307,3 +307,76 @@ describe('COMMITMENT_TRANSITION_TABLE', () => {
         expect(COMMITMENT_TRANSITION_TABLE.reopen.validFromStatuses.sort()).toEqual(['cancelled', 'rejected', 'resolved']);
     });
 });
+
+// PING — TERMINAL LIFECYCLE ACTIONS AUDIT: physical bug found in Compromisos
+// → Historial → RESUELTOS -- a canonical resolved commitment's menu still
+// offered "Reprogramar fecha" (mobile-only bug, fixed in CommitmentRow.tsx).
+// This suite proves the matrix the audit required, explicitly named per
+// scenario (not just via the structural COMMITMENT_TRANSITION_TABLE tests
+// above) -- computeCommitmentTransition is the ONLY function
+// applyCommitmentTransition (commitment.service.ts) ever calls, so this is
+// the actual, sole backend enforcement point for every REST/executor path.
+describe('TERMINAL LIFECYCLE ACTIONS MATRIX — proves the canonical current_state × action -> allowed/forbidden matrix explicitly', () => {
+    it('1. accepted -> complete (resolve) = allowed', () => {
+        const result = computeCommitmentTransition({ action: 'resolve', actorUserId: OWNER, commitment: snapshot({ status: 'accepted' }), now: NOW });
+        expect(result.patch.status).toBe('resolved');
+    });
+
+    it('2. accepted -> reschedule (counter_propose) = allowed', () => {
+        const result = computeCommitmentTransition({ action: 'counter_propose', actorUserId: OWNER, commitment: snapshot({ status: 'accepted' }), newProposedDueAt: '2026-08-01T00:00:00.000Z', now: NOW });
+        expect(result.patch.status).toBe('counter_proposal');
+    });
+
+    it('3. accepted -> cancel = allowed', () => {
+        const result = computeCommitmentTransition({ action: 'cancel', actorUserId: OWNER, commitment: snapshot({ status: 'accepted' }), now: NOW });
+        expect(result.patch.status).toBe('cancelled');
+    });
+
+    it('4. resolved -> reschedule (counter_propose) = FORBIDDEN (409) -- a terminal outcome can never be silently rescheduled', () => {
+        expect(() => computeCommitmentTransition({ action: 'counter_propose', actorUserId: OWNER, commitment: snapshot({ status: 'resolved' }), newProposedDueAt: '2026-08-01T00:00:00.000Z', now: NOW }))
+            .toThrow(/status "resolved"/);
+    });
+
+    it('5. resolved -> cancel = FORBIDDEN (409) -- a completed outcome can never be retroactively cancelled', () => {
+        expect(() => computeCommitmentTransition({ action: 'cancel', actorUserId: OWNER, commitment: snapshot({ status: 'resolved' }), now: NOW }))
+            .toThrow(/status "resolved"/);
+    });
+
+    it('6. cancelled -> reschedule (counter_propose) = FORBIDDEN (409)', () => {
+        expect(() => computeCommitmentTransition({ action: 'counter_propose', actorUserId: OWNER, commitment: snapshot({ status: 'cancelled' }), newProposedDueAt: '2026-08-01T00:00:00.000Z', now: NOW }))
+            .toThrow(/status "cancelled"/);
+    });
+
+    it('7. cancelled -> complete (resolve/action_complete) = FORBIDDEN (409)', () => {
+        expect(() => computeCommitmentTransition({ action: 'resolve', actorUserId: OWNER, commitment: snapshot({ status: 'cancelled' }), now: NOW }))
+            .toThrow(/status "cancelled"/);
+        expect(() => computeCommitmentTransition({ action: 'action_complete', actorUserId: OWNER, commitment: snapshot({ status: 'cancelled' }), now: NOW }))
+            .toThrow(/status "cancelled"/);
+    });
+
+    it('8. resolved/cancelled/rejected -> reopen = the ONLY explicit, supported terminal-state transition, allowed for owner or assignee', () => {
+        for (const status of ['resolved', 'cancelled', 'rejected'] as const) {
+            const result = computeCommitmentTransition({ action: 'reopen', actorUserId: OWNER, commitment: snapshot({ status }), now: NOW });
+            expect(['accepted', 'proposed']).toContain(result.patch.status);
+            expect(result.event.event_type).toBe('reopened');
+            expect(result.event.previous_status).toBe(status);
+        }
+    });
+
+    it('9. after a valid reopen, active-state actions (resolve/cancel/counter_propose) work again on the resulting status', () => {
+        const reopened = computeCommitmentTransition({ action: 'reopen', actorUserId: OWNER, commitment: snapshot({ status: 'resolved', assignedToUserId: ASSIGNEE }), now: NOW });
+        expect(reopened.patch.status).toBe('accepted'); // tiene asignado -> vuelve a accepted
+        const afterReopen = snapshot({ status: reopened.patch.status as any, assignedToUserId: ASSIGNEE });
+        const resolvedAgain = computeCommitmentTransition({ action: 'resolve', actorUserId: OWNER, commitment: afterReopen, now: NOW });
+        expect(resolvedAgain.patch.status).toBe('resolved');
+    });
+
+    it('no reopen implícito: NINGUNA otra acción (accept/reject/counter_propose/action_complete/resolve/cancel/reassign/schedule_follow_up) puede ejecutarse sobre un estado terminal -- sólo "reopen" lo permite', () => {
+        const actionsExceptReopen = (Object.keys(COMMITMENT_TRANSITION_TABLE) as (keyof typeof COMMITMENT_TRANSITION_TABLE)[]).filter((a) => a !== 'reopen');
+        for (const action of actionsExceptReopen) {
+            for (const status of ['resolved', 'cancelled', 'rejected'] as const) {
+                expect(COMMITMENT_TRANSITION_TABLE[action].validFromStatuses).not.toContain(status);
+            }
+        }
+    });
+});

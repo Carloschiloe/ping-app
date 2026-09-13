@@ -121,6 +121,37 @@ describe('FIX 2 — vocabulario "Cancelar" para el commitment canónico', () => 
     });
 });
 
+// PING — TERMINAL LIFECYCLE ACTIONS FIX: physical bug found in
+// Compromisos → Historial → RESUELTOS -- a canonical commitment already in
+// a terminal status (resolved/cancelled/rejected) still offered
+// "Reprogramar fecha" in CommitmentRow.tsx's menu. Backend
+// (commitmentTransitions.ts#COMMITMENT_TRANSITION_TABLE.counter_propose.validFromStatuses
+// = ['proposed','accepted','counter_proposal'], structurally proven to
+// exclude every terminal status by
+// COMMITMENT_TRANSITION_TABLE's own "reopen es la unica accion que parte de
+// un estado terminal" test) and the M-4 rescheduleCommitmentExecutor
+// (reuses the SAME table) both already rejected this transition with a 409/
+// invalid_lifecycle -- only this ONE menu condition never checked
+// !isFinished, unlike "Cancelar" two lines below it in the same file, and
+// unlike CommitmentDetailSheet.tsx's onReschedule gate (already correct).
+describe('TERMINAL LIFECYCLE ACTIONS FIX — CommitmentRow.tsx nunca ofrece "Reprogramar fecha" sobre un commitment ya terminal (resolved/cancelled/rejected)', () => {
+    it('la condición iOS de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/!isProposal && !isFinished \? 'Reprogramar fecha' : null/);
+    });
+    it('la condición Android de "Reprogramar fecha" exige !isProposal Y !isFinished (antes sólo exigía !isProposal)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/\{!isProposal && !isFinished && \(/);
+    });
+    it('isFinished sigue siendo la misma definición canónica ya usada para "Cancelar" -- nunca una segunda condición divergente', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/const isFinished = \['resolved', 'cancelled', 'rejected'\]\.includes\(status\);/);
+    });
+    it('backend ya rechaza counter_propose (reschedule) desde un estado terminal -- COMMITMENT_TRANSITION_TABLE.counter_propose.validFromStatuses nunca incluye resolved/cancelled/rejected', () => {
+        const backendSrc = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'backend', 'src', 'utils', 'commitmentTransitions.ts'), 'utf-8',
+        );
+        expect(backendSrc).toMatch(/counter_propose: \{\s*validFromStatuses: \['proposed', 'accepted', 'counter_proposal'\]/);
+    });
+});
+
 // PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX (segunda regresión encontrada
 // tras eliminar HoyScreen.tsx muerto): CommitmentDetailSheet.tsx exponía un
 // botón etiquetado "Archivar" que en realidad llamaba a onCancel (la MISMA

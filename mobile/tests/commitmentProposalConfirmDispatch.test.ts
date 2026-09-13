@@ -462,9 +462,14 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
         expect(src).toMatch(/canRespondToProposal = isProposal && primaryAction === 'accept'/);
         expect(src).toMatch(/canRespondToProposal \? 'Proponer otra fecha' : null/);
         expect(src).toMatch(/canRespondToProposal \? 'Rechazar propuesta' : null/);
-        // "Reprogramar fecha"/"Archivar" (transiciones de commitment activo)
-        // nunca se ofrecen para una proposal.
-        expect(src).toMatch(/!isProposal \? 'Reprogramar fecha' : null/);
+        // "Reprogramar fecha"/"Cancelar" (transiciones de commitment activo)
+        // nunca se ofrecen para una proposal NI para un commitment ya en
+        // estado terminal (resolved/cancelled/rejected) -- PING TERMINAL
+        // LIFECYCLE ACTIONS FIX: "Reprogramar fecha" antes sólo chequeaba
+        // !isProposal, nunca !isFinished, así que un commitment YA resuelto
+        // seguía ofreciendo reprogramar (backend ya lo rechazaba con 409,
+        // pero el menú nunca debió ofrecerlo).
+        expect(src).toMatch(/!isProposal && !isFinished \? 'Reprogramar fecha' : null/);
         expect(src).toMatch(/onCancel && !isFinished && !isProposal/);
     });
 
