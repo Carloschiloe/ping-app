@@ -161,18 +161,30 @@ describe('elegibilidad real de "Retirar propuesta" contra fixtures con wire stat
     });
 });
 
-describe('el botón de dismiss nativo "Cancelar" no envía ninguna request', () => {
+// PING — ACTIONSHEET DISMISS SEMANTICS FIX: physical UX fail found during
+// certification -- a resolved/cancelled commitment's menu offers NO real
+// domain "Cancelar" action (already correctly gated, see TERMINAL LIFECYCLE
+// ACTIONS FIX), so the only "Cancelar" visible in those menus was this pure
+// dismiss row -- read by the user as "cancel the commitment" even though it
+// only closes the menu. Renamed to "Cerrar", which can never be confused
+// with the real domain mutation.
+describe('el botón de dismiss nativo "Cerrar" no envía ninguna request (antes "Cancelar", renombrado por ambigüedad con la mutación de dominio real)', () => {
     it('cancelButtonIndex sigue apuntando a index 0, y el handler retorna antes de despachar cualquier acción para ese índice', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/\{ options, cancelButtonIndex: 0, destructiveButtonIndex, title: c\.title \}/);
         expect(COMMITMENT_ROW_SRC).toMatch(/\(idx\) => \{\s*if \(idx === 0\) return;/);
     });
-    it('el primer elemento del array options sigue siendo el literal "Cancelar" del dismiss, no renombrado a la acción de negocio', () => {
+    it('el primer elemento del array options es el literal "Cerrar" del dismiss -- nunca "Cancelar" (ambiguo con la acción de dominio real), nunca renombrado a la acción de negocio tampoco', () => {
         const optionsBlockMatch = COMMITMENT_ROW_SRC.match(/const options = \[([\s\S]*?)\]\.filter\(Boolean\)/);
         expect(optionsBlockMatch).not.toBeNull();
         const firstEntry = optionsBlockMatch![1].trim().split('\n')[0].trim();
-        expect(firstEntry).toBe("'Cancelar',");
+        expect(firstEntry).toBe("'Cerrar',");
     });
-    it('el Modal Android conserva su propio dismiss "Cancelar" separado, con onPress que sólo cierra el menú (setMenuVisible(false)), sin llamar ninguna mutation', () => {
+    it('el Modal Android conserva su propio dismiss "Cerrar" separado, con onPress que sólo cierra el menú (setMenuVisible(false)), sin llamar ninguna mutation', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/onPress=\{\(\) => setMenuVisible\(false\)\}>\s*<Ionicons name="close-outline"/);
+        expect(COMMITMENT_ROW_SRC).toMatch(/<Ionicons name="close-outline"[^]*?>Cerrar</);
+    });
+    it('la acción de dominio real "Cancelar {tarea/reunión}" nunca se confunde con el dismiss -- distinta etiqueta, distinto texto, distinto callback (onCancel vs. sólo cerrar el menú)', () => {
+        expect(COMMITMENT_ROW_SRC).toMatch(/onCancel && !isFinished && !isProposal \? `Cancelar \$\{isMeeting \? 'reunión' : 'tarea'\}` : null/);
+        expect(COMMITMENT_ROW_SRC).not.toMatch(/'Cerrar'.*onCancel/);
     });
 });

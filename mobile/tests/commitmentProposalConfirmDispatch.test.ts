@@ -480,6 +480,21 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
         expect(src).toMatch(/canRespondToProposal && onReject \? 'Rechazar propuesta' : null/);
     });
 
+    // PING — ACTIONSHEET DISMISS SEMANTICS FIX: mismo criterio que
+    // CommitmentRow.tsx -- el dismiss de índice 0 de este menú (compartido
+    // por la misma familia commitment/proposal, alcanzable desde Hoy) nunca
+    // puede llamarse "Cancelar" -- Ping tiene una acción real de dominio
+    // "cancelar compromiso" en otras superficies de este mismo menú
+    // conceptual, incluso si esta fila en particular no la ofrece.
+    it('TodayItemRow.tsx: el dismiss de índice 0 dice "Cerrar" (iOS ActionSheet y Modal Android), nunca "Cancelar"', () => {
+        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        const optionsBlockMatch = src.match(/const options = \[([\s\S]*?)\]\.filter\(Boolean\)/);
+        expect(optionsBlockMatch).not.toBeNull();
+        const firstEntry = optionsBlockMatch![1].trim().split('\n')[0].trim();
+        expect(firstEntry).toBe("'Cerrar',");
+        expect(src).toMatch(/<Ionicons name="close-outline"[^]*?>Cerrar</);
+    });
+
     it('InsightsScreen.tsx: handleSaveDate distingue proposal (counter_propose) de commitment canónico (updateCommitment) -- nunca PATCH /commitments/:id con un proposal_id', () => {
         const src = readSrc('src/screens/InsightsScreen.tsx');
         expect(src).toMatch(/if \(rescheduleItem\?\.\_isAgreementProposal\)/);

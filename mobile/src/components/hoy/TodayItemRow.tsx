@@ -113,10 +113,16 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
     // fecha"/"Rechazar propuesta" reutilizan el mismo flujo real que
     // CommitmentRow.tsx (respond_to_commitment_proposal) -- sólo aparecen
     // cuando el actor mismo puede responder, nunca para el caso Carlos.
+    // PING — ACTIONSHEET DISMISS SEMANTICS FIX: mismo criterio que
+    // CommitmentRow.tsx -- "Cancelar" en el dismiss de índice 0 es ambiguo
+    // en un menú de dominio commitment/proposal (Ping SÍ tiene una acción
+    // real "cancelar compromiso" en otras superficies), incluso cuando esta
+    // fila en particular nunca ofrece esa mutación. "Cerrar" nunca puede
+    // confundirse con una mutación de dominio.
     const openMenu = () => {
         if (Platform.OS === 'ios') {
             const options = [
-                'Cancelar',
+                'Cerrar',
                 hasConversation ? 'Ver conversación' : null,
                 canRespondToProposal && onOpenReschedule ? 'Proponer otra fecha' : null,
                 canRespondToProposal && onReject ? 'Rechazar propuesta' : null,
@@ -250,7 +256,7 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
                             <Ionicons name="close-outline" size={18} color={theme.colors.text.muted} />
-                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cancelar</Text>
+                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cerrar</Text>
                         </TouchableOpacity>
                     </View>
                 </Pressable>

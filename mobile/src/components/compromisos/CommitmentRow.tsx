@@ -213,13 +213,26 @@ export function CommitmentRow({
     // el mismo caso "Entrenar": Carlos SÍ puede retirar su propia proposal
     // pending (reject_commitment_proposal_with_evidence exige exactamente
     // proposed_by_user_id=actor), aun cuando no puede "responder" a su
-    // propia proposal. El "Cancelar" en índice 0 del ActionSheet nativo es
-    // sólo el dismiss del menú (cancelButtonIndex) -- nunca la misma acción,
-    // nunca renombrado para no confundirlo con un control de sistema.
+    // propia proposal.
+    // PING — ACTIONSHEET DISMISS SEMANTICS FIX (physical UX fail): el
+    // índice 0 del ActionSheet nativo es sólo el dismiss del menú
+    // (cancelButtonIndex) -- SIEMPRE presente, incluso cuando el estado
+    // terminal (resolved/cancelled) oculta toda acción de dominio real
+    // (ver TERMINAL LIFECYCLE ACTIONS FIX arriba). Antes se llamaba
+    // literalmente "Cancelar", el MISMO texto que la acción de dominio real
+    // `Cancelar ${tarea/reunión}` (unas líneas más abajo) -- en un
+    // commitment ya resuelto/cancelado esa acción de dominio no aparece en
+    // absoluto, así que el ÚNICO "Cancelar" visible en el menú era este
+    // dismiss, leído naturalmente por el usuario como "cancelar el
+    // compromiso" (certificación física real: "Salida a los Muermos"
+    // resuelto y "entrenar" cancelado, ambos mostrando sólo "Cancelar" +
+    // "Ver detalle"/"Ver conversación"). "Cerrar" nunca puede confundirse
+    // con una mutación de dominio -- el dismiss y la acción real de cancelar
+    // ahora son visual y semánticamente distinguibles en todo estado.
     const openMenu = () => {
         if (Platform.OS === 'ios') {
             const options = [
-                'Cancelar',
+                'Cerrar',
                 'Ver detalle',
                 // PING — TERMINAL LIFECYCLE ACTIONS FIX: "Reprogramar fecha"
                 // (counter_propose) is only a valid transition from
@@ -235,14 +248,13 @@ export function CommitmentRow({
                 hasConversation ? 'Ver conversación' : null,
                 canRespondToProposal ? 'Rechazar propuesta' : null,
                 onWithdraw && canWithdrawProposal ? 'Retirar propuesta' : null,
-                // FIX 2 (vocabulario "Cancelar"): en iOS el índice 0 del
-                // ActionSheet YA es el dismiss nativo "Cancelar"
-                // (cancelButtonIndex) -- usar el mismo string literal para la
-                // acción real de negocio produciría dos filas idénticas
-                // ("Cancelar" inerte vs "Cancelar" que sí cancela). Se usa
-                // "Cancelar {tarea/reunión}" aquí específicamente para evitar
-                // esa colisión visual; el endpoint/comportamiento (onCancel,
-                // POST /commitments/:id/cancel) no cambia.
+                // FIX 2 (vocabulario "Cancelar tarea/reunión"): esta es la
+                // ÚNICA fila que invoca la mutación de dominio real
+                // (onCancel -> POST /commitments/:id/cancel). El dismiss del
+                // índice 0 ahora dice "Cerrar" (ver ACTIONSHEET DISMISS
+                // SEMANTICS FIX arriba) -- las dos filas ya no pueden
+                // confundirse entre sí en ningún estado, incluido un
+                // commitment activo donde AMBAS podrían coexistir.
                 onCancel && !isFinished && !isProposal ? `Cancelar ${isMeeting ? 'reunión' : 'tarea'}` : null,
             ].filter(Boolean) as string[];
             const destructiveButtonIndex = canRespondToProposal
@@ -385,11 +397,11 @@ export function CommitmentRow({
                             </TouchableOpacity>
                         )}
                         {onCancel && !isFinished && !isProposal && (
-                            // FIX 2 (vocabulario "Cancelar"): el dismiss del
-                            // Modal Android (línea de abajo) YA dice
-                            // "Cancelar" -- mismo criterio que iOS, se usa
-                            // "Cancelar {tarea/reunión}" para la acción real
-                            // y evitar dos filas idénticas en el mismo menú.
+                            // FIX 2 (vocabulario "Cancelar tarea/reunión"):
+                            // acción de dominio real (onCancel -> POST
+                            // /commitments/:id/cancel). El dismiss del Modal
+                            // Android (línea de abajo) ahora dice "Cerrar",
+                            // nunca ambiguo con esta fila.
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
                                 <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                                 <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>{`Cancelar ${isMeeting ? 'reunión' : 'tarea'}`}</Text>
@@ -397,7 +409,7 @@ export function CommitmentRow({
                         )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
                             <Ionicons name="close-outline" size={18} color={theme.colors.text.muted} />
-                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cancelar</Text>
+                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cerrar</Text>
                         </TouchableOpacity>
                     </View>
                 </Pressable>
