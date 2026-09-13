@@ -32,6 +32,7 @@ import {
     classifyQueryCardinality,
     containsThirdPersonPronoun,
     CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
+    isHistoricalLifecycleQuery,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -480,7 +481,22 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // (hallazgo durante la implementación, cubierto por un test dedicado
     // más abajo: "coreHasConfidentSignal no debe forzar wantsCommitments
     // para intents ajenos a commitments").
-    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null;
+    // PING — M-2 RETRIEVAL LAYER FIX: segunda causa raíz probada del mismo
+    // bug físico "Cuando completamos lo de entrenar?" -- una consulta
+    // histórica de lifecycle real (isHistoricalLifecycleQuery, la MISMA
+    // condición exacta que classifyQueryCardinality ya usa para
+    // focused_lookup) le da a Core la misma autoridad sobre textQuery que
+    // proposalFocus confiado ya tenía. Sin esto, el textQuery final caía a
+    // rawInterpretation.textQuery (potencialmente el del LLM, comprobado
+    // no-determinístico: 3 de 4 llamadas idénticas devolvieron null para
+    // exactamente esta frase) y retrieveCommitments corría sin filtro FTS,
+    // devolviendo los commitments más recientes del actor en vez del
+    // commitment nombrado -- "entrenar" desaparecía por completo de
+    // context.commitments. Nunca se especializa "entrenar"; nunca se
+    // amplía retrieval globalmente -- se le da a la MISMA señal
+    // determinística ya probada (el patrón "cuándo + verbo de lifecycle")
+    // la misma autoridad que una señal hermana ya tenía.
+    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null || isHistoricalLifecycleQuery(input.input);
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below

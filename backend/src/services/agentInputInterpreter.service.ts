@@ -253,6 +253,19 @@ const ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN = LIFECYCLE_TRANSITION_TABLE.map((e) 
 const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
     `${WB_START}(?:cu[áa]ndo|when)\\s+(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
 );
+// PING — M-2 RETRIEVAL LAYER FIX (segunda causa raíz probada del mismo bug
+// físico "Cuando completamos lo de entrenar?"): expone la MISMA condición
+// exacta que classifyQueryCardinality ya usa para decidir focused_lookup
+// (HISTORICAL_LIFECYCLE_QUERY_PATTERN + !EXPLICIT_LIST_KEYWORDS, la misma
+// precedencia -- alcance explícito del usuario siempre gana), para que
+// agentContextBuilder.service.ts pueda darle a esta MISMA señal la autoridad
+// que ya le da a proposalFocus sobre el textQuery final (ver
+// commitmentSignalConfident ahí). Nunca una segunda regla hand-mantenida en
+// paralelo -- un solo dueño canónico de "¿esto es una consulta histórica de
+// lifecycle real?", reutilizado por ambos archivos.
+export function isHistoricalLifecycleQuery(input: string): boolean {
+    return HISTORICAL_LIFECYCLE_QUERY_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input);
+}
 // R-01: fragmento ES "-amos" reutilizable por agentContextBuilder.service.ts
 // (MEMORY_EPISODIC_VERBS) para las transiciones que este archivo posee
 // canónicamente (cerrado/cancelado/rechazado + reasignar) -- nunca una
@@ -710,7 +723,7 @@ export function classifyQueryCardinality(
     // contiene "completamos"), y es 100% determinística: nunca depende de
     // si el LLM etiquetó la consulta como commitment_query, recall o
     // general_context.
-    if (HISTORICAL_LIFECYCLE_QUERY_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input)) return 'focused_lookup';
+    if (isHistoricalLifecycleQuery(input)) return 'focused_lookup';
     if (signals.proposalFocus !== null) return 'exhaustive_list';
     if (signals.wantsOverdueFocus) return 'exhaustive_list';
     if (signals.intent === 'recall') return 'focused_lookup';

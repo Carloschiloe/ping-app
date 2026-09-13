@@ -708,6 +708,34 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
         expect(ctx.requestedTransition).toEqual(['action_completed', 'resolved']);
     });
 
+    // PING — M-2 RETRIEVAL LAYER FIX: segunda causa raíz probada del bug
+    // físico real -- 3 de 4 llamadas idénticas al LLM para exactamente esta
+    // frase devolvieron textQuery=null, y sin este fix eso hacía que
+    // retrieveCommitments corriera SIN filtro FTS, devolviendo los
+    // commitments más recientes del actor en vez de "entrenar" (que
+    // desaparecía por completo de context.commitments). isHistoricalLifecycleQuery
+    // le da a Core la misma autoridad sobre textQuery que proposalFocus
+    // confiado ya tenía -- el textQuery final debe ser SIEMPRE el
+    // determinístico ("entrenar"), nunca el null/undefined sugerido por el LLM.
+    it('LLM textQuery=null para una consulta histórica de lifecycle real NUNCA hace que retrieveCommitments pierda el filtro -- Core impone su propio textQuery determinístico ("entrenar"), igual que ya hace para proposalFocus confiado', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ title: 'entrenar', status: 'cancelled' })] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', textQuery: null, wantsCommitments: true,
+        }));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Cuándo completamos lo de entrenar?' }, { interpreter });
+
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'entrenar' }), expect.any(Number));
+        expect(ctx.commitments).toHaveLength(1);
+    });
+
+    it('LLM textQuery=null para una consulta NO histórica normal SÍ puede seguir corriendo sin filtro (comportamiento previo intacto, este fix está acotado a isHistoricalLifecycleQuery)', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture()] as any);
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'commitment_query', textQuery: null, wantsCommitments: true }));
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué compromisos tengo?' }, { interpreter });
+
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: undefined }), expect.any(Number));
+    });
+
     it('DeterministicInputInterpreter real (sin mock) detecta "vencido" end-to-end hasta AgentContext.wantsOverdueFocus', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ status: 'accepted', dueAt: '2026-01-01T00:00:00Z' })] as any);
         const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
