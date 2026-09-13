@@ -1959,6 +1959,72 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(response.answer.toLowerCase()).toMatch(/no encuentro evidencia|entrenar/);
     });
 
+    // PING — M-2 FINAL PHYSICAL GAP: reproducción EXACTA del fallo físico
+    // parcial reportado contra staging 3080c13 -- "El compromiso 'entrenar'
+    // está en estado cancelled." (1 fuente). El target resuelve
+    // correctamente (3080c13 ya lo arregló), pero la versión anterior de
+    // este guard usaba `claims.some(...)` sobre TODA la respuesta -- si
+    // NINGÚN claim probaba la transición pedida, igual reemplazaba, PERO el
+    // bug real era el inverso: cuando el modelo produce un ÚNICO claim
+    // citando el target DIRECTAMENTE (sourceType:'commitment', nunca un
+    // commitment_event/memory) con una afirmación de estado ACTUAL, ese
+    // claim nunca puede "probar" la transición pedida por construcción
+    // (deriveCommitmentIdFromSourceRef para sourceType:'commitment' no
+    // pertenece a ninguna rama commitment_event/memory de
+    // claimProvesRequestedTransition) -- así que el guard SIEMPRE debía
+    // reemplazarlo. Esta prueba fija ese comportamiento exacto para el texto
+    // físico real reportado, palabra por palabra (deriveMemoryFromCommitmentStatusChange#canonicalTextHint
+    // usa exactamente "está en estado <status>").
+    it('1c. reproducción EXACTA del fallo físico parcial (staging 3080c13): 1 único claim citando el target DIRECTAMENTE con estado actual ("está en estado cancelled") -- nunca sobrevive como respuesta a "cuándo lo completamos", se reemplaza por ausencia', async () => {
+        const ctx = baseContext({
+            evidenceFound: true, commitments: [entrenarCommitment()] as any, events: [cancelEvent()] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
+            timezone: 'America/Santiago',
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'El compromiso "entrenar" está en estado cancelled.',
+            sourceRefs: [{ sourceType: 'commitment', sourceId: '9e39edeb-d7b0-467d-9073-f0848251c7d3' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando completamos lo de entrenar ?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).not.toMatch(/cancel/i); // nunca sobrevive la afirmación de estado actual como sustituto
+        expect(response.answer.toLowerCase()).toMatch(/no encuentro evidencia/);
+        expect(response.citations).toHaveLength(1);
+    });
+
+    // Misma reproducción, pero vía memory con el texto canónico EXACTO que
+    // dispatchCommitmentStatusMemoryEvent/deriveMemoryFromCommitmentStatusChange
+    // genera en producción real (memory.service.ts:
+    // `El compromiso "${title}" está en estado ${newStatus}.`) -- confirma
+    // que el fix cubre el camino de evidencia real, no sólo una cita
+    // directa a 'commitment'.
+    it('1d. misma reproducción física, pero el único claim cita una memoria commitment_status real con el texto canónico exacto de producción -- también se reemplaza por ausencia', async () => {
+        const mem = memoryFact('mem-cancelled-current', {
+            predicate: 'commitment_status:9e39edeb-d7b0-467d-9073-f0848251c7d3', objectValue: 'cancelled',
+            canonicalText: 'El compromiso "entrenar" está en estado cancelled.',
+            observedAt: '2026-09-11T14:43:49.390Z', sourceType: 'commitment', sourceId: '9e39edeb-d7b0-467d-9073-f0848251c7d3', isCurrent: true,
+        });
+        const ctx = baseContext({
+            evidenceFound: true, commitments: [entrenarCommitment()] as any, memoryFacts: [mem] as any,
+            queryCardinality: 'focused_lookup' as any, requestedTransition: ['action_completed', 'resolved'],
+            requestedTransitionTargetCommitmentId: '9e39edeb-d7b0-467d-9073-f0848251c7d3',
+            timezone: 'America/Santiago',
+        });
+        const model = fakeModel(claimPayload([{
+            text: 'El compromiso "entrenar" está en estado cancelled.',
+            sourceRefs: [{ sourceType: 'memory', sourceId: 'mem-cancelled-current' }],
+        }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'Cuando completamos lo de entrenar ?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).not.toMatch(/cancel/i);
+        expect(response.answer.toLowerCase()).toMatch(/no encuentro evidencia/);
+    });
+
     // PING — M-2 MULTI-ENTITY CONTEXT FIX: reproducción EXACTA de la
     // regresión física real reportada contra staging 81be76a. Datos reales:
     // commitment "entrenar" (9e39edeb-..., cancelled, eventos created/
@@ -2204,17 +2270,27 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         expect(result[0].sourceRefs).toEqual([{ sourceType: 'commitment', sourceId: 'cm-x' }]);
     });
 
-    it('6. proposal con título similar tiene la transición pedida, pero es una entidad DISTINTA del commitment resuelto -- lineage estructurado, no léxico, decide (matriz ítem 6)', () => {
+    // PING — M-2 FINAL PHYSICAL GAP: el guard ahora distingue "claims que
+    // mencionan el target" de "claims ajenos a él" (claimBelongsToTarget)
+    // ANTES de decidir si reemplaza algo. Un claim cuya única cita deriva
+    // linaje hacia una entidad DISTINTA del target (aquí, un evento cuyo
+    // commitmentId nunca es 'cm-real') nunca es "sobre" el target -- no hay
+    // nada que este guard deba verificar u objetar en él (sigue siendo
+    // responsabilidad de enforceCanonicalDominance/validateClaimsAgainstAllowedRefs
+    // decidir si esa cita es siquiera legítima). El caso relevante de "la
+    // proposal homónima no debe satisfacer ni sustituir la respuesta sobre
+    // el commitment real" ya está cubierto por el test 1b/1 (ambas
+    // entidades presentes, la proposal SÍ es visible en
+    // context.commitments, y el guard igual produce sólo ausencia).
+    it('6. un claim cuya única evidencia pertenece a una entidad DISTINTA del target resuelto nunca es tratado como "la respuesta" para el target -- el guard no tiene nada que verificar en él (nunca lo reemplaza ni lo dispara)', () => {
         const c = commitment('cm-real', { title: 'entrenar', status: 'cancelled' });
-        // evento perteneciente a OTRO commitment (simulando la proposal "Entrenar" rechazada, entidad distinta) -- deriveCommitmentIdFromSourceRef debe descartarlo por no pertenecer a cm-real.
+        // evento perteneciente a OTRO commitment (entidad distinta) -- deriveCommitmentIdFromSourceRef debe descartarlo por no pertenecer a cm-real.
         const otherEntityEvent = retrievalEvent('evt-other', { commitmentId: 'proposal-distinta-id', eventType: 'resolved', newStatus: 'resolved' });
         const ctx = baseContext({ commitments: [c] as any, events: [otherEntityEvent] as any, requestedTransition: ['action_completed', 'resolved'], requestedTransitionTargetCommitmentId: 'cm-real' });
         const claims = [{ text: 'Se completó.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-other' }] }];
         const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-real' }, { sourceType: 'commitment_event' as const, sourceId: 'evt-other' }] } as any;
 
-        const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
-        expect(result).toHaveLength(1);
-        expect(result[0].text).not.toMatch(/complet/i);
+        expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
     });
 
     it('7. memoria stale reclama la transición pedida pero el evento canónico NO la respalda -- no fabrica una respuesta positiva desde memoria sola cuando el predicate no representa esa transición (matriz ítem 8)', () => {
@@ -2293,6 +2369,61 @@ describe('M-2 HISTORICAL TRANSITION ABSENCE FIX: enforceRequestedTransitionEvide
         const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
         expect(result).toHaveLength(1);
         expect(result[0].text).not.toMatch(/aceptado/i); // sin evento 'resolved'/'action_completed' real -- ausencia, no sustitución
+    });
+
+    // PING — M-2 FINAL PHYSICAL GAP: el mecanismo de ausencia debe funcionar
+    // genéricamente para CUALQUIER familia de transición pedida, no sólo
+    // completado -- reutiliza el mismo REQUESTED_TRANSITION_TABLE/
+    // REQUESTED_TRANSITION_STATUS_EQUIVALENTS ya introducidos, nunca un
+    // segundo diccionario de lifecycle.
+    describe('genérico a través de familias de transición (cancelar/reabrir/reasignar) -- nunca un mecanismo especial para "completar"', () => {
+        it('target existe pero NUNCA fue cancelado (sólo accepted/resolved) -- ausencia explícita de evidencia de cancelación', () => {
+            const c = commitment('cm-x', { title: 'entrenar', status: 'resolved' });
+            const resolvedEvent = retrievalEvent('evt-resolved', { commitmentId: 'cm-x', eventType: 'resolved', newStatus: 'resolved' });
+            const ctx = baseContext({ commitments: [c] as any, events: [resolvedEvent] as any, requestedTransition: ['cancelled'], requestedTransitionTargetCommitmentId: 'cm-x' });
+            const claims = [{ text: 'Se resolvió.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-resolved' }] }];
+            const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] } as any;
+
+            const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
+            expect(result).toHaveLength(1);
+            expect(result[0].text).not.toMatch(/resolv/i);
+            expect(result[0].text).toMatch(/no encuentro evidencia/i);
+        });
+
+        it('target existe pero NUNCA fue reabierto -- ausencia explícita de evidencia de reapertura', () => {
+            const c = commitment('cm-x', { title: 'entrenar', status: 'cancelled' });
+            const cancelledEvent = retrievalEvent('evt-cancelled', { commitmentId: 'cm-x', eventType: 'cancelled', newStatus: 'cancelled' });
+            const ctx = baseContext({ commitments: [c] as any, events: [cancelledEvent] as any, requestedTransition: ['reopened'], requestedTransitionTargetCommitmentId: 'cm-x' });
+            const claims = [{ text: 'Se canceló.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' }] }];
+            const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] } as any;
+
+            const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
+            expect(result).toHaveLength(1);
+            expect(result[0].text).not.toMatch(/cancel/i);
+            expect(result[0].text).toMatch(/no encuentro evidencia/i);
+        });
+
+        it('target existe pero NUNCA fue reasignado -- ausencia explícita de evidencia de reasignación', () => {
+            const c = commitment('cm-x', { title: 'entrenar', status: 'accepted' });
+            const createdEvent = retrievalEvent('evt-created', { commitmentId: 'cm-x', eventType: 'created', newStatus: 'accepted' });
+            const ctx = baseContext({ commitments: [c] as any, events: [createdEvent] as any, requestedTransition: ['reassigned'], requestedTransitionTargetCommitmentId: 'cm-x' });
+            const claims = [{ text: 'Está aceptado.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-created' }] }];
+            const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] } as any;
+
+            const result = enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es');
+            expect(result).toHaveLength(1);
+            expect(result[0].text).toMatch(/no encuentro evidencia/i);
+        });
+
+        it('positivo genérico: reasignación SÍ ocurrió -- evidencia real deja pasar la respuesta sin tocarla', () => {
+            const c = commitment('cm-x', { title: 'entrenar', status: 'accepted' });
+            const reassignedEvent = retrievalEvent('evt-reassigned', { commitmentId: 'cm-x', eventType: 'reassigned', newStatus: 'accepted' });
+            const ctx = baseContext({ commitments: [c] as any, events: [reassignedEvent] as any, requestedTransition: ['reassigned'], requestedTransitionTargetCommitmentId: 'cm-x' });
+            const claims = [{ text: 'Se reasignó el 5 de septiembre.', sourceRefs: [{ sourceType: 'commitment_event' as const, sourceId: 'evt-reassigned' }] }];
+            const evidence = { allowedSourceRefs: [{ sourceType: 'commitment' as const, sourceId: 'cm-x' }] } as any;
+
+            expect(enforceRequestedTransitionEvidence(claims as any, ctx, evidence, 'es')).toBe(claims);
+        });
     });
 
     // Ambigüedad GENUINA: dos commitments reales, y ningún claim tiene

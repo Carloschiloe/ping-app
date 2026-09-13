@@ -820,6 +820,45 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
             expect((response as any).citations).toEqual([{ sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID }]);
         });
 
+        // PING — M-2 FINAL PHYSICAL GAP: reproduces the SECOND, narrower
+        // physical partial-failure on staging 3080c13 -- after fixing the
+        // multi-entity contamination, the model started producing a SINGLE
+        // claim citing the resolved target directly with present-tense
+        // current-status wording ("El compromiso 'entrenar' está en estado
+        // cancelled.", 1 source) instead of an explicit absence statement.
+        // Root cause: enforceRequestedTransitionEvidence's OLD `hasMatchingEvidence`
+        // was `claims.some(...)` over the WHOLE claim set -- for a single
+        // claim citing the commitment directly (sourceType:'commitment'),
+        // neither the commitment_event nor memory branch of the matcher
+        // could ever apply, so the check correctly returned false and the
+        // guard SHOULD have replaced it -- this integration test locks that
+        // exact real end-to-end path in (interpreter -> context building ->
+        // synthesis), not just the isolated helper.
+        it('1e. mandatory regression: exact physical partial-failure -- a single claim citing the target commitment DIRECTLY with present-tense current-status wording never survives as the answer to a completion question', async () => {
+            mockRetrieveCommitments.mockResolvedValue([realCommitmentFixture()] as any);
+            mockRetrieveCommitmentProposals.mockResolvedValue([] as any);
+            mockRetrieveCommitmentEvents.mockResolvedValue([] as any);
+            mockRetrieveMemory.mockResolvedValue([] as any);
+
+            const phrase = 'Cuando completamos lo de entrenar ?';
+            const context = await withDeterministicInterpreter({ actorUserId: 'u1', input: phrase, conversationId: 'conv-1' });
+            expect((context as any).requestedTransitionTargetCommitmentId).toBe(REAL_COMMITMENT_ID);
+
+            const claimPayload = JSON.stringify({
+                claims: [
+                    { text: 'El compromiso "entrenar" está en estado cancelled.', sourceRefs: [{ sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID }] },
+                ],
+            });
+            const model: AgentSynthesisModel = { modelName: 'fake', synthesize: vi.fn(async () => claimPayload) };
+            const response = await synthesizeAgentResponse({ input: phrase, context }, { model });
+
+            expect(response.status).toBe('answered');
+            const answer = (response as any).answer as string;
+            expect(answer).not.toMatch(/cancel/i);
+            expect(answer.toLowerCase()).toMatch(/no encuentro evidencia/);
+            expect((response as any).citations).toEqual([{ sourceType: 'commitment', sourceId: REAL_COMMITMENT_ID }]);
+        });
+
         it('2. mandatory regression: "Cuando cancelamos lo de entrenar?" against the SAME mixed retrieval -- cancellation semantics preserved (11 Sep 2026 11:43)', async () => {
             const cancelledEvent = { id: 'evt-cancelled', commitmentId: REAL_COMMITMENT_ID, actorUserId: 'u1', eventType: 'cancelled', previousStatus: 'accepted', newStatus: 'cancelled', createdAt: '2026-09-11T14:43:49.390Z', provenance: { sourceType: 'commitment_event' as const, sourceId: 'evt-cancelled' } };
 

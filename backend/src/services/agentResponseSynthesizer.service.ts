@@ -709,6 +709,31 @@ function buildTransitionAbsenceClaim(commitment: AgentContext['commitments'][num
     return { text, sourceRefs: [ref] };
 }
 
+// Un claim "pertenece" al target de requestedTransition si CUALQUIERA de
+// sus sourceRefs deriva linaje estructural hacia esa exacta entidad
+// (deriveCommitmentIdFromSourceRef -- nunca léxico). Un claim que no cita
+// nada relacionado con el target (ej. un claim sobre otra persona/tema
+// completamente ajeno que sobrevivió por alguna otra razón) no es "sobre"
+// el target y este guard nunca lo toca.
+function claimBelongsToTarget(claim: AgentClaim, context: AgentContext, targetCommitmentId: string): boolean {
+    return claim.sourceRefs.some((ref) => deriveCommitmentIdFromSourceRef(ref, context) === targetCommitmentId);
+}
+
+function claimProvesRequestedTransition(claim: AgentClaim, context: AgentContext, targetCommitmentId: string, eventTypes: readonly string[]): boolean {
+    return claim.sourceRefs.some((ref) => {
+        if (deriveCommitmentIdFromSourceRef(ref, context) !== targetCommitmentId) return false;
+        if (ref.sourceType === 'commitment_event') {
+            const event = context.events.find((e) => e.id === ref.sourceId);
+            return !!event && eventTypes.includes(event.eventType);
+        }
+        if (ref.sourceType === 'memory') {
+            const memory = [...context.memoryFacts, ...context.historicalMemoryFacts].find((m) => m.id === ref.sourceId);
+            return !!memory && memoryRepresentsEventType(memory, eventTypes);
+        }
+        return false;
+    });
+}
+
 export function enforceRequestedTransitionEvidence(claims: AgentClaim[], context: AgentContext, evidence: SerializedEvidence, language: 'es' | 'en'): AgentClaim[] {
     if (!context.requestedTransition || context.requestedTransition.length === 0) return claims;
     if (claims.length === 0) return claims;
@@ -722,26 +747,54 @@ export function enforceRequestedTransitionEvidence(claims: AgentClaim[], context
     if (!commitment) return claims; // defensivo: el id resuelto siempre debería estar en context.commitments, pero nunca se inventa una entidad si no lo está
     const eventTypes = context.requestedTransition;
 
-    const hasMatchingEvidence = claims.some((claim) => claim.sourceRefs.some((ref) => {
-        if (deriveCommitmentIdFromSourceRef(ref, context) !== commitment.id) return false;
-        if (ref.sourceType === 'commitment_event') {
-            const event = context.events.find((e) => e.id === ref.sourceId);
-            return !!event && (eventTypes as readonly string[]).includes(event.eventType);
-        }
-        if (ref.sourceType === 'memory') {
-            const memory = [...context.memoryFacts, ...context.historicalMemoryFacts].find((m) => m.id === ref.sourceId);
-            return !!memory && memoryRepresentsEventType(memory, eventTypes);
-        }
-        return false;
-    }));
-    if (hasMatchingEvidence) return claims;
+    // PING — M-2 FINAL PHYSICAL GAP (staging 3080c13, TEST A partial fail):
+    // la versión anterior de este guard usaba `claims.some(...)` -- SI
+    // CUALQUIER claim en TODA la respuesta probaba la transición pedida,
+    // TODOS los claims (incluido uno sobre el target que sólo afirma un
+    // hecho de lifecycle DISTINTO, ej. "está en estado cancelled") pasaban
+    // intactos. Eso permitía exactamente el resultado físico observado:
+    // "El compromiso 'entrenar' está en estado cancelled." sobrevivía como
+    // si respondiera "¿cuándo lo completamos?" -- verdadero, pero no
+    // responde a la proposición exacta preguntada (invariante cardinal del
+    // ticket: "truthfulness is not sufficient, the response must be
+    // relevant to the exact proposition asked"). La corrección es asimétrica
+    // por diseño: los claims que NO son sobre el target (otra entidad, otro
+    // tema) nunca se tocan; de los que SÍ son sobre el target, sólo
+    // sobreviven los que efectivamente prueban la transición pedida --
+    // cualquier claim sobre el target que no la prueba (cancelado/
+    // rechazado/confirmado/aceptado/CUALQUIER otro hecho de lifecycle) se
+    // descarta, nunca se deja como sustituto de la respuesta.
+    const targetClaims = claims.filter((claim) => claimBelongsToTarget(claim, context, commitment.id));
+    if (targetClaims.length === 0) {
+        // Ningún claim de la respuesta siquiera menciona el target -- nada
+        // que verificar aquí, el modelo simplemente no habló de esta
+        // entidad (caso legítimo para consultas más amplias); no se
+        // fabrica una afirmación de ausencia sobre algo que nadie mencionó.
+        return claims;
+    }
+    const provingClaims = targetClaims.filter((claim) => claimProvesRequestedTransition(claim, context, commitment.id, eventTypes as readonly string[]));
+    if (provingClaims.length > 0) {
+        // Evidencia real de la transición pedida SÍ existe para el target --
+        // deja pasar la respuesta completa sin tocarla (comportamiento
+        // preexistente para el caso positivo, sin cambios).
+        return claims;
+    }
 
-    // Sin evidencia real de la transición pedida para ESTE commitment --
-    // reemplaza el set de claims completo por una única afirmación de
-    // ausencia, nunca deja que un claim de OTRA transición (cancelado/
-    // rechazado/confirmado/aceptado) -- ni de OTRA entidad, como la
-    // proposal homónima -- quede en pie como si respondiera la pregunta
-    // hecha.
+    // El target fue mencionado (por al menos un claim), pero NINGÚN claim
+    // sobre él prueba la transición pedida -- reemplaza el set COMPLETO de
+    // claims por una única afirmación de ausencia. Deliberadamente NO se
+    // preservan claims "ajenos" (ej. sobre la proposal homónima) en este
+    // caso: para una consulta focused_lookup sobre UN target ya resuelto
+    // determinísticamente, cualquier otra entidad que el modelo haya
+    // mezclado en la respuesta (cancelado/rechazado/confirmado/aceptado de
+    // la proposal, u otro hecho de lifecycle del target distinto al
+    // pedido) es exactamente la clase de narrativa sustituta que el
+    // invariante cardinal de este ticket prohíbe -- "truthfulness is not
+    // sufficient, the response must be relevant to the exact proposition
+    // asked". Nunca se fabrica un sourceRef para un evento de finalización
+    // inexistente -- la única cita de la afirmación de ausencia es el
+    // commitment mismo, ya canónicamente resuelto y presente en la
+    // evidencia serializada.
     const ref = evidence.allowedSourceRefs.find((r) => r.sourceType === 'commitment' && r.sourceId === commitment.id);
     if (!ref) return claims; // nunca citar fuera del boundary de evidencia ya serializado (M-1E.1) -- si ni el commitment mismo es citable, deja los claims del modelo tal cual
     return [buildTransitionAbsenceClaim(commitment, ref, language)];
