@@ -214,7 +214,7 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Direct dependencies:** retrieval identity resolution, memory policy/provider, source evidence, Commitment events.
 **Used by:** AgentContext and carefully bounded planning hints.
 **Tests:** `backend/tests/memoryService.test.ts`, `backend/tests/agentContextBuilder.test.ts`.
-**Common symptoms:** stale fact wins, restricted fact leaks, deleted source remains current, memory invents a date.
+**Common symptoms:** stale fact wins, restricted fact leaks, deleted source remains current, memory invents a date, an unrelated same-title/same-topic commitment's evidence contaminates a focused historical answer (see `agentResponseSynthesizer.service.ts`'s canonical-dominance structured evidence lineage, physically certified `9a46210`), a requested lifecycle transition with no matching evidence narrates unrelated available history instead of representing absence of evidence for that transition (OPEN, not yet root-caused — see README.md M-2 section, "Historical transition absence / cross-lifecycle contamination").
 **Usually do not read:** Mobile storage; canonical memory is backend-owned.
 
 ## Agent domains
