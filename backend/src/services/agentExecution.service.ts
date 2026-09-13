@@ -79,7 +79,7 @@ function refsFromResultRef(resultRef: Record<string, unknown> | null | undefined
 // 'skipped_condition' de forma explícita y auditable, requiriendo una
 // autorización FRESCA más adelante cuando la condición real se resuelva
 // (nunca "pre-autorizado silenciosamente para lo que sea que pase").
-function isStepReadyNow(step: AgentPlanStep, succeededStepIds: Set<string>): boolean {
+export function isStepReadyNow(step: AgentPlanStep, succeededStepIds: Set<string>): boolean {
     if (step.condition.type !== 'always') return false;
     return step.dependsOn.every((id) => succeededStepIds.has(id));
 }
@@ -189,7 +189,7 @@ export async function executeAuthorization(input: ExecuteAuthorizationInput): Pr
     return buildResult(authorization.id, stepResults);
 }
 
-function buildResult(authorizationId: string, stepResults: AgentExecutionStepResult[]): AgentExecutionResult {
+export function buildResult(authorizationId: string, stepResults: AgentExecutionStepResult[]): AgentExecutionResult {
     const executedSteps = stepResults.filter((s) => s.status === 'succeeded');
     const failedSteps = stepResults.filter((s) => s.status === 'failed_retryable' || s.status === 'failed_terminal' || s.status === 'blocked');
     const waitingSteps = stepResults.filter((s) => s.status === 'skipped_condition');
