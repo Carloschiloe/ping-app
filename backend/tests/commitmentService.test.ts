@@ -397,6 +397,68 @@ describe('restoreCommitment — contraparte simétrica de archiveCommitment', ()
         await expect(restoreCommitment('someone-else', 'c1')).rejects.toThrow();
         expect(mock.getRpcCalls()).toHaveLength(0);
     });
+
+    // PING — RESTORE PHYSICAL FAILURE: root cause was NOT this code --
+    // restoreCommitment/the RPC call shape were always correct. The bug was
+    // that 20260913010000_commitment_restore_with_evidence.sql was never
+    // applied to the staging database (`supabase migration list --linked`
+    // showed local=20260913010000, remote="" -- confirmed directly against
+    // staging: rpc('restore_commitment_with_evidence', ...) returned
+    // PGRST202 "Could not find the function ... in the schema cache").
+    // Fixed by running `supabase db push --linked` against the already-
+    // linked staging project (oonijgmddgyymhrlnvuu) -- re-verified live: the
+    // same dummy-id probe now returns P0002 "Commitment not found" (proving
+    // the function exists), and the actual physically-archived record
+    // (id 9e39edeb-d7b0-467d-9073-f0848251c7d3, "entrenar", cancelled) was
+    // restored successfully with matching Event ('restored')/Audit
+    // ('commitment_restored') evidence rows, due_at/resolved_at unchanged,
+    // and a same-record double-restore correctly rejected with P0001. This
+    // test certifies the SAME propagation contract restoreCommitment must
+    // preserve if the RPC ever returns a not-found error again (e.g. from
+    // Postgres directly, PGRST202-equivalent, or any other undefined-
+    // function shape) -- the service must never swallow it, and the
+    // controller's existing generic-500-for-unmapped-code fallback
+    // ("Unable to process commitment request", the exact string physically
+    // observed on iPhone) is the correct, already-existing behavior for a
+    // genuinely unexpected error code, not a bug to special-case here.
+    it('si el RPC devuelve un error de "función no encontrada" (mismo shape que PGRST202 physically observado), restoreCommitment nunca lo traga -- se propaga tal cual al controller', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:restore_commitment_with_evidence': [{
+                data: null,
+                error: { code: 'PGRST202', message: 'Could not find the function public.restore_commitment_with_evidence(p_actor_user_id, p_commitment_id) in the schema cache' },
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { restoreCommitment } = await import('../src/services/commitment.service');
+        await expect(restoreCommitment(OWNER, 'c1')).rejects.toMatchObject({ code: 'PGRST202' });
+    });
+
+    // Mismo comportamiento ya certificado para archive: un segundo restore
+    // sobre un commitment YA restaurado (archived_at ya null) debe fallar
+    // con el guard explícito del RPC (P0001 "Commitment is not archived"),
+    // nunca un no-op silencioso -- verificado en vivo contra staging tras
+    // el fix (ver comentario arriba).
+    it('un segundo restore sobre el mismo commitment (ya no archivado) propaga el P0001 "Commitment is not archived" del RPC, sin tragárselo', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [{
+                data: { id: 'c1', owner_user_id: OWNER, conversation_id: null },
+                error: null,
+            }],
+            'rpc:restore_commitment_with_evidence': [{
+                data: null,
+                error: { code: 'P0001', message: 'Commitment is not archived' },
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { restoreCommitment } = await import('../src/services/commitment.service');
+        await expect(restoreCommitment(OWNER, 'c1')).rejects.toMatchObject({ code: 'P0001', message: 'Commitment is not archived' });
+    });
 });
 
 // PING — ARCHIVE LIFECYCLE COMPLETION: audit found NO backend query mode

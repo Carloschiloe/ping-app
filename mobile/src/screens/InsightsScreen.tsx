@@ -205,16 +205,35 @@ export default function InsightsScreen() {
         }
     }, [confirmItem, acceptCommitment, respondToProposal, confirmProposal]);
 
-    const handleCancel = useCallback((id: string) => {
-        cancelCommitment({ id });
+    // PING — RESTORE PHYSICAL FAILURE FIX: mutateAsync returns a Promise;
+    // calling it bare (never awaited, never .catch()'d) left any rejection
+    // as an unhandled promise -- exactly the "Uncaught (in promise, id: 0)"
+    // physically observed on iPhone. Same try/catch + Alert.alert pattern
+    // already established by handleSaveDate/handleRejectProposal/
+    // handleWithdrawProposal below -- no new error-handling system
+    // invented. On failure the archived item is never optimistically
+    // removed (useCancelCommitment/useArchiveCommitment/
+    // useRestoreCommitment have no onMutate optimistic update at all, only
+    // onSuccess-driven invalidation), so it naturally remains visible for
+    // retry without any extra rollback logic needed here.
+    const handleCancel = useCallback(async (id: string) => {
+        try {
+            await cancelCommitment({ id });
+        } catch {
+            Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
+        }
     }, [cancelCommitment]);
 
     // PING — ARCHIVE UX AUDIT + IMPLEMENTATION: dueño real es
     // archiveCommitment (archived_at, status intacto) -- nunca la misma
     // mutación que handleCancel (status -> cancelled). Wiring nuevo, el
     // endpoint/RPC ya existían y ya estaban probados en backend.
-    const handleArchive = useCallback((id: string) => {
-        archiveCommitment(id);
+    const handleArchive = useCallback(async (id: string) => {
+        try {
+            await archiveCommitment(id);
+        } catch {
+            Alert.alert('No se pudo archivar el compromiso', 'Intenta nuevamente.');
+        }
     }, [archiveCommitment]);
 
     // PING — ARCHIVE LIFECYCLE COMPLETION: dueño real es restoreCommitment
@@ -223,8 +242,12 @@ export default function InsightsScreen() {
     // visibilidad, reabrir cambia status. Ambas pueden aplicarse en
     // secuencia (restaurar primero, reabrir después) pero nunca se
     // colapsan en una sola acción.
-    const handleRestore = useCallback((id: string) => {
-        restoreCommitment(id);
+    const handleRestore = useCallback(async (id: string) => {
+        try {
+            await restoreCommitment(id);
+        } catch {
+            Alert.alert('No se pudo restaurar el compromiso', 'Intenta nuevamente.');
+        }
     }, [restoreCommitment]);
 
     const handleReopen = useCallback((id: string) => {

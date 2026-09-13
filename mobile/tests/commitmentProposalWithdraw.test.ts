@@ -101,9 +101,9 @@ describe('el path canónico de cancelación de commitment permanece intacto', ()
         expect(COMMITMENT_ROW_SRC).toMatch(/onCancel\?: \(id: string\) => void;/);
         expect(COMMITMENT_ROW_SRC).not.toMatch(/onWithdraw\(c\.id\)/);
     });
-    it('InsightsScreen.tsx sigue wireando onCancel={handleCancel} (useCancelCommitment) sin cambios de firma', () => {
+    it('InsightsScreen.tsx sigue wireando onCancel={handleCancel} (useCancelCommitment), ahora async con try/catch (PING — RESTORE PHYSICAL FAILURE FIX, ver commitmentProposalConfirmDispatch.test.ts)', () => {
         expect(INSIGHTS_SCREEN_SRC).toMatch(/onCancel=\{handleCancel\}/);
-        expect(INSIGHTS_SCREEN_SRC).toMatch(/const handleCancel = useCallback\(\(id: string\) => \{\s*cancelCommitment\(\{ id \}\);\s*\}, \[cancelCommitment\]\);/);
+        expect(INSIGHTS_SCREEN_SRC).toMatch(/const handleCancel = useCallback\(async \(id: string\) => \{\s*try \{\s*await cancelCommitment\(\{ id \}\);/);
     });
 });
 

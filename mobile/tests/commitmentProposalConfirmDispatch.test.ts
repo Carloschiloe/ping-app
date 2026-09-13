@@ -645,7 +645,10 @@ describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires t
         expect(src).toMatch(/useArchiveCommitment/);
         expect(src).not.toMatch(/useDeleteCommitment/);
         expect(src).toMatch(/const \{ mutateAsync: archiveCommitment \} = useArchiveCommitment\(\);/);
-        expect(src).toMatch(/const handleArchive = useCallback\(\(id: string\) => \{\s*archiveCommitment\(id\);\s*\}, \[archiveCommitment\]\);/);
+        // PING — RESTORE PHYSICAL FAILURE FIX: handleArchive is now async
+        // and wraps the call in try/catch (see the dedicated describe
+        // below) -- no longer a bare fire-and-forget mutateAsync(id) call.
+        expect(src).toMatch(/const handleArchive = useCallback\(async \(id: string\) => \{\s*try \{\s*await archiveCommitment\(id\);/);
     });
 
     it('InsightsScreen.tsx passes onArchive={handleArchive} to CommitmentRow (the row menu) AND to CommitmentDetailSheet (the detail footer) -- both surfaces the physical certification showed with no archive option', () => {
@@ -658,8 +661,8 @@ describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires t
 
     it('handleArchive is a distinct callback from handleCancel -- two separate useCallback hooks, never the same function reused for both props', () => {
         const src = readSrc('src/screens/InsightsScreen.tsx');
-        expect(src).toMatch(/const handleCancel = useCallback\(\(id: string\) => \{\s*cancelCommitment\(\{ id \}\);\s*\}, \[cancelCommitment\]\);/);
-        expect(src).toMatch(/const handleArchive = useCallback\(\(id: string\) => \{\s*archiveCommitment\(id\);\s*\}, \[archiveCommitment\]\);/);
+        expect(src).toMatch(/const handleCancel = useCallback\(async \(id: string\) => \{\s*try \{\s*await cancelCommitment\(\{ id \}\);/);
+        expect(src).toMatch(/const handleArchive = useCallback\(async \(id: string\) => \{\s*try \{\s*await archiveCommitment\(id\);/);
     });
 
     it('useArchiveCommitment calls DELETE /commitments/:id (the real archiveCommitment/deleteCommitment alias endpoint in backend) with the plain id, mirroring the real backend contract, dynamically exercised against apiClient.delete', async () => {
@@ -725,7 +728,9 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
         const src = readSrc('src/screens/InsightsScreen.tsx');
         expect(src).toMatch(/useArchivedCommitments, useRestoreCommitment/);
         expect(src).toMatch(/const \{ mutateAsync: restoreCommitment \} = useRestoreCommitment\(\);/);
-        expect(src).toMatch(/const handleRestore = useCallback\(\(id: string\) => \{\s*restoreCommitment\(id\);\s*\}, \[restoreCommitment\]\);/);
+        // PING — RESTORE PHYSICAL FAILURE FIX: async + try/catch, see the
+        // dedicated describe below for the full unhandled-promise fix.
+        expect(src).toMatch(/const handleRestore = useCallback\(async \(id: string\) => \{\s*try \{\s*await restoreCommitment\(id\);/);
     });
 
     it('InsightsScreen.tsx passes onRestore={handleRestore} to CommitmentRow AND CommitmentDetailSheet (both surfaces get the same symmetric restore path as archive)', () => {
@@ -762,5 +767,69 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
         // The grouping predicate reads normalizeCommitmentStatus(c.status),
         // the real canonical status -- never a synthetic "archived" bucket.
         expect(archivadosBlock).toMatch(/const status = normalizeCommitmentStatus\(c\.status\);/);
+    });
+});
+
+// PING — RESTORE PHYSICAL FAILURE: physical iPhone test found tapping
+// Restaurar produced "ApiError: Unable to process commitment request" AND
+// "Uncaught (in promise, id: 0)" -- two separate bugs. Root cause of the
+// first (proven against real staging, not guessed): the migration adding
+// restore_commitment_with_evidence was in the repo but was never applied
+// to the staging database (`supabase migration list --linked` showed
+// local=20260913010000, remote=""; a direct RPC probe against staging
+// returned PGRST202 "Could not find the function ... in the schema
+// cache", which the controller's existing generic fallback then reported
+// as HTTP 500 "Unable to process commitment request" -- the exact string
+// seen on iPhone). Fixed by applying the migration to staging (`supabase
+// db push --linked`) -- no code was wrong, see
+// commitmentService.test.ts for the propagation-contract regression.
+// SEPARATELY, root cause of the second bug (unrelated to the first, and
+// would have still crashed even after the migration fix): handleArchive/
+// handleRestore/handleCancel in InsightsScreen.tsx called
+// mutateAsync(id) bare -- never awaited, never wrapped in try/catch --
+// so ANY rejection (this one, or a future unrelated one) became an
+// unhandled promise rejection. Fixed using the SAME try/catch +
+// Alert.alert pattern already established by handleSaveDate/
+// handleRejectProposal/handleWithdrawProposal in the same file -- no new
+// error-handling system invented.
+describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleCancel never leave a rejected mutateAsync promise unhandled', () => {
+    it('handleRestore wraps restoreCommitment(id) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const handleRestoreBlock = src.slice(src.indexOf('const handleRestore = useCallback'), src.indexOf('const handleReopen = useCallback'));
+        expect(handleRestoreBlock).toMatch(/async \(id: string\) => \{/);
+        expect(handleRestoreBlock).toMatch(/try \{\s*await restoreCommitment\(id\);\s*\} catch \{/);
+        expect(handleRestoreBlock).toMatch(/Alert\.alert\('No se pudo restaurar el compromiso', 'Intenta nuevamente\.'\);/);
+    });
+
+    it('handleArchive wraps archiveCommitment(id) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const handleArchiveBlock = src.slice(src.indexOf('const handleArchive = useCallback'), src.indexOf('const handleRestore = useCallback'));
+        expect(handleArchiveBlock).toMatch(/async \(id: string\) => \{/);
+        expect(handleArchiveBlock).toMatch(/try \{\s*await archiveCommitment\(id\);\s*\} catch \{/);
+        expect(handleArchiveBlock).toMatch(/Alert\.alert\('No se pudo archivar el compromiso', 'Intenta nuevamente\.'\);/);
+    });
+
+    it('handleCancel wraps cancelCommitment({ id }) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const handleCancelBlock = src.slice(src.indexOf('const handleCancel = useCallback'), src.indexOf('const handleArchive = useCallback'));
+        expect(handleCancelBlock).toMatch(/async \(id: string\) => \{/);
+        expect(handleCancelBlock).toMatch(/try \{\s*await cancelCommitment\(\{ id \}\);\s*\} catch \{/);
+        expect(handleCancelBlock).toMatch(/Alert\.alert\('No se pudo cancelar el compromiso', 'Intenta nuevamente\.'\);/);
+    });
+
+    it('none of the three handlers call mutateAsync bare (fire-and-forget) -- every call site is preceded by "await" inside a try block', () => {
+        const src = readSrc('src/screens/InsightsScreen.tsx');
+        expect(src).not.toMatch(/^\s*restoreCommitment\(id\);\s*$/m);
+        expect(src).not.toMatch(/^\s*archiveCommitment\(id\);\s*$/m);
+        expect(src).not.toMatch(/^\s*cancelCommitment\(\{ id \}\);\s*$/m);
+    });
+
+    it('archive/restore/cancel mutations use no onMutate optimistic update -- only onSuccess-driven invalidation -- so a failed mutation never optimistically removes the item from Archivados/Compromisos before the server confirms success', () => {
+        const commitmentsApiSrc = readSrc('src/api/query-modules/commitments.ts');
+        for (const hookName of ['useArchiveCommitment', 'useRestoreCommitment']) {
+            const hookBlock = commitmentsApiSrc.match(new RegExp(`export const ${hookName} = \\(\\) => \\{([^]*?)\\n\\};`));
+            expect(hookBlock).not.toBeNull();
+            expect(hookBlock![1]).not.toMatch(/onMutate/);
+        }
     });
 });
