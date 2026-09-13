@@ -201,6 +201,28 @@ describe('M-2 ABSOLUTE FINAL: CanonicalTruthResolver.resolveCurrentValue -- util
         expect(value).toBe('accepted');
     });
 
+    // PING — ARCHIVED COMMITMENT LEAKAGE FIX: el fallback autorizado (sin
+    // preloaded) debe tratar un commitment archivado (archived_at no nulo)
+    // como no resoluble -- misma exclusión ya aplicada en
+    // retrieveCommitments/retrieveVisibleCommitmentById, nunca deja que este
+    // resolver siga confirmando el status de una entidad que el usuario ya
+    // "eliminó" y que el Agent no debe seguir tratando como una ancla de
+    // verdad canónica válida.
+    it('resolveCommitmentStatus (fallback DB, sin preloaded) excluye commitments archivados -- aplica .is("archived_at", null)', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: null, error: null }], // archivado -> el filtro real de Postgres lo excluiría; el mock simula ese resultado
+            commitment_proposals: [{ data: null, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { findCanonicalResolver } = await import('../src/services/canonicalTruthRegistry');
+        const resolver = findCanonicalResolver('commitment_status:cm-archived')!;
+        const value = await resolver.resolveCurrentValue('commitment_status:cm-archived', 'owner1', {});
+
+        expect(value).toBeNull();
+        expect(mock.getIsCalls('commitments')).toContainEqual(['archived_at', null]);
+    });
+
     it('resolveProfileIdentity resuelve autorizado contra la DB real cuando no hay preloaded', async () => {
         const mock = createSupabaseAdminMock({ profiles: [{ data: { full_name: 'Nombre Real' }, error: null }] });
         setSupabaseAdminMock(mock);

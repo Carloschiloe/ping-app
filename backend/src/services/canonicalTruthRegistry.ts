@@ -45,10 +45,19 @@ async function resolveCommitmentStatus(predicate: string, ownerUserId: string, p
     // estar en el batch ya cargado de este request (ej. quedó fuera del
     // budget de retrieval) -- se reutiliza EXACTAMENTE el mismo criterio de
     // visibilidad ya certificado para el Agent, nunca uno más laxo.
+    // PING — ARCHIVED COMMITMENT LEAKAGE FIX (mismo hallazgo aplicado aquí):
+    // retrieveCommitments/retrieveVisibleCommitmentById ya excluyen
+    // archived_at (el usuario "eliminó" el commitment, nunca aparece en la
+    // UI móvil ni en retrieval del Agent) -- este fallback debe tratar la
+    // misma entidad archivada como no resoluble, nunca seguir devolviendo
+    // su status como si aún fuera una ancla de verdad canónica válida para
+    // dominancia de memoria.
     const participantProposalIds = await getParticipantProposalIds(ownerUserId);
     const { data: commitmentRow } = await supabaseAdmin
         .from('commitments').select('status').eq('id', id)
-        .or(buildCommitmentVisibilityFilter(ownerUserId, participantProposalIds)).maybeSingle();
+        .or(buildCommitmentVisibilityFilter(ownerUserId, participantProposalIds))
+        .is('archived_at', null)
+        .maybeSingle();
     if (commitmentRow) return commitmentRow.status;
 
     const { data: proposalRow } = await supabaseAdmin
