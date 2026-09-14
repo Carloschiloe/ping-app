@@ -28,7 +28,8 @@ import { synthesizeAgentResponse } from './agentResponseSynthesizer.service';
 import { toPublicAgentResponse } from '../types/agent';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AUTHORIZATION_TTL_MS } from './agentAuthorization.service';
-import type { AgentPlan, AgentPlanStep } from '../types/agentPlan';
+import { LlmObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import type { AgentPlan, AgentPlanStep, AgentObjective } from '../types/agentPlan';
 import type {
     AgentTurnInput,
     AgentTurnResult,
@@ -38,6 +39,14 @@ import type {
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
+// M-7B — first controlled live wiring of dialogue state, scoped to
+// create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
+// tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
+// normalization/planning/authorization/execution/verification unchanged --
+// this only decides WHICH objective enters the existing, unmodified
+// runAgentPlanning pipeline.
+import { AgentDialogueStateService, buildDialogueScopeKey } from './agentDialogueState.service';
+import { classifyContinuation, reconcileContinuationObjective, isContinuationEligibleObjectiveType } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
     now?: Date;
@@ -94,6 +103,10 @@ export async function runAgentTurn(
         return 'mobile';
     };
     const channel = surfaceToChannel(envelope.surface);
+    // M-7B — dialogue scope key for this turn, per ADR Q4: conversationId
+    // when present, else 'agent:' + surface. Computed once, used by both
+    // write-action branches below.
+    const dialogueScopeKey = buildDialogueScopeKey({ conversationId, surface: envelope.surface });
 
     // A deterministic action can enter the planner directly. Reusing the
     // resolved objective avoids both an unnecessary read-context retrieval
@@ -108,19 +121,10 @@ export async function runAgentTurn(
     // re-plan and agentPlan.controller.ts's initial plan now also do.
     const routing = await resolveDeterministicRouting(content, { actorUserId: input.actorUserId, conversationId });
     if (routing.isWriteActionRequest && routing.resolvedObjective) {
-        const plan = await runAgentPlanning({
-            actorUserId: input.actorUserId,
-            input: content,
-            conversationId,
-            channel,
-            locale,
-            timezone,
-            now,
-            traceId,
-            inputEnvelope: envelope,
-            contextReferents: referents,
-        }, { resolvedObjective: routing.resolvedObjective });
-        return routePlanningResult(plan, { locale, timezone, now, traceId });
+        return runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: routing.resolvedObjective,
+        });
     }
 
     // Single buildAgentContext call — both the routing decision AND (when
@@ -171,20 +175,21 @@ export async function runAgentTurn(
     // pipeline (never executes — /turn is a dry-run, same as /agent/plan).
     // Read-only requests reuse the context already built above.
     if (isWriteActionRequest) {
-        const plan = await runAgentPlanning({
-            actorUserId: input.actorUserId,
-            input: content,
-            conversationId,
-            channel,
-            locale,
-            timezone,
-            now,
-            traceId,
-            inputEnvelope: envelope,
-            contextReferents: referents,
+        // M-7B — the deterministic fast path above didn't resolve an
+        // objective (or this turn didn't take it), so this is the primary
+        // LLM interpretation path. Interpreted HERE (rather than left to
+        // runAgentPlanning's own internal interpretation) so dialogue-state
+        // continuation can be classified against a real objective before
+        // planning -- runAgentPlanning is then called with this exact
+        // objective as `resolvedObjective`, so interpretation still happens
+        // exactly once per turn, same cost discipline as before.
+        const newTurnObjective = await new LlmObjectiveInterpreter().interpret(content, {
+            actorUserId: input.actorUserId, conversationId,
         });
-
-        return routePlanningResult(plan, { locale, timezone, now, traceId });
+        return runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective,
+        });
 
         // status === 'draft': structurally blocked or genuinely unsupported —
         // never a plan a client could confirm, and nothing left to ask
@@ -211,6 +216,114 @@ export async function runAgentTurn(
         {},
     );
     return { kind: 'response', response: toPublicAgentResponse(response) };
+}
+
+// M-7B — the single entry point for every write-shaped turn, from either
+// the deterministic-fast-path or LLM-interpretation call site above. Owns:
+// (1) looking up any open dialogue state for this scope, (2) Core-validated
+// continuation classification (never trusting an LLM claim alone -- see
+// classifyContinuation), (3) the reconciled-objective merge when a genuine
+// continuation is found, (4) delegating to the EXACT SAME, UNMODIFIED
+// runAgentPlanning pipeline every other write turn already uses, and (5)
+// updating dialogue state from the real plan result afterward. This is not
+// a second execution path -- plan/authorization/execution remain owned
+// exactly where they already were; this function only decides which
+// objective those existing systems receive.
+async function runWriteActionTurn(params: {
+    actorUserId: string;
+    content: string;
+    conversationId?: string;
+    channel: string;
+    locale?: string;
+    timezone?: string;
+    now: Date;
+    traceId: string;
+    envelope: ReturnType<typeof resolveAgentRequestInput>['envelope'];
+    referents: ReturnType<typeof resolveAgentRequestInput>['referents'];
+    dialogueScopeKey: string;
+    newTurnObjective: AgentObjective;
+}): Promise<AgentTurnResult> {
+    const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
+    const dialogueService = new AgentDialogueStateService();
+    const existingDialogueState = dialogueService.getSnapshot(actorUserId, dialogueScopeKey);
+    const turnId = `${params.traceId}:${Date.now()}`;
+    // ADR Q12 -- monotonic per-scope sequence. lastTurnSequence + 1 is
+    // always strictly newer than whatever this read observed, so this
+    // turn's own write can never be rejected as stale against itself; a
+    // genuinely newer concurrent turn (per the CAS guard inside
+    // AgentDialogueStateService) would still win over this one if it
+    // commits first.
+    const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
+
+    const classification = classifyContinuation(existingDialogueState, newTurnObjective);
+    tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_CLASSIFIED', {
+        isContinuation: classification.isContinuation, reason: classification.reason, dialogueScopeKey,
+    });
+
+    let objectiveForPlanning = newTurnObjective;
+    if (classification.isContinuation && existingDialogueState?.openObjective) {
+        const reconciled = reconcileContinuationObjective(existingDialogueState.openObjective, newTurnObjective);
+        objectiveForPlanning = reconciled.objective;
+        tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_MERGED', {
+            filledField: reconciled.filledField, dialogueScopeKey,
+        });
+    }
+
+    const plan = await runAgentPlanning({
+        actorUserId,
+        input: params.content,
+        conversationId: params.conversationId,
+        channel: params.channel,
+        locale: params.locale,
+        timezone: params.timezone,
+        now: params.now,
+        traceId: params.traceId,
+        inputEnvelope: params.envelope,
+        contextReferents: params.referents,
+    }, { resolvedObjective: objectiveForPlanning });
+
+    // M-7B dialogue-state bookkeeping, strictly AFTER the real plan result
+    // is known -- dialogue state never predicts or overrides what the
+    // canonical planner decided.
+    if (!isContinuationEligibleObjectiveType(objectiveForPlanning.objectiveType)) {
+        // Objective type out of scope for continuation tracking in this
+        // phase (per the task's bounded-rollout instruction) -- dialogue
+        // state for this scope is left untouched. A genuinely open,
+        // eligible dialogue elsewhere for this same scope key would only
+        // exist if a different objective type were previously open, which
+        // classifyContinuation already refuses to merge into.
+    } else if (plan.status === 'needs_clarification') {
+        dialogueService.openObjective({
+            actorUserId, dialogueScopeKey, objective: objectiveForPlanning,
+            ambiguities: plan.objective.ambiguities, turnId, turnSequence,
+        });
+        if (plan.unresolvedInputs[0]) {
+            dialogueService.setPendingClarification({
+                actorUserId, dialogueScopeKey, clarification: plan.unresolvedInputs[0], turnId, turnSequence: turnSequence + 1,
+            });
+        }
+    } else if (plan.status === 'ready_for_authorization' && plan.planDigest) {
+        // The objective is now fully specified -- ensure dialogue state
+        // reflects it (opening it fresh if this turn completed it in one
+        // shot, e.g. a single-turn request that happened to also have an
+        // eligible objectiveType) then record the plan-digest REFERENCE
+        // only, per ADR Q13 -- never a copy of the plan itself. No
+        // authorization has occurred yet; PlanCard confirmation is still
+        // required exactly as for any other plan.
+        dialogueService.openObjective({
+            actorUserId, dialogueScopeKey, objective: objectiveForPlanning, turnId, turnSequence,
+        });
+        dialogueService.markReadyForAuthorization({
+            actorUserId, dialogueScopeKey, planDigest: plan.planDigest, turnId, turnSequence: turnSequence + 1,
+        });
+    } else if (classification.isContinuation) {
+        // A continuation attempt that still resolved to 'draft'/unsupported
+        // (e.g. the merged objective was structurally invalid) closes the
+        // dialogue rather than leaving a stale open objective behind.
+        dialogueService.reset({ actorUserId, dialogueScopeKey });
+    }
+
+    return routePlanningResult(plan, { locale: params.locale, timezone: params.timezone, now: params.now, traceId: params.traceId });
 }
 
 function routePlanningResult(

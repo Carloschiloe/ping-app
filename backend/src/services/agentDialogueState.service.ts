@@ -1,20 +1,19 @@
-// M-7A — Dialogue State Foundation (infrastructure only). See
-// tmp/PING-M7-DIALOGUE-STATE-ADR.md for the full architecture decision this
-// implements (§3 Decision, §5 minimum-viable Phase 1 scope).
+// M-7A — Dialogue State Foundation. See tmp/PING-M7-DIALOGUE-STATE-ADR.md
+// for the full architecture decision this implements (§3 Decision, §5
+// minimum-viable Phase 1 scope).
 //
-// CRITICAL: this module is intentionally NOT imported by agentTurn.service.ts,
-// agentInputInterpreter.service.ts, agentObjectiveInterpreter.service.ts,
-// agentContextBuilder.service.ts, agentPlanner.service.ts,
-// agentPlanOrchestrator.service.ts, agentAuthorization.service.ts,
-// agentExecution.service.ts, or agentVoice.service.ts. No current Agent
-// behavior depends on this file. Live wiring is a separate, later,
-// physically-certified phase (ADR Q17).
-//
-// This module owns dialogue-state TRANSITIONS and SCOPE. It never owns
-// product semantics beyond that -- it does not interpret language, does not
-// resolve entities, does not call an LLM, does not write to memory_records,
-// does not read/write AgentPlan/AgentAuthorization/AgentExecutionResult
-// rows. Those remain exactly where they already live.
+// M-7B UPDATE: this module is now imported by agentTurn.service.ts (the
+// first controlled live wiring, scoped to create_commitment continuation
+// only — see agentDialogueContinuation.service.ts for the Core-owned
+// reconciliation logic, kept in its own file so this module stays pure
+// state/transition/scope infrastructure). This module itself still does
+// not interpret language, does not resolve entities, does not call an
+// LLM, does not write to memory_records, does not read/write
+// AgentPlan/AgentAuthorization/AgentExecutionResult rows -- it owns
+// dialogue-state TRANSITIONS and SCOPE only. Those product-semantic
+// decisions remain exactly where they already live (agentObjectiveInterpreter
+// .service.ts, agentPlanner.service.ts, agentAuthorization.service.ts,
+// agentExecution.service.ts).
 import { AppError } from '../utils/AppError';
 import type {
     AgentDialogueState,

@@ -371,11 +371,16 @@ describe('architectural fences (test areas 22-24) — explicit proof of scope bo
         expect(codeOnly).not.toMatch(/ingestMemoryFromEvent/);
     });
 
-    it('23. no live Agent pipeline file imports agentDialogueState.service.ts (proves zero live wiring)', () => {
+    // M-7B UPDATE: agentTurn.service.ts now legitimately imports this module
+    // (the first controlled live wiring, scoped to create_commitment
+    // continuation via agentDialogueContinuation.service.ts). Every OTHER
+    // pipeline file must still have zero reference to it -- this test now
+    // proves the wiring is exactly as narrow as M-7B specifies, never
+    // broader.
+    it('23. only agentTurn.service.ts imports agentDialogueState.service.ts among live Agent pipeline files (M-7B\'s narrow, controlled wiring) -- every other pipeline file remains unwired', () => {
         const fs = require('node:fs') as typeof import('node:fs');
         const path = require('node:path') as typeof import('node:path');
-        const pipelineFiles = [
-            'agentTurn.service.ts',
+        const unwiredPipelineFiles = [
             'agentInputInterpreter.service.ts',
             'agentObjectiveInterpreter.service.ts',
             'agentContextBuilder.service.ts',
@@ -385,10 +390,12 @@ describe('architectural fences (test areas 22-24) — explicit proof of scope bo
             'agentExecution.service.ts',
             'agentVoice.service.ts',
         ];
-        for (const file of pipelineFiles) {
+        for (const file of unwiredPipelineFiles) {
             const source = fs.readFileSync(path.join(__dirname, '../src/services', file), 'utf-8');
-            expect(source, `${file} must not import agentDialogueState.service.ts yet`).not.toMatch(/agentDialogueState\.service/);
+            expect(source, `${file} must not import agentDialogueState.service.ts`).not.toMatch(/agentDialogueState\.service/);
         }
+        const turnSource = fs.readFileSync(path.join(__dirname, '../src/services/agentTurn.service.ts'), 'utf-8');
+        expect(turnSource).toMatch(/agentDialogueState\.service|agentDialogueContinuation\.service/);
     });
 
     it('24. this module has no IMPORT of agentPlanner.service.ts, agentAuthorization.service.ts, or agentExecution.service.ts, and no DB/RPC call (proves it cannot mutate Plan/Authorization/Execution state)', () => {
