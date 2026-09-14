@@ -202,4 +202,44 @@ describe('completeCommitmentExecutor — TOCTOU / authorization / verification (
 
         await expect(completeCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', resolutionResult: 'listo' })).rejects.toThrow(TypeError);
     });
+
+    // PING — ARCHIVED COMMITMENT TOCTOU GAP FIX: an archived commitment
+    // must never be executable as a live canonical target, even under a
+    // race (resolve while live -> archive -> execute afterward). `status`
+    // and `archived_at` are independent columns (archiving never touches
+    // `status`), so a commitment archived while still 'accepted' would
+    // otherwise pass the validFromStatuses check below unnoticed --
+    // confirmed by reading apply_commitment_transition_with_evidence's SQL
+    // body directly (no archived_at check existed there before this fix).
+    describe('archived commitment TOCTOU: reject before AND after the canonical write boundary, never a silent success', () => {
+        it('executor pre-write re-fetch sees archived_at set (even with a live, otherwise-valid status) -- invalid_lifecycle, RPC never called', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: null, status: 'accepted', archived_at: '2026-09-14T00:00:00.000Z' }, error: null }],
+            }));
+            const outcome = await completeCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', resolutionResult: 'listo' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+            expect(mockResolveCommitment).not.toHaveBeenCalled();
+        });
+
+        // Reproduces the exact race the task specifies: T1 resolve while
+        // archived_at IS NULL (this executor's pre-write re-fetch, mocked
+        // here as still-unarchived to simulate the window closing AFTER
+        // this check), T2 archive happens concurrently, T3/T4 the RPC
+        // itself (the true canonical write boundary, under its own row
+        // lock) is what actually rejects -- proving the fix is not solely
+        // dependent on this executor's own pre-check.
+        it('canonical RPC boundary rejects even when the executor pre-check window already closed (archived between re-fetch and RPC write) -- P0001 maps to invalid_lifecycle, never verified:true', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: null, status: 'accepted', archived_at: null }, error: null }],
+            }));
+            const err: any = new AppError('Commitment is archived', 409);
+            err.code = 'P0001';
+            mockResolveCommitment.mockRejectedValueOnce(err);
+
+            const outcome = await completeCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', resolutionResult: 'listo' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+        });
+    });
 });

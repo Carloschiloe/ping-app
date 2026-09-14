@@ -18,7 +18,7 @@ export const completeCommitmentExecutor: ToolExecutor = {
 
         const { data: current, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, owner_user_id, assigned_to_user_id, status')
+            .select('id, owner_user_id, assigned_to_user_id, status, archived_at')
             .eq('id', commitmentId)
             .maybeSingle();
         if (error) throw new AppError(error.message, 500);
@@ -26,6 +26,21 @@ export const completeCommitmentExecutor: ToolExecutor = {
 
         const isOwnerOrAssignee = current.owner_user_id === context.actorUserId || current.assigned_to_user_id === context.actorUserId;
         if (!isOwnerOrAssignee) return { status: 'failed_terminal', failureCode: 'not_authorized', verified: false };
+
+        // PING — ARCHIVED COMMITMENT TOCTOU GAP FIX: `status` and
+        // `archived_at` are independent columns -- archiving never touches
+        // `status` (archive_commitment_with_evidence writes ONLY
+        // archived_at), so an archived commitment can retain a live status
+        // like 'accepted' and would otherwise still pass the
+        // validFromStatuses check below. Checked here as a fast, honest
+        // TOCTOU re-check (this executor's own re-fetch, same principle as
+        // the entity/status re-checks around it); the canonical write
+        // boundary itself (apply_commitment_transition_with_evidence RPC)
+        // independently enforces the same invariant under its row lock, so
+        // this is defense-in-depth, never the sole guard.
+        if (current.archived_at) {
+            return { status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false };
+        }
 
         const status = normalizeCommitmentStatus(current.status);
         if (!COMMITMENT_TRANSITION_TABLE.resolve.validFromStatuses.includes(status)) {
@@ -60,7 +75,14 @@ export const completeCommitmentExecutor: ToolExecutor = {
         } catch (err) {
             if (err instanceof AppError || (err as any)?.code) {
                 const pgCode = (err as any)?.code;
-                const code = pgCode === '42501' ? 'not_authorized' : pgCode === '40001' ? 'entity_changed' : 'transient_failure';
+                // PING — ARCHIVED COMMITMENT TOCTOU GAP FIX: P0001 is the
+                // RPC's own "Commitment is archived" domain guard (raised
+                // under the row lock, race-safe against a concurrent
+                // archive between this executor's own pre-check above and
+                // the write) -- same mapping respondToProposalExecutor.ts
+                // already uses for its own P0001 domain errors, never a
+                // new vocabulary.
+                const code = pgCode === '42501' ? 'not_authorized' : pgCode === '40001' ? 'entity_changed' : pgCode === 'P0001' ? 'invalid_lifecycle' : 'transient_failure';
                 return { status: code === 'transient_failure' ? 'failed_retryable' : 'failed_terminal', failureCode: code, verified: false };
             }
             throw err;

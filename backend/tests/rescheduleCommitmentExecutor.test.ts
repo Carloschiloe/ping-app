@@ -290,4 +290,71 @@ describe('rescheduleCommitmentExecutor — self-owned commitment (no real counte
         expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
         expect(mockEditCommitment).not.toHaveBeenCalled();
     });
+
+    // PING — ARCHIVED COMMITMENT TOCTOU GAP FIX: an archived commitment
+    // must never be executable as a live canonical reschedule target,
+    // even under a race, for BOTH the self-owned direct-edit path and the
+    // real-counterparty counter-propose path. `status` and `archived_at`
+    // are independent columns (archiving never touches `status`), so a
+    // commitment archived while still 'accepted' would otherwise pass the
+    // validFromStatuses check unnoticed -- confirmed by reading both
+    // edit_commitment_with_evidence and
+    // apply_commitment_transition_with_evidence's SQL bodies directly (no
+    // archived_at check existed in either before this fix).
+    describe('archived commitment TOCTOU: reject before AND after the canonical write boundary, on both reschedule paths, never a silent success', () => {
+        it('self-owned path: executor pre-write re-fetch sees archived_at set (live, otherwise-valid status) -- invalid_lifecycle, editCommitment never called', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: 'owner-1', counterparty_contact_id: null, status: 'accepted', archived_at: '2026-09-14T00:00:00.000Z' }, error: null }],
+            }));
+            const outcome = await rescheduleCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', newDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+            expect(mockEditCommitment).not.toHaveBeenCalled();
+            expect(mockCounterProposeCommitment).not.toHaveBeenCalled();
+        });
+
+        it('real-counterparty path: executor pre-write re-fetch sees archived_at set -- invalid_lifecycle, counterProposeCommitment never called', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: 'someone-else', counterparty_contact_id: null, status: 'accepted', archived_at: '2026-09-14T00:00:00.000Z' }, error: null }],
+            }));
+            const outcome = await rescheduleCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', newDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+            expect(mockCounterProposeCommitment).not.toHaveBeenCalled();
+            expect(mockEditCommitment).not.toHaveBeenCalled();
+        });
+
+        // Reproduces the exact race the task specifies: T1 resolve while
+        // archived_at IS NULL (this executor's own pre-write re-fetch,
+        // mocked here as still-unarchived to simulate the window closing
+        // AFTER this check), T2 archive happens concurrently, T3/T4 the
+        // RPC itself (the true canonical write boundary, under its own row
+        // lock) is what actually rejects -- proving the fix does not
+        // depend solely on this executor's own pre-check, for both paths.
+        it('self-owned path: canonical edit_commitment_with_evidence RPC boundary rejects even when the executor pre-check window already closed -- P0001 maps to invalid_lifecycle, never verified:true', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: 'owner-1', counterparty_contact_id: null, status: 'accepted', archived_at: null }, error: null }],
+            }));
+            const err: any = new AppError('Commitment is archived', 409);
+            err.code = 'P0001';
+            mockEditCommitment.mockRejectedValueOnce(err);
+
+            const outcome = await rescheduleCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', newDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+        });
+
+        it('real-counterparty path: canonical apply_commitment_transition_with_evidence RPC boundary rejects even when the executor pre-check window already closed -- P0001 maps to invalid_lifecycle, never verified:true', async () => {
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                commitments: [{ data: { id: 'cm-1', owner_user_id: 'owner-1', assigned_to_user_id: 'someone-else', counterparty_contact_id: null, status: 'accepted', archived_at: null }, error: null }],
+            }));
+            const err: any = new AppError('Commitment is archived', 409);
+            err.code = 'P0001';
+            mockCounterProposeCommitment.mockRejectedValueOnce(err);
+
+            const outcome = await rescheduleCommitmentExecutor.execute(ctx(), { commitmentId: 'cm-1', newDueAt: '2026-10-01T10:00:00Z' });
+
+            expect(outcome).toEqual({ status: 'failed_terminal', failureCode: 'invalid_lifecycle', verified: false });
+        });
+    });
 });
