@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
-import { resolveConversationId, canViewOriginConversation, getWaitingLabel, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { resolveConversationId, canViewOriginConversation, getWaitingLabel, isProposalDatePassed, getStatusLabel } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
 import { getProposalWaitingLabel } from '../../utils/agreement';
 import { AgreementParticipantsList } from '../AgreementParticipantsList';
@@ -131,7 +131,7 @@ export function CommitmentDetailSheet({
                     <View style={[styles.metaBlock, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}>
                         <View style={styles.metaRow}>
                             <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Estado</Text>
-                            <Text style={[styles.metaValue, { color: theme.colors.accent }]}>{status.toUpperCase()}</Text>
+                            <Text style={[styles.metaValue, { color: theme.colors.accent }]}>{getStatusLabel(status)}</Text>
                         </View>
                         <View style={styles.metaRow}>
                             <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Fecha</Text>
@@ -192,11 +192,23 @@ export function CommitmentDetailSheet({
                         </View>
                     )}
 
-                    {/* Resolution result if present */}
-                    {!!item.result && (
+                    {/* PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL
+                        FIX: this section read item.result, a field that never
+                        exists anywhere in the API response (confirmed via
+                        repo-wide grep) -- the real canonical field, selected by
+                        backend commitment.service.ts#getCommitments and
+                        persisted verbatim by completeCommitmentExecutor.ts, is
+                        resolution_result. Gated on status === 'resolved' (the
+                        only transition that ever writes this field --
+                        commitmentTransitions.ts's resolve is the sole writer,
+                        per the tool schema's required resolutionResult) so an
+                        accepted/cancelled/rejected/proposed item can never show
+                        a stray Resultado section even if some legacy row
+                        happened to carry a non-empty value. */}
+                    {status === 'resolved' && !!item.resolution_result && (
                         <View style={[styles.sectionBlock, { backgroundColor: 'rgba(34,197,94,0.1)', padding: 12, borderRadius: 8 }]}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.success }]}>Nota de resolución</Text>
-                            <Text style={[styles.bodyText, { color: theme.colors.text.primary }]}>{item.result}</Text>
+                            <Text style={[styles.sectionTitle, { color: theme.colors.success }]}>Resultado</Text>
+                            <Text style={[styles.bodyText, { color: theme.colors.text.primary }]}>{item.resolution_result}</Text>
                         </View>
                     )}
                 </ScrollView>

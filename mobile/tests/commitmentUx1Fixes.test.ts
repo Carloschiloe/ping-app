@@ -593,3 +593,99 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
         }
     });
 });
+
+// PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL FIX. Root
+// cause: CommitmentDetailSheet.tsx's "Resolution result" section read
+// item.result -- a field that never exists anywhere in the API response
+// (backend commitment.service.ts#getCommitments/getArchivedCommitments
+// both select the real column resolution_result; the legacy-shape
+// compat layer, commitmentCompat.ts#toLegacyCommitmentShape, spreads the
+// row unchanged and adds no `result` alias). The canonical field was
+// present end-to-end (DB -> backend select -> API response) and lost
+// ONLY at this final presentation layer, via a wrong property name --
+// confirmed by a repo-wide grep finding zero other mobile references to
+// resolution_result/resolutionResult before this fix. Also wires the
+// existing canonical getStatusLabel helper (already used by
+// GroupTaskCard.tsx/TaskHistoryScreen.tsx) in place of the raw
+// status.toUpperCase() English enum, since it is directly owned by this
+// same component and the helper already exists -- no new status-label
+// map introduced.
+describe('PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL FIX: CommitmentDetailSheet.tsx renders the canonical resolution_result field, never the nonexistent item.result', () => {
+    it('reads item.resolution_result -- the real canonical field name, never item.result (which never exists in any API response)', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/status === 'resolved' && !!item\.resolution_result/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).not.toMatch(/!!item\.result\b/);
+    });
+
+    it('the section renders the label "Resultado" and the exact field value, with no truncation prop (numberOfLines) that would cut off multiline content', () => {
+        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
+        expect(sectionMatch).not.toBeNull();
+        const block = sectionMatch![0];
+        expect(block).toMatch(/>Resultado</);
+        expect(block).toMatch(/\{item\.resolution_result\}/);
+        expect(block).not.toMatch(/numberOfLines/);
+    });
+
+    it('the Resultado section is gated on status === \'resolved\' -- an accepted/cancelled/rejected/proposed item can never render it, even if a stray non-empty value existed on the object', () => {
+        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
+        expect(sectionMatch![0]).toMatch(/^\{status === 'resolved' && !!item\.resolution_result/);
+    });
+
+    it('renders no internal metadata alongside the result -- only the plain resolution_result string, never a JSON.stringify or a second field interpolated into the same block', () => {
+        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
+        const block = sectionMatch![0];
+        expect(block).not.toMatch(/JSON\.stringify/);
+        expect(block).not.toMatch(/item\.id|item\.owner_user_id|item\.conversation_id/);
+    });
+
+    it('the Estado row now uses the canonical getStatusLabel helper (already used by GroupTaskCard.tsx/TaskHistoryScreen.tsx) instead of the raw English enum status.toUpperCase()', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/import \{[^}]*getStatusLabel[^}]*\} from '\.\.\/\.\.\/utils\/commitmentDisplay'/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/>\{getStatusLabel\(status\)\}</);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).not.toMatch(/>\{status\.toUpperCase\(\)\}</);
+    });
+
+    it('getStatusLabel maps resolved to the canonical Spanish label already used everywhere else in the app -- "Resuelto", never a newly-invented "Completado" duplicate label', () => {
+        const DISPLAY_SRC = fs.readFileSync(
+            path.join(__dirname, '..', 'src/utils/commitmentDisplay.ts'), 'utf-8',
+        );
+        expect(DISPLAY_SRC).toMatch(/resolved: 'Resuelto'/);
+        // Only one STATUS_LABELS map exists -- this fix does not introduce
+        // a second, divergent status-translation table.
+        const mapDefinitions = (DISPLAY_SRC.match(/const STATUS_LABELS: Record<string, string> = \{/g) || []).length;
+        expect(mapDefinitions).toBe(1);
+    });
+
+    it('the footer actions Ver en chat / Reabrir / Archivar and their callbacks are untouched by this fix', () => {
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{goToChat\}>\s*\n\s*<Ionicons name="chatbubble-ellipses-outline"/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{\(\) => \{ onClose\(\); onReopen\(item\.id\); \}\}>\s*\n\s*<Ionicons name="refresh-outline"/);
+        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/onPress=\{\(\) => \{ onClose\(\); onArchive\(item\.id\); \}\}>\s*\n\s*<Ionicons name="archive-outline"/);
+    });
+});
+
+// Reopen semantics audit: apply_commitment_transition_with_evidence (the
+// sole RPC that ever mutates lifecycle fields) applies each patch key via
+// `case when p_patch ? 'key' then ... else <unchanged column> end` --
+// computeReopen's patch (commitmentTransitions.ts) never includes
+// resolution_result, so the column is structurally preserved (option B:
+// historical resolution_result survives a reopen), never cleared. This
+// documents that canonical truth so a future presentation change doesn't
+// invent different reopen semantics than what the RPC actually does.
+describe('PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL FIX: reopen preserves historical resolution_result (canonical RPC behavior, not a presentation invention)', () => {
+    const TRANSITIONS_SRC = fs.readFileSync(
+        path.join(__dirname, '..', '..', 'backend/src/utils/commitmentTransitions.ts'), 'utf-8',
+    );
+
+    it('computeReopen\'s patch never includes resolution_result -- the field is left untouched by the reopen transition, never explicitly cleared', () => {
+        const fnMatch = TRANSITIONS_SRC.match(/function computeReopen\(input: CommitmentTransitionInput\): CommitmentTransitionResult \{[^]*?\n\}/);
+        expect(fnMatch).not.toBeNull();
+        expect(fnMatch![0]).not.toMatch(/resolution_result/);
+    });
+
+    it('computeReopen DOES explicitly clear resolved_at/action_completed_at/rejection_reason/proposed_due_at -- confirming the omission of resolution_result is deliberate/structural, not an oversight in a patch that clears everything else', () => {
+        const fnMatch = TRANSITIONS_SRC.match(/function computeReopen\(input: CommitmentTransitionInput\): CommitmentTransitionResult \{[^]*?\n\}/);
+        const body = fnMatch![0];
+        expect(body).toMatch(/resolved_at: null/);
+        expect(body).toMatch(/action_completed_at: null/);
+        expect(body).toMatch(/rejection_reason: null/);
+        expect(body).toMatch(/proposed_due_at: null/);
+    });
+});
