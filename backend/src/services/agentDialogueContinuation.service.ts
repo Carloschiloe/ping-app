@@ -19,6 +19,9 @@
 // bounded-rollout instruction -- see isContinuationEligibleObjectiveType.
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
+import { resolvePerson } from './retrieval.service';
+import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
+import type { RetrievalPerson } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
 // in this phase (both share planCreateCommitment's exact missing-slot
@@ -157,4 +160,129 @@ export function reconcileContinuationObjective(
 const DATE_WORD_PATTERN = /\b(?:ma[ñn]ana|hoy|pasado ma[ñn]ana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\b/iu;
 function hasExplicitDateWord(text: string): boolean {
     return DATE_WORD_PATTERN.test(text);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PING — M-7B PHYSICAL FAILURE #2 FIX: "pending clarification answer"
+// resolution. Distinct from classifyContinuation/reconcileContinuationObjective
+// above (which merge a NEW, independently-interpreted objective into an open
+// one -- e.g. "mañana a las 9" filling a missing date). This is a narrower,
+// earlier question: does the new turn even get a chance to be treated as the
+// ANSWER to a question Ping just asked, before ordinary isolated-turn read/
+// write routing commits to something else? See tmp/PING-M7-DIALOGUE-STATE-ADR.md
+// Q10 and the physical failure report for the full architecture rationale.
+//
+// Scope: only the 'person_ambiguous' pending-clarification field is handled
+// here (the exact physical case). Extending this to other clarification
+// fields (time_ambiguous, topic_too_broad, planner-derived fields like
+// 'title'/'dueAt') is explicitly a later, separate task -- never silently
+// widened here.
+export function isPendingClarificationAnswerable(dialogueState: AgentDialogueState | null): boolean {
+    return !!dialogueState
+        && (dialogueState.lifecycle === 'clarifying' || dialogueState.lifecycle === 'collecting')
+        && !!dialogueState.pendingClarification
+        && dialogueState.pendingClarification.field === 'person_ambiguous'
+        && !!dialogueState.openObjective;
+}
+
+// TASK 9 -- escape/new-objective detection. Reuses the EXISTING deterministic
+// intent classifier (DeterministicInputInterpreter) -- never a new regex
+// family for names, never phrase-specific matching. A raw answer is treated
+// as a genuine escape (an explicit unrelated request) only when it already
+// carries a STRONG existing signal of its own: a recognized write-action
+// verb, or a deterministic intent more specific than the default
+// low-confidence 'general_context' fallback (commitment_query, person_query,
+// document_search, message_search, recall all require their own real
+// keyword/phrase match to fire -- see classifyIntent). A bare name like
+// "Pedro González" matches none of these deterministically, so it is treated
+// as a clarification-answer CANDIDATE and handed to live person resolution;
+// only that live resolution (never an LLM guess) decides what it means.
+// A question mark (either convention, Spanish "¿...?" or plain "...?") is a
+// universal, language-neutral PUNCTUATION signal -- never a name-specific or
+// phrase-specific pattern -- that the utterance has interrogative structure
+// of its own, which a bare clarification-answer name never has ("Pedro
+// González" vs. "¿Qué tengo hoy?"). Combined with the existing deterministic
+// intent classifier below (which alone under-catches day-scoped queries like
+// "¿Qué tengo hoy?" that don't match COMMITMENT_KEYWORDS deterministically),
+// this keeps escape detection fully deterministic and free of any extra LLM
+// call, exactly mirroring how cheap/free the existing deterministic-first
+// checks already are elsewhere in this codebase.
+const QUESTION_MARK_PATTERN = /[?¿]/u;
+
+async function looksLikeExplicitEscape(rawAnswer: string): Promise<boolean> {
+    if (QUESTION_MARK_PATTERN.test(rawAnswer)) return true;
+    const signals = await new DeterministicInputInterpreter().interpret(rawAnswer);
+    if (signals.isWriteActionRequest) return true;
+    return signals.intent !== 'general_context' && signals.intentConfidence > 0.3;
+}
+
+export type PendingClarificationAnswerOutcome =
+    | { outcome: 'escaped' }
+    | { outcome: 'zero_match' }
+    | { outcome: 'multi_match'; candidates: RetrievalPerson[] }
+    | { outcome: 'resolved'; reconciledObjective: AgentObjective; resolvedPerson: RetrievalPerson };
+
+// TASK 5/6 -- the raw answer is NEVER trusted as canonical identity by
+// itself (never "the LLM/user said Pedro González, so it must be person
+// X"). It is only ever a CANDIDATE NAME, and the actual identity comes
+// exclusively from the same live resolvePerson() every other Core path
+// already uses -- zero matches asks again, more than one asks again
+// (disambiguation), and only a unique match reconciles the open objective.
+// Reconciliation touches only entityHints/sourceUtterance (structured
+// AgentObjective fields, never brittle raw string concatenation of the full
+// conversation) -- see TASK 6: create_personal_commitment's title is free
+// text ("llamar a Pedro"), so completing it with the resolved display name
+// is itself Core-owned text composition from a verified candidate, not a
+// trust decision about identity.
+export async function tryAnswerPendingClarification(
+    dialogueState: AgentDialogueState,
+    rawAnswer: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<PendingClarificationAnswerOutcome> {
+    const trimmedAnswer = rawAnswer.trim();
+    if (!trimmedAnswer || await looksLikeExplicitEscape(trimmedAnswer)) {
+        return { outcome: 'escaped' };
+    }
+
+    const resolution = await resolvePerson(actorUserId, { name: trimmedAnswer, conversationId });
+
+    if (resolution.ambiguous || resolution.candidates.length > 1) {
+        return { outcome: 'multi_match', candidates: resolution.candidates };
+    }
+    if (!resolution.resolved) {
+        return { outcome: 'zero_match' };
+    }
+
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const priorTitle = priorObjective.targetEntities.entityHints[0] ?? '';
+    // Completes the free-text title ("llamar a Pedro" -> "llamar a Pedro
+    // González") only when the resolved display name genuinely extends the
+    // ambiguous mention already present -- never a blind append that could
+    // duplicate or corrupt an unrelated title.
+    const resolvedName = resolution.resolved.displayName;
+    const firstNameOfResolved = resolvedName.split(/\s+/)[0] ?? resolvedName;
+    const titleAlreadyHasFullName = priorTitle.toLowerCase().includes(resolvedName.toLowerCase());
+    const completedTitle = titleAlreadyHasFullName || !priorTitle
+        ? (priorTitle || resolvedName)
+        : priorTitle.replace(new RegExp(`\\b${escapeRegExp(firstNameOfResolved)}\\b`, 'iu'), resolvedName);
+
+    const reconciledObjective: AgentObjective = {
+        ...priorObjective,
+        targetEntities: {
+            entityHints: [completedTitle],
+            personHints: priorObjective.targetEntities.personHints,
+        },
+        sourceUtterance: priorObjective.sourceUtterance.replace(
+            new RegExp(`\\b${escapeRegExp(firstNameOfResolved)}\\b`, 'iu'),
+            resolvedName,
+        ),
+        ambiguities: [],
+    };
+
+    return { outcome: 'resolved', reconciledObjective, resolvedPerson: resolution.resolved };
+}
+
+function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

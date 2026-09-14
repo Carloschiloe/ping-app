@@ -47,7 +47,13 @@ import { tracePlan } from '../utils/planTrace';
 // this only decides WHICH objective enters the existing, unmodified
 // runAgentPlanning pipeline.
 import { AgentDialogueStateService, buildDialogueScopeKey } from './agentDialogueState.service';
-import { classifyContinuation, reconcileContinuationObjective, isContinuationEligibleObjectiveType } from './agentDialogueContinuation.service';
+import {
+    classifyContinuation,
+    reconcileContinuationObjective,
+    isContinuationEligibleObjectiveType,
+    isPendingClarificationAnswerable,
+    tryAnswerPendingClarification,
+} from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
     now?: Date;
@@ -108,6 +114,75 @@ export async function runAgentTurn(
     // when present, else 'agent:' + surface. Computed once, used by both
     // write-action branches below.
     const dialogueScopeKey = buildDialogueScopeKey({ conversationId, surface: envelope.surface });
+
+    // PING — M-7B PHYSICAL FAILURE #2 FIX: dialogue-first routing (ADR Q10,
+    // "hybrid insertion, structured not textual"). Before ANY isolated-turn
+    // classification (deterministic routing, buildAgentContext's read
+    // pipeline, or the LLM write-action path below) commits to treating this
+    // turn as a standalone utterance, check whether an open dialogue
+    // objective for this scope is waiting on a specific answer. Physical
+    // proof this was missing: "Pedro González" answering "¿A cuál Pedro te
+    // refieres?" was classified as an independent person_query and produced
+    // a source-backed read response instead of completing the open
+    // "llamar a Pedro" reminder. This is the ONE place that decision is
+    // made -- runAgentTurn is the sole owner of "does this new turn first
+    // belong to an active dialogue", never scattered into the response
+    // synthesizer, planner, or executor, none of which see dialogue state at
+    // all. tryAnswerPendingClarification never trusts the raw text as
+    // identity by itself -- it runs the SAME live resolvePerson() Core
+    // already uses everywhere else; escape detection reuses the existing
+    // deterministic intent classifier (see looksLikeExplicitEscape), never a
+    // new regex family for names.
+    const dialogueService = new AgentDialogueStateService();
+    const existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
+    if (isPendingClarificationAnswerable(existingDialogueState)) {
+        const pendingResult = await tryAnswerPendingClarification(
+            existingDialogueState!, content, input.actorUserId, conversationId,
+        );
+        tracePlan(traceId, 'PENDING_CLARIFICATION_ANSWER_ATTEMPTED', {
+            outcome: pendingResult.outcome, dialogueScopeKey,
+        });
+
+        if (pendingResult.outcome === 'resolved') {
+            // TASK 7 -- the planner (never this module) decides whether the
+            // now-completed objective is fully specified or still needs
+            // another clarification (e.g. a missing date). Reuses the exact
+            // same runWriteActionTurn/runAgentPlanning pipeline every other
+            // write turn already goes through -- no second execution path.
+            return runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.reconciledObjective,
+            });
+        }
+        if (pendingResult.outcome === 'zero_match' || pendingResult.outcome === 'multi_match') {
+            // TASK 5 -- never an arbitrary selection. Re-ask, using the exact
+            // same natural-language realization the rest of M-7B PHYSICAL
+            // FAILURE #1's fix already established, never a raw reason code.
+            const language = detectAgentLanguage(content, locale);
+            const clarification = pendingResult.outcome === 'multi_match'
+                ? { reason: 'person_ambiguous' as const, candidates: pendingResult.candidates }
+                : { reason: 'person_ambiguous' as const, candidates: [] };
+            const { answer, followUp } = realizeAgentClarification(clarification, language);
+            const turnId = `${traceId}:${Date.now()}`;
+            const nextTurnSequence = (existingDialogueState!.lastTurnSequence ?? 0) + 1;
+            dialogueService.setPendingClarification({
+                actorUserId: input.actorUserId, dialogueScopeKey,
+                clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
+                turnId, turnSequence: nextTurnSequence,
+            });
+            return {
+                kind: 'clarification',
+                questions: [{ field: 'person_ambiguous', question: answer, options: followUp.options }],
+            };
+        }
+        // outcome === 'escaped' -- an explicit unrelated request (TASK 9).
+        // Deliberately falls through to normal routing below WITHOUT
+        // resetting or touching the still-open dialogue state: the user may
+        // return to it later, and only a genuine reconciliation or a fresh
+        // objective of the same eligible type (via the existing
+        // classifyContinuation path inside runWriteActionTurn) ever mutates
+        // it. This turn is handled exactly as if no dialogue were open.
+    }
 
     // A deterministic action can enter the planner directly. Reusing the
     // resolved objective avoids both an unnecessary read-context retrieval
@@ -174,6 +249,40 @@ export async function runAgentTurn(
         const clarification = context.clarification;
         const language = detectAgentLanguage(content, locale);
         const { answer, followUp } = realizeAgentClarification(clarification, language);
+
+        // PING — M-7B PHYSICAL FAILURE #2 FIX (TASK 2) -- proven by tracing
+        // this exact path: this branch used to return WITHOUT ever writing
+        // to AgentDialogueStateService, so a person_ambiguous clarification
+        // blocking a genuine write-intent utterance ("Tengo que llamar a
+        // Pedro") left no dialogue state for a later turn to find at all --
+        // the compound root cause of the physical failure, not merely a
+        // routing-order problem. When this clarification is blocking an
+        // objective the user was actually trying to create (isWriteActionRequest
+        // true, per the SAME signal the write-action branch below already
+        // trusts), capture that objective the exact same way the write path
+        // would -- via LlmObjectiveInterpreter -- and persist it so the next
+        // turn's dialogue-first check (above, at the top of this function)
+        // has something real to resolve against. A genuinely read-only
+        // ambiguous query (isWriteActionRequest false) has no objective to
+        // continue and correctly persists nothing.
+        if (isWriteActionRequest && clarification?.reason === 'person_ambiguous') {
+            const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {
+                actorUserId: input.actorUserId, conversationId,
+            });
+            if (isContinuationEligibleObjectiveType(candidateObjective.objectiveType)) {
+                const turnId = `${traceId}:${Date.now()}`;
+                const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
+                dialogueService.openObjective({
+                    actorUserId: input.actorUserId, dialogueScopeKey, objective: candidateObjective, turnId, turnSequence,
+                });
+                dialogueService.setPendingClarification({
+                    actorUserId: input.actorUserId, dialogueScopeKey,
+                    clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
+                    turnId, turnSequence: turnSequence + 1,
+                });
+            }
+        }
+
         return {
             kind: 'clarification',
             questions: [{
