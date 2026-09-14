@@ -300,24 +300,23 @@ export async function runAgentTurn(
         // Pedro") left no dialogue state for a later turn to find at all --
         // the compound root cause of the physical failure, not merely a
         // routing-order problem. When this clarification is blocking an
-        // objective the user was actually trying to create (isWriteActionRequest
-        // true, per the SAME signal the write-action branch below already
-        // trusts), capture that objective the exact same way the write path
-        // would -- via LlmObjectiveInterpreter -- and persist it so the next
-        // turn's dialogue-first check (above, at the top of this function)
-        // has something real to resolve against. A genuinely read-only
-        // ambiguous query (isWriteActionRequest false) has no objective to
-        // continue and correctly persists nothing.
+        // objective the user was actually trying to create, capture that
+        // objective via LlmObjectiveInterpreter and persist it so the next
+        // turn's dialogue-first check has something real to resolve against.
+        // The old extra isWriteActionRequest gate was unsafe: this advisory
+        // signal can be false even when the clarification blocks an eligible
+        // create objective. A genuinely read-only query still persists
+        // nothing because its objective is absent or ineligible.
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
             path: 'read_pipeline_person_ambiguous', dialogueScopeKey, isWriteActionRequest,
         });
-        if (isWriteActionRequest && clarification?.reason === 'person_ambiguous') {
+        if (clarification?.reason === 'person_ambiguous') {
             const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {
                 actorUserId: input.actorUserId, conversationId,
             });
-            const eligible = isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
+            const eligible = !!candidateObjective && isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
-                objectiveType: candidateObjective.objectiveType, eligible, dialogueScopeKey,
+                objectiveType: candidateObjective?.objectiveType ?? null, eligible, dialogueScopeKey,
             });
             if (eligible) {
                 const turnId = `${traceId}:${Date.now()}`;

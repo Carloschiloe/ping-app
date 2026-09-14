@@ -256,6 +256,21 @@ describe('REAL HTTP-boundary dialogue continuity (M-7B physical failure #3)', ()
         expect(objectiveModelSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('regression: persists an eligible objective even when the advisory write classifier is false', async () => {
+        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ isWriteActionRequest: false }));
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
+
+        const res1 = await postTurn({ input: 'Tengo que llamar a Pedro' });
+        expect(res1.status).toBe(200);
+        expect(res1.body.kind).toBe('clarification');
+
+        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
+        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
+        expect(state?.lifecycle).toBe('clarifying');
+        expect(state?.openObjective?.objectiveType).toBe('create_personal_commitment');
+        expect(state?.pendingClarification?.field).toBe('person_ambiguous');
+    });
+
     it('unique person match reconciles the original objective across two separate requests, never an arbitrary selection', async () => {
         inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
         objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
