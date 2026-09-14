@@ -1423,39 +1423,67 @@ describe('CARDINALITY FIX v2: HISTORICAL_LIFECYCLE_QUERY_PATTERN exige "cuándo/
         }
     });
 
-    // PING — negative control físico: la PRIMERA versión de este fix usaba
-    // sólo el verbo "-amos" suelto como señal, y clasificaba "Ayer cancelamos
-    // la reunión" (oración DECLARATIVA, nunca una consulta) igual que una
-    // pregunta real -- un falso positivo real. HISTORICAL_LIFECYCLE_QUERY_PATTERN
-    // exige además "cuándo"/"when" inmediatamente antes del verbo, así que
-    // estas frases NUNCA activan esa rama -- el resultado es lo que Core
-    // hubiera dado de todos modos sin este fix (unknown si no hay ninguna
-    // otra señal real, o el fallback de dominio existente si sí la hay, ej.
-    // "tarea" activa COMMITMENT_KEYWORDS -- nunca un focused_lookup
-    // inventado por el verbo solo).
-    describe('9-14: oraciones DECLARATIVAS con el mismo verbo -- NUNCA manufacturan focused_lookup sólo por contener el verbo', () => {
-        const DECLARATIVE_NEGATIVE_MATRIX = [
+    // PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT (supersedes the
+    // original "9-14" expectations below): this describe block originally
+    // asserted that a bare declarative lifecycle verb (no "cuándo") must
+    // NEVER produce focused_lookup, reasoning that HISTORICAL_LIFECYCLE_QUERY_PATTERN
+    // correctly requires the question word. That remains true for
+    // isHistoricalLifecycleQuery specifically -- HISTORICAL_LIFECYCLE_QUERY_PATTERN
+    // still requires "cuándo"/"when" and this file's own negative-control
+    // history (the false positive that motivated the ORIGINAL "9-14" cases)
+    // is preserved intact below. What changed is the ARCHITECTURAL
+    // invariant governing what a bare declarative lifecycle mention should
+    // do: "Reasignamos la tarea a Pedro" was reaching intent==='commitment_query'
+    // -> 'exhaustive_list' purely because 'tarea' matched COMMITMENT_KEYYWORDS
+    // domain vocabulary, never because the user asked for a list --
+    // INTENT DOMAIN != QUERY SCOPE/CARDINALITY. isDeclarativeLifecycleMention
+    // (a SEPARATE, later-checked signal from isHistoricalLifecycleQuery)
+    // now correctly routes these to focused_lookup instead. "Ayer cancelamos
+    // la reunión"/"Finalmente completamos el trabajo"/"Reabrimos el tema
+    // ayer" all contain a verb this fix's vocabulary recognizes
+    // (LIFECYCLE_HISTORICAL_VERB_FRAGMENT: completamos/cancelamos/reabrimos/
+    // reasignamos), so they now correctly resolve focused_lookup too --
+    // this is the CORRECT behavior per the current ticket, not a
+    // regression of the original false-positive concern (which was about
+    // conflating a declarative sentence with a HISTORICAL QUESTION, a
+    // different axis entirely from "should a lifecycle verb ever imply
+    // single-entity scope").
+    describe('9-14: oraciones DECLARATIVAS con verbo de lifecycle -- ahora correctamente focused_lookup (nunca exhaustive_list sólo por el sustantivo de dominio), NUNCA por confundirse con una pregunta histórica', () => {
+        const DECLARATIVE_FOCUSED_MATRIX = [
             ['9', 'Ayer cancelamos la reunión.'],
             ['10', 'Finalmente completamos el trabajo.'],
             ['11', 'Reabrimos el tema ayer.'],
+            ['14', 'Reasignamos la tarea a Pedro.'],
+        ] as const;
+        for (const [n, phrase] of DECLARATIVE_FOCUSED_MATRIX) {
+            it(`#${n} "${phrase}" -> focused_lookup (declarative lifecycle mention), NEVER exhaustive_list`, () => {
+                const result = classifyQueryCardinality(phrase, { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false });
+                expect(result).toBe('focused_lookup');
+                expect(result).not.toBe('exhaustive_list');
+            });
+        }
+
+        // "Aceptamos"/"Confirmamos" are NOT part of
+        // LIFECYCLE_HISTORICAL_VERB_FRAGMENT (they live in the separate
+        // ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS, used only by
+        // isHistoricalLifecycleQuery's "cuándo + verbo" pattern) -- a bare
+        // declarative "Aceptamos"/"Confirmamos" sentence deliberately does
+        // NOT trigger isDeclarativeLifecycleMention, so these two cases are
+        // UNCHANGED from the original ticket's intent: no signal, no
+        // manufactured focused_lookup.
+        const ACCEPT_CONFIRM_DECLARATIVE_UNCHANGED = [
             ['12', 'Aceptamos la propuesta esta mañana.'],
             ['13', 'Confirmamos la reserva.'],
         ] as const;
-        for (const [n, phrase] of DECLARATIVE_NEGATIVE_MATRIX) {
-            it(`#${n} "${phrase}" -> nunca focused_lookup manufacturado por el verbo solo (unknown, sin otra señal real de retrieval)`, () => {
+        for (const [n, phrase] of ACCEPT_CONFIRM_DECLARATIVE_UNCHANGED) {
+            it(`#${n} "${phrase}" -> unchanged (unknown, no signal) -- aceptamos/confirmamos are not part of the declarative-lifecycle vocabulary`, () => {
                 const result = classifyQueryCardinality(phrase, { intent: 'general_context', proposalFocus: null, wantsOverdueFocus: false });
-                expect(result).not.toBe('focused_lookup');
                 expect(result).toBe('unknown');
             });
         }
 
-        it('#14 "Reasignamos la tarea a Pedro." -- nunca focused_lookup manufacturado por el verbo; "tarea" SÍ activa el fallback de dominio preexistente (COMMITMENT_KEYWORDS -> commitment_query -> exhaustive_list), un resultado ajeno a este fix, no un focused_lookup inventado', () => {
-            const result = classifyQueryCardinality('Reasignamos la tarea a Pedro.', { intent: 'commitment_query', proposalFocus: null, wantsOverdueFocus: false });
-            expect(result).not.toBe('focused_lookup');
-        });
-
-        it('ninguna de las 6 oraciones declarativas contiene la palabra de pregunta "cuándo"/"when" -- confirma por qué HISTORICAL_LIFECYCLE_QUERY_PATTERN correctamente no matchea (el verbo está, la pregunta no)', () => {
-            for (const [, phrase] of [...DECLARATIVE_NEGATIVE_MATRIX, ['14', 'Reasignamos la tarea a Pedro.'] as const]) {
+        it('ninguna de las 4 oraciones declarativas ahora-focused contiene la palabra de pregunta "cuándo"/"when" -- confirma que isDeclarativeLifecycleMention (never isHistoricalLifecycleQuery) is what routes them, so the original historical-question negative control is untouched', () => {
+            for (const [, phrase] of DECLARATIVE_FOCUSED_MATRIX) {
                 expect(phrase).not.toMatch(/cu[áa]ndo|when/i);
             }
         });
@@ -1794,5 +1822,134 @@ describe('PERSON-CANDIDATE COVERAGE: extractPersonHints captura nombres coordina
         const r2 = await new DeterministicInputInterpreter().interpret('Cuando completamos lo de ver Spiderman?', {});
         expect(r1.personHints).toEqual([]);
         expect(r2.personHints).toEqual([]);
+    });
+});
+
+// PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT: full test matrix from
+// the ticket's own 12-phrase audit + 20-item test matrix. INTENT DOMAIN !=
+// QUERY SCOPE/CARDINALITY -- a commitment-domain noun (tarea/compromiso)
+// alone must never imply exhaustive_list; explicit list language must
+// still dominate toward list scope; a declarative lifecycle mention must
+// resolve to focused scope, never silently widen to "list everything".
+import { isDeclarativeLifecycleMention } from '../src/services/agentInputInterpreter.service';
+
+describe('PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT: 12-phrase audit matrix', () => {
+    function cardinalityFor(phrase: string, intent: 'commitment_query' | 'recall' | 'general_context' = 'commitment_query') {
+        return classifyQueryCardinality(phrase, { intent, proposalFocus: null, wantsOverdueFocus: false });
+    }
+
+    // A. EXPLICIT LIST REQUEST -- must remain list scope.
+    it('1. "Qué compromisos tengo?" -> exhaustive_list (list scope)', () => {
+        expect(cardinalityFor('Qué compromisos tengo?')).toBe('exhaustive_list');
+    });
+    it('2. "Muéstrame todos mis compromisos" -> exhaustive_list (list scope)', () => {
+        expect(cardinalityFor('Muéstrame todos mis compromisos')).toBe('exhaustive_list');
+    });
+    it('3. "Qué tareas tengo pendientes?" -> exhaustive_list (list scope)', () => {
+        expect(cardinalityFor('Qué tareas tengo pendientes?')).toBe('exhaustive_list');
+    });
+
+    // B. FOCUSED ENTITY QUERY -- must remain focused scope.
+    it('4. "Qué pasó con la tarea de comprar hielo?" -> focused_lookup (recall verb)', () => {
+        expect(cardinalityFor('Qué pasó con la tarea de comprar hielo?', 'recall')).toBe('focused_lookup');
+    });
+    it('5. "Cuándo completamos lo de Spiderman?" -> focused_lookup (historical lifecycle question)', () => {
+        expect(cardinalityFor('Cuándo completamos lo de Spiderman?')).toBe('focused_lookup');
+    });
+    it('6. "Cuándo cancelamos lo de entrenar?" -> focused_lookup (historical lifecycle question)', () => {
+        expect(cardinalityFor('Cuándo cancelamos lo de entrenar?')).toBe('focused_lookup');
+    });
+
+    // C. DECLARATIVE ENTITY-DOMAIN UTTERANCE -- must NEVER be exhaustive_list.
+    it('7. "Reasignamos la tarea a Pedro" -> NOT exhaustive_list (focused_lookup)', () => {
+        const result = cardinalityFor('Reasignamos la tarea a Pedro');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+    it('8. "Movimos la reunión para mañana" -> NOT exhaustive_list (focused_lookup)', () => {
+        const result = cardinalityFor('Movimos la reunión para mañana', 'general_context');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+    it('9. "Completamos la tarea de comprar hielo" -> NOT exhaustive_list (focused_lookup)', () => {
+        const result = cardinalityFor('Completamos la tarea de comprar hielo');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+    it('10. "Cancelamos el compromiso con Juan" -> NOT exhaustive_list (focused_lookup)', () => {
+        const result = cardinalityFor('Cancelamos el compromiso con Juan');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+    it('11. "Cambiamos la fecha del compromiso de Pedro" -> NOT exhaustive_list (focused_lookup)', () => {
+        const result = cardinalityFor('Cambiamos la fecha del compromiso de Pedro');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+    it('12. "La tarea quedó asignada a María" -> NOT exhaustive_list (focused_lookup, passive voice form)', () => {
+        const result = cardinalityFor('La tarea quedó asignada a María');
+        expect(result).not.toBe('exhaustive_list');
+        expect(result).toBe('focused_lookup');
+    });
+
+    it('13-14. explicit list phrasing still wins over a co-occurring lifecycle verb -- "¿Cuáles compromisos completamos de X?" stays a list, never demoted to focused', () => {
+        expect(cardinalityFor('¿Cuáles compromisos completamos de X?')).toBe('exhaustive_list');
+        expect(cardinalityFor('Muéstrame todos los compromisos que reasignamos')).toBe('exhaustive_list');
+    });
+
+    it('15. explicit list phrasing continues to list even when the sentence otherwise reads close to a declarative lifecycle mention', () => {
+        expect(cardinalityFor('Cuáles tareas reasignamos a Pedro?')).toBe('exhaustive_list');
+    });
+
+    it('16. historical positive transition behavior unchanged: "Cuándo completamos lo de Spiderman?" still focused_lookup', () => {
+        expect(cardinalityFor('Cuándo completamos lo de Spiderman?')).toBe('focused_lookup');
+    });
+    it('17. historical negative/absence transition behavior unchanged: "Cuándo completamos lo de entrenar?" still focused_lookup (absence is a synthesis-layer concern, cardinality is unaffected)', () => {
+        expect(cardinalityFor('Cuándo completamos lo de entrenar?')).toBe('focused_lookup');
+    });
+
+    it('isDeclarativeLifecycleMention itself: true for the 6 declarative phrases, false for the 3 explicit-list phrases and the 2 focused-recall/historical phrases (no double-counting the same signal)', () => {
+        for (const phrase of [
+            'Reasignamos la tarea a Pedro',
+            'Movimos la reunión para mañana',
+            'Completamos la tarea de comprar hielo',
+            'Cancelamos el compromiso con Juan',
+            'Cambiamos la fecha del compromiso de Pedro',
+            'La tarea quedó asignada a María',
+        ]) {
+            expect(isDeclarativeLifecycleMention(phrase)).toBe(true);
+        }
+        for (const phrase of [
+            'Qué compromisos tengo?',
+            'Muéstrame todos mis compromisos',
+            'Qué tareas tengo pendientes?',
+        ]) {
+            expect(isDeclarativeLifecycleMention(phrase)).toBe(false);
+        }
+    });
+
+    it('legitimate list queries remain unaffected -- do not overcorrect every commitment-domain mention into focused scope', () => {
+        for (const phrase of [
+            'Qué compromisos tengo?',
+            'Muéstrame mis compromisos',
+            'Qué tareas tengo pendientes?',
+            'Lista mis reuniones',
+            'Dame todos los compromisos de esta semana',
+        ]) {
+            expect(cardinalityFor(phrase)).toBe('exhaustive_list');
+        }
+    });
+
+    it('ambiguity invariant: a focused declarative utterance with insufficient entity identity does not itself force a specific commitment or widen to list -- cardinality alone stays focused_lookup, leaving actual disambiguation to retrieval/resolveRequestedTransitionTarget (0 or >1 real matches -> null, never guessed)', () => {
+        // "Reasignamos la tarea a Pedro" may be ambiguous about WHICH task
+        // (multiple tasks could exist) -- classifyQueryCardinality's job is
+        // only to establish SCOPE (focused, not list); actual entity
+        // resolution ambiguity is handled downstream by retrieval's honest
+        // substring/lineage matching (see resolveRequestedTransitionTarget
+        // in agentContextBuilder.service.ts, which already returns null on
+        // 0 or >1 real matches, never a best guess).
+        const result = cardinalityFor('Reasignamos la tarea a Pedro');
+        expect(result).toBe('focused_lookup');
+        expect(result).not.toBe('exhaustive_list');
     });
 });

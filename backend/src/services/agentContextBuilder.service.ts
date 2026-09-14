@@ -33,6 +33,7 @@ import {
     containsThirdPersonPronoun,
     CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
     isHistoricalLifecycleQuery,
+    isDeclarativeLifecycleMention,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -532,7 +533,19 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // amplía retrieval globalmente -- se le da a la MISMA señal
     // determinística ya probada (el patrón "cuándo + verbo de lifecycle")
     // la misma autoridad que una señal hermana ya tenía.
-    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null || isHistoricalLifecycleQuery(input.input);
+    // PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT: isDeclarativeLifecycleMention
+    // (a lifecycle verb WITHOUT "cuándo" -- "Reasignamos la tarea a Pedro")
+    // gets the SAME textQuery/intent/topicHints authority as
+    // isHistoricalLifecycleQuery for the identical reason: without it, the
+    // final textQuery could fall back to the LLM's own (non-deterministic)
+    // suggestion, and retrieveCommitments would run unfiltered, surfacing
+    // the actor's most recent commitments instead of the one the
+    // declarative utterance actually named -- the same "entrenar
+    // disappeared" failure mode M-2 RETRIEVAL LAYER FIX closed for the
+    // historical-question form, now closed for the declarative form too.
+    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null
+        || isHistoricalLifecycleQuery(input.input)
+        || isDeclarativeLifecycleMention(input.input);
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below

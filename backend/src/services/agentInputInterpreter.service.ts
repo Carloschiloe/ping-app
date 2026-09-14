@@ -247,9 +247,12 @@ const CLOSED_STATUS_KEYWORDS = wordBounded(LIFECYCLE_TRANSITION_TABLE.map((e) =>
 // CONFIRMATION_CONTROL_WORDS, reutilizado tal cual, nunca duplicado aquí) --
 // derivada de la MISMA tabla que CLOSED_STATUS_KEYWORDS, más "reasignamos"
 // (transición canónica sin adjetivo/status propio, sólo forma histórica).
-const LIFECYCLE_HISTORICAL_VERB_KEYWORDS = wordBounded(
-    LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned',
-);
+// Extraído como fragmento de STRING (no sólo el RegExp ya compilado) para
+// que otros consumidores (DECLARATIVE_LIFECYCLE_MENTION_PATTERN más abajo)
+// puedan componerlo dentro de una alternancia más grande sin re-derivar el
+// vocabulario ni recortar el .source de un RegExp ya compilado.
+const LIFECYCLE_HISTORICAL_VERB_FRAGMENT = LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned';
+const LIFECYCLE_HISTORICAL_VERB_KEYWORDS = wordBounded(LIFECYCLE_HISTORICAL_VERB_FRAGMENT);
 function stripLifecycleHistoricalVerbs(text: string): string {
     const pattern = new RegExp(LIFECYCLE_HISTORICAL_VERB_KEYWORDS.source, 'giu');
     return text.replace(pattern, ' ').replace(/\s+/g, ' ').trim();
@@ -283,6 +286,61 @@ const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
 // lifecycle real?", reutilizado por ambos archivos.
 export function isHistoricalLifecycleQuery(input: string): boolean {
     return HISTORICAL_LIFECYCLE_QUERY_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input);
+}
+
+// PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT (root cause fix):
+// INTENT DOMAIN != QUERY SCOPE/CARDINALITY. classifyIntent's
+// COMMITMENT_KEYWORDS ('tarea'/'compromiso'/etc.) alone was already enough
+// to reach `intent === 'commitment_query'`, and classifyQueryCardinality's
+// final fallback for that intent is 'exhaustive_list' -- so a declarative
+// entity-domain utterance mentioning a lifecycle transition ("Reasignamos
+// la tarea a Pedro", "Cambiamos la fecha del compromiso de Pedro") was
+// wrongly classified as "list every commitment" merely because it
+// contained the word "tarea"/"compromiso", never because the user asked
+// for a list. isHistoricalLifecycleQuery already solved this for the
+// "cuándo + verbo" historical-QUESTION form; this extends the SAME
+// architectural principle (a lifecycle verb alone is not a list request)
+// to the declarative form without "cuándo" -- "Cancelamos el compromiso
+// con Juan" is a statement about ONE entity's lifecycle event, never a
+// request to list every commitment. Deliberately a SEPARATE vocabulary
+// concept from LIFECYCLE_HISTORICAL_VERB_KEYWORDS (closed-status verbs +
+// reasignar) because reschedule verbs ("movimos"/"cambiamos la fecha")
+// never close a status -- they would not belong in
+// CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES/REQUESTED_TRANSITION_TABLE, which
+// exist specifically for CommitmentEventType evidence verification. Also
+// covers the passive voice form ("La tarea quedó asignada a María") which
+// carries the same declarative-entity-event semantics without a first-
+// person-plural verb at all.
+const RESCHEDULE_DECLARATIVE_VERB_FRAGMENT = 'movimos|cambiamos(?:\\s+la\\s+fecha)?|reprogramamos|pospusimos|moved|rescheduled|postponed';
+const PASSIVE_LIFECYCLE_ASSIGNMENT_FRAGMENT = 'qued[óo]\\s+asignad[oa]s?|qued[óo]\\s+cancelad[oa]s?|qued[óo]\\s+resuelt[oa]s?|qued[óo]\\s+rechazad[oa]s?|was\\s+assigned|got\\s+assigned';
+// A declarative lifecycle/domain mention is any of: a closed-status "-amos"
+// verb + reassign (LIFECYCLE_HISTORICAL_VERB_FRAGMENT, reused as-is, never
+// a second copy), a reschedule "-amos" verb, or the passive assignment
+// form -- combined, never a fourth ad hoc vocabulary. EXPLICIT_LIST_KEYWORDS
+// still wins first (same precedence isHistoricalLifecycleQuery already
+// established: "¿Cuáles compromisos completamos de X?" must stay a list,
+// never be demoted to focused scope merely because it also contains a
+// lifecycle verb) -- enforced inside this same function, exactly like
+// isHistoricalLifecycleQuery enforces it inside itself, so there is
+// exactly one place that orders this precedence per signal.
+const DECLARATIVE_LIFECYCLE_MENTION_PATTERN = wordBounded(
+    `${LIFECYCLE_HISTORICAL_VERB_FRAGMENT}|${RESCHEDULE_DECLARATIVE_VERB_FRAGMENT}|${PASSIVE_LIFECYCLE_ASSIGNMENT_FRAGMENT}`,
+);
+export function isDeclarativeLifecycleMention(input: string): boolean {
+    return DECLARATIVE_LIFECYCLE_MENTION_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input);
+}
+// Same principle as stripLifecycleHistoricalVerbs (defined above, reused
+// as-is for the closed-status+reassign vocabulary): the reschedule
+// "-amos" verb and the passive assignment form are structural signals
+// (isDeclarativeLifecycleMention), never real topical content -- they
+// must not survive into textQuery, or "Cambiamos la fecha del compromiso
+// de Pedro" would FTS-search for "cambiamos fecha Pedro" instead of just
+// "Pedro".
+const DECLARATIVE_LIFECYCLE_RESIDUAL_PATTERN = new RegExp(
+    wordBounded(`${RESCHEDULE_DECLARATIVE_VERB_FRAGMENT}|${PASSIVE_LIFECYCLE_ASSIGNMENT_FRAGMENT}`).source, 'giu',
+);
+function stripDeclarativeLifecycleVerbs(text: string): string {
+    return stripLifecycleHistoricalVerbs(text).replace(DECLARATIVE_LIFECYCLE_RESIDUAL_PATTERN, ' ').replace(/\s+/g, ' ').trim();
 }
 // R-01: fragmento ES "-amos" reutilizable por agentContextBuilder.service.ts
 // (MEMORY_EPISODIC_VERBS) para las transiciones que este archivo posee
@@ -399,6 +457,18 @@ const STOPWORDS = new Set([
     // debe sobrevivir como topicQuery ("¿Qué compromisos tengo sobre
     // viaje?" -> topicQuery="viaje", nunca "compromisos viaje").
     'compromiso', 'compromisos', 'commitment', 'commitments',
+    // PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT: same principle, same
+    // COMMITMENT_KEYWORDS entry ('tareas?|tasks?') that was already applied
+    // to 'compromiso(s)' above but never to 'tarea(s)' itself -- without
+    // this, "Reasignamos la tarea a Pedro" left "tarea Pedro" as the
+    // residual textQuery (the generic domain noun contaminating the real
+    // entity name), while "Cancelamos el compromiso con Juan" already
+    // correctly cleaned to just "Juan". "reunión"/"meeting" are NOT
+    // COMMITMENT_KEYWORDS members (they never independently trigger
+    // commitment_query), so they are deliberately NOT added here -- adding
+    // them would strip real topical content from an unrelated query that
+    // happens to mention a meeting by a different noun.
+    'tarea', 'tareas', 'task', 'tasks',
     // M-1H.1 (ticket "CANONICAL TOPIC RETRIEVAL PARITY", sección 15) — mismo
     // principio: una frase temporal ("esta semana", "el mes pasado") ya
     // queda capturada estructuralmente en `timeExpression`/`timeRange`
@@ -742,6 +812,23 @@ export function classifyQueryCardinality(
     // si el LLM etiquetó la consulta como commitment_query, recall o
     // general_context.
     if (isHistoricalLifecycleQuery(input)) return 'focused_lookup';
+    // PING — ENTITY SCOPE / CARDINALITY SEMANTIC DEBT: same conceptual
+    // priority as isHistoricalLifecycleQuery immediately above (a
+    // lifecycle-transition verb signals a SINGLE entity/event, never "list
+    // everything") extended to the declarative form (no "cuándo" question
+    // word) -- "Reasignamos la tarea a Pedro" / "Cambiamos la fecha del
+    // compromiso de Pedro" / "La tarea quedó asignada a María" were
+    // reaching the generic `commitment_query` -> 'exhaustive_list' fallback
+    // below purely because classifyIntent's COMMITMENT_KEYWORDS ('tarea'/
+    // 'compromiso') matched, never because the user asked for a list.
+    // Checked BEFORE proposalFocus/wantsOverdueFocus/commitment_query
+    // (same "specific -> general" ordering as the rest of this function)
+    // because a declarative lifecycle mention is a MORE specific signal
+    // than the generic commitment-domain fallback those exist for.
+    // EXPLICIT_LIST_KEYWORDS still wins internally (isDeclarativeLifecycleMention
+    // enforces it itself, mirroring isHistoricalLifecycleQuery) -- "¿Cuáles
+    // compromisos completamos de X?" must stay a list.
+    if (isDeclarativeLifecycleMention(input)) return 'focused_lookup';
     if (signals.proposalFocus !== null) return 'exhaustive_list';
     if (signals.wantsOverdueFocus) return 'exhaustive_list';
     if (signals.intent === 'recall') return 'focused_lookup';
@@ -750,10 +837,10 @@ export function classifyQueryCardinality(
     // topic real NO convierte una lista en un lookup puntual, ver sección
     // 10 del ticket). Los casos que SÍ son lookup puntual sobre un
     // commitment específico ya se desvían a intent='recall' arriba (verbo
-    // "pasó"/"háblame de") o al chequeo histórico determinístico de arriba
-    // -- no hay, en el contrato exigido, un caso adicional de
-    // commitment_query genérico que deba ser focused_lookup sin pasar por
-    // alguna de esas dos señales.
+    // "pasó"/"háblame de"), al chequeo histórico determinístico, o al
+    // chequeo de mención declarativa de lifecycle -- no hay, en el
+    // contrato exigido, un caso adicional de commitment_query genérico
+    // que deba ser focused_lookup sin pasar por alguna de esas señales.
     if (signals.intent === 'commitment_query') return 'exhaustive_list';
     if (signals.intent === 'document_search' || signals.intent === 'message_search' || signals.intent === 'person_query') return 'focused_lookup';
     return 'unknown';
@@ -864,8 +951,11 @@ function normalizeControlLanguageFromTextQuery(candidate: string): string {
     // la forma con la que se pregunta por una acción ya ocurrida) tampoco
     // deben sobrevivir como textQuery, por el mismo principio ya aplicado a
     // "completamos" arriba y a "aceptamos"/"confirmamos" vía
-    // stripConfirmationControlWords más abajo.
-    cleaned = stripLifecycleHistoricalVerbs(cleaned);
+    // stripConfirmationControlWords más abajo. PING — ENTITY SCOPE /
+    // CARDINALITY SEMANTIC DEBT: stripDeclarativeLifecycleVerbs extends
+    // this with "movimos"/"cambiamos"/"quedó asignada" -- same principle,
+    // reuses stripLifecycleHistoricalVerbs internally, never duplicates it.
+    cleaned = stripDeclarativeLifecycleVerbs(cleaned);
     // M-1H v6: mismo principio para "esperando"/"por aceptar"/"falta que
     // acepte" -- ya capturado estructuralmente en proposalFocus.
     cleaned = stripProposalFocusLanguage(cleaned);
