@@ -4,9 +4,10 @@ import { AppError } from '../utils/AppError';
 import {
     AGENT_TURN_REPLAY_MAX_BYTES, AGENT_TURN_REPLAY_VERSION,
     type AgentTurnAtomicApplication, type AgentTurnDialogueCheckpoint,
-    type AgentTurnReplayV1, type NormalizedSemanticTurn,
+    type AgentTurnReplayV1, type NormalizedSemanticTurn, type NormalizedSemanticTurnV2,
 } from '../types/agentTurnCommit';
 import type { AgentTurnResult } from '../types/agentTurn';
+import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => any };
 
@@ -25,6 +26,10 @@ export function toAgentTurnReplayV1(result: AgentTurnResult): AgentTurnReplayV1 
 }
 
 export function semanticCheckpointFingerprint(turn: NormalizedSemanticTurn): string {
+    return createHash('sha256').update(JSON.stringify(turn), 'utf8').digest('hex');
+}
+
+export function semanticCheckpointFingerprintV2(turn: NormalizedSemanticTurnV2): string {
     return createHash('sha256').update(JSON.stringify(turn), 'utf8').digest('hex');
 }
 
@@ -64,6 +69,22 @@ export class AgentTurnCommitService {
         if (error) errorFromRpc(error);
         const row = Array.isArray(data) ? data[0] : data;
         return row.semantic_turn as NormalizedSemanticTurn;
+    }
+
+    public async saveSemanticCheckpointV2(input: {
+        turnId: string; actorUserId: string; dialogueScopeKey: string;
+        turnSequence: number; semanticTurn: NormalizedSemanticTurnV2;
+    }): Promise<NormalizedSemanticTurnV2> {
+        const semanticTurn = normalizeSemanticTurnV2(input.semanticTurn);
+        const { data, error } = await this.client.rpc('save_agent_turn_semantic_checkpoint', {
+            p_turn_id: input.turnId, p_actor_user_id: input.actorUserId,
+            p_dialogue_scope_key: input.dialogueScopeKey, p_turn_sequence: input.turnSequence,
+            p_semantic_version: 2, p_semantic_fingerprint: semanticCheckpointFingerprintV2(semanticTurn),
+            p_semantic_turn: semanticTurn,
+        });
+        if (error) errorFromRpc(error);
+        const row = Array.isArray(data) ? data[0] : data;
+        return row.semantic_turn as NormalizedSemanticTurnV2;
     }
 
     public async applyTurn(input: {

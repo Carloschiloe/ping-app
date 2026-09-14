@@ -15,6 +15,38 @@ export interface NormalizedSemanticTurn {
     source: 'deterministic' | 'llm' | 'fallback';
 }
 
+export const AGENT_TURN_SEMANTIC_V2 = 2 as const;
+export const AGENT_TURN_SEMANTIC_MAX_BYTES = 32 * 1024;
+export type SemanticTurnV2Kind = 'read_request' | 'write_request' | 'slot_answer' | 'lifecycle_command' | 'unknown';
+export type SemanticDomain = 'commitment' | 'messaging' | 'people' | 'historical_read' | 'generic' | 'unknown';
+export type SemanticCompleteness = 'complete' | 'incomplete' | 'unknown';
+export type PendingSlotAnswerShape = 'likely' | 'not_a_slot_answer' | 'unknown';
+export type SemanticLifecycleCommand = 'none' | 'abandon' | 'resume';
+export type SemanticLifecycleTarget = 'active' | 'suspended' | 'unspecified';
+export type SemanticFact = 'yes' | 'no' | 'unknown';
+
+// V2 is a provider-neutral semantic fact set. It intentionally contains no
+// disposition, canonical identity, authorization, execution, or raw utterance.
+export interface NormalizedSemanticTurnV2 {
+    version: typeof AGENT_TURN_SEMANTIC_V2;
+    kind: SemanticTurnV2Kind;
+    domain: SemanticDomain;
+    objectiveCompleteness: SemanticCompleteness;
+    lifecycleCommand: SemanticLifecycleCommand;
+    lifecycleTarget: SemanticLifecycleTarget;
+    lifecycleEvidence: 'explicit' | 'implicit' | 'unknown';
+    pendingSlotAnswer: PendingSlotAnswerShape;
+    continuationLike: SemanticFact;
+    candidateSlotType: string | null;
+    independentObjective: SemanticFact;
+    objectiveType: string | null;
+    entityHints: string[];
+    slots: Record<string, string | number | boolean | null>;
+    ambiguityFields: string[];
+    confidence: number;
+    source: 'deterministic' | 'llm' | 'fallback';
+}
+
 export interface AgentTurnReplayV1 {
     kind: AgentTurnResult['kind'];
     response?: Extract<AgentTurnResult, { kind: 'response' }>['response'];
