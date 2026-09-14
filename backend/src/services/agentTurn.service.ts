@@ -40,7 +40,7 @@ import type {
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
-import { traceAgentDevice, hashForTrace } from '../utils/agentDeviceTrace';
+import { traceAgentDevice, hashForTrace, getAgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -177,10 +177,10 @@ export async function runAgentTurn(
             // same runWriteActionTurn/runAgentPlanning pipeline every other
             // write turn already goes through -- no second execution path.
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_resolved', dialogueScopeKey });
-            return runWriteActionTurn({
+            return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.reconciledObjective,
-            });
+            }), traceId);
         }
         if (pendingResult.outcome === 'zero_match' || pendingResult.outcome === 'multi_match') {
             // TASK 5 -- never an arbitrary selection. Re-ask, using the exact
@@ -201,10 +201,10 @@ export async function runAgentTurn(
             });
             traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field: 'person_ambiguous' });
             traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-            return {
+            return finalizeAgentTurn({
                 kind: 'clarification',
                 questions: [{ field: 'person_ambiguous', question: answer, options: followUp.options }],
-            };
+            }, traceId);
         }
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
         // outcome === 'escaped' -- an explicit unrelated request (TASK 9).
@@ -230,10 +230,10 @@ export async function runAgentTurn(
     const routing = await resolveDeterministicRouting(content, { actorUserId: input.actorUserId, conversationId });
     if (routing.isWriteActionRequest && routing.resolvedObjective) {
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'deterministic_write', dialogueScopeKey });
-        return runWriteActionTurn({
+        return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: routing.resolvedObjective,
-        });
+        }), traceId);
     }
 
     // Single buildAgentContext call — both the routing decision AND (when
@@ -334,6 +334,7 @@ export async function runAgentTurn(
                 traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_RESULT', {
                     stateFound: !!writtenState,
                     lifecycle: writtenState?.lifecycle ?? null,
+                    openObjectiveType: writtenState?.openObjective?.objectiveType ?? null,
                     pendingClarificationField: writtenState?.pendingClarification?.field ?? null,
                     version: writtenState?.version ?? null,
                     lastTurnSequence: writtenState?.lastTurnSequence ?? null,
@@ -343,14 +344,14 @@ export async function runAgentTurn(
 
         traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field: clarification?.reason ?? 'topic_too_broad' });
         traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-        return {
+        return finalizeAgentTurn({
             kind: 'clarification',
             questions: [{
                 field: clarification?.reason ?? 'topic_too_broad',
                 question: answer,
                 options: followUp.options,
             }],
-        };
+        }, traceId);
     }
 
     // 2) Core routing decision: write-shaped requests go to the M-3 planning
@@ -369,10 +370,10 @@ export async function runAgentTurn(
         const newTurnObjective = await new LlmObjectiveInterpreter().interpret(content, {
             actorUserId: input.actorUserId, conversationId,
         });
-        return runWriteActionTurn({
+        return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective,
-        });
+        }), traceId);
 
         // status === 'draft': structurally blocked or genuinely unsupported —
         // never a plan a client could confirm, and nothing left to ask
@@ -390,11 +391,11 @@ export async function runAgentTurn(
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'read_unsupported', dialogueScopeKey });
         traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'unsupported' });
         traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-        return {
+        return finalizeAgentTurn({
             kind: 'unsupported',
             reason: readOnlyGaps[0].reason,
             supportedExamples: SUPPORTED_EXAMPLES,
-        };
+        }, traceId);
     }
 
     traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'read_response', dialogueScopeKey });
@@ -406,7 +407,16 @@ export async function runAgentTurn(
         kind: 'response', sourceRefCount: response.citations?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-    return { kind: 'response', response: toPublicAgentResponse(response) };
+    return finalizeAgentTurn({ kind: 'response', response: toPublicAgentResponse(response) }, traceId);
+}
+
+function finalizeAgentTurn(result: AgentTurnResult, traceId: string): AgentTurnResult {
+    const debug = getAgentDeviceDebugMetadata(traceId);
+    if (!debug) return result;
+    if (!debug.responseKind) debug.responseKind = result.kind;
+    traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: debug.responseKind });
+    traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
+    return { ...result, debug };
 }
 
 // M-7B — the single entry point for every write-shaped turn, from either

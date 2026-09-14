@@ -227,9 +227,27 @@ export function useAgentRespond() {
 
 export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
 
+export interface AgentTurnDebugMetadata {
+    traceId: string;
+    dialogueScopeKey: string | null;
+    stateFound: boolean;
+    dialogueLifecycle: string | null;
+    pendingClarificationField: string | null;
+    openObjectiveType: string | null;
+    dialogueVersion: number | null;
+    turnSequence: number | null;
+    clarificationAttempted: boolean;
+    clarificationOutcome: string | null;
+    routingDecision: string | null;
+    personCandidateCount: number | null;
+    responseKind: string | null;
+    sourceRefCount: number | null;
+}
+
 export interface AgentTurnResponse {
     kind: 'response';
     response: AgentRespondResult;
+    debug?: AgentTurnDebugMetadata;
 }
 
 export interface AgentPlanStepPresentation {
@@ -291,18 +309,21 @@ export interface AgentTurnPlan {
         planDigest?: string;
     };
     presentation: AgentPlanPresentation;
+    debug?: AgentTurnDebugMetadata;
 }
 
 export interface AgentTurnClarification {
     kind: 'clarification';
     questions: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
     partialResponse?: AgentRespondResult;
+    debug?: AgentTurnDebugMetadata;
 }
 
 export interface AgentTurnUnsupported {
     kind: 'unsupported';
     reason: string;
     supportedExamples?: string[];
+    debug?: AgentTurnDebugMetadata;
 }
 
 export type AgentTurnResult =
@@ -368,7 +389,13 @@ export function useAgentTurn() {
         mutationFn: async (input: AgentTurnInput): Promise<AgentTurnResult> => {
             const body = buildAgentTurnRequestBody(input);
             const raw = await apiClient.post('/agent/turn', body);
-            return parseAgentTurnResult(raw);
+            const result = parseAgentTurnResult(raw);
+            const isStagingBuild = process.env.APP_VARIANT !== 'production';
+            if ((__DEV__ || isStagingBuild) && result.debug) {
+                // eslint-disable-next-line no-console
+                console.log('PING_DEVICE_TRACE', result.debug);
+            }
+            return result;
         },
     });
 }

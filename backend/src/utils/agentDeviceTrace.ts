@@ -38,6 +38,23 @@ export interface AgentDeviceTraceEntry {
     data: Record<string, unknown>;
 }
 
+export interface AgentDeviceDebugMetadata {
+    traceId: string;
+    dialogueScopeKey: string | null;
+    stateFound: boolean;
+    dialogueLifecycle: string | null;
+    pendingClarificationField: string | null;
+    openObjectiveType: string | null;
+    dialogueVersion: number | null;
+    turnSequence: number | null;
+    clarificationAttempted: boolean;
+    clarificationOutcome: string | null;
+    routingDecision: string | null;
+    personCandidateCount: number | null;
+    responseKind: string | null;
+    sourceRefCount: number | null;
+}
+
 const buffer: AgentDeviceTraceEntry[] = [];
 
 export function isAgentDeviceTraceEnabled(): boolean {
@@ -69,6 +86,36 @@ export function traceAgentDevice(traceId: string, label: string, data: Record<st
 // as recorded; the endpoint layer decides pagination/formatting.
 export function getAgentDeviceTraceBuffer(): readonly AgentDeviceTraceEntry[] {
     return buffer;
+}
+
+export function getAgentDeviceDebugMetadata(traceId: string): AgentDeviceDebugMetadata | undefined {
+    if (!isAgentDeviceTraceEnabled()) return undefined;
+    const entries = buffer.filter((entry) => entry.traceId === traceId);
+    if (entries.length === 0) return undefined;
+    const dataFor = (label: string) => entries.findLast((entry) => entry.label === label)?.data ?? {};
+    const state = dataFor('AGENT_DIALOGUE_STATE_BEFORE');
+    const writeResult = dataFor('AGENT_DIALOGUE_STATE_WRITE_RESULT');
+    const context = dataFor('AGENT_CONTEXT_RESULT');
+    const pending = dataFor('AGENT_PENDING_CLARIFICATION_RESULT');
+    const routing = entries.filter((entry) => entry.label === 'AGENT_ROUTING_DECISION').at(-1)?.data ?? {};
+    const response = dataFor('AGENT_RESPONSE_KIND');
+    const numberOrNull = (value: unknown): number | null => typeof value === 'number' ? value : null;
+    return {
+        traceId,
+        dialogueScopeKey: (dataFor('AGENT_DIALOGUE_SCOPE').dialogueScopeKey as string | undefined) ?? null,
+        stateFound: state.stateFound === true,
+        dialogueLifecycle: (writeResult.lifecycle ?? state.lifecycle ?? null) as string | null,
+        pendingClarificationField: (writeResult.pendingClarificationField ?? state.pendingClarificationField ?? null) as string | null,
+        openObjectiveType: (writeResult.openObjectiveType ?? state.openObjectiveType ?? null) as string | null,
+        dialogueVersion: numberOrNull(writeResult.version ?? state.version),
+        turnSequence: numberOrNull(writeResult.lastTurnSequence ?? state.lastTurnSequence),
+        clarificationAttempted: entries.some((entry) => entry.label === 'AGENT_PENDING_CLARIFICATION_RESULT'),
+        clarificationOutcome: (pending.outcome as string | undefined) ?? null,
+        routingDecision: (routing.path as string | undefined) ?? null,
+        personCandidateCount: numberOrNull(pending.candidateCount ?? context.resolvedPersonCandidateCount),
+        responseKind: (response.kind as string | undefined) ?? null,
+        sourceRefCount: numberOrNull(context.sourceRefCount),
+    };
 }
 
 export function clearAgentDeviceTraceBufferForTests(): void {

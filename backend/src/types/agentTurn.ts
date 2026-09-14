@@ -5,12 +5,14 @@
 import type { AgentPublicResponse } from './agent';
 import type { AgentPlanPublicResponse } from './agentPlan';
 import type { ClarificationQuestion } from './agentPlan';
+import type { AgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
 
 export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
 
 export interface AgentTurnResponse {
     kind: 'response';
     response: AgentPublicResponse;
+    debug?: AgentDeviceDebugMetadata;
 }
 
 export interface AgentTurnPlan {
@@ -18,6 +20,7 @@ export interface AgentTurnPlan {
     plan: AgentPlanPublicResponse;
     // Core-owned presentation projection — mobile renders this, never reconstructs from plan internals
     presentation: AgentPlanPresentation;
+    debug?: AgentDeviceDebugMetadata;
 }
 
 export interface AgentTurnClarification {
@@ -25,6 +28,7 @@ export interface AgentTurnClarification {
     questions: ClarificationQuestion[];
     // Optional: partial context if Core retrieved some evidence before needing clarification
     partialResponse?: AgentPublicResponse;
+    debug?: AgentDeviceDebugMetadata;
 }
 
 export interface AgentTurnUnsupported {
@@ -32,6 +36,7 @@ export interface AgentTurnUnsupported {
     reason: string;
     // Guidance for the user on what IS supported
     supportedExamples?: string[];
+    debug?: AgentDeviceDebugMetadata;
 }
 
 export type AgentTurnResult =
