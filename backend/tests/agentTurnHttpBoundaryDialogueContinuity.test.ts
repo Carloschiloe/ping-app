@@ -188,7 +188,11 @@ beforeEach(() => {
     retrieveAttachmentsMock.mockReset().mockResolvedValue([]);
     retrieveVisibleCommitmentByIdMock.mockReset().mockResolvedValue(null);
     retrieveMemoryMock.mockReset().mockResolvedValue([]);
-    objectiveModelSpy.mockReset();
+    objectiveModelSpy.mockReset().mockImplementation(async (request: { input: string }) => {
+        return objectivePayloadJson(request.input.includes('Alejandra')
+            ? { entityHints: ['llamar a Alejandra'] }
+            : { entityHints: [] });
+    });
     inputModelSpy.mockReset();
     authorizePlanSpy.mockClear();
     executeAuthorizationSpy.mockClear();
@@ -253,7 +257,7 @@ describe('REAL HTTP-boundary dialogue continuity (M-7B physical failure #3)', ()
         // resolved from dialogue state + live person resolution before
         // isolated-turn classification of request 2 ran.
         expect(inputModelSpy).toHaveBeenCalledTimes(1);
-        expect(objectiveModelSpy).toHaveBeenCalledTimes(1);
+        expect(objectiveModelSpy).toHaveBeenCalledTimes(2);
     });
 
     it('regression: persists an eligible objective even when the advisory write classifier is false', async () => {
@@ -313,6 +317,22 @@ describe('REAL HTTP-boundary dialogue continuity (M-7B physical failure #3)', ()
         const res2 = await postTurn({ input: '¿Qué tengo hoy?' });
 
         expect(res2.body.kind).toBe('response');
+    });
+
+    it('a complete same-type objective escapes and supersedes the pending clarification', async () => {
+        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
+        await postTurn({ input: 'Tengo que llamar a Pedro' });
+
+        const res2 = await postTurn({ input: 'Tengo que llamar a Alejandra' });
+
+        expect(res2.status).toBe(200);
+        expect(res2.body.kind).not.toBe('response');
+        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
+        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
+        expect(state?.openObjective?.targetEntities.entityHints).toEqual(['llamar a Alejandra']);
+        expect(state?.openObjective?.targetEntities.entityHints).not.toContain('llamar a Pedro');
+        expect(state?.pendingClarification?.field).not.toBe('person_ambiguous');
     });
 
     it('different actor (separate token/session) across separate requests is isolated -- does not consume actor A\'s pending clarification', async () => {

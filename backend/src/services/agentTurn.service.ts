@@ -206,14 +206,22 @@ export async function runAgentTurn(
                 questions: [{ field: 'person_ambiguous', question: answer, options: followUp.options }],
             }, traceId);
         }
+        if (pendingResult.newObjective) {
+            // An explicit complete objective supersedes the pending dialogue
+            // before entering the ordinary planner path. Reset preserves the
+            // scope's monotonic bookkeeping while removing stale slots and
+            // referents; the new objective is then planned as a fresh turn.
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'explicit_new_objective_escape', dialogueScopeKey });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.newObjective,
+            }), traceId);
+        }
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
-        // outcome === 'escaped' -- an explicit unrelated request (TASK 9).
-        // Deliberately falls through to normal routing below WITHOUT
-        // resetting or touching the still-open dialogue state: the user may
-        // return to it later, and only a genuine reconciliation or a fresh
-        // objective of the same eligible type (via the existing
-        // classifyContinuation path inside runWriteActionTurn) ever mutates
-        // it. This turn is handled exactly as if no dialogue were open.
+        // A read/request escape also abandons the pending dialogue so a later
+        // turn cannot inherit stale clarification slots.
+        dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
     }
 
     // A deterministic action can enter the planner directly. Reusing the

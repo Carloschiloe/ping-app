@@ -21,6 +21,7 @@ import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
 import { resolvePerson } from './retrieval.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
+import { LlmObjectiveInterpreter } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
@@ -209,15 +210,36 @@ export function isPendingClarificationAnswerable(dialogueState: AgentDialogueSta
 // checks already are elsewhere in this codebase.
 const QUESTION_MARK_PATTERN = /[?¿]/u;
 
-async function looksLikeExplicitEscape(rawAnswer: string): Promise<boolean> {
-    if (QUESTION_MARK_PATTERN.test(rawAnswer)) return true;
+async function classifyExplicitEscape(
+    rawAnswer: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<{ escaped: boolean; newObjective?: AgentObjective }> {
+    if (QUESTION_MARK_PATTERN.test(rawAnswer)) return { escaped: true };
     const signals = await new DeterministicInputInterpreter().interpret(rawAnswer);
-    if (signals.isWriteActionRequest) return true;
-    return signals.intent !== 'general_context' && signals.intentConfidence > 0.3;
+    if (signals.isWriteActionRequest || (signals.intent !== 'general_context' && signals.intentConfidence > 0.3)) {
+        return { escaped: true };
+    }
+
+    // The deterministic input classifier intentionally does not own the full
+    // natural-language vocabulary of create objectives. Reuse the existing
+    // objective interpreter as a structural proposal, but accept it as an
+    // escape only when it describes a complete eligible objective with its
+    // own entity. A bare clarification answer such as a person's name has
+    // no objective structure: its sole entity hint is the whole utterance.
+    const candidate = await new LlmObjectiveInterpreter().interpret(rawAnswer, { actorUserId, conversationId });
+    if (!candidate) return { escaped: false };
+    const entityHint = candidate.targetEntities.entityHints[0]?.trim() ?? '';
+    const completeNewObjective = isContinuationEligibleObjectiveType(candidate.objectiveType)
+        && entityHint.length > 0
+        && candidate.sourceUtterance.trim() !== entityHint;
+    return completeNewObjective
+        ? { escaped: true, newObjective: candidate }
+        : { escaped: false };
 }
 
 export type PendingClarificationAnswerOutcome =
-    | { outcome: 'escaped' }
+    | { outcome: 'escaped'; newObjective?: AgentObjective }
     | { outcome: 'zero_match' }
     | { outcome: 'multi_match'; candidates: RetrievalPerson[] }
     | { outcome: 'resolved'; reconciledObjective: AgentObjective; resolvedPerson: RetrievalPerson };
@@ -241,9 +263,12 @@ export async function tryAnswerPendingClarification(
     conversationId: string | undefined,
 ): Promise<PendingClarificationAnswerOutcome> {
     const trimmedAnswer = rawAnswer.trim();
-    if (!trimmedAnswer || await looksLikeExplicitEscape(trimmedAnswer)) {
+    if (!trimmedAnswer) {
         return { outcome: 'escaped' };
     }
+
+    const escape = await classifyExplicitEscape(trimmedAnswer, actorUserId, conversationId);
+    if (escape.escaped) return { outcome: 'escaped', newObjective: escape.newObjective };
 
     const resolution = await resolvePerson(actorUserId, { name: trimmedAnswer, conversationId });
 

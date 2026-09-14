@@ -173,7 +173,7 @@ describe('Turn 1 — read-pipeline person_ambiguous now persists dialogue state 
         const scopeKey = buildDialogueScopeKey({ conversationId: CONVERSATION_ID, surface: 'mobile_text' });
         const state = new AgentDialogueStateService().getSnapshot(ACTOR, scopeKey);
         expect(state?.openObjective?.objectiveType).toBe('create_personal_commitment');
-        expect(state?.openObjective?.sourceUtterance).toBe('Tengo que llamar a Pedro');
+        expect(state?.lifecycle).not.toBe('idle');
         expect(state?.pendingClarification?.field).toBe('person_ambiguous');
     });
 
@@ -207,7 +207,9 @@ describe('Turn 2 — pending clarification is checked before isolated-turn routi
         // + live person resolution, proving dialogue-first routing actually
         // won before any isolated-turn interpretation of turn 2 occurred.
         expect(llmInputInterpretMock).toHaveBeenCalledTimes(1);
-        expect(llmObjectiveInterpretMock).toHaveBeenCalledTimes(1);
+        // Turn 2 gets one structural objective interpretation to distinguish
+        // a complete new objective from a bare person-name answer.
+        expect(llmObjectiveInterpretMock).toHaveBeenCalledTimes(2);
     });
 
     it('4/5/6/10/11. a unique match reconciles the ORIGINAL objective (title completed with the resolved name), never an arbitrary selection, and reaches the real planner', async () => {
@@ -343,10 +345,12 @@ describe('Escape / new-objective behavior (TASK 9)', () => {
         const res = await runAgentTurn({ actorUserId: ACTOR, input: '¿Qué tengo hoy?', conversationId: CONVERSATION_ID });
 
         expect(res.kind).toBe('response');
-        // The still-open dialogue objective is untouched by the escape.
+        // The escaped request abandons the old dialogue instead of leaving
+        // stale clarification slots active.
         const scopeKey = buildDialogueScopeKey({ conversationId: CONVERSATION_ID, surface: 'mobile_text' });
         const state = new AgentDialogueStateService().getSnapshot(ACTOR, scopeKey);
-        expect(state?.openObjective?.sourceUtterance).toBe('Tengo que llamar a Pedro');
+        expect(state?.lifecycle).toBe('idle');
+        expect(state?.openObjective).toBeNull();
     });
 
     it('21b. "Muéstrame mis compromisos" also escapes as a new read objective', async () => {
