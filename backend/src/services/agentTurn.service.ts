@@ -40,6 +40,7 @@ import type {
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
+import { traceAgentDevice, hashForTrace } from '../utils/agentDeviceTrace';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -115,6 +116,18 @@ export async function runAgentTurn(
     // write-action branches below.
     const dialogueScopeKey = buildDialogueScopeKey({ conversationId, surface: envelope.surface });
 
+    // [PING_DEVICE_TRACE] TEMPORARY (M-7B PHYSICAL FAILURE #4) -- see
+    // utils/agentDeviceTrace.ts for full rationale/removal plan. No-op
+    // outside staging.
+    traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_START', {
+        actorHash: hashForTrace(input.actorUserId),
+        surface: envelope.surface,
+        hasConversationId: !!conversationId,
+        conversationIdHash: conversationId ? hashForTrace(conversationId) : null,
+        channel,
+    });
+    traceAgentDevice(traceId, 'AGENT_DIALOGUE_SCOPE', { dialogueScopeKey });
+
     // PING — M-7B PHYSICAL FAILURE #2 FIX: dialogue-first routing (ADR Q10,
     // "hybrid insertion, structured not textual"). Before ANY isolated-turn
     // classification (deterministic routing, buildAgentContext's read
@@ -135,12 +148,26 @@ export async function runAgentTurn(
     // new regex family for names.
     const dialogueService = new AgentDialogueStateService();
     const existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
-    if (isPendingClarificationAnswerable(existingDialogueState)) {
+    traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_BEFORE', {
+        stateFound: !!existingDialogueState,
+        lifecycle: existingDialogueState?.lifecycle ?? null,
+        openObjectiveType: existingDialogueState?.openObjective?.objectiveType ?? null,
+        pendingClarificationField: existingDialogueState?.pendingClarification?.field ?? null,
+        version: existingDialogueState?.version ?? null,
+        lastTurnSequence: existingDialogueState?.lastTurnSequence ?? null,
+    });
+    const pendingAnswerable = isPendingClarificationAnswerable(existingDialogueState);
+    traceAgentDevice(traceId, 'AGENT_PENDING_CLARIFICATION_CHECK', { pendingAnswerable });
+    if (pendingAnswerable) {
         const pendingResult = await tryAnswerPendingClarification(
             existingDialogueState!, content, input.actorUserId, conversationId,
         );
         tracePlan(traceId, 'PENDING_CLARIFICATION_ANSWER_ATTEMPTED', {
             outcome: pendingResult.outcome, dialogueScopeKey,
+        });
+        traceAgentDevice(traceId, 'AGENT_PENDING_CLARIFICATION_RESULT', {
+            outcome: pendingResult.outcome,
+            candidateCount: pendingResult.outcome === 'multi_match' ? pendingResult.candidates.length : null,
         });
 
         if (pendingResult.outcome === 'resolved') {
@@ -149,6 +176,7 @@ export async function runAgentTurn(
             // another clarification (e.g. a missing date). Reuses the exact
             // same runWriteActionTurn/runAgentPlanning pipeline every other
             // write turn already goes through -- no second execution path.
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_resolved', dialogueScopeKey });
             return runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.reconciledObjective,
@@ -158,6 +186,7 @@ export async function runAgentTurn(
             // TASK 5 -- never an arbitrary selection. Re-ask, using the exact
             // same natural-language realization the rest of M-7B PHYSICAL
             // FAILURE #1's fix already established, never a raw reason code.
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: `pending_clarification_${pendingResult.outcome}`, dialogueScopeKey });
             const language = detectAgentLanguage(content, locale);
             const clarification = pendingResult.outcome === 'multi_match'
                 ? { reason: 'person_ambiguous' as const, candidates: pendingResult.candidates }
@@ -170,11 +199,14 @@ export async function runAgentTurn(
                 clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
                 turnId, turnSequence: nextTurnSequence,
             });
+            traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field: 'person_ambiguous' });
+            traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
             return {
                 kind: 'clarification',
                 questions: [{ field: 'person_ambiguous', question: answer, options: followUp.options }],
             };
         }
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
         // outcome === 'escaped' -- an explicit unrelated request (TASK 9).
         // Deliberately falls through to normal routing below WITHOUT
         // resetting or touching the still-open dialogue state: the user may
@@ -197,6 +229,7 @@ export async function runAgentTurn(
     // re-plan and agentPlan.controller.ts's initial plan now also do.
     const routing = await resolveDeterministicRouting(content, { actorUserId: input.actorUserId, conversationId });
     if (routing.isWriteActionRequest && routing.resolvedObjective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'deterministic_write', dialogueScopeKey });
         return runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: routing.resolvedObjective,
@@ -230,6 +263,16 @@ export async function runAgentTurn(
         wantsOverdueFocus: context.wantsOverdueFocus,
         isWriteActionRequest,
         explicitPersonMention: context.explicitPersonMention,
+    });
+    traceAgentDevice(traceId, 'AGENT_CONTEXT_RESULT', {
+        path: 'read_pipeline',
+        intentType: context.intent.type,
+        needsClarification: context.needsClarification,
+        clarificationReason: context.clarification?.reason ?? null,
+        isWriteActionRequest,
+        resolvedPersonCandidateCount: context.clarification?.candidates?.length ?? null,
+        sourceRefCount: context.commitments.length + context.events.length + context.messages.length
+            + context.transcriptions.length + context.attachments.length,
     });
 
     // 1) Ambiguity in the READ pipeline (unresolved person/time/topic) always
@@ -265,11 +308,18 @@ export async function runAgentTurn(
         // has something real to resolve against. A genuinely read-only
         // ambiguous query (isWriteActionRequest false) has no objective to
         // continue and correctly persists nothing.
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'read_pipeline_person_ambiguous', dialogueScopeKey, isWriteActionRequest,
+        });
         if (isWriteActionRequest && clarification?.reason === 'person_ambiguous') {
             const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {
                 actorUserId: input.actorUserId, conversationId,
             });
-            if (isContinuationEligibleObjectiveType(candidateObjective.objectiveType)) {
+            const eligible = isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
+            traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
+                objectiveType: candidateObjective.objectiveType, eligible, dialogueScopeKey,
+            });
+            if (eligible) {
                 const turnId = `${traceId}:${Date.now()}`;
                 const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
                 dialogueService.openObjective({
@@ -280,9 +330,19 @@ export async function runAgentTurn(
                     clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
                     turnId, turnSequence: turnSequence + 1,
                 });
+                const writtenState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
+                traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_RESULT', {
+                    stateFound: !!writtenState,
+                    lifecycle: writtenState?.lifecycle ?? null,
+                    pendingClarificationField: writtenState?.pendingClarification?.field ?? null,
+                    version: writtenState?.version ?? null,
+                    lastTurnSequence: writtenState?.lastTurnSequence ?? null,
+                });
             }
         }
 
+        traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field: clarification?.reason ?? 'topic_too_broad' });
+        traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
         return {
             kind: 'clarification',
             questions: [{
@@ -305,6 +365,7 @@ export async function runAgentTurn(
         // planning -- runAgentPlanning is then called with this exact
         // objective as `resolvedObjective`, so interpretation still happens
         // exactly once per turn, same cost discipline as before.
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'llm_write', dialogueScopeKey });
         const newTurnObjective = await new LlmObjectiveInterpreter().interpret(content, {
             actorUserId: input.actorUserId, conversationId,
         });
@@ -326,6 +387,9 @@ export async function runAgentTurn(
     // without a conversation scope.
     const readOnlyGaps = context.capabilityGaps.filter((g) => g.type !== 'write_action_not_supported');
     if (readOnlyGaps.length > 0) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'read_unsupported', dialogueScopeKey });
+        traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'unsupported' });
+        traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
         return {
             kind: 'unsupported',
             reason: readOnlyGaps[0].reason,
@@ -333,10 +397,15 @@ export async function runAgentTurn(
         };
     }
 
+    traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'read_response', dialogueScopeKey });
     const response = await synthesizeAgentResponse(
         { input: content, context, locale, channel, traceId },
         {},
     );
+    traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', {
+        kind: 'response', sourceRefCount: response.citations?.length ?? 0,
+    });
+    traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
     return { kind: 'response', response: toPublicAgentResponse(response) };
 }
 
