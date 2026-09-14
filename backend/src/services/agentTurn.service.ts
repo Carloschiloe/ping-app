@@ -24,7 +24,8 @@
 // agentPlanOrchestrator.service.ts).
 import { runAgentPlanning, resolveDeterministicRouting } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
-import { synthesizeAgentResponse } from './agentResponseSynthesizer.service';
+import { synthesizeAgentResponse, realizeAgentClarification } from './agentResponseSynthesizer.service';
+import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AUTHORIZATION_TTL_MS } from './agentAuthorization.service';
@@ -159,15 +160,27 @@ export async function runAgentTurn(
     // 1) Ambiguity in the READ pipeline (unresolved person/time/topic) always
     // wins first — there is nothing a plan or a response could safely say
     // yet.
+    //
+    // PING — M-7B PHYSICAL FAILURE #1 FIX: this branch used to put the raw
+    // internal machine reason (e.g. "person_ambiguous") directly into
+    // `question` -- the exact string a user would see on-screen. Core's
+    // ambiguity reason must stay machine-readable (kept on `field`, for
+    // diagnostics/programmatic use only, never rendered as prose) while
+    // `question` is now always natural-language text produced by the SAME
+    // realizeAgentClarification templates the read-only synthesis path
+    // (buildClarificationResponse) already used correctly -- one canonical
+    // wording source, not two diverging ones.
     if (context.needsClarification) {
         const clarification = context.clarification;
+        const language = detectAgentLanguage(content, locale);
+        const { answer, followUp } = realizeAgentClarification(clarification, language);
         return {
             kind: 'clarification',
-            questions: clarification ? [{
-                field: clarification.reason,
-                question: clarification.reason,
-                options: clarification.candidates?.map((cand) => ({ id: cand.id, label: cand.displayName })),
-            }] : [],
+            questions: [{
+                field: clarification?.reason ?? 'topic_too_broad',
+                question: answer,
+                options: followUp.options,
+            }],
         };
     }
 

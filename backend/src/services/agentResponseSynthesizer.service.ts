@@ -35,7 +35,7 @@ import type {
     AgentResponseStatus,
     AgentSynthesisInput,
 } from '../types/agentResponse';
-import type { AgentContext } from '../types/agentContext';
+import type { AgentClarification, AgentContext } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
 import { formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
@@ -1078,35 +1078,65 @@ function dedupeCitations(claims: AgentClaim[]): AgentCitation[] {
 // ─── Plantillas determinísticas (secciones 15, 16, 17) — nunca llaman al
 // modelo, usan sólo datos reales de `context`, nunca inventan candidatos ni
 // descripciones. ─────────────────────────────────────────────────────────────
-function buildClarificationResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
-    const candidates = context.clarification?.candidates ?? [];
+//
+// PING — M-7B PHYSICAL FAILURE #1 FIX: this used to live only as private
+// logic inside buildClarificationResponse below, reachable exclusively from
+// the read-only synthesis path (synthesizeAgentResponse). agentTurn.service.ts's
+// write-action/general-turn entry point had its OWN separate, naive mapping
+// (ClarificationQuestion.question = clarification.reason verbatim) that never
+// went through natural-language realization at all -- the raw machine code
+// "person_ambiguous" leaked straight into user-facing prose. Extracted here
+// as the ONE canonical place that turns an AgentClarification (reason +
+// structured candidates -- Core's machine-readable ambiguity) into natural
+// prose, so every caller (read-only synthesis AND agentTurn's clarification
+// branch) shares exactly one wording source instead of two diverging ones.
+export function realizeAgentClarification(
+    clarification: AgentClarification | null | undefined,
+    language: 'es' | 'en',
+): { answer: string; followUp: AgentFollowUp } {
+    const candidates = clarification?.candidates ?? [];
     let answer: string;
-    let followUp: AgentFollowUp | undefined;
+    let followUp: AgentFollowUp;
 
-    if (context.clarification?.reason === 'person_ambiguous' && candidates.length > 0) {
+    if (clarification?.reason === 'person_ambiguous' && candidates.length > 0) {
         const names = candidates.map((c) => c.displayName);
         answer = language === 'es'
             ? `Encontré ${candidates.length} personas que podrían coincidir: ${names.join(', ')}. ¿A cuál te refieres?`
             : `I found ${candidates.length} people that could match: ${names.join(', ')}. Which one do you mean?`;
         followUp = { type: 'clarify_person', question: answer, options: candidates.map((c) => ({ id: c.id, label: c.displayName })) };
-    } else if (context.clarification?.reason === 'person_ambiguous') {
+    } else if (clarification?.reason === 'person_ambiguous') {
         // unresolved_pronoun: no hay candidatos que ofrecer, sólo pedir que se especifique (sección 11 de M-1D: nunca inventar quién es "él").
         answer = language === 'es'
             ? 'No tengo suficiente contexto para saber a quién te refieres. ¿Puedes decirme el nombre?'
             : 'I don\'t have enough context to know who you mean. Could you tell me the name?';
         followUp = { type: 'clarify_person', question: answer };
-    } else if (context.clarification?.reason === 'time_ambiguous') {
+    } else if (clarification?.reason === 'time_ambiguous') {
         answer = language === 'es'
             ? '¿A qué fecha o período te refieres exactamente?'
             : 'Which exact date or period do you mean?';
         followUp = { type: 'clarify_time', question: answer };
-    } else {
+    } else if (clarification?.reason === 'topic_too_broad') {
         answer = language === 'es'
             ? '¿Puedes darme un poco más de detalle sobre lo que buscas?'
             : 'Could you give me a bit more detail about what you\'re looking for?';
         followUp = { type: 'clarify_topic', question: answer };
+    } else {
+        // TASK 8 — safe generic fallback in the user's language. Only reached
+        // when `clarification` itself is missing/reason-less, i.e. there is
+        // no structured information to build a more specific question from
+        // -- never used merely because a specific template wasn't written
+        // yet for a known reason above.
+        answer = language === 'es'
+            ? 'Necesito aclarar un dato antes de continuar.'
+            : 'I need to clarify one thing before continuing.';
+        followUp = { type: 'clarify_topic', question: answer };
     }
 
+    return { answer, followUp };
+}
+
+function buildClarificationResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const { answer, followUp } = realizeAgentClarification(context.clarification, language);
     return { status: 'needs_clarification', answer, claims: [], citations: [], followUp };
 }
 

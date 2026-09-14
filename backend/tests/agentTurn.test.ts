@@ -15,6 +15,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Server } from 'http';
 import type { AgentPlan, AgentPlanStep } from '../src/types/agentPlan';
+import { AgentDialogueStateService, buildDialogueScopeKey, clearAgentDialogueStateForTests } from '../src/services/agentDialogueState.service';
 
 // M-6 semantic enrichment bridge -- OPENAI_API_KEY is deliberately blank in
 // this suite (see beforeAll below), so proposeSemanticContentCandidate would
@@ -334,6 +335,145 @@ describe('POST /agent/turn — Core routing ownership (mobile must NOT decide)',
 
         expect(res.body.kind).toBe('plan');
         expect(buildAgentContextSpy).not.toHaveBeenCalled();
+    });
+});
+
+// PING — M-7B PHYSICAL FAILURE #1 REGRESSION: "Tengo que llamar a Pedro" on a
+// real iPhone rendered the raw internal machine reason code
+// ("person_ambiguous") as the user-facing clarification body instead of a
+// natural question. Root cause: agentTurn.service.ts's needsClarification
+// branch put `clarification.reason` verbatim into `ClarificationQuestion
+// .question` -- the exact field mobile renders -- instead of routing through
+// realizeAgentClarification (the same natural-language templates the
+// read-only synthesis path already used correctly). Fixed by making that
+// branch call realizeAgentClarification unconditionally; these tests prove
+// the raw code never reaches `question` again, for both the multi-candidate
+// and zero-candidate person_ambiguous shapes, in both supported languages.
+describe('POST /agent/turn — clarification prose is always natural language, never a raw internal reason code', () => {
+    it('1/2/3. person_ambiguous with real candidates never leaks the raw reason code -- question is natural Spanish prose derived from clarification semantics', async () => {
+        resolvePersonMock.mockResolvedValue({
+            resolved: null,
+            ambiguous: true,
+            candidates: [person('pedro-1', 'Pedro Gómez'), person('pedro-2', 'Pedro Ramírez')],
+        });
+
+        const res = await postTurn({ input: 'Tengo que llamar a Pedro', locale: 'es-CL' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.kind).toBe('clarification');
+        const question = res.body.questions[0];
+        expect(question.question).not.toBe('person_ambiguous');
+        expect(question.question).not.toMatch(/^[a-z_]+$/); // never a bare machine-reason-shaped token
+        expect(question.question).toContain('Pedro Gómez');
+        expect(question.question).toContain('Pedro Ramírez');
+        expect(question.question.toLowerCase()).toContain('cuál');
+        // TASK 3 — machine-readable reason survives on `field`, structurally
+        // separate from the natural-language `question`, never overloading
+        // one string with both meanings.
+        expect(question.field).toBe('person_ambiguous');
+        // TASK 7 — candidate context is safe: id/displayName only, never
+        // email/phone/other profile data.
+        expect(question.options).toEqual([
+            { id: 'pedro-1', label: 'Pedro Gómez' },
+            { id: 'pedro-2', label: 'Pedro Ramírez' },
+        ]);
+        expect(JSON.stringify(res.body)).not.toMatch(/@|\+\d{6,}/); // no email/phone leaked anywhere in the payload
+    });
+
+    it('4/5. exact physical phrase "Tengo que llamar a Pedro" with zero resolvable candidates -- still a natural Spanish question, never the raw code, generalizes beyond this one phrase', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+
+        const res = await postTurn({ input: 'Tengo que llamar a Pedro', locale: 'es-CL' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.kind).toBe('clarification');
+        const question = res.body.questions[0];
+        expect(question.question).not.toBe('person_ambiguous');
+        expect(question.question.toLowerCase()).toMatch(/nombre|refieres/);
+
+        // Generalization proof (no Pedro-specific/phrase-specific code): the
+        // exact same natural template applies to an unrelated name.
+        const res2 = await postTurn({ input: 'Tengo que llamar a Marta', locale: 'es-CL' });
+        expect(res2.body.questions[0].question).toBe(question.question);
+    });
+
+    it('3 (English). same person_ambiguous shape with an English locale produces an English natural question, never the raw code (language follows detectAgentLanguage\'s existing locale-first contract, same mechanism the read-only synthesis path already uses)', async () => {
+        resolvePersonMock.mockResolvedValue({
+            resolved: null,
+            ambiguous: true,
+            candidates: [person('pedro-1', 'Pedro Gómez'), person('pedro-2', 'Pedro Ramírez')],
+        });
+
+        const res = await postTurn({ input: 'Tengo que llamar a Pedro', locale: 'en-US' });
+
+        expect(res.body.kind).toBe('clarification');
+        const question = res.body.questions[0];
+        expect(question.question).not.toBe('person_ambiguous');
+        expect(question.question).toMatch(/which one/i);
+    });
+
+    it('7/8/9. clarification never creates a plan, never authorizes, never executes', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+
+        const res = await postTurn({ input: 'Tengo que llamar a Pedro' });
+
+        expect(res.body.kind).toBe('clarification');
+        expect(res.body.plan).toBeUndefined();
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('12/13/14. safe generic fallback (topic_too_broad shape) never exposes a raw reason code or internal identifiers', async () => {
+        // No person hint at all -> falls through to the generic
+        // topic_too_broad-shaped clarification path (no candidates, no
+        // person reason applicable).
+        const res = await postTurn({ input: '??????' });
+
+        if (res.body.kind === 'clarification') {
+            const question = res.body.questions[0];
+            expect(question.question).not.toMatch(/^[a-z_]+$/);
+            expect(question.question.length).toBeGreaterThan(0);
+        }
+    });
+
+    // TASK 9/10/19 — this read-pipeline person_ambiguous clarification never
+    // reaches runWriteActionTurn (it short-circuits at buildAgentContext,
+    // upstream of M-7B's dialogue-state wiring -- see runWriteActionTurn's
+    // own call sites, both of which return before this branch). Proving here
+    // that an already-open M-7B dialogue objective for the same scope
+    // survives completely untouched by this clarification: this fix must
+    // never reset or otherwise interfere with M-7B state it doesn't own.
+    it('19 (M-7B interaction). a person_ambiguous read-pipeline clarification does not disturb an already-open M-7B dialogue objective for the same actor/conversation scope', async () => {
+        clearAgentDialogueStateForTests();
+        const dialogueService = new AgentDialogueStateService();
+        const scopeKey = buildDialogueScopeKey({ conversationId: CONVERSATION_ID, surface: 'mobile_text' });
+        dialogueService.openObjective({
+            actorUserId: CARLOS,
+            dialogueScopeKey: scopeKey,
+            objective: {
+                objectiveType: 'create_personal_commitment',
+                targetEntities: { personHints: [], entityHints: ['comprar pan'] },
+                constraints: {},
+                desiredOutcome: 'comprar pan',
+                timeConstraints: { rawHint: null },
+                actor: CARLOS,
+                sourceUtterance: 'Tengo que comprar pan',
+                confidence: 0.8,
+                ambiguities: [],
+                source: 'deterministic',
+            },
+            turnId: 'pre-existing-turn',
+            turnSequence: 1,
+        });
+
+        resolvePersonMock.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        const res = await postTurn({ input: 'Tengo que llamar a Pedro', conversationId: CONVERSATION_ID });
+        expect(res.body.kind).toBe('clarification');
+
+        const stillOpen = dialogueService.getSnapshot(CARLOS, scopeKey);
+        expect(stillOpen?.openObjective?.sourceUtterance).toBe('Tengo que comprar pan');
+        expect(stillOpen?.lifecycle).not.toBe('idle');
+        clearAgentDialogueStateForTests();
     });
 });
 
