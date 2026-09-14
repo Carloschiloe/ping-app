@@ -638,3 +638,147 @@ describe('PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
         expect(obj.desiredOutcome).toBe('Completado desde el planner.');
     });
 });
+
+// PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY. Root cause: cancel is
+// not a supported WRITE capability (toolRegistry.service.ts has exactly 5
+// WRITE tools, none for cancel; AgentObjectiveType has no
+// cancel_existing_commitment variant) -- the LLM prompt lists 8 fixed
+// choices with no "cancel" option, so a cancellation utterance got mapped
+// to the semantically nearest one (physically observed:
+// complete_existing_commitment), and the planner then produced a
+// user-facing message describing an inability to "completar" for a
+// request that was never about completing anything. Core now
+// deterministically forces objectiveType back to 'unsupported' whenever
+// the raw text contains a cancel verb, regardless of what the LLM (or the
+// deterministic fallback) proposed -- the SAME "LLM suggests, Core
+// decides" precedence already established for target-hint normalization,
+// now applied to objectiveType itself for this one structurally-absent
+// capability.
+describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never silently substituted by another lifecycle transition', () => {
+    describe('DeterministicObjectiveInterpreter', () => {
+        const interpreter = new DeterministicObjectiveInterpreter();
+
+        it('REAL PHYSICAL FIXTURE: "Cancelamos el compromiso ir a acostarse" -> unsupported, never complete_existing_commitment', async () => {
+            const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+            expect(obj.objectiveType).not.toBe('complete_existing_commitment');
+        });
+
+        it('"Cancela la tarea X" (imperative form) -> unsupported', async () => {
+            const obj = await interpreter.interpret('Cancela la tarea X', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+
+        it('"Cancelamos la propuesta ir a acostarse" -> unsupported, never respond_to_existing_proposal/reject (cancel and reject are distinct actions -- this fix never conflates them)', async () => {
+            const obj = await interpreter.interpret('Cancelamos la propuesta ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+
+        it('cancel is checked before accept/reject/reschedule/complete -- a sentence that happens to also contain another domain word never escapes the unsupported routing', async () => {
+            const obj = await interpreter.interpret('Cancelamos el compromiso de completar el reporte', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+    });
+
+    describe('LlmObjectiveInterpreter -- Core overrides the LLM\'s guessed objectiveType whenever the raw text contains a cancel verb', () => {
+        it('REAL PHYSICAL FIXTURE: LLM returns the exact wrong objectiveType observed in staging (complete_existing_commitment) for a cancel utterance -- Core forces unsupported', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'complete_existing_commitment',
+                personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+            expect(obj.objectiveType).not.toBe('complete_existing_commitment');
+        });
+
+        it('LLM guesses reschedule_existing_commitment for a cancel utterance -- Core still forces unsupported (any wrong guess is corrected, not just the one physically observed)', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'reschedule_existing_commitment',
+                personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+
+        it('LLM guesses respond_to_existing_proposal/reject for a cancel utterance -- Core still forces unsupported (cancel is never silently treated as reject even though both are "closing" actions)', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'respond_to_existing_proposal',
+                personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
+                decisionHint: 'reject', draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+
+        it('LLM correctly guesses unsupported already -- Core override is a no-op, never corrupts an already-correct classification', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'unsupported',
+                personHints: [], entityHints: [], timeHint: null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('unsupported');
+        });
+
+        it('a non-cancel utterance is never affected by this override -- "Completa dejar excavadora en parcela" still correctly maps to complete_existing_commitment', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'complete_existing_commitment',
+                personHints: [], entityHints: ['dejar excavadora en parcela'], timeHint: null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Completa dejar excavadora en parcela', CTX);
+            expect(obj.objectiveType).toBe('complete_existing_commitment');
+        });
+    });
+
+    // 8-TRANSITION AUDIT MATRIX from the ticket: requested transition in
+    // MUST equal the objectiveType (and therefore the transition
+    // referenced downstream in planner/synthesizer prose) unless Core
+    // explicitly and intentionally maps to a different canonical action.
+    // cancel_* entries map to 'unsupported' (the one intentional,
+    // documented mapping — no cancel capability exists); every other
+    // entry preserves its own requested transition exactly.
+    describe('8-transition audit matrix: requested transition == objectiveType, unless intentionally mapped (cancel -> unsupported, documented)', () => {
+        const interpreter = new DeterministicObjectiveInterpreter();
+        const MATRIX: Array<[string, string, string]> = [
+            ['1', 'Cancelamos el compromiso X', 'unsupported'],
+            ['2', 'Completamos el compromiso X', 'complete_existing_commitment'],
+            ['3', 'Reprogramamos el compromiso X para mañana a las 10', 'reschedule_existing_commitment'],
+            ['4', 'Reabrimos el compromiso X', 'unsupported'], // reabrir (reopen) is also not a WRITE tool -- same class of gap, verified honestly here rather than silently substituted
+            ['5', 'Rechazamos la propuesta X', 'respond_to_existing_proposal'],
+            ['6', 'Cancelamos la propuesta X', 'unsupported'],
+            ['7', 'Completamos la propuesta X', 'complete_existing_commitment'],
+            ['8', 'Reprogramamos la propuesta X para mañana a las 10', 'reschedule_existing_commitment'],
+        ];
+        for (const [n, phrase, expected] of MATRIX) {
+            it(`#${n} "${phrase}" -> objectiveType === '${expected}'`, async () => {
+                const obj = await interpreter.interpret(phrase, CTX);
+                expect(obj.objectiveType).toBe(expected);
+            });
+        }
+
+        it('#5 reject decisionHint is set correctly (rechazar is a real, distinct, supported action -- never conflated with cancel)', async () => {
+            const obj = await interpreter.interpret('Rechazamos la propuesta X', CTX);
+            expect(obj.constraints.decisionHint).toBe('reject');
+        });
+    });
+
+    it('does not regress reject-proposal (a genuinely supported action distinct from cancel): "Rechaza la propuesta ir a acostarse" -> respond_to_existing_proposal, decisionHint reject', async () => {
+        const interpreter = new DeterministicObjectiveInterpreter();
+        const obj = await interpreter.interpret('Rechaza la propuesta ir a acostarse', CTX);
+        expect(obj.objectiveType).toBe('respond_to_existing_proposal');
+        expect(obj.constraints.decisionHint).toBe('reject');
+    });
+});
