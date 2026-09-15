@@ -8,8 +8,10 @@ import {
 } from '../types/agentTurnCommit';
 import type { AgentTurnResult } from '../types/agentTurn';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
+import type { SemanticCheckpointLoadResult } from '../types/agentTurnOrchestration';
 
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => any };
+type TableClient = { from: (table: string) => any };
 
 function jsonBytes(value: unknown): number {
     return Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -52,7 +54,21 @@ function errorFromRpc(error: { message: string; code?: string } | null): never {
 }
 
 export class AgentTurnCommitService {
-    public constructor(private readonly client: RpcClient = supabaseAdmin) {}
+    public constructor(private readonly client: RpcClient = supabaseAdmin, private readonly tableClient: TableClient = supabaseAdmin) {}
+
+    public async loadSemanticCheckpoint(input: { turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence?: number }): Promise<SemanticCheckpointLoadResult> {
+        const { data, error } = await this.tableClient.from('agent_turn_semantic_checkpoints').select('turn_id, actor_user_id, dialogue_scope_key, turn_sequence, semantic_version, semantic_fingerprint, semantic_turn').eq('turn_id', input.turnId).maybeSingle();
+        if (error) throw new AppError(error.message ?? 'Semantic checkpoint load failed', 500);
+        if (!data) return { status: 'not_found' };
+        if (data.actor_user_id !== input.actorUserId || data.dialogue_scope_key !== input.dialogueScopeKey || (input.turnSequence !== undefined && Number(data.turn_sequence) !== input.turnSequence)) return { status: 'identity_mismatch' };
+        if (Number(data.semantic_version) !== 2) return { status: 'unsupported_version', version: Number(data.semantic_version) };
+        try {
+            const semanticTurn = normalizeSemanticTurnV2(data.semantic_turn);
+            return { status: 'found', semanticTurn, turnSequence: Number(data.turn_sequence), fingerprint: data.semantic_fingerprint, version: 2 };
+        } catch {
+            return { status: 'invalid' };
+        }
+    }
 
     public async saveSemanticCheckpoint(input: {
         turnId: string; actorUserId: string; dialogueScopeKey: string;

@@ -13,6 +13,13 @@ export interface DialogueCheckpointStore {
     load(input: Pick<AgentTurnAdmissionRequest, 'actorUserId' | 'dialogueScopeKey'>): Promise<DispositionDialogueSnapshot | null>;
 }
 
+export type SemanticCheckpointLoadResult =
+    | { status: 'found'; semanticTurn: NormalizedSemanticTurnV2; turnSequence: number; fingerprint: string; version: number }
+    | { status: 'not_found' }
+    | { status: 'unsupported_version'; version: number }
+    | { status: 'identity_mismatch' }
+    | { status: 'invalid' };
+
 export interface CoreResolver {
     resolve(input: { semanticTurn: NormalizedSemanticTurnV2; dialogue: DispositionDialogueSnapshot | null }): Promise<Pick<AgentTurnDispositionInput, 'pendingSlotResolution' | 'suspendedResumeCandidate'>>;
 }
