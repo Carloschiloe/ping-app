@@ -51,6 +51,7 @@ export type TemporalFactV3 =
     | { kind: 'absolute_date'; precision: 'date'; year: number; month: number; day: number }
     | { kind: 'absolute_datetime'; precision: 'minute' | 'second'; year: number; month: number; day: number; hour: number; minute: number; second?: number; meridiem: '24h' | 'am' | 'pm' }
     | { kind: 'relative_date'; precision: 'date'; amount: number; unit: 'days' | 'weeks' }
+    | { kind: 'relative_target_offset'; precision: 'elapsed'; amount: number; unit: 'minutes' | 'hours' | 'days' | 'weeks' }
     | { kind: 'relative_duration'; precision: 'duration'; amount: number; unit: 'minutes' | 'hours' | 'days' | 'weeks' }
     | { kind: 'weekday'; precision: 'date'; weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6; relation: 'this_or_next' | 'next' }
     | { kind: 'time_only'; precision: 'minute' | 'second'; hour: number; minute: number; second?: number; meridiem: '24h' | 'am' | 'pm' | 'unknown'; ambiguity: 'none' | 'clock' };
