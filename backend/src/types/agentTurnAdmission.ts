@@ -24,6 +24,8 @@ export interface AgentTurnAdmission {
     completedAt: string | null;
     expiresAt: string;
     idempotentReplay: boolean;
+    /** DB-created admission time; immutable reference for relative semantics. */
+    turnReferenceInstant?: string;
 }
 
 export type AgentTurnProcessingDisposition =

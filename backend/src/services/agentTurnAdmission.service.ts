@@ -38,7 +38,7 @@ function mapRow(row: Record<string, any>): AgentTurnAdmission {
         turnSequence: Number(row.turn_sequence), status: row.status, failureClass: row.failure_class ?? null,
         resultRef: row.result_ref ?? null, createdAt: row.created_at, updatedAt: row.updated_at,
         completedAt: row.completed_at ?? null, expiresAt: row.expires_at,
-        idempotentReplay: Boolean(row.idempotent_replay),
+        idempotentReplay: Boolean(row.idempotent_replay), turnReferenceInstant: row.created_at,
     };
 }
 

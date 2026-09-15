@@ -4,11 +4,12 @@ import { AppError } from '../utils/AppError';
 import {
     AGENT_TURN_REPLAY_MAX_BYTES, AGENT_TURN_REPLAY_VERSION,
     type AgentTurnAtomicApplication, type AgentTurnDialogueCheckpoint,
-    type AgentTurnReplayV1, type NormalizedSemanticTurn, type NormalizedSemanticTurnV2,
+    type AgentTurnReplayV1, type NormalizedSemanticTurn, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3,
 } from '../types/agentTurnCommit';
 import type { AgentTurnResult } from '../types/agentTurn';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 import type { SemanticCheckpointLoadResult } from '../types/agentTurnOrchestration';
+export type SemanticCheckpointV3LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV3; turnSequence: number; fingerprint: string; version: 3 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
 
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => any };
 type TableClient = { from: (table: string) => any };
@@ -70,6 +71,17 @@ export class AgentTurnCommitService {
         }
     }
 
+    public async loadSemanticCheckpointV3(input: { turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence?: number }): Promise<SemanticCheckpointV3LoadResult> {
+        const { data, error } = await this.tableClient.from('agent_turn_semantic_checkpoints').select('turn_id, actor_user_id, dialogue_scope_key, turn_sequence, semantic_version, semantic_fingerprint, semantic_turn').eq('turn_id', input.turnId).maybeSingle();
+        if (error) throw new AppError(error.message ?? 'Semantic checkpoint load failed', 500);
+        if (!data) return { status: 'not_found' };
+        if (data.actor_user_id !== input.actorUserId || data.dialogue_scope_key !== input.dialogueScopeKey || (input.turnSequence !== undefined && Number(data.turn_sequence) !== input.turnSequence)) return { status: 'identity_mismatch' };
+        if (Number(data.semantic_version) !== 3) return { status: 'unsupported_version', version: Number(data.semantic_version) };
+        const value = data.semantic_turn as NormalizedSemanticTurnV3;
+        if (!value || value.version !== 3 || JSON.stringify(value).length > 32 * 1024) return { status: 'invalid' };
+        return { status: 'found', semanticTurn: JSON.parse(JSON.stringify(value)), turnSequence: Number(data.turn_sequence), fingerprint: data.semantic_fingerprint, version: 3 };
+    }
+
     public async saveSemanticCheckpoint(input: {
         turnId: string; actorUserId: string; dialogueScopeKey: string;
         turnSequence: number; semanticTurn: NormalizedSemanticTurn;
@@ -101,6 +113,12 @@ export class AgentTurnCommitService {
         if (error) errorFromRpc(error);
         const row = Array.isArray(data) ? data[0] : data;
         return row.semantic_turn as NormalizedSemanticTurnV2;
+    }
+
+    public async saveSemanticCheckpointV3(input: { turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence: number; semanticTurn: NormalizedSemanticTurnV3 }): Promise<NormalizedSemanticTurnV3> {
+        if (jsonBytes(input.semanticTurn) > 32 * 1024) throw new AppError('Semantic checkpoint is too large', 500);
+        const { data, error } = await this.client.rpc('save_agent_turn_semantic_checkpoint', { p_turn_id: input.turnId, p_actor_user_id: input.actorUserId, p_dialogue_scope_key: input.dialogueScopeKey, p_turn_sequence: input.turnSequence, p_semantic_version: 3, p_semantic_fingerprint: createHash('sha256').update(JSON.stringify(input.semanticTurn), 'utf8').digest('hex'), p_semantic_turn: input.semanticTurn });
+        if (error) errorFromRpc(error); const row = Array.isArray(data) ? data[0] : data; return row.semantic_turn as NormalizedSemanticTurnV3;
     }
 
     public async applyTurn(input: {
