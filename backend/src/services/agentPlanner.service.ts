@@ -28,6 +28,20 @@ import type {
 import { tracePlan } from '../utils/planTrace';
 import type { ContextReferent } from '../types/agentInput';
 import { detectAgentLanguage } from '../utils/agentLanguage';
+import type { TemporalCoreResult } from './temporalCore.service';
+
+/**
+ * Optional facts already decided by Core.  Legacy callers omit this object
+ * and retain the established planner behavior.  V3 callers set
+ * canonicalOnly=true, which makes the planner refuse lexical/model-derived
+ * replacements for identity, target entity, and time.
+ */
+export interface AgentPlannerCanonicalFacts {
+    canonicalOnly?: boolean;
+    responsiblePerson?: RetrievalPerson | null;
+    targetEntity?: RetrievalCommitment | null;
+    temporal?: TemporalCoreResult;
+}
 
 export interface AgentPlannerInput {
     objective: AgentObjective;
@@ -47,6 +61,7 @@ export interface AgentPlannerInput {
     // (detectAgentLanguage, utils/agentLanguage.ts), never a second
     // localization system.
     locale?: string;
+    canonicalFacts?: AgentPlannerCanonicalFacts;
 }
 
 interface DraftOutcome {
@@ -96,6 +111,15 @@ async function resolvePersonHint(actorUserId: string, hint: string, conversation
     candidates: RetrievalPerson[];
 }> {
     return resolvePerson(actorUserId, { name: hint, conversationId });
+}
+
+function dateFromCanonicalTemporal(temporal: TemporalCoreResult | undefined): Date | null {
+    if (!temporal || temporal.status !== 'resolved') return null;
+    if (temporal.value.kind === 'civil_datetime' || temporal.value.kind === 'elapsed_target') {
+        const date = new Date(temporal.value.instant);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+    return null;
 }
 
 // ─── Entity resolution (sección 13) — reuses the SAME retrieval functions
@@ -518,9 +542,15 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     }
 
     const timezone = resolveTimeZone(input.timezone);
-    let parsed = parseDateFromText(objective.sourceUtterance, input.now, timezone);
+    const canonicalOnly = input.canonicalFacts?.canonicalOnly === true;
+    let parsed = canonicalOnly
+        ? (() => {
+            const date = dateFromCanonicalTemporal(input.canonicalFacts?.temporal);
+            return date ? { date, textRef: 'canonical_temporal_fact' } : null;
+        })()
+        : parseDateFromText(objective.sourceUtterance, input.now, timezone);
     let dateFromMemory: MemoryDateResolution | null = null;
-    if (!parsed) {
+    if (!parsed && !canonicalOnly) {
         dateFromMemory = await tryResolveDateFromMemory(input.actorUserId, title, input.now, timezone);
         if (dateFromMemory) parsed = { date: dateFromMemory.date, textRef: dateFromMemory.canonicalText };
     }
@@ -531,7 +561,14 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     let responsiblePersonId: string | null = null;
     let responsibleDisplayName: string | null = null;
     const responsibleHint = personal ? null : objective.constraints.responsibleHint;
-    if (responsibleHint) {
+    if (canonicalOnly && !personal && !input.canonicalFacts?.responsiblePerson) {
+        return { steps: [], blockingAmbiguities: [{ field: 'responsible', kind: 'blocking', reason: 'La persona responsable debe estar resuelta por Core antes de preparar este compromiso.' }] };
+    }
+    if (canonicalOnly && !personal && input.canonicalFacts?.responsiblePerson) {
+        responsiblePersonId = input.canonicalFacts.responsiblePerson.id;
+        responsibleDisplayName = input.canonicalFacts.responsiblePerson.displayName;
+    }
+    if (responsibleHint && !canonicalOnly) {
         const result = await resolvePersonHint(input.actorUserId, responsibleHint, input.conversationId);
         if (!result.resolved || result.ambiguous) {
             return {
@@ -568,6 +605,9 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
 
 async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
     const hint = objective.targetEntities.entityHints[0];
+    if (input.canonicalFacts?.canonicalOnly) {
+        return planResolvedExistingEntity(objective, input, input.canonicalFacts.targetEntity ?? null);
+    }
     const weakReferentHint = !hint || /^(?:lo|la|eso|esto|ella|[ée]l)$/iu.test(hint.trim());
     let resolvedFromContext = false;
     let candidates: RetrievalCommitment[];
@@ -700,6 +740,51 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
     });
     return { steps: [step], blockingAmbiguities: [] };
+}
+
+async function planResolvedExistingEntity(objective: AgentObjective, input: AgentPlannerInput, entity: RetrievalCommitment | null): Promise<DraftOutcome> {
+    if (!entity) return { steps: [], blockingAmbiguities: [], failureMode: 'entity_not_found', failureMessage: 'The canonical target is unavailable or unauthorized.' };
+    const isProposal = entity.entityType === 'commitment_proposal';
+    const isShared = isEntityShared(entity);
+    const sourceRefs = [{ sourceType: entity.entityType, sourceId: entity.id }];
+
+    if (objective.objectiveType === 'respond_to_existing_proposal') {
+        if (!isProposal) return { steps: [], blockingAmbiguities: [], failureMode: 'unsupported_capability', failureMessage: 'The canonical target is not a pending proposal.' };
+        if (!entity.actorCanRespond) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'The actor cannot respond to this proposal.' };
+        const decision = objective.constraints.decisionHint ?? 'approve';
+        return { steps: [buildStep({
+            toolId: 'respond_to_proposal', operation: `Respond ${decision} to "${entity.title}"`,
+            args: { proposalId: entity.id, decision, proposedDueAt: null }, expectedEffect: 'The proposal response will be recorded.',
+            isShared, resolvedFrom: 'canonical_context', canonicalSourceRefs: sourceRefs,
+        })], blockingAmbiguities: [] };
+    }
+
+    if (objective.objectiveType === 'reschedule_existing_commitment') {
+        const date = dateFromCanonicalTemporal(input.canonicalFacts?.temporal);
+        if (!date) return { steps: [], blockingAmbiguities: [{ field: 'newDueAt', kind: 'blocking', reason: 'Temporal Core did not resolve a precise new date.' }] };
+        if (isProposal) {
+            if (!entity.actorCanRespond) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'The actor cannot counter-propose this proposal.' };
+            return { steps: [buildStep({
+                toolId: 'respond_to_proposal', operation: `Counter-propose a date for "${entity.title}"`,
+                args: { proposalId: entity.id, decision: 'counter_propose', proposedDueAt: date.toISOString() }, expectedEffect: 'A new proposal date will be recorded.',
+                isShared, resolvedFrom: 'canonical_context', canonicalSourceRefs: sourceRefs,
+            })], blockingAmbiguities: [] };
+        }
+        if (entity.ownerUserId !== input.actorUserId && entity.assignedToUserId !== input.actorUserId) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'The actor cannot reschedule this commitment.' };
+        if (!COMMITMENT_TRANSITION_TABLE.counter_propose.validFromStatuses.includes(entity.status)) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'The commitment lifecycle does not allow rescheduling.' };
+        return { steps: [buildStep({
+            toolId: 'reschedule_commitment', operation: `Reschedule "${entity.title}"`, args: { commitmentId: entity.id, newDueAt: date.toISOString() },
+            expectedEffect: 'The commitment will receive a new proposed date.', isShared, resolvedFrom: 'canonical_context', canonicalSourceRefs: sourceRefs,
+        })], blockingAmbiguities: [] };
+    }
+
+    if (isProposal) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'A pending proposal cannot be completed.' };
+    if (entity.ownerUserId !== input.actorUserId && entity.assignedToUserId !== input.actorUserId) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'The actor cannot complete this commitment.' };
+    if (!COMMITMENT_TRANSITION_TABLE.resolve.validFromStatuses.includes(entity.status)) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'The commitment lifecycle does not allow completion.' };
+    return { steps: [buildStep({
+        toolId: 'complete_commitment', operation: `Complete "${entity.title}"`, args: { commitmentId: entity.id, resolutionResult: objective.desiredOutcome || 'Completed from Core.' },
+        expectedEffect: 'The commitment will be marked resolved.', isShared, resolvedFrom: 'canonical_context', canonicalSourceRefs: sourceRefs,
+    })], blockingAmbiguities: [] };
 }
 
 export async function planObjective(input: AgentPlannerInput): Promise<DraftOutcome> {

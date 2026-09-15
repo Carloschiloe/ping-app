@@ -17,7 +17,7 @@ import {
     type AgentObjectiveInterpreter, type AgentObjectiveModel,
 } from './agentObjectiveInterpreter.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
-import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput } from './agentPlanner.service';
+import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput, type AgentPlannerCanonicalFacts } from './agentPlanner.service';
 import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
 import { tracePlan } from '../utils/planTrace';
@@ -75,6 +75,7 @@ export interface AgentPlanOrchestratorInput {
     traceId?: string;
     inputEnvelope?: AgentInputEnvelope;
     contextReferents?: ContextReferent[];
+    canonicalFacts?: AgentPlannerCanonicalFacts;
 }
 
 export interface RunAgentPlanningOptions {
@@ -202,6 +203,7 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         // reason the planner's one hardcoded-English fallback message
         // could never have followed the user's actual language.
         locale: input.locale,
+        canonicalFacts: input.canonicalFacts,
     };
 
     const draft = await planObjective(plannerInput);
