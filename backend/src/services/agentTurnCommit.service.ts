@@ -187,7 +187,7 @@ export class AgentTurnCommitService {
         if (error) errorFromRpc(error);
         const row = Array.isArray(data) ? data[0] : data;
         return {
-            checkpoint: mapCheckpoint(row), replay: row.replay as AgentTurnReplayV1,
+            checkpoint: mapCheckpoint(row), replay: row.replay as AgentTurnReplayV1 | AgentTurnReplayV2,
             replayed: Boolean(row.replayed),
         };
     }
