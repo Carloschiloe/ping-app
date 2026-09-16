@@ -351,6 +351,17 @@ function toRetrievalCommitment(row: any): RetrievalCommitment {
 // rompería el caso legítimo de un actor que ve un commitment propio de una
 // conversación de la que ya no es miembro. Un conversationId ajeno sin
 // relación propia produce lista vacía, nunca un throw ni una fuga.
+function applyCommitmentReadFilters(query: any, input: RetrieveContextInput): any {
+    if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
+    if (input.personId) query = query.or(`assigned_to_user_id.eq.${input.personId},owner_user_id.eq.${input.personId}`);
+    if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
+    if (input.statuses && input.statuses.length > 0) query = query.in('status', input.statuses);
+    if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
+    if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    if (input.query?.trim()) query = query.textSearch('search_tsv', input.query.trim(), { type: 'websearch', config: FTS_CONFIG });
+    return query;
+}
+
 export async function retrieveCommitments(input: RetrieveContextInput, limit: number): Promise<RetrievalCommitment[]> {
     // Authorization: la MISMA visibilidad canónica que ya usa /search — nunca
     // se reinventa. Se aplica siempre, incluso cuando se filtra además por
@@ -393,17 +404,7 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
         : query.order('created_at', { ascending: false });
     query = query.limit(fetchLimit);
 
-    if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
-    if (input.personId) query = query.or(`assigned_to_user_id.eq.${input.personId},owner_user_id.eq.${input.personId}`);
-    if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
-    if (input.statuses && input.statuses.length > 0) query = query.in('status', input.statuses);
-    if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
-    if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
-    // FTS real ocurre aquí, en SQL, contra el índice GIN de search_tsv (title
-    // peso A, description/expected_result/next_action peso B,
-    // resolution_result/rejection_reason peso C) — esto es lo que garantiza
-    // que nunca se filtre mal, sin importar qué haga el ranking en JS después.
-    if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
+    query = applyCommitmentReadFilters(query, input);
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
@@ -412,6 +413,26 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     // aquí mismo, para que un caller directo (no sólo retrieveContext) reciba
     // ya el resultado correctamente rankeado y acotado a `limit`.
     return textQuery ? rankCommitments(rows, input).slice(0, limit) : rows;
+}
+
+/**
+ * Exact count over the same authorized commitment universe and structured
+ * filters as retrieveCommitments. This deliberately selects no rows and has
+ * no limit: the count is supplied by PostgreSQL, never by an in-memory page.
+ */
+export async function countVisibleCommitments(input: RetrieveContextInput): Promise<number> {
+    const participantProposalIds = await getParticipantProposalIds(input.actorUserId);
+    const visibilityFilter = buildCommitmentVisibilityFilter(input.actorUserId, participantProposalIds);
+    let query = supabaseAdmin
+        .from('commitments')
+        .select('id', { count: 'exact', head: true })
+        .or(visibilityFilter)
+        .is('archived_at', null);
+    query = applyCommitmentReadFilters(query, input);
+    const { count, error } = await query;
+    if (error) throw new AppError(error.message, 500);
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) throw new AppError('Unable to determine exact commitment count', 500);
+    return count;
 }
 
 // M-5: resolve an already-typed session referent without broad text search.
