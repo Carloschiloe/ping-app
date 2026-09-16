@@ -1,5 +1,6 @@
 import { getEnvConfig } from '../config/env';
 import { AgentTurnAdmissionService } from './agentTurnAdmission.service';
+import { createPrivateAgentTurnAdmissionService } from './privateAgentTurnAdmission.service';
 import type { AgentTurnAdmission, AgentTurnRoutingMode } from '../types/agentTurnAdmission';
 import { AppError } from '../utils/AppError';
 
@@ -63,7 +64,7 @@ function requestedMode(config: AgentTurnRoutingConfig, readCapability: string | 
  */
 export class AgentTurnRoutingSelectionService {
     public constructor(
-        private readonly admissionService: Pick<AgentTurnAdmissionService, 'admit'> = new AgentTurnAdmissionService(),
+        private readonly admissionService: Pick<AgentTurnAdmissionService, 'admit'> = createPrivateAgentTurnAdmissionService(),
         private readonly configProvider: () => AgentTurnRoutingConfig = defaultConfig,
     ) {}
 

@@ -62,4 +62,14 @@ describe('M-7 routing selection against local Supabase', () => {
             request: { idempotencyKey: 'conflict-key', semanticRequest: { input: 'different' } },
         })).rejects.toMatchObject({ statusCode: 409 });
     });
+
+    it('allocates unique monotonic sequences through the private pool under concurrency', async () => {
+        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const results = await Promise.all(Array.from({ length: 5 }, (_, index) => service.selectAndAdmit({
+            server: { actorUserId: actor, dialogueScopeKey: 'routing-selection-concurrency' },
+            request: { idempotencyKey: `concurrent-key-${index}`, readCapability: READ_V4_EXACT_COUNT_OPT_IN, semanticRequest: { input: `concurrent-${index}` } },
+        })));
+        expect(new Set(results.map((result) => result.admission.turnId)).size).toBe(5);
+        expect(results.map((result) => result.admission.turnSequence).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    });
 });
