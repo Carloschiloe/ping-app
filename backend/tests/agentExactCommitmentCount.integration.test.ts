@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { supabaseAdmin } from '../src/lib/supabaseAdmin';
-import { executeReadExecution } from '../src/services/agentReadExecution.service';
+import { agentReadV4OrchestrationService } from '../src/services/agentReadV4Orchestration.service';
+import type { NormalizedSemanticTurnV4 } from '../src/types/agentTurnCommit';
 
 const owner = 'a1000000-0000-4000-8000-000000000001';
 const assignee = 'a1000000-0000-4000-8000-000000000002';
@@ -16,18 +17,15 @@ const archivedCommitment = 'a5000000-0000-4000-8000-000000000004';
 const outsiderCommitment = 'a5000000-0000-4000-8000-000000000005';
 const contactCommitment = 'a5000000-0000-4000-8000-000000000006';
 
+const semanticCount = {
+    version: 4, kind: 'read_request', domain: 'commitment', objectiveCompleteness: 'complete', lifecycleCommand: 'none', lifecycleTarget: 'unspecified', lifecycleEvidence: 'unknown', pendingSlotAnswer: 'not_a_slot_answer', continuationLike: 'unknown', candidateSlotType: null, independentObjective: 'yes', objectiveType: 'lookup', entityHints: [], slots: {}, ambiguityFields: [], confidence: .9, source: 'deterministic',
+    readMeaning: { queryShape: 'count', explicitCollection: false, targetShape: 'none', relationship: { kind: 'general_recall' }, temporalRole: 'none' },
+} as unknown as NormalizedSemanticTurnV4;
+
 const query = (actorUserId: string, overrides: Record<string, unknown> = {}) => ({
     actorUserId,
     queryKey: `integration-count-${actorUserId}-${Object.keys(overrides).join('-') || 'all'}`,
-    query: {
-        domain: 'commitment',
-        cardinality: 'count',
-        target: null,
-        relationship: { kind: 'general_recall' },
-        temporal: { role: 'none', value: null },
-        authorizedScope: { sourceTypes: ['commitment'], ...overrides },
-        evidenceRequirement: { relationship: 'general_recall', sourceTypes: ['commitment'] },
-    },
+    authorizedScope: { sourceTypes: ['commitment'], ...overrides },
 });
 
 async function removeFixtures() {
@@ -69,29 +67,30 @@ describe('Exact Commitment Count against local Supabase', () => {
     afterAll(removeFixtures);
 
     it('counts the complete authorized universe, including proposal participation, excluding archived rows', async () => {
-        const ownerResult = await executeReadExecution(query(owner));
-        const participantResult = await executeReadExecution(query(participant));
-        const outsiderResult = await executeReadExecution(query(outsider));
-        expect(ownerResult).toMatchObject({ status: 'completed', completeness: 'complete', conclusion: 'count', count: { value: 4, universe: 'authorized_commitments' } });
-        expect(participantResult).toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 1 } });
-        expect(outsiderResult).toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 1, universe: 'authorized_commitments' } });
+        const ownerResult = await agentReadV4OrchestrationService.execute({ ...query(owner), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } });
+        const participantResult = await agentReadV4OrchestrationService.execute({ ...query(participant), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } });
+        const outsiderResult = await agentReadV4OrchestrationService.execute({ ...query(outsider), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } });
+        expect(ownerResult).toMatchObject({ status: 'executed', result: { status: 'completed', completeness: 'complete', conclusion: 'count', count: { value: 4, universe: 'authorized_commitments' } } });
+        expect(participantResult).toMatchObject({ status: 'executed', result: { status: 'completed', completeness: 'complete', count: { value: 1 } } });
+        expect(outsiderResult).toMatchObject({ status: 'executed', result: { status: 'completed', completeness: 'complete', count: { value: 1, universe: 'authorized_commitments' } } });
     });
 
     it('preserves conversation, person, contact, status, temporal and FTS filters without pagination', async () => {
-        await expect(executeReadExecution(query(owner, { conversationId: conversation }))).resolves.toMatchObject({ count: { value: 2 } });
-        await expect(executeReadExecution(query(assignee, { personId: assignee }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeReadExecution(query(owner, { contactId: contact }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeReadExecution(query(owner, { statuses: ['proposed'] }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeReadExecution(query(owner, { timeRange: { from: '2026-09-19T00:00:00Z', to: '2026-09-21T00:00:00Z' } }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeReadExecution(query(owner, { approvedTextQuery: 'Alpha' }))).resolves.toMatchObject({ count: { value: 1 } });
+        const count = (actorUserId: string, overrides: Record<string, unknown> = {}) => agentReadV4OrchestrationService.execute({ ...query(actorUserId, overrides), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } });
+        await expect(count(owner, { conversationId: conversation })).resolves.toMatchObject({ result: { count: { value: 2 } } });
+        await expect(count(assignee, { personId: assignee })).resolves.toMatchObject({ result: { count: { value: 1 } } });
+        await expect(count(owner, { contactId: contact })).resolves.toMatchObject({ result: { count: { value: 1 } } });
+        await expect(count(owner, { statuses: ['proposed'] })).resolves.toMatchObject({ result: { count: { value: 1 } } });
+        await expect(count(owner, { timeRange: { from: '2026-09-19T00:00:00Z', to: '2026-09-21T00:00:00Z' } })).resolves.toMatchObject({ result: { count: { value: 1 } } });
+        await expect(count(owner, { approvedTextQuery: 'Alpha' })).resolves.toMatchObject({ result: { count: { value: 1 } } });
     });
 
     it('returns a real complete zero for an authorized empty scope and rejects unsupported constraints', async () => {
-        await expect(executeReadExecution(query(outsider, { conversationId: 'a2000000-0000-4000-8000-000000000099' }))).resolves.toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 0 } });
-        await expect(executeReadExecution(query(owner, { sourceTypes: ['message'] }))).resolves.toMatchObject({ status: 'unsupported' });
+        await expect(agentReadV4OrchestrationService.execute({ ...query(outsider, { conversationId: 'a2000000-0000-4000-8000-000000000099' }), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } })).resolves.toMatchObject({ result: { status: 'completed', completeness: 'complete', count: { value: 0 } } });
+        await expect(agentReadV4OrchestrationService.execute({ ...query(owner, { sourceTypes: ['message'] }), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } })).resolves.toMatchObject({ result: { status: 'unsupported' } });
     });
 
     it('returns failed rather than zero when PostgreSQL rejects the authorized actor predicate', async () => {
-        await expect(executeReadExecution(query('not-a-uuid'))).resolves.toMatchObject({ status: 'failed', retryable: true });
+        await expect(agentReadV4OrchestrationService.execute({ ...query('not-a-uuid'), semanticTurn: semanticCount, person: null, temporal: { status: 'not_applicable' } })).resolves.toMatchObject({ result: { status: 'failed', retryable: true } });
     });
 });
