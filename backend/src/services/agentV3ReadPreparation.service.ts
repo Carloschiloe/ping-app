@@ -2,6 +2,8 @@ import type { TemporalCoreResult } from './temporalCore.service';
 import type { AgentTurnDisposition } from '../types/agentTurnDisposition';
 import type { NormalizedSemanticTurnV3 } from '../types/agentTurnCommit';
 import type { PersonResolutionResult, RetrievalResult, RetrieveContextInput } from '../types/retrieval';
+import type { AgentStructuredClarification } from '../types/agentClarification';
+import { personClarification, structuredClarification, temporalClarification } from './agentStructuredClarification.service';
 
 export type V3ReadScope = Pick<RetrieveContextInput, 'conversationId' | 'personId' | 'contactId' | 'query' | 'timeRange' | 'types' | 'statuses' | 'orderByOverdueFirst'>;
 
@@ -18,7 +20,7 @@ export type V3ReadPreparationInput = {
 
 export type V3ReadPreparationResult =
     | { status: 'prepared'; request: RetrieveContextInput; result: RetrievalResult }
-    | { status: 'insufficient'; reason: 'person_resolution' | 'temporal_context' | 'retrieval_scope' }
+    | { status: 'insufficient'; reason: 'person_resolution' | 'temporal_context' | 'retrieval_scope'; clarification: AgentStructuredClarification }
     | { status: 'unsupported'; reason: 'disposition' | 'semantic_shape' | 'temporal_shape' }
     | { status: 'not_applicable'; reason: 'not_a_read' };
 
@@ -39,19 +41,19 @@ function temporalAllowsRead(temporal: TemporalCoreResult): boolean {
 export async function prepareV3Read(input: V3ReadPreparationInput, retrieve: V3ReadRetriever): Promise<V3ReadPreparationResult> {
     if (input.disposition !== 'ordinary_read') return { status: 'not_applicable', reason: 'not_a_read' };
     if (!isReadSemantic(input.semanticTurn)) return { status: 'unsupported', reason: 'semantic_shape' };
-    if (!hasSupportedScope(input.scope)) return { status: 'insufficient', reason: 'retrieval_scope' };
+    if (!hasSupportedScope(input.scope)) return { status: 'insufficient', reason: 'retrieval_scope', clarification: structuredClarification({ semanticTurn: input.semanticTurn, field: 'retrieval_scope', reason: 'retrieval_scope', inputMode: 'provide_context' }) };
     if (!temporalAllowsRead(input.temporal)) {
         return input.temporal.status === 'ambiguous' || input.temporal.status === 'nonexistent_local_time' || input.temporal.status === 'insufficient'
-            ? { status: 'insufficient', reason: 'temporal_context' }
+            ? { status: 'insufficient', reason: 'temporal_context', clarification: temporalClarification({ semanticTurn: input.semanticTurn, temporal: input.temporal }) }
             : { status: 'unsupported', reason: 'temporal_shape' };
     }
     if (input.temporal.status === 'resolved' && input.temporal.value.kind === 'civil_date' && !input.scope.timeRange) {
-        return { status: 'insufficient', reason: 'temporal_context' };
+        return { status: 'insufficient', reason: 'temporal_context', clarification: temporalClarification({ semanticTurn: input.semanticTurn, temporal: input.temporal }) };
     }
-    if (input.person?.ambiguous || (input.person && !input.person.resolved && input.person.candidates.length > 0)) return { status: 'insufficient', reason: 'person_resolution' };
-    if (input.scope.personId && (!input.person?.resolved || input.person.resolved.id !== input.scope.personId)) return { status: 'insufficient', reason: 'person_resolution' };
-    if (input.person?.resolved?.kind === 'user' && input.scope.contactId) return { status: 'insufficient', reason: 'person_resolution' };
-    if (input.person?.resolved?.kind === 'contact' && input.scope.personId) return { status: 'insufficient', reason: 'person_resolution' };
+    if (input.person?.ambiguous || (input.person && !input.person.resolved && input.person.candidates.length > 0)) return { status: 'insufficient', reason: 'person_resolution', clarification: personClarification({ semanticTurn: input.semanticTurn, person: input.person }) };
+    if (input.scope.personId && (!input.person?.resolved || input.person.resolved.id !== input.scope.personId)) return { status: 'insufficient', reason: 'person_resolution', clarification: personClarification({ semanticTurn: input.semanticTurn, person: input.person ?? { resolved: null, ambiguous: false, candidates: [] } }) };
+    if (input.person?.resolved?.kind === 'user' && input.scope.contactId) return { status: 'insufficient', reason: 'person_resolution', clarification: personClarification({ semanticTurn: input.semanticTurn, person: input.person }) };
+    if (input.person?.resolved?.kind === 'contact' && input.scope.personId) return { status: 'insufficient', reason: 'person_resolution', clarification: personClarification({ semanticTurn: input.semanticTurn, person: input.person }) };
 
     const request: RetrieveContextInput = {
         actorUserId: input.actorUserId,

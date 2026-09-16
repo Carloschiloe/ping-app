@@ -28,6 +28,8 @@ describe('M-7 V3-native read preparation', () => {
     it('does not retrieve for ambiguous or zero-match person resolution', async () => {
         const retrieve = vi.fn(async () => result);
         expect((await prepareV3Read(input({ person: { resolved: null, ambiguous: true, candidates: [] } }), retrieve)).status).toBe('insufficient');
+        const zero = await prepareV3Read(input({ person: { resolved: null, ambiguous: false, candidates: [] } }), retrieve);
+        expect(zero).toMatchObject({ status: 'insufficient', reason: 'person_resolution', clarification: { condition: 'zero_match', options: [] } });
         expect(retrieve).not.toHaveBeenCalled();
     });
     it('does not guess through ambiguous, nonexistent, or insufficient temporal results', async () => {

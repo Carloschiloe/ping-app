@@ -32,7 +32,7 @@ describe('prepareV3Write', () => {
 
     it('does not guess incomplete canonical facts', async () => {
         const result = await prepareV3Write({ actorUserId: 'actor-1', semanticTurn: baseTurn, disposition: 'ordinary_write', temporal: { status: 'insufficient', reason: 'timezone_required' } });
-        expect(result).toEqual({ status: 'insufficient', reason: 'temporal' });
+        expect(result).toMatchObject({ status: 'insufficient', reason: 'temporal', clarification: { field: 'temporal', condition: 'missing', temporal: { status: 'insufficient', reason: 'timezone_required' } } });
         expect(runAgentPlanningMock).not.toHaveBeenCalled();
     });
 
@@ -40,5 +40,12 @@ describe('prepareV3Write', () => {
         const result = await prepareV3Write({ actorUserId: 'actor-1', semanticTurn: { ...baseTurn, objectiveType: 'communicate_message' }, disposition: 'ordinary_write', temporal: { status: 'not_applicable' } });
         expect(result).toEqual({ status: 'unsupported', reason: 'communication_content' });
         expect(runAgentPlanningMock).not.toHaveBeenCalled();
+    });
+
+    it('maps planner missing information to structured clarification without carrying question prose', async () => {
+        runAgentPlanningMock.mockResolvedValue({ status: 'needs_clarification', unresolvedInputs: [{ field: 'title', question: 'Texto de presentación no persistible.' }] });
+        const result = await prepareV3Write({ actorUserId: 'actor-1', semanticTurn: { ...baseTurn, slots: {} }, disposition: 'ordinary_write', temporal: { status: 'resolved', value: { kind: 'civil_date', year: 2026, month: 9, day: 20 } } });
+        expect(result).toMatchObject({ status: 'insufficient', reason: 'title', clarification: { field: 'title', condition: 'missing', options: [] } });
+        expect(JSON.stringify(result)).not.toContain('Texto de presentación no persistible.');
     });
 });
