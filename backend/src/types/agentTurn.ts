@@ -6,8 +6,9 @@ import type { AgentPublicResponse } from './agent';
 import type { AgentPlanPublicResponse } from './agentPlan';
 import type { ClarificationQuestion } from './agentPlan';
 import type { AgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
+import type { ReadExecutionResult } from './agentReadExecution';
 
-export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
+export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported' | 'read';
 
 export interface AgentTurnResponse {
     kind: 'response';
@@ -39,11 +40,21 @@ export interface AgentTurnUnsupported {
     debug?: AgentDeviceDebugMetadata;
 }
 
+export interface AgentTurnRead {
+    kind: 'read';
+    execution: ReadExecutionResult;
+    /** Opaque bindings keep durable audit context without persisting user text. */
+    scopeFingerprint: string;
+    constraintsFingerprint: string;
+    debug?: AgentDeviceDebugMetadata;
+}
+
 export type AgentTurnResult =
     | AgentTurnResponse
     | AgentTurnPlan
     | AgentTurnClarification
-    | AgentTurnUnsupported;
+    | AgentTurnUnsupported
+    | AgentTurnRead;
 
 // ─── Plan Presentation (Core-owned) ─────────────────────────────────────────────
 // Mobile renders this directly. Copy derives from FROZEN plan arguments,

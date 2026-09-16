@@ -2,15 +2,16 @@ import { createHash } from 'node:crypto';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import {
-    AGENT_TURN_REPLAY_MAX_BYTES, AGENT_TURN_REPLAY_VERSION,
+    AGENT_TURN_REPLAY_MAX_BYTES, AGENT_TURN_REPLAY_VERSION, AGENT_TURN_REPLAY_V2,
     type AgentTurnAtomicApplication, type AgentTurnDialogueCheckpoint,
-    type AgentTurnReplayV1, type NormalizedSemanticTurn, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3,
+    type AgentTurnReplayV1, type AgentTurnReplayV2, type NormalizedSemanticTurn, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3,
 } from '../types/agentTurnCommit';
 import type { AgentTurnResult } from '../types/agentTurn';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 import type { SemanticCheckpointLoadResult } from '../types/agentTurnOrchestration';
 import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
 import { normalizeSemanticTurnV4 } from './agentTurnSemanticV4.service';
+import { assertReadExecutionResult } from '../types/agentReadExecution';
 export type SemanticCheckpointV3LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV3; turnSequence: number; fingerprint: string; version: 3 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
 export type SemanticCheckpointV4LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV4; turnSequence: number; fingerprint: string; version: 4 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
 export type AgentTurnReconciliationResult = {
@@ -28,12 +29,28 @@ function jsonBytes(value: unknown): number {
 }
 
 export function toAgentTurnReplayV1(result: AgentTurnResult): AgentTurnReplayV1 {
+    if (result.kind === 'read') throw new AppError('READ result requires replay version 2', 500);
     const { debug: _debug, ...publicResult } = result as AgentTurnResult & { debug?: unknown };
     const replay = publicResult as AgentTurnReplayV1;
     const bytes = jsonBytes(replay);
     if (bytes > AGENT_TURN_REPLAY_MAX_BYTES) {
         throw new AppError(`Agent turn replay exceeds ${AGENT_TURN_REPLAY_MAX_BYTES} bytes`, 500);
     }
+    return replay;
+}
+
+export function toAgentTurnReplayV2(result: AgentTurnResult): AgentTurnReplayV2 {
+    if (result.kind !== 'read') throw new AppError('Replay version 2 requires a READ result', 500);
+    if (!/^[a-f0-9]{64}$/i.test(result.scopeFingerprint) || !/^[a-f0-9]{64}$/i.test(result.constraintsFingerprint)) {
+        throw new AppError('Invalid READ replay bindings', 500);
+    }
+    const replay: AgentTurnReplayV2 = {
+        kind: 'read', execution: result.execution,
+        scopeFingerprint: result.scopeFingerprint,
+        constraintsFingerprint: result.constraintsFingerprint,
+    };
+    assertReadExecutionResult(replay.execution);
+    if (jsonBytes(replay) > AGENT_TURN_REPLAY_MAX_BYTES) throw new AppError(`Agent turn replay exceeds ${AGENT_TURN_REPLAY_MAX_BYTES} bytes`, 500);
     return replay;
 }
 
@@ -157,14 +174,15 @@ export class AgentTurnCommitService {
         suspendedDialogue: Record<string, unknown> | null; expiresAt: string;
         result: AgentTurnResult;
     }): Promise<AgentTurnAtomicApplication> {
-        const replay = toAgentTurnReplayV1(input.result);
+        const replayVersion = input.result.kind === 'read' ? AGENT_TURN_REPLAY_V2 : AGENT_TURN_REPLAY_VERSION;
+        const replay = input.result.kind === 'read' ? toAgentTurnReplayV2(input.result) : toAgentTurnReplayV1(input.result);
         const { data, error } = await this.client.rpc('apply_agent_turn_atomically', {
             p_turn_id: input.turnId, p_actor_user_id: input.actorUserId,
             p_dialogue_scope_key: input.dialogueScopeKey, p_turn_sequence: input.turnSequence,
             p_expected_dialogue_version: input.expectedDialogueVersion,
             p_lifecycle: input.lifecycle, p_active_dialogue: input.activeDialogue,
             p_suspended_dialogue: input.suspendedDialogue, p_expires_at: input.expiresAt,
-            p_replay_version: AGENT_TURN_REPLAY_VERSION, p_replay: replay,
+            p_replay_version: replayVersion, p_replay: replay,
         });
         if (error) errorFromRpc(error);
         const row = Array.isArray(data) ? data[0] : data;

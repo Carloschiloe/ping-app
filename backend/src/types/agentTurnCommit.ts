@@ -1,6 +1,7 @@
 import type { AgentTurnResult } from './agentTurn';
 
 export const AGENT_TURN_REPLAY_VERSION = 1 as const;
+export const AGENT_TURN_REPLAY_V2 = 2 as const;
 export const AGENT_TURN_REPLAY_MAX_BYTES = 128 * 1024;
 
 // Normalized, bounded Core input. Provider responses, prompts and raw source
@@ -92,7 +93,7 @@ export interface NormalizedSemanticTurnV4 extends Omit<NormalizedSemanticTurnV3,
 }
 
 export interface AgentTurnReplayV1 {
-    kind: AgentTurnResult['kind'];
+    kind: 'response' | 'plan' | 'clarification' | 'unsupported';
     response?: Extract<AgentTurnResult, { kind: 'response' }>['response'];
     questions?: Extract<AgentTurnResult, { kind: 'clarification' }>['questions'];
     partialResponse?: Extract<AgentTurnResult, { kind: 'clarification' }>['partialResponse'];
@@ -100,6 +101,13 @@ export interface AgentTurnReplayV1 {
     presentation?: Extract<AgentTurnResult, { kind: 'plan' }>['presentation'];
     reason?: Extract<AgentTurnResult, { kind: 'unsupported' }>['reason'];
     supportedExamples?: Extract<AgentTurnResult, { kind: 'unsupported' }>['supportedExamples'];
+}
+
+export interface AgentTurnReplayV2 {
+    kind: 'read';
+    execution: Extract<AgentTurnResult, { kind: 'read' }>['execution'];
+    scopeFingerprint: string;
+    constraintsFingerprint: string;
 }
 
 export interface AgentTurnDialogueCheckpoint {
@@ -116,6 +124,6 @@ export interface AgentTurnDialogueCheckpoint {
 
 export interface AgentTurnAtomicApplication {
     checkpoint: AgentTurnDialogueCheckpoint;
-    replay: AgentTurnReplayV1;
+    replay: AgentTurnReplayV1 | AgentTurnReplayV2;
     replayed: boolean;
 }
