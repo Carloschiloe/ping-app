@@ -6,7 +6,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     dialogue_scope_key: 'actor:scope', client_turn_key: 'client-turn-1',
     request_fingerprint: 'a'.repeat(64), turn_sequence: 7, status: 'accepted', failure_class: null,
     result_ref: null, created_at: '2026-09-14T00:00:00.000Z', updated_at: '2026-09-14T00:00:00.000Z',
-    completed_at: null, expires_at: '2026-10-14T00:00:00.000Z', idempotent_replay: false, ...overrides,
+    completed_at: null, expires_at: '2026-10-14T00:00:00.000Z', idempotent_replay: false, routing_mode: null, ...overrides,
 });
 
 describe('M-7 durable Agent Turn admission adapter', () => {
@@ -27,6 +27,22 @@ describe('M-7 durable Agent Turn admission adapter', () => {
         expect(admission.turnId).toBe(row().turn_id);
         expect(rpc).toHaveBeenCalledWith('admit_agent_turn', expect.objectContaining({ p_request_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) }));
         expect(rpc.mock.calls[0][1]).not.toHaveProperty('p_trace_id');
+    });
+
+    it('persists a server-selected routing mode and maps it from the admission row', async () => {
+        const rpc = vi.fn().mockResolvedValue({ data: [row({ routing_mode: 'read_v4_exact_count' })], error: null });
+        const service = new AgentTurnAdmissionService({ rpc });
+        const admission = await service.admit({ actorUserId: row().actor_user_id as string, dialogueScopeKey: 'actor:scope', clientTurnKey: 'client-turn-1', routingMode: 'read_v4_exact_count', semanticRequest: { input: 'count' } });
+        expect(admission.routingMode).toBe('read_v4_exact_count');
+        expect(rpc).toHaveBeenCalledWith('admit_agent_turn_with_routing_mode', expect.objectContaining({ p_routing_mode: 'read_v4_exact_count' }));
+    });
+
+    it('keeps a stored mode authoritative on retry and never sends a mode change operation', async () => {
+        const rpc = vi.fn().mockResolvedValue({ data: [row({ routing_mode: 'legacy', idempotent_replay: true })], error: null });
+        const service = new AgentTurnAdmissionService({ rpc });
+        const admission = await service.admit({ actorUserId: row().actor_user_id as string, dialogueScopeKey: 'actor:scope', clientTurnKey: 'client-turn-1', routingMode: 'read_v4_exact_count', semanticRequest: { input: 'same' } });
+        expect(admission.routingMode).toBe('legacy');
+        expect(rpc).toHaveBeenCalledTimes(1);
     });
 
     it('maps completed admission to replay and does not claim it for processing', async () => {

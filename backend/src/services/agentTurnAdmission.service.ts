@@ -38,7 +38,7 @@ function mapRow(row: Record<string, any>): AgentTurnAdmission {
         turnSequence: Number(row.turn_sequence), status: row.status, failureClass: row.failure_class ?? null,
         resultRef: row.result_ref ?? null, createdAt: row.created_at, updatedAt: row.updated_at,
         completedAt: row.completed_at ?? null, expiresAt: row.expires_at,
-        idempotentReplay: Boolean(row.idempotent_replay), turnReferenceInstant: row.created_at,
+        idempotentReplay: Boolean(row.idempotent_replay), routingMode: row.routing_mode ?? null, turnReferenceInstant: row.created_at,
     };
 }
 
@@ -54,12 +54,15 @@ export class AgentTurnAdmissionService {
 
     public async admit(request: AgentTurnAdmissionRequest): Promise<AgentTurnAdmission> {
         const fingerprint = canonicalAgentTurnFingerprint(request.semanticRequest);
-        const { data, error } = await this.client.rpc('admit_agent_turn', {
+        const rpcName = request.routingMode ? 'admit_agent_turn_with_routing_mode' : 'admit_agent_turn';
+        const args: Record<string, unknown> = {
             p_actor_user_id: request.actorUserId,
             p_dialogue_scope_key: request.dialogueScopeKey,
             p_client_turn_key: request.clientTurnKey ?? null,
             p_request_fingerprint: fingerprint,
-        });
+        };
+        if (request.routingMode) args.p_routing_mode = request.routingMode;
+        const { data, error } = await this.client.rpc(rpcName, args);
         if (error) rpcError(error);
         const row = Array.isArray(data) ? data[0] : data;
         if (!row) throw new AppError('Agent turn admission returned no record', 500);
