@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { supabaseAdmin } from '../src/lib/supabaseAdmin';
-import { executeExactCommitmentCount } from '../src/services/agentExactCommitmentCount.service';
+import { executeReadExecution } from '../src/services/agentReadExecution.service';
 
 const owner = 'a1000000-0000-4000-8000-000000000001';
 const assignee = 'a1000000-0000-4000-8000-000000000002';
@@ -69,29 +69,29 @@ describe('Exact Commitment Count against local Supabase', () => {
     afterAll(removeFixtures);
 
     it('counts the complete authorized universe, including proposal participation, excluding archived rows', async () => {
-        const ownerResult = await executeExactCommitmentCount(query(owner));
-        const participantResult = await executeExactCommitmentCount(query(participant));
-        const outsiderResult = await executeExactCommitmentCount(query(outsider));
+        const ownerResult = await executeReadExecution(query(owner));
+        const participantResult = await executeReadExecution(query(participant));
+        const outsiderResult = await executeReadExecution(query(outsider));
         expect(ownerResult).toMatchObject({ status: 'completed', completeness: 'complete', conclusion: 'count', count: { value: 4, universe: 'authorized_commitments' } });
         expect(participantResult).toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 1 } });
         expect(outsiderResult).toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 1, universe: 'authorized_commitments' } });
     });
 
     it('preserves conversation, person, contact, status, temporal and FTS filters without pagination', async () => {
-        await expect(executeExactCommitmentCount(query(owner, { conversationId: conversation }))).resolves.toMatchObject({ count: { value: 2 } });
-        await expect(executeExactCommitmentCount(query(assignee, { personId: assignee }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeExactCommitmentCount(query(owner, { contactId: contact }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeExactCommitmentCount(query(owner, { statuses: ['proposed'] }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeExactCommitmentCount(query(owner, { timeRange: { from: '2026-09-19T00:00:00Z', to: '2026-09-21T00:00:00Z' } }))).resolves.toMatchObject({ count: { value: 1 } });
-        await expect(executeExactCommitmentCount(query(owner, { approvedTextQuery: 'Alpha' }))).resolves.toMatchObject({ count: { value: 1 } });
+        await expect(executeReadExecution(query(owner, { conversationId: conversation }))).resolves.toMatchObject({ count: { value: 2 } });
+        await expect(executeReadExecution(query(assignee, { personId: assignee }))).resolves.toMatchObject({ count: { value: 1 } });
+        await expect(executeReadExecution(query(owner, { contactId: contact }))).resolves.toMatchObject({ count: { value: 1 } });
+        await expect(executeReadExecution(query(owner, { statuses: ['proposed'] }))).resolves.toMatchObject({ count: { value: 1 } });
+        await expect(executeReadExecution(query(owner, { timeRange: { from: '2026-09-19T00:00:00Z', to: '2026-09-21T00:00:00Z' } }))).resolves.toMatchObject({ count: { value: 1 } });
+        await expect(executeReadExecution(query(owner, { approvedTextQuery: 'Alpha' }))).resolves.toMatchObject({ count: { value: 1 } });
     });
 
     it('returns a real complete zero for an authorized empty scope and rejects unsupported constraints', async () => {
-        await expect(executeExactCommitmentCount(query(outsider, { conversationId: 'a2000000-0000-4000-8000-000000000099' }))).resolves.toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 0 } });
-        await expect(executeExactCommitmentCount(query(owner, { sourceTypes: ['message'] }))).resolves.toMatchObject({ status: 'unsupported' });
+        await expect(executeReadExecution(query(outsider, { conversationId: 'a2000000-0000-4000-8000-000000000099' }))).resolves.toMatchObject({ status: 'completed', completeness: 'complete', count: { value: 0 } });
+        await expect(executeReadExecution(query(owner, { sourceTypes: ['message'] }))).resolves.toMatchObject({ status: 'unsupported' });
     });
 
     it('returns failed rather than zero when PostgreSQL rejects the authorized actor predicate', async () => {
-        await expect(executeExactCommitmentCount(query('not-a-uuid'))).resolves.toMatchObject({ status: 'failed', retryable: true });
+        await expect(executeReadExecution(query('not-a-uuid'))).resolves.toMatchObject({ status: 'failed', retryable: true });
     });
 });

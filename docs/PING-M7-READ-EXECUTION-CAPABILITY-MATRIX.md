@@ -1,8 +1,7 @@
 # M-7 READ Execution Contract and Capability Matrix
 
-This document records the contract at HEAD `d44a58e`. It is a design boundary,
-not a Retrieval implementation and not a claim that every planned query is
-currently executable.
+This document records the current READ execution boundary. It is not a claim
+that every planned query is currently executable.
 
 ## Ownership
 
@@ -21,7 +20,7 @@ The execution result must distinguish `complete`, `partial`, `unknown`,
 | --- | --- | --- | --- | --- | --- |
 | Commitment focused current state | `retrieveVisibleCommitmentById` | Canonical commitment ID and current state | Commitment visibility filter | Single target | Supported for current-state focused reads |
 | Commitment collection | `retrieveCommitments` | Actor visibility, structured filters, approved FTS | Visibility filter | Bounded limit | Partial/unknown; not complete collection |
-| Commitment count | None | No exact count operation | N/A | Not available | Unsupported |
+| Commitment count | `executeReadExecution` → `executeExactCommitmentCount` → `countVisibleCommitments` | Authorized commitment universe, structured filters and approved FTS | Commitment visibility filter | PostgreSQL exact count | Supported in isolated READ execution |
 | Commitment lifecycle exact transition | `retrieveCommitmentEvents` | Target can be authorized, but no `eventType` filter | Commitment visibility filter | Bounded events | Unsupported until event-type capability exists |
 | Proposal focused | No public by-ID READ resolver | No safe exact focused operation | N/A | Not available | Unsupported |
 | Proposal collection | `retrieveCommitmentProposals` | Scope/status/time/approved FTS; focus is filtered later by `agentContextBuilder` | Proposal visibility/participation | Safety cap or bounded limit | Unsupported as exact V4 execution |
