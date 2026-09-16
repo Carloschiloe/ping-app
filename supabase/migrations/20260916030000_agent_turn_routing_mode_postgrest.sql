@@ -1,6 +1,4 @@
--- M-7: let PostgREST's authenticator load this service-role-only RPC into
--- its schema cache. The effective execution grant remains service_role only.
-grant execute on function public.admit_agent_turn_with_routing_mode(uuid, text, text, text, text)
-    to authenticator;
-
-notify pgrst, 'reload schema';
+-- M-7: the routing-mode admission RPC is backend-private and must not be
+-- exposed through PostgREST. The private PostgreSQL adapter is the only
+-- admission transport; service_role remains the migration-defined grant.
+-- Intentionally no-op: no schema-cache reload is needed for an HTTP grant.
