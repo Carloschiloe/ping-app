@@ -10,6 +10,12 @@ import type { AgentTurnResult } from '../types/agentTurn';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 import type { SemanticCheckpointLoadResult } from '../types/agentTurnOrchestration';
 export type SemanticCheckpointV3LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV3; turnSequence: number; fingerprint: string; version: 3 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
+export type AgentTurnReconciliationResult = {
+    status: 'committed' | 'uncertain' | 'not_applied' | 'retryable_recovery' | 'retryable_failure' | 'terminal_failure' | 'superseded';
+    turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence: number;
+    admissionStatus: string; failureClass: string | null; resultRef: Record<string, unknown> | null;
+    lastAppliedTurnId: string | null; lastAppliedTurnSequence: number;
+};
 
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => any };
 type TableClient = { from: (table: string) => any };
@@ -48,6 +54,7 @@ function mapCheckpoint(row: Record<string, any>): AgentTurnDialogueCheckpoint {
 
 function errorFromRpc(error: { message: string; code?: string } | null): never {
     if (error?.code === 'P0002') throw new AppError('Agent turn admission not found', 404);
+    if (error?.code === '42501') throw new AppError('Agent turn admission identity mismatch', 403);
     if (error?.code === 'P0003') throw new AppError('Agent turn checkpoint conflict', 409);
     if (error?.code === 'P0004') throw new AppError('Agent turn dialogue CAS conflict', 409);
     if (error?.code === 'P0005') throw new AppError('Agent turn sequence is stale', 409);
@@ -144,6 +151,25 @@ export class AgentTurnCommitService {
             replayed: Boolean(row.replayed),
         };
     }
+
+    public async reconcileApplication(input: { turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence: number }): Promise<AgentTurnReconciliationResult> {
+        const { data, error } = await this.client.rpc('reconcile_agent_turn_application', {
+            p_turn_id: input.turnId, p_actor_user_id: input.actorUserId,
+            p_dialogue_scope_key: input.dialogueScopeKey, p_turn_sequence: input.turnSequence,
+        });
+        if (error) errorFromRpc(error);
+        const row = (Array.isArray(data) ? data[0] : data) as Record<string, any> | undefined;
+        if (!row) throw new AppError('Agent turn reconciliation returned no record', 500);
+        return {
+            status: row.reconciliation_status, turnId: row.turn_id,
+            actorUserId: row.actor_user_id, dialogueScopeKey: row.dialogue_scope_key,
+            turnSequence: Number(row.turn_sequence), admissionStatus: row.admission_status,
+            failureClass: row.failure_class ?? null, resultRef: row.result_ref ?? null,
+            lastAppliedTurnId: row.last_applied_turn_id ?? null,
+            lastAppliedTurnSequence: Number(row.last_applied_turn_sequence ?? 0),
+        };
+    }
+
 }
 
 export const agentTurnCommitService = new AgentTurnCommitService();
