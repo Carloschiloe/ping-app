@@ -2,7 +2,8 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { isAiConfigured } from './synthesis.service';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
-import { AGENT_TURN_SEMANTIC_V2, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3, type TemporalFactV3 } from '../types/agentTurnCommit';
+import { AGENT_TURN_SEMANTIC_V2, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3, type NormalizedSemanticTurnV4, type TemporalFactV3, type SemanticReadMeaningV4 } from '../types/agentTurnCommit';
+import { normalizeSemanticTurnV4 } from './agentTurnSemanticV4.service';
 
 export interface SemanticDialogueContext {
     lifecycle: 'none' | 'active' | 'suspended' | 'active_and_suspended';
@@ -20,6 +21,7 @@ export interface CanonicalSemanticProducerInput {
     dialogue?: SemanticDialogueContext | null;
     authoritativeSemantic?: Omit<NormalizedSemanticTurnV2, 'version'>;
     authoritativeSemanticV3?: Omit<NormalizedSemanticTurnV3, 'version'>;
+    authoritativeSemanticV4?: Omit<NormalizedSemanticTurnV4, 'version'>;
 }
 
 export interface SemanticModelRequest {
@@ -28,6 +30,7 @@ export interface SemanticModelRequest {
     locale?: string;
     timezone?: string;
     dialogue: SemanticDialogueContext | null;
+    semanticVersion?: 4;
 }
 
 export interface SemanticModel {
@@ -64,6 +67,25 @@ const temporalFactSchema = z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('time_only'), precision: z.enum(['minute', 'second']), hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59), second: z.number().int().min(0).max(59).optional(), meridiem: z.enum(['24h', 'am', 'pm', 'unknown']), ambiguity: z.enum(['none', 'clock']) }),
 ]);
 
+const readMeaningSchema = z.object({
+    queryShape: z.enum(['focused', 'collection', 'count']),
+    explicitCollection: z.boolean(),
+    targetShape: z.enum(['none', 'person', 'commitment', 'proposal', 'message', 'conversation', 'attachment', 'transcription', 'topic']),
+    relationship: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('general_recall') }),
+        z.object({ kind: z.literal('current_state') }),
+        z.object({ kind: z.literal('lifecycle_transition'), transition: z.enum(['action_completed', 'resolved', 'cancelled', 'rejected', 'reopened', 'reassigned', 'accepted']) }),
+        z.object({ kind: z.literal('proposal_focus'), focus: z.enum(['waiting_for_others', 'needs_my_response', 'pending_response_from_person']) }),
+        z.object({ kind: z.literal('person_relationship') }),
+        z.object({ kind: z.literal('message_relationship'), relationship: z.enum(['content', 'conversation_context', 'sender', 'participant']) }),
+        z.object({ kind: z.literal('attachment_content') }),
+        z.object({ kind: z.literal('transcription_content') }),
+    ]),
+    temporalRole: z.enum(['none', 'filter_range', 'occurrence_time', 'target_date', 'elapsed', 'duration']),
+}).strict();
+
+const outputSchemaV4 = outputSchema.extend({ readMeaning: readMeaningSchema.nullable() }).strict();
+
 const MODEL_NAME = 'gpt-4o-mini';
 let client: OpenAI | null = null;
 function openAi(): OpenAI { return client ?? (client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })); }
@@ -74,7 +96,7 @@ function buildPrompt(request: SemanticModelRequest): string {
         'Return exactly the JSON fields in the supplied contract. Preserve unknown and ambiguity; never guess.',
         'A complete independent objective must not be represented as a slot answer. A bare value may be a slot answer only when dialogue context supports it.',
         'Lifecycle command means conversational abandon/resume only when the language and context support that reading; ambiguous cancel language must remain lifecycleEvidence=unknown.',
-        'Contract: {kind,domain,objectiveCompleteness,lifecycleCommand,lifecycleTarget,lifecycleEvidence,pendingSlotAnswer,continuationLike,candidateSlotType,independentObjective,objectiveType,entityHints,slots,ambiguityFields,confidence}',
+        `Contract: {kind,domain,objectiveCompleteness,lifecycleCommand,lifecycleTarget,lifecycleEvidence,pendingSlotAnswer,continuationLike,candidateSlotType,independentObjective,objectiveType,entityHints,slots,ambiguityFields,confidence,temporalFact${request.semanticVersion === 4 ? ',readMeaning' : ''}}`,
         `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
         `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,
         `User turn: ${request.text}`,
@@ -122,7 +144,7 @@ export class CanonicalSemanticProducer {
     public async produceV3(input: CanonicalSemanticProducerInput): Promise<NormalizedSemanticTurnV3> {
         if (input.authoritativeSemanticV3) return { version: 3, ...input.authoritativeSemanticV3 };
         try {
-            const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null });
+            const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null, semanticVersion: 4 });
             const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
             const base = outputSchema.safeParse(parsed);
             if (!base.success) return { version: 3, ...unknownTurnV3() };
@@ -131,6 +153,20 @@ export class CanonicalSemanticProducer {
             const { temporalFact: _rawTemporal, ...baseData } = base.data;
             return normalizeV3({ ...baseData, version: 3, source: 'llm', ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) });
         } catch { return { version: 3, ...unknownTurnV3() }; }
+    }
+
+    public async produceV4(input: CanonicalSemanticProducerInput): Promise<NormalizedSemanticTurnV4> {
+        if (input.authoritativeSemanticV4) return normalizeSemanticTurnV4({ version: 4, ...input.authoritativeSemanticV4 });
+        try {
+            const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null });
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            const base = outputSchemaV4.safeParse(parsed);
+            if (!base.success) return unknownTurnV4();
+            const temporal = temporalFactSchema.safeParse((parsed as Record<string, unknown>).temporalFact);
+            if ((parsed as Record<string, unknown>).temporalFact !== undefined && !temporal.success) return unknownTurnV4();
+            const { temporalFact: _rawTemporal, readMeaning, ...baseData } = base.data;
+            return normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) });
+        } catch { return unknownTurnV4(); }
     }
 }
 
@@ -141,6 +177,10 @@ function unknownTurnV3(): Omit<NormalizedSemanticTurnV3, 'version'> {
 function normalizeV3(input: NormalizedSemanticTurnV3): NormalizedSemanticTurnV3 {
     if (input.version !== 3 || JSON.stringify(input).length > 32 * 1024) return { version: 3, ...unknownTurnV3() };
     return JSON.parse(JSON.stringify(input)) as NormalizedSemanticTurnV3;
+}
+
+function unknownTurnV4(): NormalizedSemanticTurnV4 {
+    return { version: 4, kind: 'unknown', domain: 'unknown', objectiveCompleteness: 'unknown', lifecycleCommand: 'none', lifecycleTarget: 'unspecified', lifecycleEvidence: 'unknown', pendingSlotAnswer: 'unknown', continuationLike: 'unknown', candidateSlotType: null, independentObjective: 'unknown', objectiveType: null, entityHints: [], slots: {}, ambiguityFields: ['semantic_interpretation'], confidence: 0, source: 'fallback', readMeaning: null };
 }
 
 export const canonicalSemanticProducer = new CanonicalSemanticProducer();

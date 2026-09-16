@@ -61,6 +61,36 @@ export interface NormalizedSemanticTurnV3 extends Omit<NormalizedSemanticTurnV2,
     temporalFact?: TemporalFactV3;
 }
 
+export type SemanticReadQueryShapeV4 = 'focused' | 'collection' | 'count';
+export type SemanticReadTargetShapeV4 = 'none' | 'person' | 'commitment' | 'proposal' | 'message' | 'conversation' | 'attachment' | 'transcription' | 'topic';
+export type SemanticReadTemporalRoleV4 = 'none' | 'filter_range' | 'occurrence_time' | 'target_date' | 'elapsed' | 'duration';
+export type SemanticReadLifecycleTransitionV4 = 'action_completed' | 'resolved' | 'cancelled' | 'rejected' | 'reopened' | 'reassigned' | 'accepted';
+export type SemanticReadProposalFocusV4 = 'waiting_for_others' | 'needs_my_response' | 'pending_response_from_person';
+export type SemanticReadMessageRelationshipV4 = 'content' | 'conversation_context' | 'sender' | 'participant';
+
+export type SemanticReadRelationshipV4 =
+    | { kind: 'general_recall' }
+    | { kind: 'current_state' }
+    | { kind: 'lifecycle_transition'; transition: SemanticReadLifecycleTransitionV4 }
+    | { kind: 'proposal_focus'; focus: SemanticReadProposalFocusV4 }
+    | { kind: 'person_relationship' }
+    | { kind: 'message_relationship'; relationship: SemanticReadMessageRelationshipV4 }
+    | { kind: 'attachment_content' }
+    | { kind: 'transcription_content' };
+
+export interface SemanticReadMeaningV4 {
+    queryShape: SemanticReadQueryShapeV4;
+    explicitCollection: boolean;
+    targetShape: SemanticReadTargetShapeV4;
+    relationship: SemanticReadRelationshipV4;
+    temporalRole: SemanticReadTemporalRoleV4;
+}
+
+export interface NormalizedSemanticTurnV4 extends Omit<NormalizedSemanticTurnV3, 'version'> {
+    version: 4;
+    readMeaning: SemanticReadMeaningV4 | null;
+}
+
 export interface AgentTurnReplayV1 {
     kind: AgentTurnResult['kind'];
     response?: Extract<AgentTurnResult, { kind: 'response' }>['response'];
