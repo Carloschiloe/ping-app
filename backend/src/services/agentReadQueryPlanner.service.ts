@@ -117,6 +117,9 @@ export class AgentReadQueryPlanner {
 
         const target = targetResolution.status === 'resolved' ? targetResolution.target : null;
         const sourceTypes = sourceTypesFor(meaning.relationship);
+        const statuses = meaning.commitmentStatus === 'pending'
+            ? ['proposed', 'accepted', 'counter_proposal']
+            : input.authorizedScope.statuses;
         return {
             status: 'planned',
             query: {
@@ -125,7 +128,7 @@ export class AgentReadQueryPlanner {
                 target,
                 relationship: meaning.relationship,
                 temporal,
-                authorizedScope: scopeCopy(input.authorizedScope),
+                authorizedScope: { ...scopeCopy(input.authorizedScope), ...(statuses ? { statuses } : {}) },
                 evidenceRequirement: { relationship: meaning.relationship, sourceTypes },
             },
         };

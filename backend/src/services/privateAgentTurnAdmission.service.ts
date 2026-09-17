@@ -26,14 +26,16 @@ export class PrivateAgentTurnAdmissionService {
     }
 
     public async rpc(name: string, args: Record<string, unknown>) {
-        if (name !== ADMISSION_RPC) throw new Error('Private admission transport only supports routing-mode admission');
-        const typedArgs = args as unknown as PrivateAdmissionRpcArgs;
         try {
-            const result = await this.pool.query(
-                'select * from public.admit_agent_turn_with_routing_mode($1::uuid, $2::text, $3::text, $4::text, $5::text)',
-                [typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_client_turn_key || null, typedArgs.p_request_fingerprint, typedArgs.p_routing_mode],
-            );
-            return { data: result.rows, error: null } as any;
+            if (name === ADMISSION_RPC) {
+                const typedArgs = args as unknown as PrivateAdmissionRpcArgs;
+                const result = await this.pool.query(
+                    'select * from public.admit_agent_turn_with_routing_mode($1::uuid, $2::text, $3::text, $4::text, $5::text)',
+                    [typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_client_turn_key || null, typedArgs.p_request_fingerprint, typedArgs.p_routing_mode],
+                );
+                return { data: result.rows, error: null } as any;
+            }
+            throw new Error('Private admission transport does not support this RPC');
         } catch (error) {
             const pgError = error as { message?: string; code?: string };
             return { data: null, error: { message: pgError.message ?? 'Private admission failed', code: pgError.code } } as any;

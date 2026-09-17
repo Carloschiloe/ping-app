@@ -336,6 +336,29 @@ export interface AgentTurnInput {
     input?: string;
     voiceInputToken?: string;
     conversationId?: string;
+    /** Stable across retries of one logical turn; never sent in the body. */
+    idempotencyKey?: string;
+    /** Explicit test-build capability opt-in; semantic meaning remains backend-owned. */
+    readCapability?: 'commitment_count_v4';
+}
+
+export const READ_V4_EXACT_COUNT_OPT_IN = 'commitment_count_v4' as const;
+
+export function createAgentTurnIdempotencyKey(): string {
+    return `mobile-turn-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+export function buildAgentTurnHeaders(input: AgentTurnInput): Record<string, string> {
+    return input.readCapability && input.idempotencyKey
+        ? { 'Idempotency-Key': input.idempotencyKey }
+        : {};
+}
+
+function enabledReadCapability(): typeof READ_V4_EXACT_COUNT_OPT_IN | undefined {
+    return process.env.APP_VARIANT !== 'production'
+        && process.env.EXPO_PUBLIC_ENABLE_READ_V4_EXACT_COUNT === 'true'
+        ? READ_V4_EXACT_COUNT_OPT_IN
+        : undefined;
 }
 
 export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string, unknown> {
@@ -347,6 +370,7 @@ export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string,
         locale: getDeviceLocale(),
     };
     if (input.conversationId) body.conversationId = input.conversationId;
+    if (input.readCapability) body.readCapability = input.readCapability;
     return body;
 }
 
@@ -387,8 +411,10 @@ export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
 export function useAgentTurn() {
     return useMutation({
         mutationFn: async (input: AgentTurnInput): Promise<AgentTurnResult> => {
-            const body = buildAgentTurnRequestBody(input);
-            const raw = await apiClient.post('/agent/turn', body);
+            const capability = input.readCapability ?? enabledReadCapability();
+            const requestInput = capability === input.readCapability ? input : { ...input, readCapability: capability };
+            const body = buildAgentTurnRequestBody(requestInput);
+            const raw = await apiClient.post('/agent/turn', body, buildAgentTurnHeaders(requestInput));
             const result = parseAgentTurnResult(raw);
             const isStagingBuild = process.env.APP_VARIANT !== 'production';
             if ((__DEV__ || isStagingBuild) && result.debug) {

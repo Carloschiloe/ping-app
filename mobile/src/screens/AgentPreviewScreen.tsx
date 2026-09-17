@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
-    mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
+    createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
     type AgentFollowUpOption, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
 import { ApiError } from '../api/client';
@@ -108,13 +108,17 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     }, [messages]);
 
-    const sendInput = (rawInput: string) => {
+    const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending)) return;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const source = matchingVoiceDraft
             ? { voiceInputToken: matchingVoiceDraft.token }
-            : { input: trimmed, conversationId };
+            : {
+                input: trimmed,
+                conversationId,
+                idempotencyKey: retryIdempotencyKey ?? createAgentTurnIdempotencyKey(),
+            };
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
         dispatchTurn({ type: 'SUBMIT', source, sourceText: trimmed });
@@ -142,13 +146,14 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished(true);
                 dispatchTurn({ type: 'FAIL', message: mapAgentErrorMessage(error), status: error instanceof ApiError ? error.status : null });
-                setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed));
+                setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed,
+                    source.idempotencyKey));
             },
         });
     };
 
     const handleSend = () => sendInput(inputText);
-    const handleRetry = (retryInput: string) => sendInput(retryInput);
+    const handleRetry = (retryInput: string, retryIdempotencyKey?: string) => sendInput(retryInput, retryIdempotencyKey);
     const handleCopyMessage = async (text: string) => {
         if (!text) return;
         await Clipboard.setStringAsync(text);
@@ -285,7 +290,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     )}
 
                     {item.error && item.retryInput && (
-                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!)} style={styles.retryBtn} disabled={isPending}>
+                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!, item.retryIdempotencyKey)} style={styles.retryBtn} disabled={isPending}>
                             <Text style={styles.retryText}>Reintentar</Text>
                         </TouchableOpacity>
                     )}

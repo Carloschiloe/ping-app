@@ -85,6 +85,8 @@ export interface SemanticReadMeaningV4 {
     targetShape: SemanticReadTargetShapeV4;
     relationship: SemanticReadRelationshipV4;
     temporalRole: SemanticReadTemporalRoleV4;
+    /** Canonical lifecycle filter; null means no status constraint. */
+    commitmentStatus?: 'pending' | null;
 }
 
 export interface NormalizedSemanticTurnV4 extends Omit<NormalizedSemanticTurnV3, 'version'> {

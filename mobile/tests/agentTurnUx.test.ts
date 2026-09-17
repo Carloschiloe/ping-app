@@ -26,7 +26,7 @@ vi.mock('../src/api/client', () => {
 import type {
     AgentAuthorizationResult, AgentExecutionResult, AgentTurnInput, AgentTurnPlan, AgentTurnResult,
 } from '../src/api/query-modules/agent';
-import { buildAgentAuthorizationRequestBody, buildAgentTurnRequestBody, parseAgentTurnResult } from '../src/api/query-modules/agent';
+import { buildAgentAuthorizationRequestBody, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult } from '../src/api/query-modules/agent';
 import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
@@ -152,6 +152,18 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(buildAgentTurnRequestBody({ voiceInputToken: 'signed-token' })).toEqual({ voiceInputToken: 'signed-token' });
     });
 
+    it('sends the explicit count capability in the body and the stable retry key as a header only', () => {
+        const input: AgentTurnInput = {
+            input: '¿Cuántos compromisos tengo pendientes?',
+            readCapability: 'commitment_count_v4',
+            idempotencyKey: 'stable-turn-key',
+        };
+        expect(buildAgentTurnRequestBody(input)).toMatchObject({ readCapability: 'commitment_count_v4' });
+        expect(buildAgentTurnRequestBody(input)).not.toHaveProperty('idempotencyKey');
+        expect(buildAgentTurnHeaders(input)).toEqual({ 'Idempotency-Key': 'stable-turn-key' });
+        expect(buildAgentTurnHeaders({ input: 'legacy', idempotencyKey: 'legacy-key' })).toEqual({});
+    });
+
     it('authorization echoes only the signed source, frozen digest, step IDs and explicit confirmation', () => {
         const body = buildAgentAuthorizationRequestBody(source, turnPlan);
         expect(body).toMatchObject({ input: source.input, planDigest: 'a'.repeat(64), stepIds: ['step-0'], confirm: true });
@@ -187,4 +199,3 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(planCard).toContain('minHeight: 48');
     });
 });
-

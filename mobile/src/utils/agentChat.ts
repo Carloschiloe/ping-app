@@ -22,6 +22,7 @@ export interface AgentChatMessage {
     // The exact input that produced this message, kept ONLY on error
     // entries so "Reintentar" can resend it without guessing.
     retryInput?: string;
+    retryIdempotencyKey?: string;
 
     // M-6: extended fields for conversational Agent UX
     planPresentation?: AgentPlanPresentation;
@@ -55,8 +56,8 @@ export function appendAgentMessage(messages: AgentChatMessage[], result: AgentRe
     }];
 }
 
-export function appendErrorMessage(messages: AgentChatMessage[], text: string, retryInput: string): AgentChatMessage[] {
-    return [...messages, { id: nextId('e'), role: 'agent', text, createdAt: Date.now(), error: true, retryInput }];
+export function appendErrorMessage(messages: AgentChatMessage[], text: string, retryInput: string, retryIdempotencyKey?: string): AgentChatMessage[] {
+    return [...messages, { id: nextId('e'), role: 'agent', text, createdAt: Date.now(), error: true, retryInput, retryIdempotencyKey }];
 }
 
 export function appendAgentTurnMessage(messages: AgentChatMessage[], result: AgentTurnResult): AgentChatMessage[] {

@@ -82,6 +82,7 @@ const readMeaningSchema = z.object({
         z.object({ kind: z.literal('transcription_content') }),
     ]),
     temporalRole: z.enum(['none', 'filter_range', 'occurrence_time', 'target_date', 'elapsed', 'duration']),
+    commitmentStatus: z.enum(['pending']).nullable().optional(),
 }).strict();
 
 const outputSchemaV4 = outputSchema.extend({ readMeaning: readMeaningSchema.nullable() }).strict();
@@ -96,7 +97,7 @@ function buildPrompt(request: SemanticModelRequest): string {
         'Return exactly the JSON fields in the supplied contract. Preserve unknown and ambiguity; never guess.',
         'A complete independent objective must not be represented as a slot answer. A bare value may be a slot answer only when dialogue context supports it.',
         'Lifecycle command means conversational abandon/resume only when the language and context support that reading; ambiguous cancel language must remain lifecycleEvidence=unknown.',
-        `Contract: {kind,domain,objectiveCompleteness,lifecycleCommand,lifecycleTarget,lifecycleEvidence,pendingSlotAnswer,continuationLike,candidateSlotType,independentObjective,objectiveType,entityHints,slots,ambiguityFields,confidence,temporalFact${request.semanticVersion === 4 ? ',readMeaning' : ''}}`,
+        `Contract: {kind,domain,objectiveCompleteness,lifecycleCommand,lifecycleTarget,lifecycleEvidence,pendingSlotAnswer,continuationLike,candidateSlotType,independentObjective,objectiveType,entityHints,slots,ambiguityFields,confidence,temporalFact${request.semanticVersion === 4 ? ',readMeaning (including commitmentStatus=pending when applicable)' : ''}}`,
         `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
         `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,
         `User turn: ${request.text}`,

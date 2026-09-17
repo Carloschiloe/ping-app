@@ -50,7 +50,8 @@ function requireBoundedString(value: unknown, name: string): string {
 }
 
 function requestedMode(config: AgentTurnRoutingConfig, readCapability: string | undefined): AgentTurnRoutingMode {
-    return config.environmentName === 'staging'
+    const localOptIn = config.environmentName === 'local' && process.env.PING_LOCAL_READ_V4_ENABLED === 'true';
+    return (config.environmentName === 'staging' || localOptIn)
         && config.readV4ExactCountEnabled
         && readCapability === READ_V4_EXACT_COUNT_OPT_IN
         ? 'read_v4_exact_count'

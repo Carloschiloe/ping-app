@@ -5,11 +5,24 @@ import { Request, Response } from 'express';
 import { runAgentTurn } from '../services/agentTurn.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
+import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
 
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
         const actorUserId = req.user!.id;
         const traceId = generateTraceId();
+
+        const idempotencyKey = req.get('Idempotency-Key');
+        if (req.body.readCapability !== undefined) {
+            if (!idempotencyKey) throw new AppError('Idempotency-Key is required for READ V4', 400);
+            const result = await runExactCommitmentCountV4({
+                actorUserId, input: req.body.input, idempotencyKey,
+                readCapability: req.body.readCapability, conversationId: req.body.conversationId,
+                locale: req.body.locale, timezone: req.body.timezone,
+            });
+            res.status(200).json(result);
+            return;
+        }
 
         const result = await runAgentTurn({
             actorUserId,

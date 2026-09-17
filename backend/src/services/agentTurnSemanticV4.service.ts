@@ -30,6 +30,7 @@ export function normalizeSemanticTurnV4(input: NormalizedSemanticTurnV4): Normal
         && typeof meaning.explicitCollection === 'boolean'
         && TARGET_SHAPES.has(meaning.targetShape)
         && TEMPORAL_ROLES.has(meaning.temporalRole)
+        && (meaning.commitmentStatus === undefined || meaning.commitmentStatus === null || meaning.commitmentStatus === 'pending')
         && validRelationship(meaning.relationship)
     );
     if (bytes > 32 * 1024 || value.version !== 4 || !validMeaning) throw new AppError('Unsupported or malformed semantic V4 checkpoint', 409);

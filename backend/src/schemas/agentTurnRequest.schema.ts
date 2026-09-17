@@ -11,6 +11,7 @@ export const agentTurnRequestSchema = z.object({
         channel: z.string().trim().max(40).optional(),
         locale: z.string().trim().max(20).optional(),
         timezone: z.string().trim().max(60).optional(),
+        readCapability: z.string().trim().max(80).optional(),
     }).superRefine((body, context) => {
         if (Boolean(body.input) === Boolean(body.voiceInputToken)) {
             context.addIssue({ code: z.ZodIssueCode.custom, message: 'Provide exactly one of input or voiceInputToken' });

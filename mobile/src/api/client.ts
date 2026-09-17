@@ -54,13 +54,13 @@ export const apiClient = {
         }
         return response.json().catch(() => ({ ok: true }));
     },
-    post: async (endpoint: string, body: any) => {
+    post: async (endpoint: string, body: any, extraHeaders: Record<string, string> = {}) => {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
         const response = await fetch(url, {
             method: 'POST',
-            headers,
+            headers: { ...headers, ...extraHeaders },
             body: JSON.stringify(body),
         });
 
