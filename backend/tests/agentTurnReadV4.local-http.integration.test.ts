@@ -4,6 +4,7 @@ import type { NormalizedSemanticTurnV4 } from '../src/types/agentTurnCommit';
 
 const actor = 'b7000000-0000-4000-8000-000000000001';
 const outsider = 'b7000000-0000-4000-8000-000000000002';
+const emptyActor = 'b7000000-0000-4000-8000-000000000003';
 const pendingOne = 'b7100000-0000-4000-8000-000000000001';
 const pendingTwo = 'b7100000-0000-4000-8000-000000000002';
 const resolved = 'b7100000-0000-4000-8000-000000000003';
@@ -12,6 +13,7 @@ const outsiderCommitment = 'b7100000-0000-4000-8000-000000000005';
 const postCommitment = 'b7100000-0000-4000-8000-000000000006';
 const ownerEmail = 'local-http-count-owner@example.invalid';
 const outsiderEmail = 'local-http-count-outsider@example.invalid';
+const emptyEmail = `local-http-empty-${Date.now()}@example.invalid`;
 const countKey = `local-http-count-${Date.now()}`;
 
 const semantic: NormalizedSemanticTurnV4 = {
@@ -43,7 +45,7 @@ async function cleanup() {
     await admin.from('agent_dialogue_checkpoints').delete().eq('actor_user_id', actor);
     await admin.from('agent_turn_admissions').delete().eq('actor_user_id', actor);
     await admin.from('commitments').delete().in('id', [pendingOne, pendingTwo, resolved, archived, outsiderCommitment, postCommitment]);
-    for (const id of [actor, outsider]) await admin.auth.admin.deleteUser(id);
+    for (const id of [actor, outsider, emptyActor]) await admin.auth.admin.deleteUser(id);
 }
 
 async function postTurn(body: Record<string, unknown>, token: string, key: string) {
@@ -104,9 +106,9 @@ describe('M-7 local HTTP READ V4 exact pending count', () => {
         const replay = await postTurn({ input: '¿Cuántos compromisos tengo pendientes?', readCapability: 'commitment_count_v4' }, token, countKey);
         expect(replay.body).toEqual(first.body);
 
-        const emptyToken = await admin.auth.admin.createUser({ email: 'local-http-empty@example.invalid', password: 'local-http-empty-password', email_confirm: true });
+        const emptyToken = await admin.auth.admin.createUser({ id: emptyActor, email: emptyEmail, password: 'local-http-empty-password', email_confirm: true });
         if (emptyToken.error || !emptyToken.data.user) throw emptyToken.error ?? new Error('empty actor creation failed');
-        const session = await admin.auth.signInWithPassword({ email: 'local-http-empty@example.invalid', password: 'local-http-empty-password' });
+        const session = await admin.auth.signInWithPassword({ email: emptyEmail, password: 'local-http-empty-password' });
         if (session.error || !session.data.session) throw session.error ?? new Error('empty actor session missing');
         const zero = await postTurn({ input: '¿Cuántos compromisos tengo pendientes?', readCapability: 'commitment_count_v4' }, session.data.session.access_token, 'local-http-zero-1');
         expect(zero.body.execution.count.value).toBe(0);
