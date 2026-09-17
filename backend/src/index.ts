@@ -2,6 +2,13 @@ import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
 import { startScheduledJobs } from './services/cronCoordinator';
 import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
+import { checkPrivateAgentTurnDatabase, isPrivateAgentTurnDatabaseDiagnosticEnabled } from './services/privateAgentTurnAdmission.service';
+
+async function runPrivateDatabaseDiagnostic(): Promise<void> {
+    if (!isPrivateAgentTurnDatabaseDiagnosticEnabled()) return;
+    const passed = await checkPrivateAgentTurnDatabase();
+    console.log(`PING_M7_PRIVATE_DB_CHECK=${passed ? 'PASS' : 'FAIL'}`);
+}
 
 try {
     validateEnvironment();
@@ -14,6 +21,7 @@ const env = getEnvConfig();
 
 startScheduledJobs();
 startAudioTranscriptionWorker();
+void runPrivateDatabaseDiagnostic();
 
 app.listen(env.port, () => {
     console.log(`✅ PING Backend listening on port ${env.port} (${env.nodeEnv})`);

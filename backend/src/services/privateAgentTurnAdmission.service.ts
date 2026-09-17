@@ -45,6 +45,31 @@ export class PrivateAgentTurnAdmissionService {
     public async close(): Promise<void> {
         await this.pool.end();
     }
+
+    public async checkConnection(): Promise<boolean> {
+        try {
+            await this.pool.query('select 1');
+            return true;
+        } catch {
+            return false;
+        }
+    }
+}
+
+export async function checkPrivateAgentTurnDatabase(): Promise<boolean> {
+    const databaseUrl = process.env.PING_M7_DATABASE_URL;
+    if (!databaseUrl) return false;
+    const adapter = new PrivateAgentTurnAdmissionService(databaseUrl);
+    try {
+        return await adapter.checkConnection();
+    } finally {
+        await adapter.close();
+    }
+}
+
+export function isPrivateAgentTurnDatabaseDiagnosticEnabled(): boolean {
+    return process.env.PING_ENVIRONMENT === 'staging'
+        && process.env.PING_M7_PRIVATE_DB_CHECK === 'true';
 }
 
 export function createPrivateAgentTurnAdmissionService(): AgentTurnAdmissionService {
