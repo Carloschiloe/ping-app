@@ -14,7 +14,8 @@ export type PrivateDatabaseCheckCategory =
     | 'dns'
     | 'network'
     | 'tls'
-    | 'authentication'
+    | 'authentication_identity'
+    | 'authentication_password'
     | 'authorization'
     | 'unknown';
 
@@ -59,7 +60,8 @@ function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCateg
 
     if (['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL'].includes(code)) return 'dns';
     if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return 'network';
-    if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return 'authentication';
+    if (/tenant or user not found/.test(message)) return 'authentication_identity';
+    if (code === '28P01' || /authentication failed|password authentication/.test(message)) return 'authentication_password';
     if (code === '42501' || /permission denied|not have permission/.test(message)) return 'authorization';
     if (['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN'].includes(code)) return 'tls';
     if (/ssl|tls|certificate|self-signed|altnames/.test(message)) return 'tls';
