@@ -1,3 +1,4 @@
+# Staging-only Render blueprint; deploys commits from codex/staging-beta.
 services:
   - type: web
     name: ping-backend-staging
