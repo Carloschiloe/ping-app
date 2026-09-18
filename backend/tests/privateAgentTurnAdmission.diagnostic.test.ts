@@ -14,6 +14,7 @@ import {
     checkPrivateAgentTurnDatabase,
     diagnosePrivateAgentTurnDatabase,
     isPrivateAgentTurnDatabaseDiagnosticEnabled,
+    validatePrivateSessionPoolerUrl,
 } from '../src/services/privateAgentTurnAdmission.service';
 
 afterEach(() => {
@@ -71,5 +72,18 @@ describe('M-7 private database startup diagnostic', () => {
             category: 'invalid_url',
         });
         expect(query).not.toHaveBeenCalled();
+    });
+
+    it('detects the required role.project-ref Session Pooler username without inspecting the password', () => {
+        expect(validatePrivateSessionPoolerUrl(
+            'postgresql://ping_m7_admission.oonijgmddgyymhrlnvuu:placeholder@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require',
+            'ping_m7_admission',
+            'oonijgmddgyymhrlnvuu',
+        )).toEqual({ valid: true });
+        expect(validatePrivateSessionPoolerUrl(
+            'postgresql://ping_m7_admission:placeholder@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
+            'ping_m7_admission',
+            'oonijgmddgyymhrlnvuu',
+        )).toEqual({ valid: false, reason: 'wrong_username' });
     });
 });

@@ -18,6 +18,33 @@ export type PrivateDatabaseCheckResult = {
     category?: PrivateDatabaseCheckCategory;
 };
 
+export type PrivatePoolerUrlFormatResult =
+    | { valid: true }
+    | { valid: false; reason: 'invalid_url' | 'not_session_pooler' | 'wrong_username' | 'wrong_port' };
+
+/**
+ * Checks only the non-secret shape of a Supabase Session Pooler URL. It never
+ * returns or logs the parsed password.
+ */
+export function validatePrivateSessionPoolerUrl(
+    databaseUrl: string,
+    expectedRole: string,
+    expectedProjectRef: string,
+): PrivatePoolerUrlFormatResult {
+    let parsed: URL;
+    try {
+        parsed = new URL(databaseUrl);
+    } catch {
+        return { valid: false, reason: 'invalid_url' };
+    }
+    if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) return { valid: false, reason: 'invalid_url' };
+    if (!parsed.hostname.endsWith('.pooler.supabase.com')) return { valid: false, reason: 'not_session_pooler' };
+    if (parsed.port !== '5432') return { valid: false, reason: 'wrong_port' };
+    const expectedUsername = `${expectedRole}.${expectedProjectRef}`;
+    if (decodeURIComponent(parsed.username) !== expectedUsername) return { valid: false, reason: 'wrong_username' };
+    return { valid: true };
+}
+
 function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCategory {
     const candidate = error as { code?: string; message?: string };
     const code = candidate.code ?? '';
