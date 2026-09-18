@@ -67,7 +67,16 @@ describe('M-7 private database startup diagnostic', () => {
         query.mockRejectedValueOnce(Object.assign(new Error('password=must-not-be-logged'), { code: '28P01' }));
         await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({
             passed: false,
-            category: 'authentication',
+            category: 'authentication_password',
+        });
+    });
+
+    it('distinguishes an unknown pooler identity without exposing it', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
+        query.mockRejectedValueOnce(new Error('Tenant or user not found'));
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({
+            passed: false,
+            category: 'authentication_identity',
         });
     });
 
