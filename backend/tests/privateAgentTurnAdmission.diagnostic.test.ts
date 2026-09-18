@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const query = vi.hoisted(() => vi.fn());
 const end = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const poolOptions = vi.hoisted(() => vi.fn());
 
 vi.mock('pg', () => ({
     Pool: class MockPool {
+        constructor(options: unknown) {
+            poolOptions(options);
+        }
         query = query;
         end = end;
     },
@@ -13,6 +17,7 @@ vi.mock('pg', () => ({
 import {
     checkPrivateAgentTurnDatabase,
     diagnosePrivateAgentTurnDatabase,
+    getLatestPrivateAgentTurnDatabaseDiagnostic,
     isPrivateAgentTurnDatabaseDiagnosticEnabled,
     validatePrivateSessionPoolerUrl,
 } from '../src/services/privateAgentTurnAdmission.service';
@@ -23,6 +28,7 @@ afterEach(() => {
     delete process.env.PING_M7_DATABASE_URL;
     query.mockReset();
     end.mockClear();
+    poolOptions.mockClear();
 });
 
 describe('M-7 private database startup diagnostic', () => {
@@ -91,5 +97,21 @@ describe('M-7 private database startup diagnostic', () => {
         process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
         query.mockRejectedValueOnce(Object.assign(new Error('Hostname/IP does not match certificate altnames'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' }));
         await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: false, category: 'tls' });
+    });
+
+    it('pins the Supabase root CA without allowing the URL parser to discard it', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://ping_m7_admission.oonijgmddgyymhrlnvuu:placeholder@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require';
+        query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: true });
+        const options = poolOptions.mock.calls[0][0] as {
+            connectionString: string;
+            ssl: { ca: string; rejectUnauthorized: boolean };
+        };
+        expect(new URL(options.connectionString).searchParams.has('sslmode')).toBe(false);
+        expect(options.ssl.rejectUnauthorized).toBe(true);
+        expect(options.ssl.ca).toContain('-----BEGIN CERTIFICATE-----');
+        expect(options.ssl.ca).toContain('-----END CERTIFICATE-----');
+        expect(getLatestPrivateAgentTurnDatabaseDiagnostic()).toEqual({ passed: true });
     });
 });

@@ -1,7 +1,12 @@
 import { Pool } from 'pg';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AgentTurnAdmissionService } from './agentTurnAdmission.service';
 
 const ADMISSION_RPC = 'admit_agent_turn_with_routing_mode';
+const SUPABASE_ROOT_CA_PATH = resolve(__dirname, '../../certs/prod-ca-2021.crt');
+
+let cachedSupabaseRootCa: string | undefined;
 
 export type PrivateDatabaseCheckCategory =
     | 'missing_url'
@@ -17,6 +22,8 @@ export type PrivateDatabaseCheckResult = {
     passed: boolean;
     category?: PrivateDatabaseCheckCategory;
 };
+
+let latestPrivateDatabaseDiagnostic: PrivateDatabaseCheckResult | null = null;
 
 export type PrivatePoolerUrlFormatResult =
     | { valid: true }
@@ -59,7 +66,23 @@ function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCateg
     return 'unknown';
 }
 
-function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { rejectUnauthorized: true } | undefined } {
+function getSupabaseRootCa(): string {
+    if (!cachedSupabaseRootCa) {
+        cachedSupabaseRootCa = readFileSync(SUPABASE_ROOT_CA_PATH, 'utf8').trim();
+        if (!cachedSupabaseRootCa.startsWith('-----BEGIN CERTIFICATE-----')
+            || !cachedSupabaseRootCa.endsWith('-----END CERTIFICATE-----')) {
+            throw new Error('Bundled Supabase root CA is invalid');
+        }
+    }
+    return cachedSupabaseRootCa;
+}
+
+type PrivatePoolerConnection = {
+    connectionString: string;
+    ssl: { ca: string; rejectUnauthorized: true } | undefined;
+};
+
+function preparePrivatePoolerConnection(databaseUrl: string): PrivatePoolerConnection {
     const parsed = new URL(databaseUrl);
     if (!parsed.hostname.endsWith('.pooler.supabase.com')) return { connectionString: databaseUrl, ssl: undefined };
 
@@ -67,8 +90,18 @@ function preparePrivatePoolerConnection(databaseUrl: string): { connectionString
     if (requestedMode === 'disable' || requestedMode === 'no-verify' || requestedMode === 'prefer') {
         throw new Error('PING_M7_DATABASE_URL must use verified TLS for the Session Pooler');
     }
-    parsed.searchParams.set('sslmode', 'verify-full');
-    return { connectionString: parsed.toString(), ssl: { rejectUnauthorized: true } };
+
+    // pg-connection-string replaces the explicit `ssl` object whenever an
+    // SSL query parameter is present. Remove those parameters so the pinned
+    // Supabase CA below cannot be discarded while parsing connectionString.
+    for (const parameter of ['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat', 'sslnegotiation']) {
+        parsed.searchParams.delete(parameter);
+    }
+
+    return {
+        connectionString: parsed.toString(),
+        ssl: { ca: getSupabaseRootCa(), rejectUnauthorized: true },
+    };
 }
 
 type PrivateAdmissionRpcArgs = {
@@ -139,26 +172,34 @@ export async function checkPrivateAgentTurnDatabase(): Promise<boolean> {
  * present in startup logs.
  */
 export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabaseCheckResult> {
+    const finish = (result: PrivateDatabaseCheckResult): PrivateDatabaseCheckResult => {
+        latestPrivateDatabaseDiagnostic = result;
+        return result;
+    };
     const databaseUrl = process.env.PING_M7_DATABASE_URL;
-    if (!databaseUrl) return { passed: false, category: 'missing_url' };
+    if (!databaseUrl) return finish({ passed: false, category: 'missing_url' });
 
     let adapter: PrivateAgentTurnAdmissionService;
     try {
         adapter = new PrivateAgentTurnAdmissionService(databaseUrl);
     } catch {
-        return { passed: false, category: 'invalid_url' };
+        return finish({ passed: false, category: 'invalid_url' });
     }
 
     try {
         try {
             await adapter.checkConnectionOrThrow();
-            return { passed: true };
+            return finish({ passed: true });
         } catch (error) {
-            return { passed: false, category: classifyPrivateDatabaseError(error) };
+            return finish({ passed: false, category: classifyPrivateDatabaseError(error) });
         }
     } finally {
         await adapter.close();
     }
+}
+
+export function getLatestPrivateAgentTurnDatabaseDiagnostic(): PrivateDatabaseCheckResult | null {
+    return latestPrivateDatabaseDiagnostic ? { ...latestPrivateDatabaseDiagnostic } : null;
 }
 
 export function isPrivateAgentTurnDatabaseDiagnosticEnabled(): boolean {
