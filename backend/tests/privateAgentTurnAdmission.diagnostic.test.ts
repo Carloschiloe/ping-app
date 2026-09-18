@@ -86,4 +86,10 @@ describe('M-7 private database startup diagnostic', () => {
             'oonijgmddgyymhrlnvuu',
         )).toEqual({ valid: false, reason: 'wrong_username' });
     });
+
+    it('classifies certificate hostname failures as TLS failures', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
+        query.mockRejectedValueOnce(Object.assign(new Error('Hostname/IP does not match certificate altnames'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' }));
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: false, category: 'tls' });
+    });
 });

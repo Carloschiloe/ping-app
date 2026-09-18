@@ -54,8 +54,21 @@ function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCateg
     if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return 'network';
     if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return 'authentication';
     if (code === '42501' || /permission denied|not have permission/.test(message)) return 'authorization';
-    if (/ssl|tls|certificate|self-signed/.test(message)) return 'tls';
+    if (['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN'].includes(code)) return 'tls';
+    if (/ssl|tls|certificate|self-signed|altnames/.test(message)) return 'tls';
     return 'unknown';
+}
+
+function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { rejectUnauthorized: true } | undefined } {
+    const parsed = new URL(databaseUrl);
+    if (!parsed.hostname.endsWith('.pooler.supabase.com')) return { connectionString: databaseUrl, ssl: undefined };
+
+    const requestedMode = parsed.searchParams.get('sslmode');
+    if (requestedMode === 'disable' || requestedMode === 'no-verify' || requestedMode === 'prefer') {
+        throw new Error('PING_M7_DATABASE_URL must use verified TLS for the Session Pooler');
+    }
+    parsed.searchParams.set('sslmode', 'verify-full');
+    return { connectionString: parsed.toString(), ssl: { rejectUnauthorized: true } };
 }
 
 type PrivateAdmissionRpcArgs = {
@@ -77,7 +90,8 @@ export class PrivateAgentTurnAdmissionService {
         if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
             throw new Error('PING_M7_DATABASE_URL must be a PostgreSQL connection URL');
         }
-        this.pool = new Pool({ connectionString: databaseUrl, max: 4, allowExitOnIdle: true, application_name: 'ping-m7-admission' });
+        const connection = preparePrivatePoolerConnection(databaseUrl);
+        this.pool = new Pool({ connectionString: connection.connectionString, ssl: connection.ssl, max: 4, allowExitOnIdle: true, application_name: 'ping-m7-admission' });
     }
 
     public async rpc(name: string, args: Record<string, unknown>) {
