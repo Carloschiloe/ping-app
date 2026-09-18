@@ -16,6 +16,7 @@ export type PrivateDatabaseCheckCategory =
 export type PrivateDatabaseCheckResult = {
     passed: boolean;
     category?: PrivateDatabaseCheckCategory;
+    driverCode?: string;
 };
 
 export type PrivatePoolerUrlFormatResult =
@@ -45,18 +46,41 @@ export function validatePrivateSessionPoolerUrl(
     return { valid: true };
 }
 
-function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCategory {
+const SAFE_DRIVER_CODES = new Set([
+    'ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
+    '28P01', '42501', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID',
+    'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'ERR_SSL_WRONG_VERSION_NUMBER',
+    'ERR_SSL_PROTOCOL_ERROR', 'ERR_SSL_VERSION_OR_CIPHER_MISMATCH',
+]);
+
+function safeTlsCode(code: string, message: string): string | undefined {
+    if (SAFE_DRIVER_CODES.has(code) && (code.startsWith('CERT_') || code.startsWith('DEPTH_') || code.startsWith('ERR_TLS_') || code.startsWith('UNABLE_') || code.startsWith('SELF_') || code.startsWith('ERR_SSL_'))) return code;
+    if (/hostname\/ip does not match certificate|certificate.*altnames|altnames.*certificate/.test(message)) return 'ERR_TLS_CERT_ALTNAME_INVALID';
+    if (/certificate has expired/.test(message)) return 'CERT_HAS_EXPIRED';
+    if (/self-signed certificate in certificate chain/.test(message)) return 'SELF_SIGNED_CERT_IN_CHAIN';
+    if (/self-signed certificate/.test(message)) return 'DEPTH_ZERO_SELF_SIGNED_CERT';
+    if (/issuer|verify|trust/.test(message)) return 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+    if (/hostname|host name|altname/.test(message)) return 'ERR_TLS_CERT_ALTNAME_INVALID';
+    if (/unable to verify.*leaf signature/.test(message)) return 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+    if (/unable to get local issuer certificate|certificate verify failed/.test(message)) return 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+    if (/protocol|version|cipher/.test(message)) return 'ERR_SSL_PROTOCOL_ERROR';
+    if (/wrong version number/.test(message)) return 'ERR_SSL_WRONG_VERSION_NUMBER';
+    return undefined;
+}
+
+function classifyPrivateDatabaseError(error: unknown): { category: PrivateDatabaseCheckCategory; driverCode?: string } {
     const candidate = error as { code?: string; message?: string };
     const code = candidate.code ?? '';
     const message = (candidate.message ?? '').toLowerCase();
+    const driverCode = SAFE_DRIVER_CODES.has(code) ? code : safeTlsCode(code, message);
 
-    if (['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL'].includes(code)) return 'dns';
-    if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return 'network';
-    if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return 'authentication';
-    if (code === '42501' || /permission denied|not have permission/.test(message)) return 'authorization';
-    if (['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN'].includes(code)) return 'tls';
-    if (/ssl|tls|certificate|self-signed|altnames/.test(message)) return 'tls';
-    return 'unknown';
+    if (['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL'].includes(code)) return { category: 'dns', driverCode };
+    if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return { category: 'network', driverCode };
+    if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return { category: 'authentication', driverCode };
+    if (code === '42501' || /permission denied|not have permission/.test(message)) return { category: 'authorization', driverCode };
+    if (driverCode && (driverCode.startsWith('CERT_') || driverCode.startsWith('DEPTH_') || driverCode.startsWith('ERR_TLS_') || driverCode.startsWith('UNABLE_') || driverCode.startsWith('SELF_') || driverCode.startsWith('ERR_SSL_'))) return { category: 'tls', driverCode };
+    if (/ssl|tls|certificate|self-signed|altnames/.test(message)) return { category: 'tls', driverCode };
+    return { category: 'unknown', driverCode };
 }
 
 function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { rejectUnauthorized: true } | undefined } {
@@ -154,7 +178,12 @@ export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabas
             await adapter.checkConnectionOrThrow();
             return { passed: true };
         } catch (error) {
-            return { passed: false, category: classifyPrivateDatabaseError(error) };
+            const diagnosis = classifyPrivateDatabaseError(error);
+            return {
+                passed: false,
+                ...diagnosis,
+                driverCode: diagnosis.driverCode ?? (diagnosis.category === 'tls' ? 'TLS_UNCLASSIFIED' : undefined),
+            };
         }
     } finally {
         await adapter.close();

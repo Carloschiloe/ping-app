@@ -10,7 +10,7 @@ async function runPrivateDatabaseDiagnostic(): Promise<void> {
     if (result.passed) {
         console.log('PING_M7_PRIVATE_DB_CHECK=PASS');
     } else {
-        console.log(`PING_M7_PRIVATE_DB_CHECK=FAIL category=${result.category ?? 'unknown'}`);
+        console.log(`PING_M7_PRIVATE_DB_CHECK=FAIL category=${result.category ?? 'unknown'} code=${result.driverCode ?? 'none'}`);
     }
 }
 

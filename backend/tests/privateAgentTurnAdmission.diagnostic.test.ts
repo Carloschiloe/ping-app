@@ -62,6 +62,7 @@ describe('M-7 private database startup diagnostic', () => {
         await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({
             passed: false,
             category: 'authentication',
+            driverCode: '28P01',
         });
     });
 
@@ -90,6 +91,12 @@ describe('M-7 private database startup diagnostic', () => {
     it('classifies certificate hostname failures as TLS failures', async () => {
         process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
         query.mockRejectedValueOnce(Object.assign(new Error('Hostname/IP does not match certificate altnames'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' }));
-        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: false, category: 'tls' });
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: false, category: 'tls', driverCode: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+    });
+
+    it('maps a raw certificate-chain message to an allowlisted code without logging the message', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
+        query.mockRejectedValueOnce(new Error('self-signed certificate in certificate chain; secret details omitted'));
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: false, category: 'tls', driverCode: 'SELF_SIGNED_CERT_IN_CHAIN' });
     });
 });
