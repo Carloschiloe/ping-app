@@ -12,6 +12,7 @@ vi.mock('pg', () => ({
 
 import {
     checkPrivateAgentTurnDatabase,
+    diagnosePrivateAgentTurnDatabase,
     isPrivateAgentTurnDatabaseDiagnosticEnabled,
 } from '../src/services/privateAgentTurnAdmission.service';
 
@@ -51,6 +52,24 @@ describe('M-7 private database startup diagnostic', () => {
 
     it('reports FAIL when the private URL is absent', async () => {
         await expect(checkPrivateAgentTurnDatabase()).resolves.toBe(false);
+        expect(query).not.toHaveBeenCalled();
+    });
+
+    it('exposes only a safe category for a connection failure', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://private.invalid/test';
+        query.mockRejectedValueOnce(Object.assign(new Error('password=must-not-be-logged'), { code: '28P01' }));
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({
+            passed: false,
+            category: 'authentication',
+        });
+    });
+
+    it('classifies malformed configuration without opening a pool', async () => {
+        process.env.PING_M7_DATABASE_URL = 'not-a-postgres-url';
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({
+            passed: false,
+            category: 'invalid_url',
+        });
         expect(query).not.toHaveBeenCalled();
     });
 });

@@ -22,7 +22,7 @@ import * as agentAuthorizeController from '../controllers/agentAuthorize.control
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as agentDeviceTraceDebugController from '../controllers/agentDeviceTraceDebug.controller';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentRequestSchema } from '../schemas/agentRequest.schema';
@@ -59,7 +59,7 @@ const agentRateLimiter = rateLimit({
     max: 20,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
 });
 
 // M-4 (sección 52) — límite más estricto que el de lectura/planificación:
@@ -74,7 +74,7 @@ const agentExecutionRateLimiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
 });
 
 const agentVoiceRateLimiter = rateLimit({
@@ -82,7 +82,7 @@ const agentVoiceRateLimiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || req.ip || 'unknown',
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
 });
 
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');

@@ -2,12 +2,16 @@ import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
 import { startScheduledJobs } from './services/cronCoordinator';
 import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
-import { checkPrivateAgentTurnDatabase, isPrivateAgentTurnDatabaseDiagnosticEnabled } from './services/privateAgentTurnAdmission.service';
+import { diagnosePrivateAgentTurnDatabase, isPrivateAgentTurnDatabaseDiagnosticEnabled } from './services/privateAgentTurnAdmission.service';
 
 async function runPrivateDatabaseDiagnostic(): Promise<void> {
     if (!isPrivateAgentTurnDatabaseDiagnosticEnabled()) return;
-    const passed = await checkPrivateAgentTurnDatabase();
-    console.log(`PING_M7_PRIVATE_DB_CHECK=${passed ? 'PASS' : 'FAIL'}`);
+    const result = await diagnosePrivateAgentTurnDatabase();
+    if (result.passed) {
+        console.log('PING_M7_PRIVATE_DB_CHECK=PASS');
+    } else {
+        console.log(`PING_M7_PRIVATE_DB_CHECK=FAIL category=${result.category ?? 'unknown'}`);
+    }
 }
 
 try {

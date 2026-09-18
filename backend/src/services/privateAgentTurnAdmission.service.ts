@@ -3,6 +3,34 @@ import { AgentTurnAdmissionService } from './agentTurnAdmission.service';
 
 const ADMISSION_RPC = 'admit_agent_turn_with_routing_mode';
 
+export type PrivateDatabaseCheckCategory =
+    | 'missing_url'
+    | 'invalid_url'
+    | 'dns'
+    | 'network'
+    | 'tls'
+    | 'authentication'
+    | 'authorization'
+    | 'unknown';
+
+export type PrivateDatabaseCheckResult = {
+    passed: boolean;
+    category?: PrivateDatabaseCheckCategory;
+};
+
+function classifyPrivateDatabaseError(error: unknown): PrivateDatabaseCheckCategory {
+    const candidate = error as { code?: string; message?: string };
+    const code = candidate.code ?? '';
+    const message = (candidate.message ?? '').toLowerCase();
+
+    if (['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL'].includes(code)) return 'dns';
+    if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return 'network';
+    if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return 'authentication';
+    if (code === '42501' || /permission denied|not have permission/.test(message)) return 'authorization';
+    if (/ssl|tls|certificate|self-signed/.test(message)) return 'tls';
+    return 'unknown';
+}
+
 type PrivateAdmissionRpcArgs = {
     p_actor_user_id: string;
     p_dialogue_scope_key: string;
@@ -48,20 +76,45 @@ export class PrivateAgentTurnAdmissionService {
 
     public async checkConnection(): Promise<boolean> {
         try {
-            await this.pool.query('select 1');
+            await this.checkConnectionOrThrow();
             return true;
         } catch {
             return false;
         }
     }
+
+    public async checkConnectionOrThrow(): Promise<void> {
+        await this.pool.query('select 1');
+    }
 }
 
 export async function checkPrivateAgentTurnDatabase(): Promise<boolean> {
+    return (await diagnosePrivateAgentTurnDatabase()).passed;
+}
+
+/**
+ * Returns only a coarse, non-sensitive category. Raw driver errors never
+ * leave this module because connection strings and server details must not be
+ * present in startup logs.
+ */
+export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabaseCheckResult> {
     const databaseUrl = process.env.PING_M7_DATABASE_URL;
-    if (!databaseUrl) return false;
-    const adapter = new PrivateAgentTurnAdmissionService(databaseUrl);
+    if (!databaseUrl) return { passed: false, category: 'missing_url' };
+
+    let adapter: PrivateAgentTurnAdmissionService;
     try {
-        return await adapter.checkConnection();
+        adapter = new PrivateAgentTurnAdmissionService(databaseUrl);
+    } catch {
+        return { passed: false, category: 'invalid_url' };
+    }
+
+    try {
+        try {
+            await adapter.checkConnectionOrThrow();
+            return { passed: true };
+        } catch (error) {
+            return { passed: false, category: classifyPrivateDatabaseError(error) };
+        }
     } finally {
         await adapter.close();
     }

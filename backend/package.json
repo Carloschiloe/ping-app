@@ -31,6 +31,9 @@
   "author": "",
   "license": "ISC",
   "description": "",
+  "overrides": {
+    "qs": "6.16.0"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
     "@types/node-cron": "^3.0.11",
