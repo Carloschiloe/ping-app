@@ -5,13 +5,19 @@ on:
   push:
     branches:
       - main
+      - codex/staging-beta
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -24,10 +30,17 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      # Test imports require a Supabase URL and service key, but must never use live credentials.
+      # The reserved .invalid domain prevents these placeholders from pointing to a real Supabase project.
+      - name: Offline backend tests
+        run: npm test
+        env:
+          SUPABASE_URL: https://supabase-ci.invalid
+          SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
 
   mobile:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
