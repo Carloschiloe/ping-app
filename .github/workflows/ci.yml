@@ -5,13 +5,19 @@ on:
   push:
     branches:
       - main
+      - codex/staging-beta
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -24,10 +30,27 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      # These four durable integration suites create users in a REAL local Supabase.
+      # Never aim them at a live project or pretend that .invalid is a running database.
+      # Run them separately when an isolated local Supabase with its schema is available.
+      # All other backend suites remain enabled, including mocked integration tests.
+      - name: Offline backend tests (four local-Supabase suites not covered)
+        run: |
+          # Fresh, test-only HMAC signing key. No production secrets or reusable key in the repository.
+          export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          npm test -- \
+            --exclude '**/agentExactCommitmentCount.integration.test.ts' \
+            --exclude '**/agentReadV4DurableOrchestration.integration.test.ts' \
+            --exclude '**/agentTurnAdmissionRoutingMode.integration.test.ts' \
+            --exclude '**/agentTurnRoutingSelection.integration.test.ts'
+        env:
+          # Some test imports initialize a client; this placeholder must never reach a live service.
+          SUPABASE_URL: https://supabase-ci.invalid
+          SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
 
   mobile:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
