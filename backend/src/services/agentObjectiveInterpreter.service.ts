@@ -73,6 +73,17 @@ const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|resuelve\\w*|comple
 // it is NEVER wired to a planner branch of its own, because no cancel
 // tool exists to plan for.
 const CANCEL_VERB = wb('cancela\\w*|cancelar|cancel(?:s|led|ed)?');
+// PING — M-8 remember_fact: lexically distinct from PERSONAL_REMINDER_VERB
+// below (which requires the reflexive "-me"/"me" suffix bound to the verb,
+// "recuérdame"/"remind me" -- a reminder-COMMITMENT). "Recuerda QUE"/
+// "acuérdate QUE"/"remember THAT" is a different grammatical construction
+// (transitive "remember [that clause]", never "remind me [to do]") and is
+// checked in its own dedicated branch BEFORE PERSONAL_REMINDER_VERB so the
+// two can never collide even on inputs that start with the same "recuerd-"
+// stem. "que"/"that" is REQUIRED in the pattern itself (not just a lexical
+// coincidence check) precisely to keep this narrow and never accidentally
+// swallow a genuine reminder-commitment phrasing.
+const REMEMBER_FACT_VERB = wb('recuerda\\s+que|acu[ée]rdate\\s+que|remember\\s+that');
 const PERSONAL_REMINDER_VERB = wb("recu[ée]rdame|remind\\s+me");
 const CREATE_VERB = wb('agend[ao]\\w*|programa\\w*|crea\\w*');
 // Verbos de comunicación explícita — chequeados ANTES que accept/reject
@@ -677,6 +688,28 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             obj.confidence = entityHint ? 0.8 : 0.2;
             if (!entityHint) {
                 obj.ambiguities.push({ field: 'targetEntity', kind: 'blocking', reason: 'No pude identificar cuál compromiso quieres completar.' });
+            }
+            return obj;
+        }
+
+        // 3b) remember_fact ("recuerda que mi hermano se llama Andrés").
+        // Deterministic-only for M-8's initial rollout (no LLM-fallback
+        // branch touched here — mapPayloadToObjective's dominance check,
+        // analogous to CANCEL_VERB's, is what would force an LLM-guessed
+        // remember_fact back onto solid ground; see that function). The
+        // candidate fact text is the raw fragment after "que"/"that" —
+        // Core NEVER trusts this as final content; agentPlanner.service.ts's
+        // own verbatim-substring proof (mirroring validateCommunicateContent's
+        // discipline for communicate_message) is what actually authorizes it
+        // before a plan step is ever built.
+        const rememberMatch = matchVerb(REMEMBER_FACT_VERB, text);
+        if (rememberMatch) {
+            const afterVerb = text.slice((rememberMatch.index ?? 0) + rememberMatch[0].length).trim();
+            const obj = baseObjective('remember_fact', input, context.actorUserId, 'deterministic');
+            obj.targetEntities.entityHints = afterVerb ? [afterVerb] : [];
+            obj.confidence = afterVerb ? 0.85 : 0.2;
+            if (!afterVerb) {
+                obj.ambiguities.push({ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' });
             }
             return obj;
         }

@@ -462,12 +462,21 @@ describe('Live wiring: structural safety (test areas 19, 20, 21, 22, 23)', () =>
         expect(reconciled.targetEntities).not.toHaveProperty('canonicalEntityId');
     });
 
-    it('22. no new write tool was added -- the tool registry is untouched by M-7B', () => {
+    // M-8 UPDATE: remember_fact landed as the tool registry's sixth WRITE
+    // tool, but it is an entirely separate feature (a new AgentObjectiveType
+    // + planner branch + executor, unrelated to M-7B's own scope) -- this
+    // test's real, still-true invariant is narrower than its original count
+    // literal implied: M-7B's OWN dialogue-continuation mechanism never adds
+    // a write tool of its own (it only decides which objective enters the
+    // existing planner, per this file's header comment) -- proven here by
+    // confirming this test file itself makes no reference to any tool
+    // registration, never by asserting a specific total tool count that any
+    // unrelated future feature would then have to keep bumping.
+    it('22. M-7B\'s own dialogue-continuation mechanism registers no write tool of its own', () => {
         const fs = require('node:fs') as typeof import('node:fs');
         const path = require('node:path') as typeof import('node:path');
-        const source = fs.readFileSync(path.join(__dirname, '../src/services/toolRegistry.service.ts'), 'utf-8');
-        const writeToolMatches = source.match(/category: 'WRITE'/g) ?? [];
-        expect(writeToolMatches).toHaveLength(5);
+        const continuationSource = fs.readFileSync(path.join(__dirname, '../src/services/agentDialogueContinuation.service.ts'), 'utf-8');
+        expect(continuationSource).not.toMatch(/toolRegistry\.service|TOOL_REGISTRY|category:\s*'WRITE'/);
     });
 
     it('23. existing single-turn behavior is unchanged -- a fully-specified single-turn request still plans immediately, dialogue state notwithstanding', async () => {

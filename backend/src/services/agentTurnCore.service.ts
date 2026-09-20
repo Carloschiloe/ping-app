@@ -797,6 +797,17 @@ export function buildStepPresentation(
                 ...shared,
             };
         }
+        case 'remember_fact': {
+            const factContent = typeof args.factContent === 'string' ? args.factContent : '';
+            return {
+                stepId: step.stepId, toolId,
+                headline: 'Recordar esto',
+                effectDescription: `Ping recordará: "${factContent}"`,
+                contentPreview: factContent,
+                confirmationLabel: 'Recordar', cancelLabel: 'Cancelar',
+                ...shared,
+            };
+        }
         default: {
             return {
                 stepId: step.stepId, toolId,

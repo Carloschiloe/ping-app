@@ -978,3 +978,70 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: objectiveType unsupporte
         expect(es.blockingAmbiguities).toEqual([]);
     });
 });
+
+// M-8 — remember_fact planning. Mirrors validateCommunicateContent's own
+// test coverage style (verbatim-substring proof, never trust the
+// interpreter's own extracted fragment as automatically correct).
+describe('M-8: planObjective — remember_fact (Core-verified verbatim content, no LLM/free-text trust)', () => {
+    it('a genuine verbatim fragment of sourceUtterance produces a real remember_fact step', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que mi hermano se llama Andrés',
+            targetEntities: { personHints: [], entityHints: ['mi hermano se llama Andrés'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('remember_fact');
+        expect(result.steps[0].arguments).toEqual({ factContent: 'mi hermano se llama Andrés' });
+    });
+
+    it('an empty entityHints (no fact content extracted) blocks with factContent ambiguity, never plans an empty-content step', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que',
+            targetEntities: { personHints: [], entityHints: [] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }]);
+    });
+
+    it('SECURITY: a candidate that is NOT a real substring of sourceUtterance (e.g. an LLM-paraphrased/invented fragment, in a future LLM-enabled iteration) is rejected, never planned as-is', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que mi hermano se llama Andrés',
+            // Simulates a hypothetical future interpreter path proposing
+            // paraphrased/invented content instead of the real fragment --
+            // this MUST be rejected exactly like a hallucinated
+            // communicate_message candidate would be.
+            targetEntities: { personHints: [], entityHints: ['Su hermano se llama Andrés Pérez'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }]);
+    });
+
+    it('SECURITY: an ambiguous candidate matching 2+ locations in sourceUtterance is rejected, never guesses which occurrence', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que Andrés y Andrés son la misma persona',
+            targetEntities: { personHints: [], entityHints: ['Andrés'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }]);
+    });
+
+    it('remember_fact requires only actor_identity authorization -- no conversation/commitment scope, since a personal memory has none', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que prefiero reuniones por la mañana',
+            targetEntities: { personHints: [], entityHints: ['prefiero reuniones por la mañana'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].authorizationRequirement).toBe('actor_identity');
+        expect(result.steps[0].confirmationRequirement).toBe('explicit');
+        expect(result.steps[0].sideEffectClass).toBe('state_change');
+    });
+});

@@ -175,8 +175,15 @@ const WRITE_ACTION_KEYWORDS = wordBounded(
     + 'completa(?!mos)\\w*|termina(?!mos)\\w*|marca(?!mos)\\w*|'
     + 'acept[oa](?!mos)\\w*|aprueba(?!mos)\\w*|apruebo|rechaz(?!amos)\\w*|'
     + 'recu[ée]rdame|haz(?:me)?|'
+    // M-8 remember_fact: same "-amos" historical-question exclusion as every
+    // verb above ("¿cuándo recordamos X?" stays a query, never misroutes to
+    // a write). Requires "que" bound directly to the verb (via wordBounded's
+    // own \s+ join, matching REMEMBER_FACT_VERB's own pattern exactly in
+    // agentObjectiveInterpreter.service.ts) so a bare "recuerda"/"acuérdate"
+    // without the transitive clause never fires this gate on its own.
+    + 'recuerda(?!mos)\\s+que|acu[ée]rdate(?!mos)\\s+que|'
     + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
-    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
+    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me|remember\\s+that',
 );
 // PING — R-01 CANONICAL LIFECYCLE VERB TABLE (audit finding: "completamos"
 // had short-stem/general conjugation coverage via `complet[ae]\w*` that no

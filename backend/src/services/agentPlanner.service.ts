@@ -791,6 +791,49 @@ async function planResolvedExistingEntity(objective: AgentObjective, input: Agen
     })], blockingAmbiguities: [] };
 }
 
+// ─── M-8: remember_fact ("recuerda que mi hermano se llama Andrés") ───────
+// Mirrors validateCommunicateContent's own verbatim-substring discipline
+// (sección 36: "the model can never supply replacement text, only location
+// hints") for a categorically different reason than communicate_message's
+// recipient-addressing concern: here there is no recipient to search past,
+// but the SAME core safety property applies -- the content that becomes a
+// durable memory record must be a real, unambiguous, unparaphrased fragment
+// of what the user actually typed, never text the interpreter (deterministic
+// or, in a future LLM-enabled iteration, model) could have invented.
+// Deliberately reuses findOccurrences (defined above, never duplicated).
+function planRememberFact(objective: AgentObjective): DraftOutcome {
+    const candidate = objective.targetEntities.entityHints[0]?.trim();
+    if (!candidate) {
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }] };
+    }
+    const matches = findOccurrences(objective.sourceUtterance, candidate);
+    if (matches.length !== 1) {
+        // Zero matches: the deterministic extraction fragment somehow isn't
+        // a real substring of the source (should be structurally
+        // impossible today since the interpreter only ever slices the
+        // fragment FROM sourceUtterance itself, but this is the same
+        // never-trust-derived-text discipline every other verbatim check in
+        // this file applies, not a redundant belt-and-suspenders check for
+        // its own sake). 2+ matches: never guess which occurrence was meant.
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }] };
+    }
+    const verifiedContent = objective.sourceUtterance.slice(matches[0].start, matches[0].end).trim();
+    if (!verifiedContent) {
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }] };
+    }
+    return {
+        steps: [buildStep({
+            toolId: 'remember_fact',
+            operation: `Recordar: "${verifiedContent}"`,
+            args: { factContent: verifiedContent },
+            expectedEffect: 'Ping podrá recordar este hecho en conversaciones futuras.',
+            sourceUtteranceSpan: verifiedContent,
+            resolvedFrom: 'user_text',
+        })],
+        blockingAmbiguities: [],
+    };
+}
+
 export async function planObjective(input: AgentPlannerInput): Promise<DraftOutcome> {
     const outcome = await planObjectiveDraft(input);
     if (outcome.steps.length === 0) return outcome;
@@ -813,6 +856,8 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
         case 'complete_existing_commitment':
         case 'respond_to_existing_proposal':
             return planRescheduleOrCompleteOrRespond(objective, input);
+        case 'remember_fact':
+            return planRememberFact(objective);
         case 'unsupported':
         default: {
             // PING — AGENT RESPONSE LANGUAGE CONSISTENCY (root cause fix):
