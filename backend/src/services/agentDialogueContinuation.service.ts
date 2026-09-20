@@ -24,7 +24,7 @@ import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
 import { parseDateFromText } from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
-import { LlmObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import { LlmObjectiveInterpreter, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
@@ -54,18 +54,33 @@ const TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = 
     'respond_to_existing_proposal',
 ]);
 
+// PING — M-7: plan-date-correction only makes sense for objective types
+// where a date is a real, meaningful field to replace -- creation (which
+// already carries one) and reschedule (whose entire purpose is a date
+// change). Kept as its own set, not merged into either set above, because
+// it answers a THIRD distinct question (which types can have their date
+// corrected AFTER a plan is already shown) -- complete/respond have no
+// date field a correction could target, so they are deliberately absent.
+const PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = new Set([
+    'create_personal_commitment',
+    'create_commitment_or_proposal',
+    'reschedule_existing_commitment',
+]);
+
 // GENERALIZATION (M-7): the single gate agentTurnCore.service.ts's write-turn
 // bookkeeping uses to decide "is this objective type tracked by dialogue
-// state AT ALL" (for either mechanism -- slot continuation OR targetEntity
-// clarification). Originally that gate WAS isContinuationEligibleObjectiveType
-// itself, which silently meant reschedule/complete/respond's planner-derived
-// targetEntity ambiguities were never persisted, no matter how the answer-
-// resolution side was built. This is the fix: the two ELIGIBLE sets above
-// answer "which mechanism," this answers "tracked by dialogue state at all" --
-// their union, never a third, divergently-maintained list.
+// state AT ALL" (for any of the three mechanisms -- slot continuation,
+// targetEntity clarification, or plan date correction). Originally that gate
+// WAS isContinuationEligibleObjectiveType itself, which silently meant
+// reschedule/complete/respond's planner-derived targetEntity ambiguities
+// were never persisted, no matter how the answer-resolution side was built.
+// This is the fix: the three ELIGIBLE sets above each answer "which
+// mechanism," this answers "tracked by dialogue state at all" -- their
+// union, never a fourth, divergently-maintained list.
 export function isDialogueTrackedObjectiveType(objectiveType: AgentObjectiveType): boolean {
     return CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType)
-        || TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
+        || TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType)
+        || PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
 }
 
 export interface ContinuationClassification {
@@ -473,4 +488,132 @@ async function tryAnswerTargetEntityClarification(
 
 function escapeRegExp(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GENERALIZATION (M-7), third mechanism: plan-shown, pre-authorization date
+// correction (benchmark scenario 4: "mueve entrenar al viernes" -> [plan
+// shown: "Mover Entrenar al viernes"] -> "mejor al sábado"). Distinct from
+// both mechanisms above: neither an unresolved-slot continuation
+// (classifyContinuation) nor an answer to a pending clarification
+// (tryAnswerPendingClarification) -- this handles a bare follow-up arriving
+// while dialogueState.lifecycle === 'plan_pending_authorization', i.e. a
+// full AgentPlan already reached the user and is awaiting confirmation.
+//
+// Safety, grounded directly in the ADR's own Q13 finding (re-verified
+// against current source before building this): NO bespoke plan/digest
+// invalidation logic is needed here. AgentDialogueStateService.applyCorrection
+// already clears currentPlanDigestRef and transitions
+// plan_pending_authorization -> collecting the instant a correction is
+// recorded (agentDialogueState.service.ts, ADR §3.2) -- this module's ONLY
+// job is to (a) recognize a turn as a genuine date correction rather than an
+// unrelated new request, and (b) hand Core a corrected AgentObjective that
+// re-enters the EXACT SAME runAgentPlanning/authorizePlan pipeline as any
+// other turn. authorizePlan's own existing re-plan-from-scratch +
+// digest-comparison (never trusting a client-echoed plan) is what makes the
+// OLD, now-stale plan harmless the instant the user tries to confirm it --
+// this module never needs to know that mechanism exists, only to feed it an
+// honestly corrected objective.
+export interface PlanCorrectionClassification {
+    isCorrection: boolean;
+    reason: string;
+}
+
+// A correction is recognized ONLY when: (1) a plan is genuinely pending
+// (lifecycle === 'plan_pending_authorization', an actual AgentPlan reached
+// the user), (2) the open objective's type is one where a date is a
+// meaningful field to replace, (3) escape detection (the SAME
+// classifyExplicitEscape already proven for targetEntity/person answers)
+// does not find a complete, differently-shaped new request, and (4) the new
+// turn itself contains a recognizable date/time expression -- reusing the
+// SAME closed TIME_HINT_PATTERN vocabulary agentObjectiveInterpreter.service.ts
+// already uses to extract one, never a second date-phrase vocabulary. A turn
+// with no date expression at all is never treated as a correction (it may be
+// a genuinely new, unrelated turn, or "no, cancela" -- which UI/authorization
+// revocation already handles, out of this module's scope).
+export async function classifyPlanCorrection(
+    dialogueState: AgentDialogueState | null,
+    rawTurn: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<PlanCorrectionClassification> {
+    if (!dialogueState || dialogueState.lifecycle !== 'plan_pending_authorization' || !dialogueState.openObjective) {
+        return { isCorrection: false, reason: 'no_plan_pending' };
+    }
+    if (!PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(dialogueState.openObjective.objectiveType)) {
+        return { isCorrection: false, reason: 'objective_type_not_eligible' };
+    }
+    const trimmed = rawTurn.trim();
+    if (!trimmed) {
+        return { isCorrection: false, reason: 'empty_turn' };
+    }
+    const newTimeHint = extractTimeHint(trimmed);
+    if (!newTimeHint) {
+        return { isCorrection: false, reason: 'no_date_expression' };
+    }
+    const escape = await classifyExplicitEscape(trimmed, actorUserId, conversationId);
+    if (escape.escaped) {
+        return { isCorrection: false, reason: 'explicit_escape' };
+    }
+    return { isCorrection: true, reason: 'date_correction' };
+}
+
+export interface PlanCorrectionResult {
+    correctedObjective: AgentObjective;
+    turnSequence: number;
+}
+
+// Builds the corrected objective (structured-field replacement only, never
+// raw string-mashing of the full conversation) and records the correction
+// via applyCorrection -- which is what actually clears the stale
+// currentPlanDigestRef and transitions the dialogue state back to
+// `collecting`, per the ADR's own already-built mechanism. The caller
+// (agentTurnCore.service.ts) is responsible for re-opening the objective
+// (openObjective) and re-running it through runAgentPlanning, exactly as it
+// already does for every other write turn -- this function only decides
+// WHAT the corrected objective is, never touches planning/authorization
+// itself.
+export function buildPlanDateCorrection(
+    dialogueService: { applyCorrection: (input: {
+        actorUserId: string; dialogueScopeKey: string; slotName: string;
+        previousValue: string | null; newValue: string; reason: 'user_correction';
+        turnId: string; turnSequence: number;
+    }) => unknown },
+    dialogueState: AgentDialogueState,
+    dialogueScopeKey: string,
+    actorUserId: string,
+    newTimeHint: string,
+    turnId: string,
+    now: Date,
+    timezone: string,
+): PlanCorrectionResult {
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const previousRawHint = priorObjective.timeConstraints.rawHint;
+    const turnSequence = dialogueState.lastTurnSequence + 1;
+
+    dialogueService.applyCorrection({
+        actorUserId, dialogueScopeKey, slotName: 'timeConstraints.rawHint',
+        previousValue: previousRawHint, newValue: newTimeHint,
+        reason: 'user_correction', turnId, turnSequence,
+    });
+
+    // The planner re-parses the FULL sourceUtterance for reschedule (never
+    // just timeConstraints.rawHint), and parseDateFromText/
+    // parseExplicitWeekday match the FIRST date-shaped span in the text --
+    // simply appending the new phrase after the old one would leave the OLD
+    // date winning (a real bug caught by this module's own tests). Reusing
+    // stripTrailingDateSpan (the SAME chrono-anchored removal the reschedule
+    // interpreter itself already uses to separate a target from its own
+    // trailing date clause) removes the stale date span first, so the new
+    // phrase becomes the only -- and therefore first -- match.
+    const utteranceWithoutOldDate = stripTrailingDateSpan(priorObjective.sourceUtterance.trim(), now, timezone).trim();
+
+    const correctedObjective: AgentObjective = {
+        ...priorObjective,
+        timeConstraints: { rawHint: newTimeHint },
+        sourceUtterance: `${utteranceWithoutOldDate} ${newTimeHint}`.trim(),
+        ambiguities: [],
+    };
+
+    return { correctedObjective, turnSequence };
 }

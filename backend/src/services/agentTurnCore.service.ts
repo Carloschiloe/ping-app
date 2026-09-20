@@ -29,7 +29,8 @@ import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AUTHORIZATION_TTL_MS } from './agentAuthorization.service';
-import { LlmObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import { LlmObjectiveInterpreter, extractTimeHint } from './agentObjectiveInterpreter.service';
+import { resolveTimeZone } from './date-parser.service';
 import type { AgentPlan, AgentPlanStep, AgentObjective } from '../types/agentPlan';
 import type {
     AgentTurnInput,
@@ -55,6 +56,8 @@ import {
     isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
+    classifyPlanCorrection,
+    buildPlanDateCorrection,
 } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
@@ -252,6 +255,57 @@ export async function runAgentTurn(
         // A read/request escape also abandons the pending dialogue so a later
         // turn cannot inherit stale clarification slots.
         dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+    }
+
+    // GENERALIZATION (M-7), third mechanism: plan-shown, pre-authorization
+    // date correction (benchmark scenario 4). Only reachable when
+    // pendingAnswerable was false above -- which is always true while
+    // lifecycle === 'plan_pending_authorization', since that state carries
+    // no pendingClarification by construction (markReadyForAuthorization
+    // never sets one). See agentDialogueContinuation.service.ts's own header
+    // comment on this mechanism for the full safety rationale: no bespoke
+    // plan/digest invalidation is needed here, because applyCorrection
+    // (called inside buildPlanDateCorrection) already clears the stale
+    // currentPlanDigestRef and transitions back to `collecting`, and
+    // authorizePlan's existing re-plan-from-scratch + digest-comparison
+    // already makes the OLD, now-superseded plan harmless the instant the
+    // user would try to confirm it.
+    const correctionClassification = await classifyPlanCorrection(
+        existingDialogueState, content, input.actorUserId, conversationId,
+    );
+    tracePlan(traceId, 'PLAN_CORRECTION_CLASSIFIED', {
+        isCorrection: correctionClassification.isCorrection, reason: correctionClassification.reason, dialogueScopeKey,
+    });
+    if (correctionClassification.isCorrection) {
+        const newTimeHint = extractTimeHint(content.trim());
+        // extractTimeHint's own vocabulary is what classifyPlanCorrection
+        // already required to be present -- re-deriving it here (rather than
+        // threading it through the classification result) keeps
+        // PlanCorrectionClassification a pure yes/no + reason, exactly like
+        // ContinuationClassification/isPendingClarificationAnswerable's own
+        // shape, never a grab-bag of derived data a caller might trust
+        // without re-checking.
+        if (newTimeHint) {
+            const turnId = `${traceId}:${Date.now()}`;
+            const { correctedObjective, turnSequence } = buildPlanDateCorrection(
+                dialogueService, existingDialogueState!, dialogueScopeKey, input.actorUserId, newTimeHint, turnId,
+                now, resolveTimeZone(timezone),
+            );
+            // buildPlanDateCorrection's own applyCorrection call already
+            // consumed `turnSequence` (it is now existingDialogueState's new
+            // lastTurnSequence) -- this second bookkeeping write is a genuinely
+            // later step within the same turn and must use the next sequence,
+            // exactly mirroring the person_ambiguous re-ask path's own
+            // turnSequence/turnSequence + 1 pattern above.
+            dialogueService.openObjective({
+                actorUserId: input.actorUserId, dialogueScopeKey, objective: correctedObjective, turnId, turnSequence: turnSequence + 1,
+            });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_date_correction', dialogueScopeKey });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: correctedObjective,
+            }), traceId);
+        }
     }
 
     // A deterministic action can enter the planner directly. Reusing the

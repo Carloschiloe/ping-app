@@ -326,7 +326,13 @@ function stripLeadingTimeTokens(text: string): string {
 // para mañana a las 10" correctly keeps "comprar comida para perro" intact
 // because chrono's own match is anchored to "mañana a las 10", never to
 // the first unrelated "para".
-function stripTrailingDateSpan(afterVerb: string, now: Date, timezone: string): string {
+// Exported for reuse by agentDialogueContinuation.service.ts's plan date
+// correction (M-7): replacing an already-resolved date clause in a prior
+// utterance with a NEW one must strip the OLD date span using this exact
+// same chrono-anchored logic, never a naive concatenation (which would let
+// parseDateFromText's own "first match wins" behavior silently keep the
+// stale date instead of the corrected one).
+export function stripTrailingDateSpan(afterVerb: string, now: Date, timezone: string): string {
     const parsed = parseDateFromText(afterVerb, now, timezone);
     if (!parsed || !parsed.textRef) return afterVerb;
     const idx = afterVerb.toLowerCase().lastIndexOf(parsed.textRef.toLowerCase());
@@ -529,7 +535,12 @@ const TIME_HINT_PATTERN = wb(
     + 'lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo|'
     + 'a las \\d{1,2}(?::\\d{2})?|despu[ée]s de almuerzo|tomorrow|today|next \\w+',
 );
-function extractTimeHint(text: string): string | null {
+// Exported for reuse by agentDialogueContinuation.service.ts's plan
+// correction detection (M-7): deciding "does this turn carry a new
+// date/time" must reuse the SAME closed vocabulary the objective
+// interpreter itself already uses, never a second, divergently-maintained
+// pattern.
+export function extractTimeHint(text: string): string | null {
     const match = text.match(TIME_HINT_PATTERN);
     return match ? match[0] : null;
 }
