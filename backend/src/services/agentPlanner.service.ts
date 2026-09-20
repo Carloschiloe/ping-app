@@ -725,6 +725,34 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         return { steps: [step], blockingAmbiguities: [] };
     }
 
+    if (objective.objectiveType === 'cancel_existing_commitment') {
+        if (isProposal) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" todavía es una propuesta pendiente — cancelar una propuesta usa una respuesta de rechazo, no esta acción.` };
+        }
+        // M-9 — verified directly against commitmentTransitions.ts#computeCancel
+        // before writing this check: cancel is OWNER-ONLY (unlike
+        // resolve/counter_propose, which allow owner OR assignee) --
+        // `Only the owner can cancel this commitment`, enforced by the same
+        // canonical RPC this executor will call. Checking it here, before
+        // ever building a step, means a plan is never shown as
+        // ready-for-authorization only to fail at execution with an
+        // authorization error the user never saw coming.
+        if (entity.ownerUserId !== input.actorUserId) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: `Solo quien creó "${entity.title}" puede cancelarlo.` };
+        }
+        if (!COMMITMENT_TRANSITION_TABLE.cancel.validFromStatuses.includes(entity.status)) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" está en estado "${entity.status}" — no se puede cancelar desde ahí.` };
+        }
+        const step = buildStep({
+            toolId: 'cancel_commitment',
+            operation: `Cancelar "${entity.title}"`,
+            args: { commitmentId: entity.id },
+            expectedEffect: `"${entity.title}" quedará cancelado.`,
+            isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
+        });
+        return { steps: [step], blockingAmbiguities: [] };
+    }
+
     // complete_existing_commitment
     if (isProposal) {
         return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" todavía es una propuesta pendiente — no se puede "completar" hasta que se apruebe y se convierta en un compromiso.` };
@@ -855,6 +883,7 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
         case 'reschedule_existing_commitment':
         case 'complete_existing_commitment':
         case 'respond_to_existing_proposal':
+        case 'cancel_existing_commitment':
             return planRescheduleOrCompleteOrRespond(objective, input);
         case 'remember_fact':
             return planRememberFact(objective);

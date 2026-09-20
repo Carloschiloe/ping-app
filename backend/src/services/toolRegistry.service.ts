@@ -70,6 +70,9 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
     remember_fact: z.object({
         factContent: z.string().trim().min(1).max(2000),
     }).strict(),
+    cancel_commitment: z.object({
+        commitmentId: UUID,
+    }).strict(),
 };
 
 export const TOOL_REGISTRY: Record<string, ToolContract> = {
@@ -205,6 +208,23 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.memory', failureModes: ['missing_context', 'policy_blocked'],
+    },
+    // M-9 — cancel_commitment, the seventh WRITE tool. Reuses the SAME
+    // canonical writer mobile's own "Cancelar" menu action already calls
+    // (commitment.service.ts#cancelCommitment -> apply_commitment_transition
+    // _with_evidence), never a parallel write path. `commitment_owner` (not
+    // `commitment_owner_or_assignee`) is deliberate: cancel is verified
+    // owner-only at the canonical RPC level
+    // (commitmentTransitions.ts#computeCancel, "Only the owner can cancel
+    // this commitment") -- an assignee who could reschedule/complete cannot
+    // cancel, and this contract must say so accurately.
+    cancel_commitment: {
+        toolId: 'cancel_commitment', version: 1, category: 'WRITE', domain: 'commitment',
+        description: 'Cancels an existing, already-canonical commitment. Owner-only — an assignee cannot cancel someone else\'s commitment, only the owner who created it.',
+        argumentNames: ['commitmentId'], sideEffectClass: 'state_change',
+        authorizationRequirement: 'commitment_owner', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
 };
 

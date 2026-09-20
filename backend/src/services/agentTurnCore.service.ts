@@ -808,6 +808,17 @@ export function buildStepPresentation(
                 ...shared,
             };
         }
+        case 'cancel_commitment': {
+            const title = extractQuoted(step.operation) ?? 'el compromiso';
+            return {
+                stepId: step.stepId, toolId,
+                headline: `Cancelar "${title}"`,
+                effectDescription: `Cancelarás "${title}".`,
+                targetLabel: title,
+                confirmationLabel: 'Cancelar compromiso', cancelLabel: 'No cancelar',
+                ...shared,
+            };
+        }
         default: {
             return {
                 stepId: step.stepId, toolId,

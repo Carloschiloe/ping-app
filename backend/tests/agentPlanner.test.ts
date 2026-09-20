@@ -360,6 +360,48 @@ describe('planRescheduleOrCompleteOrRespond — entity resolution (sección 13)'
         expect(result.steps[0].toolId).toBe('complete_commitment');
     });
 
+    // M-9 — cancel_existing_commitment. Mirrors complete's own owner/status
+    // test coverage, with the one structural difference verified directly
+    // against commitmentTransitions.ts#computeCancel before writing these
+    // tests: cancel is OWNER-ONLY, unlike complete/reschedule (owner OR
+    // assignee).
+    it('cancel: owner + status válido (accepted) -> 1 step cancel_commitment', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].toolId).toBe('cancel_commitment');
+        expect(result.steps[0].arguments).toEqual({ commitmentId: ENTRENAR_ID });
+    });
+
+    it('SECURITY: cancel by an ASSIGNEE (not owner) -> failureMode not_authorized, unlike complete/reschedule which both allow the assignee', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted', ownerUserId: 'someone-else', assignedToUserId: CARLOS })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('not_authorized');
+        expect(result.steps).toEqual([]);
+    });
+
+    it('cancel on a pending proposal -> failureMode invalid_lifecycle (cancelling a proposal uses a reject response, not this action)', async () => {
+        retrieveCommitmentProposalsMock.mockResolvedValue([commitmentFixture({ entityType: 'commitment_proposal', status: 'pending' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('invalid_lifecycle');
+    });
+
+    it('cancel on an already-terminal commitment (e.g. already resolved) -> failureMode invalid_lifecycle, never a redundant/silent second cancellation', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'resolved' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('invalid_lifecycle');
+    });
+
+    it('cancel is risk-escalated to "high" when the commitment is shared, same as complete/reschedule', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted', conversationId: CONVERSATION_ID })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].riskLevel).toBe('high');
+    });
+
     it('respond_to_existing_proposal: actorCanRespond=false (ya aprobó, o no le corresponde) -> failureMode not_authorized (sección 24, adversarial D)', async () => {
         retrieveCommitmentProposalsMock.mockResolvedValue([commitmentFixture({ entityType: 'commitment_proposal', actorCanRespond: false, actorHasApproved: true })]);
         const objective = baseObjective({ objectiveType: 'respond_to_existing_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] }, constraints: { decisionHint: 'reject' } });

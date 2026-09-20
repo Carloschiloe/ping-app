@@ -52,27 +52,48 @@ const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|resuelve\\w*|comple
 // PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY (root cause fix):
 // cancel_commitment/cancel_proposal have NEVER been WRITE tools
 // (toolRegistry.service.ts registers exactly 5 WRITE tools --
-// send_message/create_commitment/respond_to_proposal/
-// reschedule_commitment/complete_commitment -- cancel is not among them,
-// and AgentObjectiveType itself has no cancel_existing_commitment
-// variant). The deterministic path here already fell through every verb
-// check to the final 'unsupported' fallback for a bare "cancela\w*"/
-// "cancelamos" utterance (no CANCEL_VERB ever existed to route it
-// elsewhere) -- but the LLM (the PRIMARY interpreter in production) has
-// no 'unsupported'-triggering signal of its own for this case: its
-// prompt lists 8 fixed objectiveType choices, none named "cancel", so it
-// picks the semantically nearest one (observed physically: "Cancelamos
-// el compromiso ir a acostarse" -> complete_existing_commitment), and the
-// planner's complete_existing_commitment branch then produces a
-// user-facing message that talks about "completar" for a request that
-// was never about completing anything -- a requested-lifecycle-transition
-// substitution, never an accidental language bug. CANCEL_VERB exists
-// SOLELY so Core can detect this case deterministically from the raw
-// text and force objectiveType back to 'unsupported' regardless of what
-// the LLM guessed (see the dominance check in mapPayloadToObjective) --
-// it is NEVER wired to a planner branch of its own, because no cancel
-// tool exists to plan for.
-const CANCEL_VERB = wb('cancela\\w*|cancelar|cancel(?:s|led|ed)?');
+// send_message/create_commitment/respond_to_proposal/reschedule_commitment/
+// complete_commitment/remember_fact -- cancel is now also among them, with
+// its own cancel_existing_commitment AgentObjectiveType variant (M-9).
+// Historically (before M-9), the deterministic path fell through every verb
+// check to the final 'unsupported' fallback for ANY "cancela\w*"/
+// "cancelamos" utterance, and the LLM (the PRIMARY interpreter in
+// production) had no 'unsupported'-triggering signal of its own for this
+// case: its prompt lists 8 fixed objectiveType choices, none named
+// "cancel", so it picked the semantically nearest one (observed physically:
+// "Cancelamos el compromiso ir a acostarse" -> complete_existing_commitment),
+// producing a requested-lifecycle-transition substitution -- the user asked
+// about cancel, the response talked about "completar".
+//
+// M-9: cancel is now a real capability, but ONLY for the genuine imperative
+// form ("Cancela X" -- an order to execute now), never the historical
+// "-amos" plural ("Cancelamos X"/"¿cuándo cancelamos X?" -- a question or
+// statement about something already decided, structurally never a write
+// request). TWO patterns exist, each with exactly one job:
+//   - CANCEL_VERB (this one): excludes "-amos" via the SAME
+//     negative-lookahead WRITE_ACTION_KEYWORDS
+//     (agentInputInterpreter.service.ts) already uses for this exact verb --
+//     deliberately re-applied HERE too (never trusted solely from that
+//     upstream gate) so this file's deterministic fast-path branch below is
+//     correct even when this interpreter is invoked directly/in isolation,
+//     as several existing unit tests already do, bypassing the upstream
+//     write-action gate entirely. Matching this pattern is what causes a
+//     real cancel_existing_commitment objective/plan to be built.
+//   - CANCEL_VERB_ANY_FORM (defined right after this one): matches BOTH
+//     forms, used ONLY inside mapPayloadToObjective's LLM-dominance
+//     override further down. That override's job is narrower than "build a
+//     plan" -- it only decides whether the LLM's own free-form guess must
+//     be distrusted for this specific utterance, which is equally true for
+//     "Cancela X" (must route to the real capability, not whatever the LLM
+//     free-associated) and "Cancelamos X" (must NOT be silently narrated as
+//     a different transition, e.g. "completar", even though it also must
+//     never itself become a write action). Using the narrow pattern there
+//     would have reintroduced the exact bug this file exists to prevent,
+//     just for the historical form specifically -- caught by this file's
+//     own test suite during development, not merely reasoned about
+//     abstractly.
+const CANCEL_VERB = wb('cancela(?!mos)\\w*|cancelar|cancel(?:s|led|ed)?');
+const CANCEL_VERB_ANY_FORM = wb('cancela\\w*|cancelar|cancel(?:s|led|ed)?');
 // PING — M-8 remember_fact: lexically distinct from PERSONAL_REMINDER_VERB
 // below (which requires the reflexive "-me"/"me" suffix bound to the verb,
 // "recuérdame"/"remind me" -- a reminder-COMMITMENT). "Recuerda QUE"/
@@ -610,18 +631,48 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             return obj;
         }
 
-        // 0b) cancel is not a supported write capability (no cancel tool
-        // exists in toolRegistry.service.ts, no cancel_existing_commitment
-        // objectiveType exists) -- explicit, deterministic 'unsupported'
-        // BEFORE any other verb check, so "Cancelamos X" can never fall
+        // 0b) M-9: cancel_existing_commitment is a real canonical write
+        // capability (commitment.service.ts#cancelCommitment -- already
+        // certified, already used by mobile's own "Cancelar" menu action).
+        // Checked BEFORE any other verb check so "Cancela X" can never fall
         // through to accept/reject/reschedule/complete by coincidence and
         // never silently talks about a different transition than the one
-        // requested. Checked before ACCEPT_VERB/REJECT_VERB deliberately:
-        // "cancela"/"cancelamos" share no substring with rechaz/acept, so
-        // there is no real ordering conflict, but cancel's own
-        // unsupported-capability truthfulness must never depend on
-        // whichever branch happens to run first.
-        if (matchVerb(CANCEL_VERB, text)) {
+        // requested. This is deliberately the ONLY place a cancel objective
+        // can originate: CANCEL_VERB is matched against raw text here,
+        // never left to LLM judgment (see the mirrored dominance override in
+        // mapPayloadToObjective below, which applies the SAME two-tier logic
+        // to the LLM path).
+        //
+        // TWO-TIER, exactly mirroring mapPayloadToObjective's own structure
+        // (both must independently prevent the original substitution bug,
+        // since this deterministic path is reachable on its own, without
+        // ever going through mapPayloadToObjective -- confirmed by this
+        // file's own existing unit tests, which call
+        // DeterministicObjectiveInterpreter directly): the genuine
+        // imperative (CANCEL_VERB, "-amos" excluded) routes to the real
+        // capability; the historical plural (matched only by
+        // CANCEL_VERB_ANY_FORM) is explicitly forced to 'unsupported' HERE,
+        // before it could otherwise fall through to COMPLETE_VERB/
+        // RESCHEDULE_VERB/etc. below and reproduce the exact
+        // "Cancelamos X" -> "completar"-shaped-response substitution bug
+        // this file exists to prevent -- caught by this file's own test
+        // suite during development (not merely reasoned about abstractly)
+        // when the first version of this branch used only the narrow
+        // pattern and let a historical utterance silently fall through to
+        // COMPLETE_VERB.
+        const cancelMatch = matchVerb(CANCEL_VERB, text);
+        if (cancelMatch) {
+            const afterVerb = text.slice((cancelMatch.index ?? 0) + cancelMatch[0].length);
+            const entityHint = extractEntityHint(afterVerb);
+            const obj = baseObjective('cancel_existing_commitment', input, context.actorUserId, 'deterministic');
+            obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
+            obj.confidence = entityHint ? 0.8 : 0.3;
+            if (!entityHint) {
+                obj.ambiguities.push({ field: 'targetEntity', kind: 'blocking', reason: 'No pude identificar cuál compromiso quieres cancelar.' });
+            }
+            return obj;
+        }
+        if (matchVerb(CANCEL_VERB_ANY_FORM, text)) {
             return baseObjective('unsupported', input, context.actorUserId, 'deterministic');
         }
 
@@ -871,27 +922,48 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 // PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: the LLM's prompt
-// (buildObjectivePrompt) lists exactly 8 fixed objectiveType choices, none
-// named "cancel" -- cancel_commitment/cancel_proposal are not WRITE tools
-// (toolRegistry.service.ts) and AgentObjectiveType has no
-// cancel_existing_commitment variant, so the LLM, given a cancellation
-// utterance, is forced to guess the semantically nearest label. The real
-// physical failure: "Cancelamos el compromiso ir a acostarse" ->
-// objectiveType: 'complete_existing_commitment', which then made the
-// planner produce a user-facing message describing an inability to
-// "completar" -- a requested-lifecycle-transition substitution (the user
-// asked about cancel, the response talked about complete), never a mere
-// wording bug. This is Core's deterministic override, reusing the EXACT
-// SAME CANCEL_VERB the deterministic path checks first -- never a second
-// vocabulary. It runs UNCONDITIONALLY on the raw input, regardless of
-// which objectiveType the LLM proposed, because a cancel verb in the text
-// means cancel was requested no matter what the model guessed; forcing
-// 'unsupported' here is what lets the planner's own truthful generic
-// capability message (never mentioning "completar") through instead of a
-// stale substituted-transition message from whatever branch the wrong
-// objectiveType would have reached.
+// (buildObjectivePrompt) still lists the same 8 fixed objectiveType choices
+// it always has -- cancel_existing_commitment is NOT among them (adding it
+// there would mean trusting the LLM's own judgment on whether "cancel" was
+// requested, which is exactly the authority this override exists to deny
+// it) -- so the LLM, given a cancellation utterance, is still forced to
+// guess the semantically nearest label from its own fixed list. The real
+// physical failure this override was originally built to close: "Cancelamos
+// el compromiso ir a acostarse" -> objectiveType: 'complete_existing_commitment',
+// which then made the planner produce a user-facing message describing an
+// inability to "completar" -- a requested-lifecycle-transition substitution
+// (the user asked about cancel, the response talked about complete), never
+// a mere wording bug.
+//
+// M-9 UPDATE: now that cancel_existing_commitment is a real objective type
+// with its own planner branch, this override's DESTINATION for the
+// imperative form changed (unsupported -> cancel_existing_commitment), but
+// its SAFETY PROPERTY did not, for EITHER form: it still runs
+// UNCONDITIONALLY on the raw input, still completely ignores whatever
+// objectiveType the LLM proposed whenever any cancel-shaped text is
+// present, and still reuses the SAME verb family the deterministic path
+// checks first -- never a second vocabulary, never LLM judgment over
+// whether cancel was requested. The destination itself now depends on WHICH
+// specific form matched (checked via CANCEL_VERB, the narrow pattern, first):
+// the genuine imperative routes to the real capability; the historical
+// plural (matched only by CANCEL_VERB_ANY_FORM, never CANCEL_VERB) still
+// routes to 'unsupported', exactly as before M-9 -- it must never itself
+// become a write action, but the LLM's free-form guess for it must still be
+// distrusted, or the original substitution bug (a cancel-shaped utterance
+// narrated as if "completar" were requested) would resurface for this one
+// form specifically. The LLM's own entityHints/personHints (read further
+// below, after this override decides objectiveType) remain untrusted TEXT
+// HINTS ONLY when the imperative form applies, exactly like every other
+// objective type -- the planner independently re-resolves and verifies the
+// target commitment against live canonical data before any step is built
+// (agentPlanner.service.ts's cancel_existing_commitment branch, mirroring
+// planRescheduleOrCompleteOrRespond's own target-resolution discipline).
 function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, input: string, actorUserId: string, modelName: string): AgentObjective {
-    const objectiveType: AgentObjectiveType = matchVerb(CANCEL_VERB, input) ? 'unsupported' : payload.objectiveType;
+    const objectiveType: AgentObjectiveType = matchVerb(CANCEL_VERB, input)
+        ? 'cancel_existing_commitment'
+        : matchVerb(CANCEL_VERB_ANY_FORM, input)
+            ? 'unsupported'
+            : payload.objectiveType;
     const obj = baseObjective(objectiveType, input, actorUserId, 'llm');
     obj.targetEntities.personHints = payload.additionalPersonHint
         ? [...payload.personHints, payload.additionalPersonHint].slice(0, 5)

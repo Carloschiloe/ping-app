@@ -1,0 +1,129 @@
+// M-9 — end-to-end proof that "Cancela X" reaches a real, authorization-ready
+// cancel_commitment plan through the exact same runAgentTurn pipeline every
+// other write request uses, via the REAL deterministic verb path
+// (CANCEL_VERB matches "cancela"/"cancelar"/"cancel") -- no LLM interpreter
+// mock needed, mirroring this session's other new write-shaped mechanisms.
+// Also directly certifies the historical-form safety property this feature
+// depends on: "Cancelamos X" must still be forced to 'unsupported', never
+// treated as a real write action and never silently narrated as a different
+// transition (the exact bug this whole CANCEL_VERB mechanism exists to
+// prevent, now verified end to end after cancel became a real capability).
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+function commitment(id: string, title: string, ownerUserId: string, status: string = 'accepted') {
+    return {
+        id, entityType: 'commitment' as const, title, description: null, status: status as any,
+        type: 'general', priority: null, dueAt: null, proposedDueAt: null, expectedResult: null,
+        resolvedAt: null, resolutionResult: null, rejectionReason: null,
+        ownerUserId, assignedToUserId: ownerUserId, counterpartyContactId: null,
+        conversationId: null, messageId: null, createdAt: '2026-09-01T00:00:00.000Z',
+        provenance: { sourceType: 'commitment' as const, sourceId: id },
+    };
+}
+
+const { retrieveCommitmentsMock } = vi.hoisted(() => ({ retrieveCommitmentsMock: vi.fn(async () => []) }));
+
+vi.mock('../src/services/retrieval.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/retrieval.service')>();
+    return {
+        ...actual,
+        retrieveCommitments: (...args: unknown[]) => retrieveCommitmentsMock(...args),
+        retrieveCommitmentProposals: vi.fn(async () => []),
+        retrieveCommitmentEvents: vi.fn(async () => []),
+        retrieveMessages: vi.fn(async () => []),
+        retrieveTranscriptions: vi.fn(async () => []),
+        retrieveAttachments: vi.fn(async () => []),
+        resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
+        dedupeProvenance: (items: unknown[]) => items,
+    };
+});
+
+vi.mock('../src/services/memory.service', () => ({
+    retrieveMemory: vi.fn(async () => []),
+    ingestMemoryFromEvent: vi.fn(async () => undefined),
+}));
+
+let runAgentTurn: typeof import('../src/services/agentTurn.service').runAgentTurn;
+let clearAgentDialogueStateForTests: typeof import('../src/services/agentDialogueState.service').clearAgentDialogueStateForTests;
+
+const ACTOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER_OWNER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const ENTRENAR_ID = 'c0000000-0000-4000-8000-000000000005';
+
+beforeEach(async () => {
+    vi.resetModules();
+    const turnModule = await import('../src/services/agentTurn.service');
+    runAgentTurn = turnModule.runAgentTurn;
+    const dialogueModule = await import('../src/services/agentDialogueState.service');
+    clearAgentDialogueStateForTests = dialogueModule.clearAgentDialogueStateForTests;
+    clearAgentDialogueStateForTests();
+    retrieveCommitmentsMock.mockReset();
+}, 30000);
+
+afterEach(() => {
+    clearAgentDialogueStateForTests();
+    vi.restoreAllMocks();
+});
+
+describe('runAgentTurn — "Cancela X" (imperative) reaches a real, authorization-ready cancel_commitment plan', () => {
+    it('"Cancela Entrenar" produces a ready_for_authorization plan targeting cancel_commitment, with no side effect yet', async () => {
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', ACTOR)]);
+        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancela Entrenar', channel: 'mobile', locale: 'es-CL' });
+
+        expect(res.kind).toBe('plan');
+        if (res.kind === 'plan') {
+            expect(res.plan.status).toBe('ready_for_authorization');
+            expect(res.plan.steps.map((s) => s.toolId)).toEqual(['cancel_commitment']);
+            expect(res.presentation.requiresExplicitConfirmation).toBe(true);
+            const stepPresentation = res.presentation.stepPresentations[0];
+            expect(stepPresentation.confirmationLabel).toBe('Cancelar compromiso');
+            expect(stepPresentation.headline).toContain('Entrenar');
+        }
+    });
+
+    it('"Cancelar Entrenar" and "Cancel Entrenar" (other imperative surface forms) also plan correctly', async () => {
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', ACTOR)]);
+        const es = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancelar Entrenar', channel: 'mobile', locale: 'es-CL' });
+        expect(es.kind).toBe('plan');
+
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', ACTOR)]);
+        const en = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancel Entrenar', channel: 'mobile', locale: 'en-US' });
+        expect(en.kind).toBe('plan');
+    });
+
+    it('SECURITY: an actor who is only the ASSIGNEE (not owner) of the target commitment never reaches a confirmable plan -- distinct from complete/reschedule, which both allow the assignee', async () => {
+        // Owned by OTHER_OWNER; ACTOR would be an assignee in a shared
+        // scenario, but this fixture's ownerUserId/assignedToUserId are
+        // deliberately set so ACTOR is NEVER the owner -- the planner's own
+        // cancel_existing_commitment branch must reject this before ever
+        // building a step, exactly like tests/agentPlanner.test.ts's own
+        // unit-level proof of the same asymmetry, now confirmed reachable
+        // end to end through the real turn pipeline.
+        retrieveCommitmentsMock.mockResolvedValueOnce([{ ...commitment(ENTRENAR_ID, 'Entrenar', OTHER_OWNER), assignedToUserId: ACTOR }]);
+        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancela Entrenar', channel: 'mobile', locale: 'es-CL' });
+        expect(res.kind).not.toBe('plan');
+    });
+
+    it('historical form "Cancelamos Entrenar" is NEVER treated as a write request -- stays unsupported, the exact safety property this whole mechanism protects', async () => {
+        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancelamos Entrenar', channel: 'mobile', locale: 'es-CL' });
+        expect(res.kind).not.toBe('plan');
+    });
+
+    it('REAL PHYSICAL FIXTURE, still protected end to end: "Cancelamos el compromiso ir a acostarse" never produces a plan of any kind, including complete_commitment (the original substitution bug)', async () => {
+        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancelamos el compromiso ir a acostarse', channel: 'mobile', locale: 'es-CL' });
+        // The write-objective path correctly forces 'unsupported' for this
+        // historical form (never reaching cancel_existing_commitment nor
+        // being substituted into complete_existing_commitment); the turn
+        // then legitimately falls through to the READ path, which
+        // classifies "Cancelamos X" as a historical-lifecycle query about
+        // cancelled commitments (isHistoricalLifecycleQuery, an existing,
+        // separately-certified mechanism unrelated to this fix) -- a
+        // read-only retrieval scoped to status='cancelled', never a plan of
+        // any kind and never a write side effect.
+        expect(res.kind).not.toBe('plan');
+        if (retrieveCommitmentsMock.mock.calls.length > 0) {
+            const [filters] = retrieveCommitmentsMock.mock.calls[0];
+            expect((filters as any).statuses).toEqual(['cancelled']);
+        }
+    });
+});
