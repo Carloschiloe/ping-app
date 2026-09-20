@@ -1,10 +1,10 @@
-# M-7/M-8 — Escenarios de certificación física en iPhone
+# M-7/M-8/M-9 — Escenarios de certificación física en iPhone
 
-Estado: código completo, probado con 45 pruebas automatizadas nuevas
-(backend 113/113 archivos, 2060/2060 pruebas; mobile 824/824), sin
+Estado: código completo, probado con 79 pruebas automatizadas nuevas
+(backend 115/115 archivos, 2086/2086 pruebas; mobile 824/824), sin
 certificación física. Este documento es la guía mínima para ejecutar esa
 certificación cuando corresponda — no reemplaza el resto de la suite
-existente (M-1 a M-6), la complementa para las cuatro capacidades nuevas de
+existente (M-1 a M-6), la complementa para las cinco capacidades nuevas de
 la rama `test/m7-read-followup-regression-20260920` (PR #3).
 
 No fusionar la rama a `codex/staging-beta` para esta prueba sin
@@ -105,6 +105,35 @@ exactamente eso.
 **ANOTAR si:** el hecho se recupera correctamente pero solo con una
 frase de búsqueda muy parecida a la original, nunca con una reformulación
 natural.
+
+## Escenario 5 — Cancelar un compromiso por conversación
+
+Requiere un compromiso real que se pueda cancelar sin consecuencias (crear
+uno de prueba primero si hace falta), y una segunda cuenta de prueba para
+el caso de seguridad.
+
+1. Decir: «Cancela [nombre de un compromiso propio real]».
+2. Confirmar que el plan mostrado nombra correctamente ese compromiso.
+3. Confirmar el plan y verificar que el compromiso quedó cancelado.
+4. **Caso de seguridad:** desde una cuenta donde la persona sea la
+   *asignada* de un compromiso pero no quien lo creó, decir «Cancela
+   [ese compromiso]». Confirmar que Ping **no** ofrece un plan para
+   cancelarlo — a diferencia de completar o reprogramar, que sí debe seguir
+   permitiendo a la persona asignada.
+5. **Caso de no confusión:** decir «Cancelamos [nombre de un compromiso ya
+   cancelado o resuelto]» como pregunta sobre algo pasado. Confirmar que
+   Ping responde con información histórica real, y que en ningún momento
+   ofrece un plan de acción ni dice haber completado o cancelado algo en
+   ese momento.
+
+**FALLA si:** el paso 3 cancela el compromiso equivocado; el paso 4 permite
+a la persona asignada cancelar el compromiso de otra persona; el paso 5
+produce un plan de acción o una respuesta que hable de "completar" el
+compromiso en vez de responder la pregunta histórica.
+**ANOTAR si:** el mensaje de confirmación del plan usa un lenguaje distinto
+entre "cancelar el plan" y "cancelar el compromiso" que resulte confuso en
+la pantalla real (evaluado ya en el diseño, pero conviene confirmarlo en
+pantalla).
 
 ## Registro de resultados
 
