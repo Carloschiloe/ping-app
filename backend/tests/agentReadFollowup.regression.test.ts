@@ -1,10 +1,11 @@
-// M-7 RED: focused wiring regression, not proof of live Supabase retrieval.
+// M-7: focused wiring regression, not proof of live Supabase retrieval.
 // A prior, actor-visible canonical commitment is the only source of the date.
 // The second request does not repeat its title; Core must recover the scoped
 // referent and query canonical evidence again, never assume an earlier answer
 // itself authorizes a date. No real network, secrets or writes are used.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAgentDialogueStateForTests } from '../src/services/agentDialogueState.service';
+import { clearReadFollowupReferentsForTests, resolveVerifiedReadFollowup } from '../src/services/agentReadFollowupReferent.service';
 
 const { buildContextMock, synthesizeMock } = vi.hoisted(() => ({
     buildContextMock: vi.fn(),
@@ -33,6 +34,7 @@ const COMPLETED_AT = '2026-09-11T23:00:00.000Z';
 
 beforeEach(() => {
     clearAgentDialogueStateForTests();
+    clearReadFollowupReferentsForTests();
     buildContextMock.mockReset().mockImplementation(async (input: { actorUserId: string; input: string; conversationId?: string }) => {
         // Fake of canonical retrieval: evidence is accessible ONLY to ACTOR
         // in CONVERSATION and ONLY when the builder is given a query naming
@@ -80,13 +82,17 @@ describe('M-7: read-only follow-up keeps an authorized referent', () => {
         expect(first.kind).toBe('response');
         if (first.kind !== 'response') return;
         expect(first.response.status).toBe('answered');
+        expect(first.response.citations).toEqual([{ sourceType: 'commitment', sourceId: '33333333-3333-4333-8333-333333333333' }]);
+        // Verify the first answer actually saved a title from canonical evidence.
+        expect(buildContextMock).toHaveBeenCalledTimes(2);
+        expect(resolveVerifiedReadFollowup({
+            actorUserId: ACTOR, conversationId: CONVERSATION, utterance: '¿Y cuándo lo completamos?',
+        })).toEqual({ query: '¿Y cuándo lo completamos? Ver Spiderman', sourceId: '33333333-3333-4333-8333-333333333333' });
 
         const second = await read(ACTOR, CONVERSATION, '¿Y cuándo lo completamos?');
         expect(second.kind).toBe('response');
         if (second.kind !== 'response') return;
-        // RED with current implementation: buildAgentContext receives only
-        // the isolated second utterance, loses TITLE and finds no evidence.
-        // A fix must re-resolve the scoped referent via authorized retrieval.
+        expect(buildContextMock.mock.lastCall?.[0].input).toContain(TITLE);
         expect(second.response.status).toBe('answered');
         expect(second.response.answer).toContain(COMPLETED_AT);
         expect(second.response.citations).toEqual([{
