@@ -52,6 +52,7 @@ import {
     classifyContinuation,
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
+    isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
 } from './agentDialogueContinuation.service';
@@ -167,10 +168,11 @@ export async function runAgentTurn(
         });
         traceAgentDevice(traceId, 'AGENT_PENDING_CLARIFICATION_RESULT', {
             outcome: pendingResult.outcome,
-            candidateCount: pendingResult.outcome === 'multi_match' ? pendingResult.candidates.length : null,
+            candidateCount: pendingResult.outcome === 'multi_match' ? pendingResult.candidates.length
+                : pendingResult.outcome === 'multi_match_entity' ? pendingResult.candidates.length : null,
         });
 
-        if (pendingResult.outcome === 'resolved') {
+        if (pendingResult.outcome === 'resolved' || pendingResult.outcome === 'resolved_entity') {
             // TASK 7 -- the planner (never this module) decides whether the
             // now-completed objective is fully specified or still needs
             // another clarification (e.g. a missing date). Reuses the exact
@@ -182,28 +184,56 @@ export async function runAgentTurn(
                 now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.reconciledObjective,
             }), traceId);
         }
-        if (pendingResult.outcome === 'zero_match' || pendingResult.outcome === 'multi_match') {
+        // GENERALIZATION (M-7): the targetEntity re-ask is built directly
+        // rather than through realizeAgentClarification, which owns ONLY the
+        // read-domain ClarificationReason enum (person_ambiguous/
+        // time_ambiguous/topic_too_broad) -- targetEntity is a write-domain
+        // planner field (see agentPlanner.service.ts's own `field:
+        // 'targetEntity'` ambiguities), a distinct concept sharing no enum
+        // with the read-side reasons. Wording mirrors the planner's own
+        // existing phrasing ("Hay más de un resultado para...") for
+        // consistency, never a newly-invented tone.
+        if (pendingResult.outcome === 'zero_match' || pendingResult.outcome === 'multi_match'
+            || pendingResult.outcome === 'multi_match_entity') {
             // TASK 5 -- never an arbitrary selection. Re-ask, using the exact
             // same natural-language realization the rest of M-7B PHYSICAL
             // FAILURE #1's fix already established, never a raw reason code.
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: `pending_clarification_${pendingResult.outcome}`, dialogueScopeKey });
             const language = detectAgentLanguage(content, locale);
-            const clarification = pendingResult.outcome === 'multi_match'
-                ? { reason: 'person_ambiguous' as const, candidates: pendingResult.candidates }
-                : { reason: 'person_ambiguous' as const, candidates: [] };
-            const { answer, followUp } = realizeAgentClarification(clarification, language);
+            const isEntityField = existingDialogueState!.pendingClarification?.field === 'targetEntity';
+            let answer: string;
+            let options: { id: string; label: string }[] | undefined;
+            if (isEntityField) {
+                const entityCandidates = pendingResult.outcome === 'multi_match_entity' ? pendingResult.candidates : [];
+                options = entityCandidates.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` }));
+                answer = entityCandidates.length > 0
+                    ? (language === 'es'
+                        ? `Hay más de un resultado. ¿Cuál compromiso? ${entityCandidates.map((c) => c.title).join(', ')}.`
+                        : `There's more than one match. Which commitment? ${entityCandidates.map((c) => c.title).join(', ')}.`)
+                    : (language === 'es'
+                        ? 'No encontré ningún compromiso o propuesta que coincida. ¿Puedes darme más detalle?'
+                        : 'I didn\'t find a matching commitment or proposal. Could you give me more detail?');
+            } else {
+                const clarification = pendingResult.outcome === 'multi_match'
+                    ? { reason: 'person_ambiguous' as const, candidates: pendingResult.candidates }
+                    : { reason: 'person_ambiguous' as const, candidates: [] };
+                const realized = realizeAgentClarification(clarification, language);
+                answer = realized.answer;
+                options = realized.followUp.options;
+            }
+            const field = isEntityField ? 'targetEntity' : 'person_ambiguous';
             const turnId = `${traceId}:${Date.now()}`;
             const nextTurnSequence = (existingDialogueState!.lastTurnSequence ?? 0) + 1;
             dialogueService.setPendingClarification({
                 actorUserId: input.actorUserId, dialogueScopeKey,
-                clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
+                clarification: { field, question: answer, options },
                 turnId, turnSequence: nextTurnSequence,
             });
-            traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field: 'person_ambiguous' });
+            traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field });
             traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
             return finalizeAgentTurn({
                 kind: 'clarification',
-                questions: [{ field: 'person_ambiguous', question: answer, options: followUp.options }],
+                questions: [{ field, question: answer, options }],
             }, traceId);
         }
         if (pendingResult.newObjective) {
@@ -493,13 +523,24 @@ async function runWriteActionTurn(params: {
     // M-7B dialogue-state bookkeeping, strictly AFTER the real plan result
     // is known -- dialogue state never predicts or overrides what the
     // canonical planner decided.
-    if (!isContinuationEligibleObjectiveType(objectiveForPlanning.objectiveType)) {
-        // Objective type out of scope for continuation tracking in this
-        // phase (per the task's bounded-rollout instruction) -- dialogue
-        // state for this scope is left untouched. A genuinely open,
-        // eligible dialogue elsewhere for this same scope key would only
-        // exist if a different objective type were previously open, which
-        // classifyContinuation already refuses to merge into.
+    //
+    // GENERALIZATION (M-7): this gate was originally
+    // isContinuationEligibleObjectiveType itself (create-only), which
+    // silently meant reschedule/complete/respond's planner-derived
+    // targetEntity ambiguities were NEVER persisted here, no matter how the
+    // answer-resolution side (agentDialogueContinuation.service.ts) was
+    // built -- the write side of the mechanism gates on the SAME union
+    // isPendingClarificationAnswerable's read side already checks, so a
+    // targetEntity clarification for an eligible objective type is tracked
+    // exactly like a person_ambiguous one, both through this one bookkeeping
+    // block.
+    if (!isDialogueTrackedObjectiveType(objectiveForPlanning.objectiveType)) {
+        // Objective type out of scope for dialogue tracking in this phase
+        // (per the task's bounded-rollout instruction) -- dialogue state for
+        // this scope is left untouched. A genuinely open, eligible dialogue
+        // elsewhere for this same scope key would only exist if a different
+        // objective type were previously open, which classifyContinuation
+        // already refuses to merge into.
     } else if (plan.status === 'needs_clarification') {
         dialogueService.openObjective({
             actorUserId, dialogueScopeKey, objective: objectiveForPlanning,

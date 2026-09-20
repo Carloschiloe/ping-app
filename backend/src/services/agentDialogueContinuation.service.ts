@@ -21,9 +21,11 @@
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
 import { resolvePerson } from './retrieval.service';
+import { resolveEntityHint } from './agentPlanner.service';
+import { parseDateFromText } from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { LlmObjectiveInterpreter } from './agentObjectiveInterpreter.service';
-import type { RetrievalPerson } from '../types/retrieval';
+import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
 // in this phase (both share planCreateCommitment's exact missing-slot
@@ -37,6 +39,33 @@ const CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = n
 
 export function isContinuationEligibleObjectiveType(objectiveType: AgentObjectiveType): boolean {
     return CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
+}
+
+// PING — M-7: targetEntity ambiguity only arises for objectives that target
+// an EXISTING commitment/proposal (reschedule/complete/respond) -- never
+// create, which has no target to disambiguate. Kept separate from
+// CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES (create-only) rather than merged,
+// since the two sets answer different questions (which objective types can
+// be SLOT-FILLED across turns vs. which can have an ambiguous EXISTING
+// target) and conflating them would silently widen one by editing the other.
+const TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = new Set([
+    'reschedule_existing_commitment',
+    'complete_existing_commitment',
+    'respond_to_existing_proposal',
+]);
+
+// GENERALIZATION (M-7): the single gate agentTurnCore.service.ts's write-turn
+// bookkeeping uses to decide "is this objective type tracked by dialogue
+// state AT ALL" (for either mechanism -- slot continuation OR targetEntity
+// clarification). Originally that gate WAS isContinuationEligibleObjectiveType
+// itself, which silently meant reschedule/complete/respond's planner-derived
+// targetEntity ambiguities were never persisted, no matter how the answer-
+// resolution side was built. This is the fix: the two ELIGIBLE sets above
+// answer "which mechanism," this answers "tracked by dialogue state at all" --
+// their union, never a third, divergently-maintained list.
+export function isDialogueTrackedObjectiveType(objectiveType: AgentObjectiveType): boolean {
+    return CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType)
+        || TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
 }
 
 export interface ContinuationClassification {
@@ -174,17 +203,35 @@ function hasExplicitDateWord(text: string): boolean {
 // write routing commits to something else? See tmp/PING-M7-DIALOGUE-STATE-ADR.md
 // Q10 and the physical failure report for the full architecture rationale.
 //
-// Scope: only the 'person_ambiguous' pending-clarification field is handled
-// here (the exact physical case). Extending this to other clarification
-// fields (time_ambiguous, topic_too_broad, planner-derived fields like
-// 'title'/'dueAt') is explicitly a later, separate task -- never silently
-// widened here.
+// GENERALIZATION (M-7, second field): originally scoped to ONLY
+// 'person_ambiguous' (the exact physical case). Extended to also cover
+// 'targetEntity' -- the SAME structural shape (Core presents N real
+// candidates, the user picks/names one, live resolution is the only source
+// of truth) reused for "¿Cuál compromiso? [Entrenar] [Entrenar (jueves)]"
+// answered by a follow-up naming or selecting one. Both fields share this
+// module's one caller contract (PendingClarificationAnswerOutcome) so
+// agentTurnCore.service.ts's single dialogue-first check handles either
+// without a field-specific branch of its own. Extending this further (e.g.
+// 'newDueAt'/'title', which need date-parsing/free-text reconciliation
+// instead of candidate selection -- a materially different shape) remains
+// explicitly a later, separate task -- never silently widened here.
+const ANSWERABLE_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set(['person_ambiguous', 'targetEntity']);
+
+// Reuses TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES defined above (alongside
+// isDialogueTrackedObjectiveType) -- never a second, divergent copy here.
 export function isPendingClarificationAnswerable(dialogueState: AgentDialogueState | null): boolean {
-    return !!dialogueState
-        && (dialogueState.lifecycle === 'clarifying' || dialogueState.lifecycle === 'collecting')
-        && !!dialogueState.pendingClarification
-        && dialogueState.pendingClarification.field === 'person_ambiguous'
-        && !!dialogueState.openObjective;
+    if (!dialogueState
+        || (dialogueState.lifecycle !== 'clarifying' && dialogueState.lifecycle !== 'collecting')
+        || !dialogueState.pendingClarification
+        || !dialogueState.openObjective) {
+        return false;
+    }
+    const field = dialogueState.pendingClarification.field;
+    if (!ANSWERABLE_CLARIFICATION_FIELDS.has(field)) return false;
+    if (field === 'targetEntity') {
+        return TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES.has(dialogueState.openObjective.objectiveType);
+    }
+    return true;
 }
 
 // TASK 9 -- escape/new-objective detection. Reuses the EXISTING deterministic
@@ -243,7 +290,29 @@ export type PendingClarificationAnswerOutcome =
     | { outcome: 'escaped'; newObjective?: AgentObjective }
     | { outcome: 'zero_match' }
     | { outcome: 'multi_match'; candidates: RetrievalPerson[] }
-    | { outcome: 'resolved'; reconciledObjective: AgentObjective; resolvedPerson: RetrievalPerson };
+    | { outcome: 'multi_match_entity'; candidates: RetrievalCommitment[] }
+    | { outcome: 'resolved'; reconciledObjective: AgentObjective; resolvedPerson: RetrievalPerson }
+    | { outcome: 'resolved_entity'; reconciledObjective: AgentObjective; resolvedEntity: RetrievalCommitment };
+
+// GENERALIZATION (M-7): single dispatch point by pendingClarification.field,
+// so agentTurnCore.service.ts's one dialogue-first check stays field-
+// agnostic -- it calls this one function regardless of which answerable
+// field is pending, exactly as before this generalization. Both branches
+// share the identical safety contract: the raw answer is NEVER trusted as
+// canonical identity/entity by itself, escape detection always runs first
+// via the same classifyExplicitEscape, and the actual resolution always
+// comes from live Core retrieval, never from parsing the answer text itself.
+export async function tryAnswerPendingClarification(
+    dialogueState: AgentDialogueState,
+    rawAnswer: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<PendingClarificationAnswerOutcome> {
+    if (dialogueState.pendingClarification?.field === 'targetEntity') {
+        return tryAnswerTargetEntityClarification(dialogueState, rawAnswer, actorUserId, conversationId);
+    }
+    return tryAnswerPersonAmbiguousClarification(dialogueState, rawAnswer, actorUserId, conversationId);
+}
 
 // TASK 5/6 -- the raw answer is NEVER trusted as canonical identity by
 // itself (never "the LLM/user said Pedro González, so it must be person
@@ -257,7 +326,7 @@ export type PendingClarificationAnswerOutcome =
 // text ("llamar a Pedro"), so completing it with the resolved display name
 // is itself Core-owned text composition from a verified candidate, not a
 // trust decision about identity.
-export async function tryAnswerPendingClarification(
+async function tryAnswerPersonAmbiguousClarification(
     dialogueState: AgentDialogueState,
     rawAnswer: string,
     actorUserId: string,
@@ -307,6 +376,99 @@ export async function tryAnswerPendingClarification(
     };
 
     return { outcome: 'resolved', reconciledObjective, resolvedPerson: resolution.resolved };
+}
+
+// GENERALIZATION (M-7): same structural contract as
+// tryAnswerPersonAmbiguousClarification (escape first, then live resolution
+// is the only source of truth, zero/multi/one outcomes), applied to
+// "¿Cuál compromiso? [Entrenar (jueves)] [Entrenar (viernes)]" instead of
+// "¿Cuál Pedro?". Three ways a real answer narrows this, tried in order,
+// ALL re-verified against a freshly re-derived candidate set -- never
+// trusted from the answer text alone or from the stored option list's
+// possibly-stale contents:
+//   (a) the answer names one of the ALREADY-PRESENTED option labels
+//       (dialogueState.pendingClarification.options) directly;
+//   (b) the answer is itself a resolvable date/weekday phrase (e.g. "el del
+//       jueves", "el viernes") -- reuses the SAME date-parser.service.ts
+//       parseDateFromText every other date-bearing turn already goes
+//       through, matched against each candidate's OWN dueAt (same-day, not
+//       exact-instant, since a spoken "el jueves" never carries a time) --
+//       never a second, divergent date grammar;
+//   (c) fallback: treat the answer as additional narrowing TEXT and re-run
+//       resolveEntityHint scoped to the answer alone (never concatenated
+//       with the original hint, which would corrupt a real FTS query with
+//       words like "el"/"del" that share no vocabulary with any real
+//       title), intersected with the already-fetched candidate set so a
+//       word that happens to match an unrelated commitment elsewhere can
+//       never leak in.
+async function tryAnswerTargetEntityClarification(
+    dialogueState: AgentDialogueState,
+    rawAnswer: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<PendingClarificationAnswerOutcome> {
+    const trimmedAnswer = rawAnswer.trim();
+    if (!trimmedAnswer) {
+        return { outcome: 'escaped' };
+    }
+
+    const escape = await classifyExplicitEscape(trimmedAnswer, actorUserId, conversationId);
+    if (escape.escaped) return { outcome: 'escaped', newObjective: escape.newObjective };
+
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const originalHint = priorObjective.targetEntities.entityHints[0] ?? '';
+    const options = dialogueState.pendingClarification?.options ?? [];
+
+    // Re-derive the candidate set fresh rather than trusting the stored
+    // option list is still accurate, so a commitment archived/altered
+    // between the question and the answer cannot silently be selected.
+    const freshOriginalCandidates = originalHint ? await resolveEntityHint(actorUserId, originalHint) : [];
+
+    // (a) Direct option-label match.
+    const normalizedAnswer = trimmedAnswer.toLowerCase();
+    const selectedOption = options.find((option) => option.label.toLowerCase().includes(normalizedAnswer)
+        || normalizedAnswer.includes(option.label.toLowerCase()));
+    let candidates = selectedOption
+        ? freshOriginalCandidates.filter((candidate) => candidate.id === selectedOption.id)
+        : [];
+
+    // (b) Same-day dueAt match against a resolvable date/weekday phrase.
+    if (candidates.length === 0) {
+        const parsedDate = parseDateFromText(trimmedAnswer);
+        if (parsedDate) {
+            const targetDayKey = parsedDate.date.toISOString().slice(0, 10);
+            candidates = freshOriginalCandidates.filter((candidate) =>
+                candidate.dueAt && candidate.dueAt.slice(0, 10) === targetDayKey);
+        }
+    }
+
+    // (c) Fallback: free-text narrowing, scoped to the answer alone and
+    // intersected with the original candidate set (never a raw global
+    // search on the answer text by itself).
+    if (candidates.length === 0) {
+        const textCandidates = await resolveEntityHint(actorUserId, trimmedAnswer);
+        const textCandidateIds = new Set(textCandidates.map((c) => c.id));
+        candidates = freshOriginalCandidates.filter((candidate) => textCandidateIds.has(candidate.id));
+    }
+
+    if (candidates.length > 1) {
+        return { outcome: 'multi_match_entity', candidates };
+    }
+    if (candidates.length === 0) {
+        return { outcome: 'zero_match' };
+    }
+
+    const resolvedEntity = candidates[0];
+    const reconciledObjective: AgentObjective = {
+        ...priorObjective,
+        targetEntities: {
+            entityHints: [resolvedEntity.title],
+            personHints: priorObjective.targetEntities.personHints,
+        },
+        ambiguities: [],
+    };
+
+    return { outcome: 'resolved_entity', reconciledObjective, resolvedEntity };
 }
 
 function escapeRegExp(text: string): string {

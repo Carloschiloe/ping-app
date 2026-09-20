@@ -124,7 +124,11 @@ function dateFromCanonicalTemporal(temporal: TemporalCoreResult | undefined): Da
 
 // ─── Entity resolution (sección 13) — reuses the SAME retrieval functions
 // the read-only Agent already uses; never a "best guess" write plan. ───────
-async function resolveEntityHint(actorUserId: string, hint: string): Promise<RetrievalCommitment[]> {
+// Exported for reuse by agentDialogueContinuation.service.ts's targetEntity
+// clarification-answer resolution (M-7): a user picking/naming among
+// multiple candidate commitments must go through this SAME live,
+// substring-verified resolution, never a second, divergent lookup.
+export async function resolveEntityHint(actorUserId: string, hint: string): Promise<RetrievalCommitment[]> {
     const [commitments, proposals] = await Promise.all([
         retrieveCommitments({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
         retrieveCommitmentProposals({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
