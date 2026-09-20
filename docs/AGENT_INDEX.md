@@ -246,19 +246,38 @@ Start with a focused failing test. Expand only when an observed dependency requi
 ### AgentTurn
 
 **Purpose:** Provide one conversational entry point that deterministically returns a response, plan, clarification, or unsupported result without executing side effects.
-**Canonical owner:** `runAgentTurn` in `backend/src/services/agentTurn.service.ts`.
+**Canonical owner:** `runAgentTurn` in `backend/src/services/agentTurn.service.ts` (public entry point, a thin read-followup-referent adapter — M-7) wrapping `backend/src/services/agentTurnCore.service.ts` (the turn pipeline body, unchanged since M-6; the dialogue-first routing check and write-turn bookkeeping described below live here, not in `agentTurn.service.ts`).
 **Read first:**
 
 - `backend/src/services/agentTurn.service.ts`
+- `backend/src/services/agentTurnCore.service.ts`
 - `backend/src/controllers/agentTurn.controller.ts`
 - `backend/src/types/agentTurn.ts`
 - `backend/src/services/agentInputInterpreter.service.ts`
 
-**Direct dependencies:** Input envelope, AgentContext, response synthesis, planning orchestrator.
+**Direct dependencies:** Input envelope, AgentContext, response synthesis, planning orchestrator, Agent dialogue state (below).
 **Used by:** `POST /agent/turn`, Mobile Agent Preview.
 **Tests:** `backend/tests/agentTurn.test.ts`, `mobile/tests/agentTurnUx.test.ts`.
 **Common symptoms:** action answered as prose, read query becomes plan, clarification missing, accidental execution.
 **Usually do not read:** `/agent/respond` legacy orchestration unless regression explicitly affects that endpoint.
+
+### Agent dialogue state (M-7)
+
+**Purpose:** Give a write-shaped turn cross-turn conversational continuity — completing an unfinished request, answering a pending disambiguation question, or correcting an already-shown plan — without ever becoming a second trusted write path. Dialogue state is advisory only: every write still re-enters the exact same `runAgentPlanning`/`authorizePlan`/`executeAuthorization` pipeline any single-turn request would, and `authorizePlan`'s own re-plan-from-scratch + digest-comparison (never a bespoke invalidation mechanism) is what makes a superseded plan harmless.
+**Canonical owner:** `backend/src/services/agentDialogueState.service.ts` (the state machine/CAS/TTL/correction-history primitive — see `tmp/PING-M7-DIALOGUE-STATE-ADR.md` for the full design) and `backend/src/services/agentDialogueContinuation.service.ts` (the three language-understanding mechanisms that decide WHAT to feed the state machine — never the other way around).
+**Read first:**
+
+- `backend/src/services/agentDialogueContinuation.service.ts` (three mechanisms, each with its own header comment): `classifyContinuation`/`reconcileContinuationObjective` (slot-filling across turns, create-only objective types — e.g. "llamar a Pedro" → "a qué hora"), `isPendingClarificationAnswerable`/`tryAnswerPendingClarification` (answering a pending disambiguation question, `person_ambiguous` or the planner's own `targetEntity` field), `classifyPlanCorrection`/`buildPlanDateCorrection` (correcting an already-shown, not-yet-authorized plan's date).
+- `backend/src/services/agentDialogueState.service.ts`, `backend/src/types/agentDialogueState.ts`
+- `backend/src/services/agentTurnCore.service.ts` (the three wiring points, in order: dialogue-first pending-clarification check, plan-correction check, write-turn bookkeeping after a plan result is known)
+- `backend/src/services/agentReadFollowupReferent.service.ts` (a fourth, READ-only sibling mechanism — never persists to `AgentDialogueState`, its own small in-memory store, scoped to resolving an elliptical follow-up question like "¿y cuándo lo completamos?" against the single most recently cited commitment)
+
+**Direct dependencies:** `resolvePerson`/`resolveEntityHint` (live re-resolution, never a cached/stale candidate), `date-parser.service.ts` (`parseDateFromText`, `stripTrailingDateSpan`), the deterministic objective interpreter's `extractTimeHint`.
+**Used by:** `runAgentTurn`'s write-shaped branches only; never touched by the read-only response path except for the separate read-followup-referent sibling above.
+**Tests:** `backend/tests/agentDialogueState.test.ts` (state machine/CAS/TTL), `backend/tests/agentDialogueContinuation.test.ts` (slot continuation), `backend/tests/agentDialoguePendingClarification.test.ts` (person_ambiguous end-to-end), `backend/tests/agentDialogueTargetEntityClarification.test.ts` (targetEntity end-to-end), `backend/tests/agentDialoguePlanDateCorrection.test.ts` (plan correction end-to-end), `backend/tests/agentReadFollowup.regression.test.ts`/`agentReadFollowupReferent.service.test.ts` (the read-only sibling).
+**Common symptoms:** a follow-up turn losing context it should have kept (check `isDialogueTrackedObjectiveType` — a new write objective type is invisible to ALL THREE mechanisms until added there), a correction silently reusing a stale digest (should be structurally impossible — check `applyCorrection` is actually being called before the plan re-derivation, not after), an unrelated new request wrongly force-merged into an open dialogue (check `classifyExplicitEscape`).
+**Usually do not read:** the V2-V4 semantic-turn orchestration line (`agentTurnSemanticV2/V3/V4`, `canonicalSemanticProducer.service.ts`, etc.) — an unrelated, explicitly experimental, flag-gated line of work reconstructing the READ path; do not confuse it with this (live, write-path) mechanism.
+**Physical certification status:** NOT YET certified on iPhone (see `README.md`'s M-7 section for current status) — this domain is code-complete and covered by end-to-end tests using the real deterministic interpretation path, but has not had a physical device pass.
 
 ### Agent planning
 
