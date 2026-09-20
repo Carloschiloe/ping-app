@@ -9,8 +9,9 @@
 // is a continuation of the open objective and, if so, produce a Core-owned
 // reconciled objective candidate. It never calls an LLM, never resolves
 // entities, never talks to the planner/authorization/execution layers
-// directly -- the caller (agentTurn.service.ts) still runs the reconciled
-// objective through the EXACT SAME runAgentPlanning/authorization/
+// directly -- the caller (agentTurnCore.service.ts, the turn pipeline body;
+// reached via the public agentTurn.service.ts entry point) still runs the
+// reconciled objective through the EXACT SAME runAgentPlanning/authorization/
 // execution pipeline as any other objective. There is exactly one trusted
 // write architecture; this module only decides what objective enters it.
 //

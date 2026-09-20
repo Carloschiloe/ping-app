@@ -371,13 +371,22 @@ describe('architectural fences (test areas 22-24) — explicit proof of scope bo
         expect(codeOnly).not.toMatch(/ingestMemoryFromEvent/);
     });
 
-    // M-7B UPDATE: agentTurn.service.ts now legitimately imports this module
-    // (the first controlled live wiring, scoped to create_commitment
+    // M-7B UPDATE: the live Agent Turn pipeline legitimately imports this
+    // module (the first controlled live wiring, scoped to create_commitment
     // continuation via agentDialogueContinuation.service.ts). Every OTHER
     // pipeline file must still have zero reference to it -- this test now
     // proves the wiring is exactly as narrow as M-7B specifies, never
     // broader.
-    it('23. only agentTurn.service.ts imports agentDialogueState.service.ts among live Agent pipeline files (M-7B\'s narrow, controlled wiring) -- every other pipeline file remains unwired', () => {
+    //
+    // M-7 read-followup refactor UPDATE: agentTurn.service.ts was split into
+    // a thin read-followup adapter (agentTurn.service.ts, unchanged public
+    // entry point) plus the original, unmodified turn pipeline moved verbatim
+    // into agentTurnCore.service.ts. The dialogue-state import travelled with
+    // the pipeline body, so BOTH files together are the one authorized
+    // location -- this is a file move, not a widening of the wiring: no
+    // other pipeline file gained a reference, and the read-followup adapter
+    // itself has no dialogue-state import of its own (see test 25).
+    it('23. only agentTurn.service.ts/agentTurnCore.service.ts import agentDialogueState.service.ts among live Agent pipeline files (M-7B\'s narrow, controlled wiring) -- every other pipeline file remains unwired', () => {
         const fs = require('node:fs') as typeof import('node:fs');
         const path = require('node:path') as typeof import('node:path');
         const unwiredPipelineFiles = [
@@ -395,7 +404,20 @@ describe('architectural fences (test areas 22-24) — explicit proof of scope bo
             expect(source, `${file} must not import agentDialogueState.service.ts`).not.toMatch(/agentDialogueState\.service/);
         }
         const turnSource = fs.readFileSync(path.join(__dirname, '../src/services/agentTurn.service.ts'), 'utf-8');
-        expect(turnSource).toMatch(/agentDialogueState\.service|agentDialogueContinuation\.service/);
+        const turnCoreSource = fs.readFileSync(path.join(__dirname, '../src/services/agentTurnCore.service.ts'), 'utf-8');
+        expect(turnSource + turnCoreSource).toMatch(/agentDialogueState\.service|agentDialogueContinuation\.service/);
+    });
+
+    // Proves the read-followup adapter itself stays a pure pre/post filter
+    // around the unchanged Core pipeline -- it must never gain its own
+    // dialogue-state authority, only forward whatever agentTurnCore.service.ts
+    // already decided.
+    it('25. the read-followup adapter (agentTurn.service.ts) has no dialogue-state import of its own -- it only re-exports/calls agentTurnCore.service.ts', () => {
+        const fs = require('node:fs') as typeof import('node:fs');
+        const path = require('node:path') as typeof import('node:path');
+        const turnSource = fs.readFileSync(path.join(__dirname, '../src/services/agentTurn.service.ts'), 'utf-8');
+        expect(turnSource).not.toMatch(/agentDialogueState\.service|agentDialogueContinuation\.service/);
+        expect(turnSource).toMatch(/from ['"]\.\/agentTurnCore\.service['"]/);
     });
 
     it('24. this module has no IMPORT of agentPlanner.service.ts, agentAuthorization.service.ts, or agentExecution.service.ts, and no DB/RPC call (proves it cannot mutate Plan/Authorization/Execution state)', () => {
