@@ -20,7 +20,7 @@ export async function runAgentTurn(
 ): Promise<AgentTurnResult> {
     const content = input.input ?? '';
     // A voice token is resolved by Core itself; never replace its envelope.
-    const followup = input.voiceInputToken ? null : resolveVerifiedReadFollowup({
+    const followup = input.voiceInputToken ? null : await resolveVerifiedReadFollowup({
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
         utterance: content,

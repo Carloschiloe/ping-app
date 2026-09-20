@@ -271,8 +271,18 @@ function stripLifecycleHistoricalVerbs(text: string): string {
 // pregunta "cuándo"/"when" inmediatamente antes, igual que
 // MEMORY_EPISODIC_PATTERN exige "cuándo (verbo)" para episodic_search.
 const ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN = LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS;
+// PING — M-7 GENERALIZATION: allow exactly one optional Spanish direct-object
+// pronoun ("lo"/"la"/"los"/"las") between the question word and the verb, so
+// "¿Cuándo LO completamos?" matches the same as "¿Cuándo completamos X?" --
+// the elliptical, entity-omitted phrasing a real follow-up question uses.
+// Deliberately still just ONE optional word slot with its own word boundary,
+// never open text ("cuándo.*completamos") -- adjacency to the question word
+// remains exactly as strict as the original comment above requires; this
+// only widens what counts as "immediately before the verb" by the single,
+// closed, non-lexical-content pronoun class a real ellipsis actually uses.
+const OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN = `(?:(?:lo|la|los|las)${WB_END}\\s+)?`;
 const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
-    `${WB_START}(?:cu[áa]ndo|when)\\s+(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
+    `${WB_START}(?:cu[áa]ndo|when)\\s+${OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN}(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
 );
 // PING — M-2 RETRIEVAL LAYER FIX (segunda causa raíz probada del mismo bug
 // físico "Cuando completamos lo de entrenar?"): expone la MISMA condición
