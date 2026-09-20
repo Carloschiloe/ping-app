@@ -6,7 +6,10 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useUpdateProfile, useCalendarAccounts } from '../api/queries';
 import { resolvePrivateFileUrl } from '../lib/privateFiles';
-import * as Calendar from 'expo-calendar';
+// SDK 57: la API funcional clásica (getCalendarsAsync/EntityTypes/Calendar
+// type) se movió al subpath /legacy -- el import raíz ahora expone la
+// "Next API" basada en clases. Sin cambio de comportamiento, sólo de ruta.
+import * as Calendar from 'expo-calendar/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
