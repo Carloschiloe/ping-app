@@ -42,16 +42,30 @@ export function isContinuationEligibleObjectiveType(objectiveType: AgentObjectiv
 }
 
 // PING — M-7: targetEntity ambiguity only arises for objectives that target
-// an EXISTING commitment/proposal (reschedule/complete/respond) -- never
-// create, which has no target to disambiguate. Kept separate from
+// an EXISTING commitment/proposal (reschedule/complete/respond/cancel) --
+// never create, which has no target to disambiguate. Kept separate from
 // CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES (create-only) rather than merged,
 // since the two sets answer different questions (which objective types can
 // be SLOT-FILLED across turns vs. which can have an ambiguous EXISTING
 // target) and conflating them would silently widen one by editing the other.
+//
+// M-9 INTEGRATION FIX: cancel_existing_commitment was NOT added here when
+// M-9 landed, even though agentPlanner.service.ts's own
+// planRescheduleOrCompleteOrRespond (which cancel shares) already produces
+// the exact same field:'targetEntity' ambiguity for it as for the other
+// three types. Without this entry, "Cancela Entrenar" against two
+// same-titled commitments correctly asked "¿Cuál compromiso?" but a
+// follow-up like "el del jueves" was never recognized as answering that
+// question -- it fell through to an isolated-turn read response instead,
+// exactly the "assistant forgot what I just said" failure mode this whole
+// mechanism exists to prevent. Found during a consolidation pass across all
+// seven write tools (never assumed from the M-9 commit message), confirmed
+// with a direct end-to-end reproduction before this fix.
 const TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = new Set([
     'reschedule_existing_commitment',
     'complete_existing_commitment',
     'respond_to_existing_proposal',
+    'cancel_existing_commitment',
 ]);
 
 // PING — M-7: plan-date-correction only makes sense for objective types
@@ -474,11 +488,30 @@ async function tryAnswerTargetEntityClarification(
     }
 
     const resolvedEntity = candidates[0];
+    // INTEGRATION FIX: entityHints only ever carries raw TEXT (see
+    // AgentObjective's own shape comment -- "never an ID"), so re-emitting
+    // just resolvedEntity.title here reproduces the exact same ambiguity the
+    // planner already raised once (two live commitments still share that
+    // title). Threading the resolved entity's OWN dueAt through
+    // timeConstraints.rawHint lets planRescheduleOrCompleteOrRespond
+    // re-derive the identical single match from LIVE data (same-day dueAt),
+    // never by trusting this resolution directly -- Core still independently
+    // re-verifies via resolveEntityHint + the date narrowing this enables.
+    // Found during a deliberate cross-mechanism consolidation pass (M-7's
+    // targetEntity answer path vs. M-9's cancel_commitment, which shares
+    // planRescheduleOrCompleteOrRespond): confirmed end to end that, before
+    // this fix, "Cancela Entrenar" -> "el del jueves" against two
+    // same-titled commitments re-asked the SAME clarification question
+    // instead of producing a plan, because the reconciled hint text alone
+    // could never disambiguate them again.
     const reconciledObjective: AgentObjective = {
         ...priorObjective,
         targetEntities: {
             entityHints: [resolvedEntity.title],
             personHints: priorObjective.targetEntities.personHints,
+        },
+        timeConstraints: {
+            rawHint: resolvedEntity.dueAt ?? priorObjective.timeConstraints.rawHint,
         },
         ambiguities: [],
     };

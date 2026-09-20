@@ -65,6 +65,74 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+describe('runAgentTurn — M-7 targetEntity clarification correctly resolves a cancel_existing_commitment follow-up (M-9 integration)', () => {
+    // INTEGRATION REGRESSION: cancel_existing_commitment was never added to
+    // TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES in agentDialogueContinuation.
+    // service.ts when M-9 landed, even though it shares
+    // planRescheduleOrCompleteOrRespond (and thus the exact same
+    // field:'targetEntity' ambiguity) with reschedule/complete/respond.
+    // Found during a deliberate cross-mechanism consolidation pass (never
+    // assumed correct from the M-9 commit message), confirmed with a direct
+    // end-to-end reproduction before either fix below was applied:
+    //   turn 1 "Cancela Entrenar" correctly asked "¿Cuál compromiso?"
+    //   turn 2 "el del jueves" was NOT recognized as answering that
+    //     question -- it fell through to an isolated-turn read response,
+    //     exactly the "assistant forgot what I just said" failure this
+    //     entire dialogue-state mechanism exists to prevent.
+    // A second, deeper bug surfaced once the first was fixed: even
+    // recognized as an answer, the reconciled objective only carried the
+    // resolved entity's TITLE forward (entityHints), which re-triggers the
+    // identical ambiguity when the planner re-resolves it live (two
+    // same-titled commitments still both match). Fixed by also threading the
+    // resolved entity's own dueAt through timeConstraints.rawHint, letting
+    // planRescheduleOrCompleteOrRespond re-derive the SAME single match from
+    // live data via same-day dueAt narrowing -- never by trusting a
+    // caller-supplied identity directly (entityHints stays raw text only,
+    // by design; no targetEntityId field was added).
+    const ID_THURSDAY = 'c0000000-0000-4000-8000-000000000020';
+    const ID_FRIDAY = 'c0000000-0000-4000-8000-000000000021';
+
+    function commitmentWithDueAt(id: string, title: string, dueAt: string) {
+        return { ...commitment(id, title, ACTOR), dueAt };
+    }
+
+    it('"Cancela Entrenar" then "el del jueves" resolves the ambiguity and reaches a real plan, not a repeated question', async () => {
+        retrieveCommitmentsMock.mockImplementation(async () => [
+            commitmentWithDueAt(ID_THURSDAY, 'Entrenar', '2026-09-24T09:00:00.000Z'),
+            commitmentWithDueAt(ID_FRIDAY, 'Entrenar', '2026-09-25T09:00:00.000Z'),
+        ]);
+
+        const first = await runAgentTurn({ actorUserId: ACTOR, input: 'Cancela Entrenar', channel: 'mobile', locale: 'es-CL' });
+        expect(first.kind).toBe('clarification');
+
+        const second = await runAgentTurn({ actorUserId: ACTOR, input: 'el del jueves', channel: 'mobile', locale: 'es-CL' });
+        expect(second.kind).toBe('plan');
+        if (second.kind === 'plan') {
+            expect(second.plan.steps.map((s) => s.toolId)).toEqual(['cancel_commitment']);
+            expect(second.plan.status).toBe('ready_for_authorization');
+        }
+    });
+
+    it('answering with a different weekday resolves to a DIFFERENT plan (proves real re-derivation, not "always pick first")', async () => {
+        retrieveCommitmentsMock.mockImplementation(async () => [
+            commitmentWithDueAt(ID_THURSDAY, 'Entrenar', '2026-09-24T09:00:00.000Z'),
+            commitmentWithDueAt(ID_FRIDAY, 'Entrenar', '2026-09-25T09:00:00.000Z'),
+        ]);
+
+        await runAgentTurn({ actorUserId: ACTOR, input: 'Cancela Entrenar', channel: 'mobile', locale: 'es-CL' });
+        const thursdayPlan = await runAgentTurn({ actorUserId: ACTOR, input: 'el del jueves', channel: 'mobile', locale: 'es-CL' });
+
+        await runAgentTurn({ actorUserId: ACTOR, input: 'Cancela Entrenar', channel: 'mobile', locale: 'es-CL' });
+        const fridayPlan = await runAgentTurn({ actorUserId: ACTOR, input: 'el del viernes', channel: 'mobile', locale: 'es-CL' });
+
+        expect(thursdayPlan.kind).toBe('plan');
+        expect(fridayPlan.kind).toBe('plan');
+        if (thursdayPlan.kind === 'plan' && fridayPlan.kind === 'plan') {
+            expect(thursdayPlan.plan.planDigest).not.toBe(fridayPlan.plan.planDigest);
+        }
+    });
+});
+
 describe('runAgentTurn — "Cancela X" (imperative) reaches a real, authorization-ready cancel_commitment plan', () => {
     it('"Cancela Entrenar" produces a ready_for_authorization plan targeting cancel_commitment, with no side effect yet', async () => {
         retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', ACTOR)]);

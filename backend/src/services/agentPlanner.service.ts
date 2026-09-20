@@ -643,6 +643,26 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
             ? 'El compromiso referido ya no está disponible o autorizado.'
             : `No encontré ningún compromiso o propuesta que coincida con "${hint}".` };
     }
+    if (candidates.length > 1 && !resolvedFromContext && objective.timeConstraints.rawHint) {
+        // INTEGRATION FIX (M-7 targetEntity clarification, surfaced via M-9):
+        // resolveEntityHint's title-substring search alone cannot distinguish
+        // two same-titled entities. When the caller already disambiguated one
+        // in a prior turn (agentDialogueContinuation.service.ts's
+        // tryAnswerTargetEntityClarification, which carries the resolved
+        // entity's OWN dueAt forward as timeConstraints.rawHint precisely so
+        // this narrowing is possible) this re-derives the same single match
+        // from LIVE data, by same-day dueAt, rather than trusting the caller's
+        // identity claim directly (never a targetEntityId field, which
+        // entityHints' own contract deliberately rules out -- see this
+        // objective's shape comment: raw text only, "never an ID"). If the
+        // narrowing does not converge to exactly one, this falls through to
+        // the ordinary blocking-ambiguity path below, unchanged.
+        const targetDayKey = objective.timeConstraints.rawHint.slice(0, 10);
+        const narrowed = candidates.filter((c) => c.dueAt && c.dueAt.slice(0, 10) === targetDayKey);
+        if (narrowed.length === 1) {
+            candidates = narrowed;
+        }
+    }
     if (candidates.length > 1) {
         return {
             steps: [], blockingAmbiguities: [{
