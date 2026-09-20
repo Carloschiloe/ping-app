@@ -203,19 +203,23 @@ Start with a focused failing test. Expand only when an observed dependency requi
 ### Memory
 
 **Purpose:** Store and retrieve evidence-linked facts while enforcing sensitivity, freshness, authorization, invalidation, and canonical-source dominance.
-**Canonical owner:** `backend/src/services/memory.service.ts`; canonical conflicts are filtered by `backend/src/services/canonicalTruthRegistry.ts`.
+**Canonical owner:** `backend/src/services/memory.service.ts` (the ONE write authority for `memory_records` — nothing else in the backend inserts into that table directly); canonical conflicts are filtered by `backend/src/services/canonicalTruthRegistry.ts`.
 **Read first:**
 
 - `backend/src/services/memory.service.ts`
 - `backend/src/services/canonicalTruthRegistry.ts`
-- `backend/src/services/canonicalMemoryEvents.service.ts`
+- `backend/src/services/canonicalMemoryEvents.service.ts` (the ONE deterministic write trigger that IS wired: commitment status changes — `dispatchCommitmentStatusMemoryEvent`)
+- `backend/src/services/memoryAutoStorePolicy.ts` (persistence policy: `decideMemoryPersistence`/`classifyMemoryRiskCategory` — decides `auto_store` vs. `candidate_only` vs. `requires_confirmation` vs. `never_store`; a row that lands at anything other than `auto_store`'s resulting `status='active'` is NEVER retrievable, since `retrieveMemory` only ever reads `status='active'`)
 - `backend/src/types/memory.ts`
 
-**Direct dependencies:** retrieval identity resolution, memory policy/provider, source evidence, Commitment events.
-**Used by:** AgentContext and carefully bounded planning hints.
-**Tests:** `backend/tests/memoryService.test.ts`, `backend/tests/agentContextBuilder.test.ts`.
-**Common symptoms:** stale fact wins, restricted fact leaks, deleted source remains current, memory invents a date, an unrelated same-title/same-topic commitment's evidence contaminates a focused historical answer (see `agentResponseSynthesizer.service.ts`'s canonical-dominance structured evidence lineage, physically certified `9a46210`), a requested lifecycle transition with no matching evidence narrates unrelated available history instead of representing absence of evidence for that transition (CLOSED, physically certified `fd98849` — see README.md M-2 section, "Historical transition absence / cross-lifecycle contamination"; verification lives in `agentResponseSynthesizer.service.ts`'s `enforceRequestedTransitionEvidence` + `agentContextBuilder.service.ts`'s `resolveRequestedTransitionTarget`).
+**M-8 — the one user-facing write trigger.** `backend/src/services/toolExecutors/rememberFactExecutor.ts` — the `remember_fact` Agent write tool ("recuerda que..."), planned in `agentPlanner.service.ts#planRememberFact`. This is the ONLY way a user can directly cause a new memory fact to be written today; the LLM-based extraction pipeline (`memoryExtractionProvider.service.ts`) is architecturally complete but deliberately never connected to a live provider or an automatic per-message trigger (see that file's own header comment) — do not assume casual conversation ever gets remembered automatically, it does not.
+
+**Direct dependencies:** retrieval identity resolution, memory policy/provider, source evidence, Commitment events, the Agent write pipeline (for `remember_fact` specifically).
+**Used by:** AgentContext and carefully bounded planning hints (read side); `remember_fact` executor (write side, M-8).
+**Tests:** `backend/tests/memoryService.test.ts`, `backend/tests/agentContextBuilder.test.ts`, `backend/tests/rememberFactExecutor.test.ts`, `backend/tests/agentTurnRememberFact.test.ts` (end-to-end via the real deterministic verb path).
+**Common symptoms:** stale fact wins, restricted fact leaks, deleted source remains current, memory invents a date, an unrelated same-title/same-topic commitment's evidence contaminates a focused historical answer (see `agentResponseSynthesizer.service.ts`'s canonical-dominance structured evidence lineage, physically certified `9a46210`), a requested lifecycle transition with no matching evidence narrates unrelated available history instead of representing absence of evidence for that transition (CLOSED, physically certified `fd98849` — see README.md M-2 section, "Historical transition absence / cross-lifecycle contamination"; verification lives in `agentResponseSynthesizer.service.ts`'s `enforceRequestedTransitionEvidence` + `agentContextBuilder.service.ts`'s `resolveRequestedTransitionTarget`); a user asked Ping to remember something and it was never citable later (check `memoryAutoStorePolicy.ts`'s outcome for the predicate/sensitivity combination actually used — a real `status='candidate'` row is a silent, permanent dead end, not a transient one).
 **Usually do not read:** Mobile storage; canonical memory is backend-owned.
+**Physical certification status:** M-2's read-side historical-lifecycle-memory integration is physically certified (see README). M-8's `remember_fact` write path is NOT YET physically certified — uniquely among the six Agent write tools, its correctness depends on a second subsystem (this same read-side retrieval) actually recalling what was written, not just the write succeeding in isolation.
 
 ## Agent domains
 
