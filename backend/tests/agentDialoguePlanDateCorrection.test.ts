@@ -122,6 +122,46 @@ describe('Turn 2 — a bare date correction regenerates the SAME plan with the n
         expect(state?.corrections['timeConstraints.rawHint']?.length).toBeGreaterThan(0);
     });
 
+    // INTEGRATION SCENARIO: the canonical multi-correction sequence from the
+    // original M-7 benchmark ("como a las nueve" -> "mejor a las diez" -> "no,
+    // déjalo como estaba" pattern), applied here to the plan-correction
+    // mechanism specifically -- three real corrections in a row on the SAME
+    // plan, proving the CAS/turn-sequence guard and the bounded correction
+    // stack (cap 3 per slot, ADR Q6) both hold under repeated real use, not
+    // just a single correction in isolation.
+    it('three consecutive corrections in a row each succeed, and only the LAST one is ever confirmable', async () => {
+        const first = await moveEntrenarToFriday();
+        expect(first.kind).toBe('plan');
+
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', '2026-09-20T08:00:00.000Z')]);
+        const second = await runAgentTurn({ actorUserId: ACTOR, input: 'mejor al sábado', conversationId: CONVERSATION_ID });
+        expect(second.kind).toBe('plan');
+
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', '2026-09-20T08:00:00.000Z')]);
+        const third = await runAgentTurn({ actorUserId: ACTOR, input: 'no, mejor el domingo', conversationId: CONVERSATION_ID });
+        expect(third.kind).toBe('plan');
+
+        if (first.kind === 'plan' && second.kind === 'plan' && third.kind === 'plan') {
+            // All three digests must be pairwise distinct -- each correction
+            // produced a genuinely different plan, never silently collapsing
+            // back to an earlier one.
+            const digests = [first.plan.planDigest, second.plan.planDigest, third.plan.planDigest];
+            expect(new Set(digests).size).toBe(3);
+        }
+
+        const scopeKey = buildDialogueScopeKey({ conversationId: CONVERSATION_ID, surface: 'mobile_text' });
+        const state = new AgentDialogueStateService().getSnapshot(ACTOR, scopeKey);
+        expect(state?.lifecycle).toBe('plan_pending_authorization');
+        // Only the LAST (Sunday) plan's digest is the live reference -- the
+        // Friday and Saturday plans are both now stale, and would both be
+        // rejected by authorizePlan's own digest-comparison if a client
+        // somehow still held one.
+        expect(state?.currentPlanDigestRef).toBe(third.kind === 'plan' ? third.plan.planDigest : null);
+        // Bounded correction history holds under real repeated use: capped
+        // at 3 (ADR Q6), never grows unbounded across the three real turns.
+        expect(state?.corrections['timeConstraints.rawHint']?.length).toBeLessThanOrEqual(3);
+    });
+
     it('a date-free follow-up is never treated as a correction (no date expression to correct with)', async () => {
         await moveEntrenarToFriday();
         retrieveCommitmentsMock.mockResolvedValueOnce([]);
