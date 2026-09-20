@@ -124,7 +124,11 @@ function dateFromCanonicalTemporal(temporal: TemporalCoreResult | undefined): Da
 
 // ─── Entity resolution (sección 13) — reuses the SAME retrieval functions
 // the read-only Agent already uses; never a "best guess" write plan. ───────
-async function resolveEntityHint(actorUserId: string, hint: string): Promise<RetrievalCommitment[]> {
+// Exported for reuse by agentDialogueContinuation.service.ts's targetEntity
+// clarification-answer resolution (M-7): a user picking/naming among
+// multiple candidate commitments must go through this SAME live,
+// substring-verified resolution, never a second, divergent lookup.
+export async function resolveEntityHint(actorUserId: string, hint: string): Promise<RetrievalCommitment[]> {
     const [commitments, proposals] = await Promise.all([
         retrieveCommitments({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
         retrieveCommitmentProposals({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
@@ -639,6 +643,26 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
             ? 'El compromiso referido ya no está disponible o autorizado.'
             : `No encontré ningún compromiso o propuesta que coincida con "${hint}".` };
     }
+    if (candidates.length > 1 && !resolvedFromContext && objective.timeConstraints.rawHint) {
+        // INTEGRATION FIX (M-7 targetEntity clarification, surfaced via M-9):
+        // resolveEntityHint's title-substring search alone cannot distinguish
+        // two same-titled entities. When the caller already disambiguated one
+        // in a prior turn (agentDialogueContinuation.service.ts's
+        // tryAnswerTargetEntityClarification, which carries the resolved
+        // entity's OWN dueAt forward as timeConstraints.rawHint precisely so
+        // this narrowing is possible) this re-derives the same single match
+        // from LIVE data, by same-day dueAt, rather than trusting the caller's
+        // identity claim directly (never a targetEntityId field, which
+        // entityHints' own contract deliberately rules out -- see this
+        // objective's shape comment: raw text only, "never an ID"). If the
+        // narrowing does not converge to exactly one, this falls through to
+        // the ordinary blocking-ambiguity path below, unchanged.
+        const targetDayKey = objective.timeConstraints.rawHint.slice(0, 10);
+        const narrowed = candidates.filter((c) => c.dueAt && c.dueAt.slice(0, 10) === targetDayKey);
+        if (narrowed.length === 1) {
+            candidates = narrowed;
+        }
+    }
     if (candidates.length > 1) {
         return {
             steps: [], blockingAmbiguities: [{
@@ -721,6 +745,34 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         return { steps: [step], blockingAmbiguities: [] };
     }
 
+    if (objective.objectiveType === 'cancel_existing_commitment') {
+        if (isProposal) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" todavía es una propuesta pendiente — cancelar una propuesta usa una respuesta de rechazo, no esta acción.` };
+        }
+        // M-9 — verified directly against commitmentTransitions.ts#computeCancel
+        // before writing this check: cancel is OWNER-ONLY (unlike
+        // resolve/counter_propose, which allow owner OR assignee) --
+        // `Only the owner can cancel this commitment`, enforced by the same
+        // canonical RPC this executor will call. Checking it here, before
+        // ever building a step, means a plan is never shown as
+        // ready-for-authorization only to fail at execution with an
+        // authorization error the user never saw coming.
+        if (entity.ownerUserId !== input.actorUserId) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: `Solo quien creó "${entity.title}" puede cancelarlo.` };
+        }
+        if (!COMMITMENT_TRANSITION_TABLE.cancel.validFromStatuses.includes(entity.status)) {
+            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" está en estado "${entity.status}" — no se puede cancelar desde ahí.` };
+        }
+        const step = buildStep({
+            toolId: 'cancel_commitment',
+            operation: `Cancelar "${entity.title}"`,
+            args: { commitmentId: entity.id },
+            expectedEffect: `"${entity.title}" quedará cancelado.`,
+            isShared, sourceUtteranceSpan: sourceSpan, resolvedFrom: entityResolutionSource, canonicalSourceRefs: sourceRefs,
+        });
+        return { steps: [step], blockingAmbiguities: [] };
+    }
+
     // complete_existing_commitment
     if (isProposal) {
         return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" todavía es una propuesta pendiente — no se puede "completar" hasta que se apruebe y se convierta en un compromiso.` };
@@ -787,6 +839,49 @@ async function planResolvedExistingEntity(objective: AgentObjective, input: Agen
     })], blockingAmbiguities: [] };
 }
 
+// ─── M-8: remember_fact ("recuerda que mi hermano se llama Andrés") ───────
+// Mirrors validateCommunicateContent's own verbatim-substring discipline
+// (sección 36: "the model can never supply replacement text, only location
+// hints") for a categorically different reason than communicate_message's
+// recipient-addressing concern: here there is no recipient to search past,
+// but the SAME core safety property applies -- the content that becomes a
+// durable memory record must be a real, unambiguous, unparaphrased fragment
+// of what the user actually typed, never text the interpreter (deterministic
+// or, in a future LLM-enabled iteration, model) could have invented.
+// Deliberately reuses findOccurrences (defined above, never duplicated).
+function planRememberFact(objective: AgentObjective): DraftOutcome {
+    const candidate = objective.targetEntities.entityHints[0]?.trim();
+    if (!candidate) {
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }] };
+    }
+    const matches = findOccurrences(objective.sourceUtterance, candidate);
+    if (matches.length !== 1) {
+        // Zero matches: the deterministic extraction fragment somehow isn't
+        // a real substring of the source (should be structurally
+        // impossible today since the interpreter only ever slices the
+        // fragment FROM sourceUtterance itself, but this is the same
+        // never-trust-derived-text discipline every other verbatim check in
+        // this file applies, not a redundant belt-and-suspenders check for
+        // its own sake). 2+ matches: never guess which occurrence was meant.
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }] };
+    }
+    const verifiedContent = objective.sourceUtterance.slice(matches[0].start, matches[0].end).trim();
+    if (!verifiedContent) {
+        return { steps: [], blockingAmbiguities: [{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }] };
+    }
+    return {
+        steps: [buildStep({
+            toolId: 'remember_fact',
+            operation: `Recordar: "${verifiedContent}"`,
+            args: { factContent: verifiedContent },
+            expectedEffect: 'Ping podrá recordar este hecho en conversaciones futuras.',
+            sourceUtteranceSpan: verifiedContent,
+            resolvedFrom: 'user_text',
+        })],
+        blockingAmbiguities: [],
+    };
+}
+
 export async function planObjective(input: AgentPlannerInput): Promise<DraftOutcome> {
     const outcome = await planObjectiveDraft(input);
     if (outcome.steps.length === 0) return outcome;
@@ -808,7 +903,10 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
         case 'reschedule_existing_commitment':
         case 'complete_existing_commitment':
         case 'respond_to_existing_proposal':
+        case 'cancel_existing_commitment':
             return planRescheduleOrCompleteOrRespond(objective, input);
+        case 'remember_fact':
+            return planRememberFact(objective);
         case 'unsupported':
         default: {
             // PING — AGENT RESPONSE LANGUAGE CONSISTENCY (root cause fix):

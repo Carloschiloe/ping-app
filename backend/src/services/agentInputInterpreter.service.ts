@@ -175,8 +175,15 @@ const WRITE_ACTION_KEYWORDS = wordBounded(
     + 'completa(?!mos)\\w*|termina(?!mos)\\w*|marca(?!mos)\\w*|'
     + 'acept[oa](?!mos)\\w*|aprueba(?!mos)\\w*|apruebo|rechaz(?!amos)\\w*|'
     + 'recu[ée]rdame|haz(?:me)?|'
+    // M-8 remember_fact: same "-amos" historical-question exclusion as every
+    // verb above ("¿cuándo recordamos X?" stays a query, never misroutes to
+    // a write). Requires "que" bound directly to the verb (via wordBounded's
+    // own \s+ join, matching REMEMBER_FACT_VERB's own pattern exactly in
+    // agentObjectiveInterpreter.service.ts) so a bare "recuerda"/"acuérdate"
+    // without the transitive clause never fires this gate on its own.
+    + 'recuerda(?!mos)\\s+que|acu[ée]rdate(?!mos)\\s+que|'
     + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
-    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
+    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me|remember\\s+that',
 );
 // PING — R-01 CANONICAL LIFECYCLE VERB TABLE (audit finding: "completamos"
 // had short-stem/general conjugation coverage via `complet[ae]\w*` that no
@@ -271,8 +278,18 @@ function stripLifecycleHistoricalVerbs(text: string): string {
 // pregunta "cuándo"/"when" inmediatamente antes, igual que
 // MEMORY_EPISODIC_PATTERN exige "cuándo (verbo)" para episodic_search.
 const ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN = LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS;
+// PING — M-7 GENERALIZATION: allow exactly one optional Spanish direct-object
+// pronoun ("lo"/"la"/"los"/"las") between the question word and the verb, so
+// "¿Cuándo LO completamos?" matches the same as "¿Cuándo completamos X?" --
+// the elliptical, entity-omitted phrasing a real follow-up question uses.
+// Deliberately still just ONE optional word slot with its own word boundary,
+// never open text ("cuándo.*completamos") -- adjacency to the question word
+// remains exactly as strict as the original comment above requires; this
+// only widens what counts as "immediately before the verb" by the single,
+// closed, non-lexical-content pronoun class a real ellipsis actually uses.
+const OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN = `(?:(?:lo|la|los|las)${WB_END}\\s+)?`;
 const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
-    `${WB_START}(?:cu[áa]ndo|when)\\s+(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
+    `${WB_START}(?:cu[áa]ndo|when)\\s+${OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN}(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
 );
 // PING — M-2 RETRIEVAL LAYER FIX (segunda causa raíz probada del mismo bug
 // físico "Cuando completamos lo de entrenar?"): expone la MISMA condición

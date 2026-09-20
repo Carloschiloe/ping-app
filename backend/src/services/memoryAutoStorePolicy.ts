@@ -29,7 +29,7 @@ import type { MemoryExtractionMethod, MemorySensitivity, MemorySourceType, Memor
 
 export type MemoryPersistenceOutcome = 'auto_store' | 'candidate_only' | 'requires_confirmation' | 'never_store';
 
-export type MemoryRiskCategory = 'benign_preference' | 'project_context' | 'canonical_event_history' | 'unclassified';
+export type MemoryRiskCategory = 'benign_preference' | 'project_context' | 'canonical_event_history' | 'user_requested_manual' | 'unclassified';
 
 export interface MemoryPersistenceDecisionInput {
     memoryType: MemoryType;
@@ -60,11 +60,36 @@ const LOW_CONFIDENCE_THRESHOLD = 0.5;
 const BENIGN_PREFERENCE_PREFIXES = ['prefers', 'prefiere', 'likes', 'enjoys', 'favorite', 'preferred_'];
 const PROJECT_CONTEXT_PREFIXES = ['project_', 'topic_', 'works_on', 'role_in_project'];
 
+// PING — M-7/M-8 "remember_fact" WRITE TOOL: a fact the user explicitly
+// asked Ping to remember ("recuerda que mi hermano se llama Andrés"),
+// planned/authorized/executed through the EXACT SAME write pipeline as any
+// other Agent action (never a direct call into memory.service.ts bypassing
+// planning/authorization). This is categorically different from an LLM
+// silently inferring a fact from casual conversation: the user stated the
+// content directly, confirmed the specific plan showing that exact content,
+// and extractionMethod='manual' already reflects that (see
+// remember_fact executor). Without this category, a genuinely explicit,
+// user-authorized "remember this" request would fall to 'unclassified' ->
+// 'candidate_only' -> status='candidate' -> permanently invisible to
+// retrieveMemory (which only ever reads status='active', and no promotion-
+// from-candidate mechanism exists anywhere in this codebase) -- Ping would
+// truthfully SAY "recordado" while silently never being able to recall it,
+// exactly the kind of false-success this codebase's own discipline
+// elsewhere (verified: true only after re-reading canonical state) exists
+// to prevent. Deliberately narrow: only fires for extractionMethod='manual'
+// (impossible for 'llm'/'deterministic' to claim this category), and only
+// changes the OUTCOME for sensitivity='normal' -- decideMemoryPersistence's
+// existing 'restricted'/'sensitive' branches above are untouched, so a
+// manually-requested SENSITIVE fact still requires_confirmation (unchanged)
+// and a RESTRICTED one is still gated exactly as before.
+const MANUAL_EXTRACTION_METHOD: MemoryExtractionMethod = 'manual';
+
 export function classifyMemoryRiskCategory(predicate: string, extractionMethod: MemoryExtractionMethod): MemoryRiskCategory {
     // Determinístico (deriveMemoryFromCommitmentStatusChange y equivalentes
     // futuros): nunca proviene de un LLM, no hay incertidumbre de extracción
     // que gestionar -- siempre es historial de evento canónico de bajo riesgo.
     if (extractionMethod === 'deterministic') return 'canonical_event_history';
+    if (extractionMethod === MANUAL_EXTRACTION_METHOD) return 'user_requested_manual';
     const p = predicate.toLowerCase();
     if (BENIGN_PREFERENCE_PREFIXES.some((prefix) => p.startsWith(prefix))) return 'benign_preference';
     if (PROJECT_CONTEXT_PREFIXES.some((prefix) => p.startsWith(prefix))) return 'project_context';
@@ -95,7 +120,8 @@ export function decideMemoryPersistence(input: MemoryPersistenceDecisionInput): 
     if (input.extractionMethod === 'llm' && input.confidence < LOW_CONFIDENCE_THRESHOLD) return 'candidate_only';
 
     const riskCategory = classifyMemoryRiskCategory(input.predicate, input.extractionMethod);
-    if (riskCategory === 'canonical_event_history' || riskCategory === 'benign_preference' || riskCategory === 'project_context') {
+    if (riskCategory === 'canonical_event_history' || riskCategory === 'benign_preference'
+        || riskCategory === 'project_context' || riskCategory === 'user_requested_manual') {
         return 'auto_store';
     }
     // 'unclassified': sensibilidad='normal' pero la categoría del hecho no

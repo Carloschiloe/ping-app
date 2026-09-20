@@ -837,12 +837,50 @@ describe('M-2 ABSOLUTE FINAL: decideMemoryPersistence -- allowlist explícito, n
         expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'prefers_coffee', sensitivity: 'normal', sourceType: 'message', extractionMethod: 'llm', confidence: 0.2, identityResolved: true })).toBe('candidate_only');
         expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'prefers_coffee', sensitivity: 'normal', sourceType: 'message', extractionMethod: 'llm', confidence: 0.9, identityResolved: false })).toBe('candidate_only');
     });
+
+    // M-8: remember_fact ("recuerda que...") -- a genuinely new, explicit,
+    // user-authorized manual fact must actually become retrievable
+    // (auto_store -> status='active'), or the feature would silently lie
+    // about "recordando" something it can never recall (retrieveMemory only
+    // ever reads status='active'). Verified here at the POLICY level (the
+    // executor-level end-to-end proof lives in
+    // tests/rememberFactExecutor.test.ts and tests/agentPlanner.test.ts).
+    it('H) M-8: a manual fact with a generic, non-allowlisted predicate (normal sensitivity) MUST auto_store -- this is the whole point of remember_fact', async () => {
+        const { decideMemoryPersistence } = await import('../src/services/memoryAutoStorePolicy');
+        // Deliberately the SAME generic predicate rememberFactExecutor.ts
+        // actually sends ('user_requested_memory') -- not a specially
+        // crafted allowlist-matching string.
+        expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'user_requested_memory', sensitivity: 'normal', sourceType: 'manual', extractionMethod: 'manual', confidence: 1, identityResolved: true })).toBe('auto_store');
+    });
+
+    it('I) M-8 SAFETY: a manual fact does NOT bypass sensitive/restricted protections -- extractionMethod=manual alone is never enough', async () => {
+        const { decideMemoryPersistence } = await import('../src/services/memoryAutoStorePolicy');
+        // 'restricted' + manual: still requires_confirmation, exactly as
+        // before this ticket (unchanged branch, re-asserted here so a
+        // future edit near the new category can't silently weaken it).
+        expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'password', sensitivity: 'restricted', sourceType: 'manual', extractionMethod: 'manual', confidence: 1, identityResolved: true })).toBe('requires_confirmation');
+        // 'sensitive' + manual + identity resolved: still candidate_only,
+        // never auto_store, even though extractionMethod='manual' is the
+        // highest-trust method that exists.
+        expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'salud', sensitivity: 'sensitive', sourceType: 'manual', extractionMethod: 'manual', confidence: 1, identityResolved: true })).toBe('candidate_only');
+    });
+
+    it('J) M-8: identity-unresolved manual fact still falls to candidate_only, the new category does not skip that guard', async () => {
+        const { decideMemoryPersistence } = await import('../src/services/memoryAutoStorePolicy');
+        expect(decideMemoryPersistence({ memoryType: 'semantic', predicate: 'user_requested_memory', sensitivity: 'normal', sourceType: 'manual', extractionMethod: 'manual', confidence: 1, identityResolved: false })).toBe('candidate_only');
+    });
 });
 
 describe('M-2 ABSOLUTE FINAL: classifyMemoryRiskCategory', () => {
     it('deterministic siempre es canonical_event_history, sin importar el predicate', async () => {
         const { classifyMemoryRiskCategory } = await import('../src/services/memoryAutoStorePolicy');
         expect(classifyMemoryRiskCategory('cualquier_cosa', 'deterministic')).toBe('canonical_event_history');
+    });
+
+    it('M-8: manual siempre es user_requested_manual, sin importar el predicate (nunca requiere estar en un allowlist de predicate)', async () => {
+        const { classifyMemoryRiskCategory } = await import('../src/services/memoryAutoStorePolicy');
+        expect(classifyMemoryRiskCategory('cualquier_cosa', 'manual')).toBe('user_requested_manual');
+        expect(classifyMemoryRiskCategory('user_requested_memory', 'manual')).toBe('user_requested_manual');
     });
 
     it('predicates de preferencia reconocidos -> benign_preference', async () => {

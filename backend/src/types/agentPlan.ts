@@ -88,6 +88,8 @@ export type AgentObjectiveType =
     | 'reschedule_existing_commitment'
     | 'complete_existing_commitment'
     | 'respond_to_existing_proposal'
+    | 'remember_fact'
+    | 'cancel_existing_commitment'
     | 'unsupported';
 
 export type AmbiguityKind = 'blocking' | 'non_blocking';

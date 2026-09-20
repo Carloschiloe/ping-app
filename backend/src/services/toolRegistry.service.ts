@@ -67,6 +67,12 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
         commitmentId: UUID,
         resolutionResult: z.string().trim().min(1).max(500),
     }).strict(),
+    remember_fact: z.object({
+        factContent: z.string().trim().min(1).max(2000),
+    }).strict(),
+    cancel_commitment: z.object({
+        commitmentId: UUID,
+    }).strict(),
 };
 
 export const TOOL_REGISTRY: Record<string, ToolContract> = {
@@ -181,6 +187,42 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         description: 'Marks an existing, already-canonical commitment resolved.',
         argumentNames: ['commitmentId', 'resolutionResult'], sideEffectClass: 'state_change',
         authorizationRequirement: 'commitment_owner_or_assignee', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
+    },
+    // M-8 — the sixth WRITE tool, first outside the commitment/messaging
+    // domain. Only writes an explicitly user-requested durable fact (the
+    // planner already proved factContent is a real, unambiguous, verbatim
+    // substring of what the user typed -- see planRememberFact). Owner
+    // identity is the authenticated actor only (`actor_identity`, same as
+    // reading one's own memory) -- never anyone else's, and never a
+    // conversation/commitment-scoped authorization since a personal memory
+    // record has no such scope.
+    remember_fact: {
+        toolId: 'remember_fact', version: 1, category: 'WRITE', domain: 'memory',
+        description: 'Stores a fact the user explicitly asked Ping to remember, as the actor\'s own durable memory record. Confirmation is ALWAYS explicit — never inferred from casual conversation.',
+        // A real, durable domain write (a genuine memory_records row, not a
+        // trivially-undoable draft edit) -- same classification tier as
+        // create_commitment, never the lighter 'reversible' tier.
+        argumentNames: ['factContent'], sideEffectClass: 'state_change',
+        authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.memory', failureModes: ['missing_context', 'policy_blocked'],
+    },
+    // M-9 — cancel_commitment, the seventh WRITE tool. Reuses the SAME
+    // canonical writer mobile's own "Cancelar" menu action already calls
+    // (commitment.service.ts#cancelCommitment -> apply_commitment_transition
+    // _with_evidence), never a parallel write path. `commitment_owner` (not
+    // `commitment_owner_or_assignee`) is deliberate: cancel is verified
+    // owner-only at the canonical RPC level
+    // (commitmentTransitions.ts#computeCancel, "Only the owner can cancel
+    // this commitment") -- an assignee who could reschedule/complete cannot
+    // cancel, and this contract must say so accurately.
+    cancel_commitment: {
+        toolId: 'cancel_commitment', version: 1, category: 'WRITE', domain: 'commitment',
+        description: 'Cancels an existing, already-canonical commitment. Owner-only — an assignee cannot cancel someone else\'s commitment, only the owner who created it.',
+        argumentNames: ['commitmentId'], sideEffectClass: 'state_change',
+        authorizationRequirement: 'commitment_owner', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
