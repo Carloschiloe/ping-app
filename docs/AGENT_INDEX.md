@@ -105,11 +105,14 @@ Start with a focused failing test. Expand only when an observed dependency requi
 - `backend/src/utils/commitmentStatus.ts`
 - `backend/src/controllers/commitment.controller.ts`
 
+**M-9 — cancel_commitment Agent tool.** `backend/src/services/toolExecutors/cancelCommitmentExecutor.ts`, planned in `agentPlanner.service.ts`'s `cancel_existing_commitment` branch (inside `planRescheduleOrCompleteOrRespond`), detected deterministically via `CANCEL_VERB` in `agentObjectiveInterpreter.service.ts`. **Owner-only** (unlike reschedule/complete, which also allow the assignee) — verified directly against `commitmentTransitions.ts#computeCancel`'s own `Only the owner can cancel this commitment` check. `CANCEL_VERB` only matches the genuine imperative form ("Cancela X"); a second, wider pattern (`CANCEL_VERB_ANY_FORM`) still forces the historical plural form ("Cancelamos X") to `unsupported`, preserving the pre-existing protection against that form being misrouted to a different lifecycle transition.
+
 **Direct dependencies:** Commitment RPCs, proposal service, authorization rules, messages/events, memory events.
 **Used by:** Hoy, Compromisos, Agent tools, notifications, retrieval.
-**Tests:** `backend/tests/commitmentCoreVertical.test.ts`, `backend/tests/commitmentTransitions.test.ts`, `backend/tests/commitmentWriterGuard.test.ts`, `backend/tests/commitmentService.test.ts`.
-**Common symptoms:** lifecycle changed by generic PATCH, state without event/evidence, legacy status mismatch.
+**Tests:** `backend/tests/commitmentCoreVertical.test.ts`, `backend/tests/commitmentTransitions.test.ts`, `backend/tests/commitmentWriterGuard.test.ts`, `backend/tests/commitmentService.test.ts`, `backend/tests/cancelCommitmentExecutor.test.ts`, `backend/tests/agentTurnCancelCommitment.test.ts` (M-9, end-to-end via the real deterministic verb path).
+**Common symptoms:** lifecycle changed by generic PATCH, state without event/evidence, legacy status mismatch; an assignee unexpectedly able (or unable) to cancel -- re-check `computeCancel`'s owner-only guard and this executor's own pre-execution check, never assume owner-or-assignee here.
 **Usually do not read:** Calls, Calendar, or Operation satellite writers unless the task explicitly targets those allowlisted legacy integrations.
+**Physical certification status (M-9):** NOT YET certified on iPhone.
 
 ### Proposal lifecycle
 
