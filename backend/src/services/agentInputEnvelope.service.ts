@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../utils/AppError';
 import { getAgentSession } from './agentSession.service';
-import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
+import { surfaceSupports, type AgentInputEnvelope, type AgentSurface, type ContextReferent } from '../types/agentInput';
 
 const VOICE_INPUT_TOKEN_TTL_MS = 5 * 60 * 1000;
 const MAX_TOKEN_LENGTH = 24_000;
@@ -26,7 +26,7 @@ function isVoiceEnvelope(value: unknown): value is AgentInputEnvelope {
     if (!value || typeof value !== 'object') return false;
     const envelope = value as AgentInputEnvelope;
     return envelope.modality === 'voice'
-        && envelope.surface === 'mobile_voice'
+        && surfaceSupports(envelope.surface, 'voice_input')
         && typeof envelope.inputId === 'string'
         && typeof envelope.actorUserId === 'string'
         && typeof envelope.content === 'string'
@@ -91,12 +91,7 @@ export function createTextInputEnvelope(input: {
     traceId: string;
     now?: Date;
 }): AgentInputEnvelope {
-    const surface = input.channel === 'web' ? 'web'
-        : input.channel === 'desktop' ? 'desktop'
-            : input.channel === 'tablet' ? 'tablet'
-                : input.channel === 'car' ? 'car'
-                    : input.channel === 'device' ? 'device'
-                        : 'mobile_text';
+    const surface = resolveTextSurface(input.channel);
     return {
         inputId: randomUUID(),
         actorUserId: input.actorUserId,
@@ -114,6 +109,20 @@ export function createTextInputEnvelope(input: {
         explicitConsentContext: null,
         provenance: { traceId: input.traceId, transcriptStatus: null, provider: null, confidence: null },
     };
+}
+
+/**
+ * Canonical text-surface mapping shared by HTTP adapters and durable scope
+ * construction. Unknown channels intentionally degrade to mobile_text until
+ * a surface is explicitly admitted by the Core contract.
+ */
+export function resolveTextSurface(channel?: string): AgentSurface {
+    return channel === 'web' ? 'web'
+        : channel === 'desktop' ? 'desktop'
+            : channel === 'tablet' ? 'tablet'
+                : channel === 'car' ? 'car'
+                    : channel === 'device' ? 'device'
+                        : 'mobile_text';
 }
 
 export function resolveAgentRequestInput(input: {

@@ -284,12 +284,12 @@ describe('agentInputEnvelope.service — voiceInputToken is signed, TTL-bound an
         else process.env.ENCRYPTION_KEY = originalKey;
     });
 
-    function voiceEnvelope(now: Date, overrides: Partial<AgentInputEnvelope> = {}): AgentInputEnvelope {
-        const session = createAgentSession({ actorUserId: CARLOS, deviceSessionId: DEVICE_SESSION_ID, surface: 'mobile_voice', signals: [], referents: [], now });
+    function voiceEnvelope(now: Date, overrides: Partial<AgentInputEnvelope> = {}, surface: 'mobile_voice' | 'tablet' = 'mobile_voice'): AgentInputEnvelope {
+        const session = createAgentSession({ actorUserId: CARLOS, deviceSessionId: DEVICE_SESSION_ID, surface, signals: [], referents: [], now });
         return {
             inputId: 'input-1',
             actorUserId: CARLOS,
-            surface: 'mobile_voice',
+            surface,
             modality: 'voice',
             content: '¿Qué tengo hoy?',
             audioRef: 'audio-1',
@@ -313,6 +313,14 @@ describe('agentInputEnvelope.service — voiceInputToken is signed, TTL-bound an
         const result = verifyVoiceInputToken(token, CARLOS, now);
         expect(result.envelope.inputId).toBe('input-1');
         expect(result.envelope.content).toBe('¿Qué tengo hoy?');
+    });
+
+    it('roundtrip válido para tablet: conserva la superficie de voz sin crear otro pipeline', async () => {
+        const now = new Date('2026-09-07T10:00:00.000Z');
+        const envelope = voiceEnvelope(now, {}, 'tablet');
+        const { token } = issueVoiceInputToken(envelope, now);
+        const result = verifyVoiceInputToken(token, CARLOS, now);
+        expect(result.envelope.surface).toBe('tablet');
     });
 
     it('sólo un transcript FINAL de voz puede convertirse en input firmado (nunca un parcial, nunca texto)', () => {

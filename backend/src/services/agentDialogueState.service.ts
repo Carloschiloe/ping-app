@@ -94,8 +94,12 @@ export interface DialogueStateRepository {
 // singleton class -- a small closure-based factory mirrors the existing
 // module-level `sessions` Map convention while still remaining swappable
 // and independently testable.
-export function createInMemoryDialogueStateRepository(): DialogueStateRepository {
+export function createInMemoryDialogueStateRepository(initialState?: AgentDialogueState): DialogueStateRepository {
     const store = new Map<string, AgentDialogueState>();
+
+    if (initialState) {
+        store.set(dialogueMapKey(initialState.actorUserId, initialState.dialogueScopeKey), initialState);
+    }
 
     function isExpired(state: AgentDialogueState, now: Date): boolean {
         return Date.parse(state.expiresAt) <= now.getTime();

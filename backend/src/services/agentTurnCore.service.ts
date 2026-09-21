@@ -62,6 +62,10 @@ import {
 
 export interface RunAgentTurnOptions {
     now?: Date;
+    // Durable boundary callers inject a request-scoped state service seeded
+    // from the canonical checkpoint. The default remains the existing
+    // process-local repository for legacy callers and tests.
+    dialogueService?: AgentDialogueStateService;
     // Internal Core binding only. The public HTTP body cannot populate this;
     // it is produced after a read clarification selects a real candidate.
     authorizedCommitmentReferentId?: string;
@@ -153,7 +157,7 @@ export async function runAgentTurn(
     // already uses everywhere else; escape detection reuses the existing
     // deterministic intent classifier (see looksLikeExplicitEscape), never a
     // new regex family for names.
-    const dialogueService = new AgentDialogueStateService();
+    const dialogueService = options.dialogueService ?? new AgentDialogueStateService();
     const existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
     traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_BEFORE', {
         stateFound: !!existingDialogueState,
@@ -187,7 +191,7 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_resolved', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.reconciledObjective,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.reconciledObjective,
             }), traceId);
         }
         // GENERALIZATION (M-7): the targetEntity re-ask is built directly
@@ -251,7 +255,7 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'explicit_new_objective_escape', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: pendingResult.newObjective,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.newObjective,
             }), traceId);
         }
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
@@ -306,7 +310,7 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_date_correction', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: correctedObjective,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: correctedObjective,
             }), traceId);
         }
     }
@@ -327,7 +331,7 @@ export async function runAgentTurn(
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'deterministic_write', dialogueScopeKey });
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective: routing.resolvedObjective,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: routing.resolvedObjective,
         }), traceId);
     }
 
@@ -467,7 +471,7 @@ export async function runAgentTurn(
         });
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, newTurnObjective,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective,
         }), traceId);
 
         // status === 'draft': structurally blocked or genuinely unsupported —
@@ -537,10 +541,11 @@ async function runWriteActionTurn(params: {
     envelope: ReturnType<typeof resolveAgentRequestInput>['envelope'];
     referents: ReturnType<typeof resolveAgentRequestInput>['referents'];
     dialogueScopeKey: string;
+    dialogueService: AgentDialogueStateService;
     newTurnObjective: AgentObjective;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
-    const dialogueService = new AgentDialogueStateService();
+    const dialogueService = params.dialogueService;
     const existingDialogueState = dialogueService.getSnapshot(actorUserId, dialogueScopeKey);
     const turnId = `${params.traceId}:${Date.now()}`;
     // ADR Q12 -- monotonic per-scope sequence. lastTurnSequence + 1 is

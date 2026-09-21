@@ -11,10 +11,23 @@ async function cleanup() {
 }
 
 async function ensureUser() {
+    const email = 'm7-routing-selection@example.invalid';
+    const { data: listed, error: listError } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 100 });
+    if (listError) throw listError;
+
+    const existingByEmail = listed.users.find((user) => user.email === email);
+    if (existingByEmail && existingByEmail.id !== actor) {
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(existingByEmail.id);
+        if (error) throw error;
+    }
+
+    const existingActor = listed.users.find((user) => user.id === actor);
+    if (existingActor) return;
+
     const { error } = await supabaseAdmin.auth.admin.createUser({
-        id: actor, email: 'm7-routing-selection@example.invalid', password: 'local-routing-selection-only-password', email_confirm: true,
+        id: actor, email, password: 'local-routing-selection-only-password', email_confirm: true,
     });
-    if (error && !error.message.toLowerCase().includes('already been registered')) throw error;
+    if (error) throw error;
 }
 
 describe('M-7 routing selection against local Supabase', () => {

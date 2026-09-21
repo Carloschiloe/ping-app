@@ -37,6 +37,21 @@ describe('DeterministicObjectiveInterpreter: clasificación (sección 7 del tick
         expect(obj.objectiveType).toBe('create_personal_commitment');
     });
 
+    it('entiende recordatorio expresado como "acordarme de" y conserva el objetivo completo', async () => {
+        const obj = await interpreter.interpret('Necesito acordarme de llamar a Pedro mañana', CTX);
+        expect(obj.objectiveType).toBe('create_personal_commitment');
+        expect(obj.targetEntities.entityHints[0]).toBe('llamar a Pedro');
+        expect(obj.timeConstraints.rawHint).toMatch(/mañana/i);
+    });
+
+    it('entiende organizar una reunión en lenguaje conversacional y resuelve la persona textual', async () => {
+        const obj = await interpreter.interpret('Me ayudas a organizar lo de la reunión con Ana para el viernes', CTX);
+        expect(obj.objectiveType).toBe('create_commitment_or_proposal');
+        expect(obj.targetEntities.personHints).toContain('Ana');
+        expect(obj.targetEntities.entityHints[0]).toMatch(/reunión con Ana/i);
+        expect(obj.timeConstraints.rawHint).toMatch(/viernes/i);
+    });
+
     it('"Pregunta a Alejandra si puede el viernes" -> communicate_and_wait', async () => {
         const obj = await interpreter.interpret('Pregunta a Alejandra si puede el viernes', CTX);
         expect(obj.objectiveType).toBe('communicate_and_wait');

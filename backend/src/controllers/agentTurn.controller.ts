@@ -6,6 +6,7 @@ import { runAgentTurn } from '../services/agentTurn.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
+import { isDurableGeneralAgentTurnEnabled, runDurableAgentTurn } from '../services/agentTurnDurableBoundary.service';
 
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
@@ -24,7 +25,12 @@ export async function turn(req: Request, res: Response): Promise<void> {
             return;
         }
 
-        const result = await runAgentTurn({
+        const durableEnabled = isDurableGeneralAgentTurnEnabled();
+        if (durableEnabled && !idempotencyKey) {
+            throw new AppError('Idempotency-Key is required for durable Agent Turn', 400);
+        }
+
+        const turnInput = {
             actorUserId,
             input: req.body.input,
             voiceInputToken: req.body.voiceInputToken,
@@ -33,7 +39,10 @@ export async function turn(req: Request, res: Response): Promise<void> {
             locale: req.body.locale,
             timezone: req.body.timezone,
             traceId,
-        });
+        };
+        const result = durableEnabled
+            ? await runDurableAgentTurn(turnInput, {}, idempotencyKey!)
+            : await runAgentTurn(turnInput);
 
         // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render
         res.status(200).json(result);

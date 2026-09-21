@@ -11,6 +11,28 @@ export const AGENT_SURFACES = [
 
 export type AgentSurface = typeof AGENT_SURFACES[number];
 export type AgentInputModality = 'text' | 'voice' | 'future_multimodal';
+export type AgentSurfaceCapability = 'text_input' | 'voice_input' | 'conversation_scope';
+
+/**
+ * Server-owned capability contract for adapters. A surface may expose these
+ * modalities, but it never gains authorization from the capability list;
+ * confirmation and execution remain Core-owned.
+ */
+export const AGENT_SURFACE_CAPABILITIES: Record<AgentSurface, readonly AgentSurfaceCapability[]> = {
+    mobile_text: ['text_input', 'conversation_scope'],
+    mobile_voice: ['voice_input', 'conversation_scope'],
+    desktop: ['text_input', 'voice_input', 'conversation_scope'],
+    web: ['text_input', 'voice_input', 'conversation_scope'],
+    tablet: ['text_input', 'voice_input', 'conversation_scope'],
+    car: ['text_input', 'voice_input', 'conversation_scope'],
+    device: ['text_input', 'voice_input', 'conversation_scope'],
+    future: [],
+};
+
+export function surfaceSupports(surface: AgentSurface, capability: AgentSurfaceCapability): boolean {
+    return AGENT_SURFACE_CAPABILITIES[surface].includes(capability);
+}
+
 export type VoiceSessionState =
     | 'idle'
     | 'listening'

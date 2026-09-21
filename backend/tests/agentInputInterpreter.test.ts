@@ -554,6 +554,28 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         }
     });
 
+    it('DeterministicInputInterpreter: lenguaje natural informal llega al planner y conserva tiempo', async () => {
+        const reminder = await new DeterministicInputInterpreter().interpret('Necesito acordarme de llamar a Pedro mañana', {});
+        expect(reminder.isWriteActionRequest).toBe(true);
+        expect(reminder.intent).toBe('general_context');
+
+        const organize = await new DeterministicInputInterpreter().interpret('Me ayudas a organizar lo de la reunión con Ana para el viernes', {});
+        expect(organize.isWriteActionRequest).toBe(true);
+        expect(organize.timeExpression).toMatch(/viernes/i);
+    });
+
+    it('DeterministicInputInterpreter: una acción sobre un contrato no se desvía a document_search', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('Cuando puedas recuérdame revisar el contrato', {});
+        expect(result.isWriteActionRequest).toBe(true);
+        expect(result.intent).toBe('general_context');
+    });
+
+    it('DeterministicInputInterpreter: limpia lenguaje conversacional y deja sólo el alcance temporal', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué debería hacer hoy?', {});
+        expect(result.textQuery).toBeNull();
+        expect(result.timeExpression).toBe('hoy');
+    });
+
     it('DeterministicInputInterpreter: una CONSULTA sobre el mismo tema nunca activa isWriteActionRequest', async () => {
         const result = await new DeterministicInputInterpreter().interpret('¿Qué le prometí a Laura?', {});
         expect(result.isWriteActionRequest).toBe(false);

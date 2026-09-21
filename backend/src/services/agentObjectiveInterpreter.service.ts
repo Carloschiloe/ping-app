@@ -106,6 +106,8 @@ const CANCEL_VERB_ANY_FORM = wb('cancela\\w*|cancelar|cancel(?:s|led|ed)?');
 // swallow a genuine reminder-commitment phrasing.
 const REMEMBER_FACT_VERB = wb('recuerda\\s+que|acu[ée]rdate\\s+que|remember\\s+that');
 const PERSONAL_REMINDER_VERB = wb("recu[ée]rdame|remind\\s+me");
+const NATURAL_PERSONAL_REMINDER_VERB = wb('acordarme\\s+de|acu[ée]rdate\\s+de|puedes\\s+recordarme(?:\\s+que)?|me\\s+puedes\\s+recordar(?:me)?(?:\\s+que)?|no\\s+olvidar(?:me)?|no\\s+se\\s+me\\s+olvide|help\\s+me\\s+remember');
+const NATURAL_CREATE_VERB = wb('organiza\\w*|coordina\\w*|planifica\\w*|organize\\w*|coordinate\\w*|planify\\w*|hazte\\s+cargo\\s+de');
 const CREATE_VERB = wb('agend[ao]\\w*|programa\\w*|crea\\w*');
 // Verbos de comunicación explícita — chequeados ANTES que accept/reject
 // (sección 25 del ticket M-1D, mismo principio de orden específico ->
@@ -134,8 +136,9 @@ const PERSON_HINT_PATTERN = /\b(?:a|para)\s+([\p{Lu}][\p{L}]*)(?:\s+y\s+([\p{Lu}
 // (agentPlanner.service.ts#tryResolveDateFromMemory).
 const MEMORY_PREFERENCE_PATTERN = /usa\s+(?:el|su)\s+horario\s+que\s+([\p{Lu}][\p{L}]*)\s+prefiere(?:\s+para\s+(.+))?/iu;
 
+const NATURAL_PERSON_HINT_PATTERN_V2 = /\b(?:a|para|con|junto\s+a|with|about|to)\s+([\p{Lu}][\p{L}]*)(?:\s+y\s+([\p{Lu}][\p{L}]*))?/u;
 function extractPersonHints(text: string): { primary: string | null; additional: string | null } {
-    const match = text.match(PERSON_HINT_PATTERN);
+    const match = text.match(NATURAL_PERSON_HINT_PATTERN_V2) ?? text.match(PERSON_HINT_PATTERN);
     return { primary: match?.[1] ?? null, additional: match?.[2] ?? null };
 }
 
@@ -366,7 +369,16 @@ function stripLeadingTimeTokens(text: string): string {
 // stale date instead of the corrected one).
 export function stripTrailingDateSpan(afterVerb: string, now: Date, timezone: string): string {
     const parsed = parseDateFromText(afterVerb, now, timezone);
-    if (!parsed || !parsed.textRef) return afterVerb;
+    if (!parsed || !parsed.textRef) {
+        // Speech-to-text frequently drops the tilde in "mañana". The
+        // canonical parser intentionally remains unchanged, but the Core
+        // must still remove this trailing transcript-only date from a title.
+        const transcriptDate = afterVerb.match(/\bmanana(?:\s+a\s+las?\s+\d{1,2}(?::\d{2})?)?\s*$/iu);
+        if (!transcriptDate || transcriptDate.index === undefined) return afterVerb;
+        let fallback = afterVerb.slice(0, transcriptDate.index) + afterVerb.slice(transcriptDate.index + transcriptDate[0].length);
+        fallback = fallback.replace(/[.,;:!?]+\s*$/u, ' ');
+        return fallback.replace(/\s+(?:para|el|al|a las?)\s*$/iu, ' ').trimEnd();
+    }
     const idx = afterVerb.toLowerCase().lastIndexOf(parsed.textRef.toLowerCase());
     if (idx === -1) return afterVerb;
     let result = afterVerb.slice(0, idx) + afterVerb.slice(idx + parsed.textRef.length);
@@ -597,6 +609,19 @@ function baseObjective(
     };
 }
 
+function extractPersonalReminderTarget(afterVerbRaw: string): string | null {
+    const withoutConnector = afterVerbRaw.replace(/^\s*(?:de|que)\s+/iu, '');
+    const withoutDate = stripTrailingDateSpan(withoutConnector, new Date(), 'UTC');
+    const target = withoutDate.replace(/[.,;:!?]+\s*$/u, '').trim();
+    return target.length > 0 ? target : null;
+}
+
+function extractNaturalCreateTarget(afterVerbRaw: string): string | null {
+    const withoutDate = stripTrailingDateSpan(afterVerbRaw, new Date(), 'UTC');
+    const target = withoutDate.replace(/[.,;:!?]+\s*$/u, '').trim();
+    return target.length > 0 ? target : null;
+}
+
 // PRIMARY, siempre disponible, cero I/O — mismo rol que
 // DeterministicInputInterpreter (sección 3).
 export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpreter {
@@ -766,16 +791,17 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         }
 
         // 4) create_personal_commitment ("recuérdame comprar pan").
-        const personalMatch = matchVerb(PERSONAL_REMINDER_VERB, text);
+        const personalMatch = matchVerb(PERSONAL_REMINDER_VERB, text) ?? matchVerb(NATURAL_PERSONAL_REMINDER_VERB, text);
         if (personalMatch) {
             const afterVerb = text.slice((personalMatch.index ?? 0) + personalMatch[0].length);
             const obj = baseObjective('create_personal_commitment', input, context.actorUserId, 'deterministic');
             // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: same explicit-
             // title dominance as case 5 below.
             const explicitTitle = extractExplicitTitle(text);
+            const reminderTarget = extractPersonalReminderTarget(afterVerb);
             obj.targetEntities.entityHints = explicitTitle
                 ? [explicitTitle]
-                : (afterVerb.trim() ? [extractEntityHint(afterVerb) ?? afterVerb.trim()] : []);
+                : (reminderTarget ? [reminderTarget] : []);
             obj.timeConstraints.rawHint = timeHint;
             obj.confidence = 0.7;
             return obj;
@@ -802,7 +828,9 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         }
 
         // 5) create_commitment_or_proposal ("agenda entrenar mañana a las 8").
-        const createMatch = matchVerb(CREATE_VERB, text);
+        const standardCreateMatch = matchVerb(CREATE_VERB, text);
+        const naturalCreateMatch = matchVerb(NATURAL_CREATE_VERB, text);
+        const createMatch = standardCreateMatch ?? naturalCreateMatch;
         if (createMatch) {
             const afterVerb = text.slice((createMatch.index ?? 0) + createMatch[0].length);
             // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: an explicit
@@ -815,7 +843,8 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             // first ENTITY_STOP_MARKER, "para", long before ever reaching
             // "que se llame ..."). Checked against the FULL text (never
             // just afterVerb), because the marker can be anywhere.
-            const entityHint = extractExplicitTitle(text) ?? extractEntityHint(afterVerb);
+            const entityHint = extractExplicitTitle(text)
+                ?? (standardCreateMatch ? extractEntityHint(afterVerb) : extractNaturalCreateTarget(afterVerb));
             const obj = baseObjective('create_commitment_or_proposal', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
             obj.targetEntities.personHints = personHint ? [personHint] : [];

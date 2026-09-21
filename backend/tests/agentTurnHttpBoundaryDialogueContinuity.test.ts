@@ -171,9 +171,10 @@ beforeAll(async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     baseUrl = `http://127.0.0.1:${port}`;
-}, 30000);
+}, 60000);
 
 afterAll(async () => {
+    if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -232,6 +233,21 @@ describe('REAL HTTP-boundary dialogue continuity (M-7B physical failure #3)', ()
         expect(state?.lifecycle).not.toBe('idle');
         expect(typeof state?.version).toBe('number');
         expect(typeof state?.lastTurnSequence).toBe('number');
+    });
+
+    it('tablet channel uses the same HTTP AgentTurn Core with an isolated tablet scope', async () => {
+        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
+
+        const response = await postTurn({ input: 'Tengo que llamar a Pedro', channel: 'tablet' });
+        expect(response.status).toBe(200);
+        expect(response.body.kind).toBe('clarification');
+
+        const tabletState = new AgentDialogueStateService().getSnapshot(CARLOS, 'agent:tablet');
+        const mobileState = new AgentDialogueStateService().getSnapshot(CARLOS, 'agent:mobile_text');
+        expect(tabletState?.dialogueScopeKey).toBe('agent:tablet');
+        expect(tabletState?.lifecycle).toBe('clarifying');
+        expect(mobileState).toBeNull();
     });
 
     it('TASK 4/5 — request 2, a SEPARATE HTTP request, finds and consumes the pending clarification left by request 1 (the exact physical scenario)', async () => {

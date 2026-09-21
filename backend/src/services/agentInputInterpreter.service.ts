@@ -87,6 +87,12 @@ export function containsThirdPersonPronoun(rawInput: string): boolean {
     return THIRD_PERSON_PRONOUN_PATTERN.test(rawInput);
 }
 
+// Natural-language fallback signals. The LLM remains the primary semantic
+// interpreter, but these phrases must still reach the write/read pipeline when
+// the provider is unavailable or a transcript is informal.
+const NATURAL_RECALL_KEYWORDS = wordBounded('acuerd(?:as|o|a|an|amos)|recuerd(?:as|o)|remember(?:s|ed)?');
+const NATURAL_WRITE_ACTION_PHRASES = /(?:acordarme\s+de|acu[ée]rdate\s+de|puedes\s+recordarme(?:\s+que)?|me\s+puedes\s+recordar(?:me)?(?:\s+que)?|no\s+olvidar(?:me)?|no\s+se\s+me\s+olvide|ay(?:u|\u00fa)dame\s+a|me\s+ayudas?\s+a|hazte\s+cargo\s+de|organiza\w*|coordina\w*|planifica\w*|organize|coordinate|planify)/iu;
+
 const COMMITMENT_KEYWORDS = wordBounded('promet[íi]\\w*|promise[ds]?|pendientes?|pending|tareas?|tasks?|compromisos?|commitments?|debo|owe');
 const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|archivos?|files?|adjuntos?|attachments?|mandaron|enviaron|sent');
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
@@ -485,6 +491,11 @@ const PERSON_QUERY_KEYWORDS = wordBounded('qui[ée]n es|who is|cu[ée]ntame de|t
 // ES/EN. Pequeño y genérico a propósito (sección 19: nada de expansión
 // semántica).
 const STOPWORDS = new Set([
+    'quiero', 'saber', 'quedo', 'qued\u00f3', 'deberia', 'deber\u00eda', 'hacer', 'should', 'organizar', 'coordinar', 'planificar', 'acuerdas', 'recuerdas',
+    'hoy', 'ayer', 'ma\u00f1ana', 'today', 'yesterday', 'tomorrow',
+    // Conversational scaffolding that should not become an FTS topic when
+    // the user asks Ping for help in natural language.
+    'quiero', 'saber', 'quedo', 'deberia', 'deber\u00eda', 'hacer', 'should', 'organizar', 'coordinar', 'planificar', 'acuerdas', 'recuerdas',
     'qué', 'que', 'quién', 'quien', 'cuál', 'cual', 'cómo', 'como', 'dónde', 'donde', 'cuándo', 'cuando',
     'what', 'who', 'which', 'how', 'where', 'when', 'did', 'do', 'does',
     'le', 'me', 'te', 'nos', 'se', 'lo', 'la', 'los', 'las', 'el', 'un', 'una', 'unos', 'unas',
@@ -798,15 +809,24 @@ const PENDING_RESPONSE_PERSON_CUE = new RegExp(
 // propósito para que sea testeable de forma aislada y determinista.
 const TIME_EXPRESSIONS: RegExp[] = [
     /\besta semana\b|\bthis week\b/i,
+    /\b(?:el\s+|este\s+|proximo\s+|\u00fapr\u00f3ximo\s+)?(?:lunes|martes|mi(?:e|\u00e9)rcoles|jueves|viernes|s(?:a|\u00e1)bado|domingo)\b/i,
+    /\b(?:la\s+)?(?:proxima|\u00fapr\u00f3xima)\s+semana\b|\bnext week\b|\bthis weekend\b|\beste fin de semana\b/i,
     /\bla semana pasada\b|\blast week\b/i,
     /\bel mes pasado\b|\blast month\b/i,
     /\bhace (\d+) d[ií]as?\b|\b(\d+) days? ago\b/i,
     /\bayer\b|\byesterday\b/i,
     /\bhoy\b|\btoday\b/i,
-    /\bmañana\b|\btomorrow\b/i,
+    /\b(?:mañana|manana)\b|\btomorrow\b/i,
 ];
 
 function classifyIntent(input: string): { type: AgentIntentType; confidence: number } {
+    // An action request must reach the write/planning gate before a noun such
+    // as "contrato" or "documento" can classify the turn as a read search.
+    // Otherwise "recuérdame revisar el contrato" becomes document_search and
+    // never reaches the personal-commitment planner.
+    if (WRITE_ACTION_KEYWORDS.test(input) || NATURAL_WRITE_ACTION_PHRASES.test(input)) {
+        return { type: 'general_context', confidence: 0.9 };
+    }
     if (DOCUMENT_KEYWORDS.test(input)) return { type: 'document_search', confidence: 0.8 };
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
     // M-1H v6 (Gap B): "¿qué estoy esperando?"/"¿qué tengo por aceptar?"/
@@ -820,7 +840,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     }
     if (SEARCH_KEYWORDS.test(input)) return { type: 'message_search', confidence: 0.7 };
     if (PERSON_QUERY_KEYWORDS.test(input)) return { type: 'person_query', confidence: 0.7 };
-    if (RECALL_KEYWORDS.test(input) || AUDIO_KEYWORDS.test(input)) return { type: 'recall', confidence: 0.6 };
+    if (RECALL_KEYWORDS.test(input) || NATURAL_RECALL_KEYWORDS.test(input) || AUDIO_KEYWORDS.test(input)) return { type: 'recall', confidence: 0.6 };
     return { type: 'general_context', confidence: 0.3 };
 }
 
@@ -862,7 +882,7 @@ export function classifyQueryCardinality(
     // establecidas (M-1D) que este ticket no toca -- "compromiso" gana la
     // clasificación de `intent`, pero la FORMA de la pregunta (recall)
     // sigue siendo la señal correcta para cardinalidad.
-    if (RECALL_KEYWORDS.test(input)) return 'focused_lookup';
+    if (RECALL_KEYWORDS.test(input) || NATURAL_RECALL_KEYWORDS.test(input)) return 'focused_lookup';
     // PING — HISTORICAL LIFECYCLE CARDINALITY FIX (root cause: intent===
     // 'commitment_query' → 'exhaustive_list' más abajo conflacionaba DOMINIO
     // (de qué habla la consulta) con ALCANCE (cuántos ítems pidió el
@@ -1129,7 +1149,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             wantsAttachments: intent === 'document_search' || DOCUMENT_KEYWORDS.test(trimmed),
             wantsOverdueFocus,
             proposalFocus: extractProposalFocus(trimmed),
-            isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed),
+        isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed) || NATURAL_WRITE_ACTION_PHRASES.test(trimmed),
             wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(trimmed),
             ambiguityHints: [],
             source: 'deterministic',
@@ -1168,7 +1188,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         wantsAttachments: false,
         wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
         proposalFocus: extractProposalFocus(input),
-        isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input),
+        isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input) || NATURAL_WRITE_ACTION_PHRASES.test(input),
         wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(input),
         ambiguityHints: [],
         source: 'llm_fallback',
