@@ -21,6 +21,12 @@ services:
         value: staging
       - key: PING_EXPECTED_SUPABASE_PROJECT_REF
         value: oonijgmddgyymhrlnvuu
+      - key: PING_ENABLE_DURABLE_AGENT_TURN
+        value: "true"
+      - key: PING_M7_PRIVATE_DB_CHECK
+        value: "true"
+      - key: PING_M7_DATABASE_URL
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
