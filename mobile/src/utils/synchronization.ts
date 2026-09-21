@@ -140,6 +140,10 @@ export function createClientMessageId() {
     });
 }
 
+export function isNetworkFailure(message: string) {
+    return /network request failed|network request timed out|failed to fetch|network error|timed out|timeout|aborted|connection/i.test(message);
+}
+
 export function classifySendFailure(status: number | null, message: string): SyncResult {
     if (status !== null && status >= 400 && status < 500 && ![408, 429].includes(status)) {
         return { state: 'rejected', error: message };

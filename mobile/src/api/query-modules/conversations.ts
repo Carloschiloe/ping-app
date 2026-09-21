@@ -82,6 +82,8 @@ export const useConversations = () => {
         queryFn: () => apiClient.get('/conversations'),
         refetchOnMount: 'always',
         refetchOnReconnect: 'always',
+        retry: 2,
+        retryDelay: attemptIndex => Math.min(1_000 * (2 ** attemptIndex), 5_000),
         // Realtime da inmediatez; este intervalo es solo reconciliacion de
         // seguridad ante eventos perdidos. Mount/reconnect tambien refetchean.
         refetchInterval: 30_000,

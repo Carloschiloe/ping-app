@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     classifySendFailure,
     createClientMessageId,
+    isNetworkFailure,
     OFFLINE_QUEUE_MAX_ITEMS,
     sanitizePendingQueue,
     serializePendingQueue,
@@ -26,6 +27,12 @@ describe('basic message synchronization', () => {
         expect(classifySendFailure(null, 'Network request failed').state).toBe('result_unknown');
         expect(classifySendFailure(408, 'Timeout').state).toBe('result_unknown');
         expect(classifySendFailure(429, 'Retry later').state).toBe('result_unknown');
+    });
+
+    it('classifies timeout/abort messages as network failures for safe idempotent retry', () => {
+        expect(isNetworkFailure('Network request timed out')).toBe(true);
+        expect(isNetworkFailure('The operation was aborted')).toBe(true);
+        expect(isNetworkFailure('Sin autorizaciÃ³n')).toBe(false);
     });
 
     it('persists only the minimum fields and excludes transient credentials', () => {

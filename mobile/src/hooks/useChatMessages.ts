@@ -9,7 +9,7 @@ import {
     useUpdateMessageStatus
 } from '../api/queries';
 import { useOfflineSync, PendingMessage } from './useOfflineSync';
-import { classifySendFailure, createClientMessageId, SyncResult } from '../utils/synchronization';
+import { classifySendFailure, createClientMessageId, isNetworkFailure, SyncResult } from '../utils/synchronization';
 import { apiClient, ApiError } from '../api/client';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
@@ -121,10 +121,8 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         mutateSend(dataWithTemporalContext, {
             onError: (err: any) => {
                 const errorMessage = err?.message || '';
-                const isNetworkError = 
-                    errorMessage.includes('Network') || 
-                    errorMessage.includes('Failed to fetch') || 
-                    errorMessage.includes('timeout') ||
+                const isNetworkError =
+                    isNetworkFailure(errorMessage) ||
                     !isConnected;
 
                 if (isNetworkError) {

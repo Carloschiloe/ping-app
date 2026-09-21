@@ -2,7 +2,7 @@ import { registerRootComponent } from 'expo';
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { AppNavigator } from './src/navigation';
 import { AuthProvider } from './src/context/AuthContext';
-import { QueryClient, QueryClientProvider, focusManager, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, onlineManager, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
@@ -10,26 +10,31 @@ import { usePushNotifications } from './src/hooks/usePushNotifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
+import NetInfo from '@react-native-community/netinfo';
+import { API_URL } from './src/api/client';
+import { getBackendHealthUrl } from './src/utils/backendHealth';
 
 const queryClient = new QueryClient();
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+const BACKEND_HEALTH_URL = getBackendHealthUrl(API_URL);
 
 const BackendBanner = () => {
     const [status, setStatus] = useState<'checking' | 'waking' | 'connected' | 'offline'>('checking');
     const checkingRef = useRef(false);
     const failuresRef = useRef(0);
+    const controllerRef = useRef<AbortController | null>(null);
 
     const checkHealth = useCallback(async () => {
         if (checkingRef.current) return;
         checkingRef.current = true;
         const controller = new AbortController();
+        controllerRef.current = controller;
         const wakingTimer = setTimeout(() => {
             setStatus(current => current === 'connected' ? current : 'waking');
-        }, 4_000);
-        const timeout = setTimeout(() => controller.abort(), 65_000);
+        }, 2_000);
+        const timeout = setTimeout(() => controller.abort(), 10_000);
 
         try {
-            const res = await fetch(`${API_URL}/health`, {
+            const res = await fetch(BACKEND_HEALTH_URL, {
                 signal: controller.signal,
                 headers: { Accept: 'application/json' },
             });
@@ -46,6 +51,7 @@ const BackendBanner = () => {
         } finally {
             clearTimeout(wakingTimer);
             clearTimeout(timeout);
+            if (controllerRef.current === controller) controllerRef.current = null;
             checkingRef.current = false;
         }
     }, []);
@@ -56,9 +62,20 @@ const BackendBanner = () => {
         const subscription = AppState.addEventListener('change', nextState => {
             if (nextState === 'active') checkHealth();
         });
+        const networkSubscription = NetInfo.addEventListener(state => {
+            const online = state.isConnected === true && state.isInternetReachable !== false;
+            if (!online) {
+                controllerRef.current?.abort();
+                failuresRef.current = 3;
+                setStatus('offline');
+                return;
+            }
+            checkHealth();
+        });
         return () => {
             clearInterval(timer);
             subscription.remove();
+            networkSubscription();
         };
     }, [checkHealth]);
 
@@ -105,6 +122,19 @@ const AppContent = () => {
     const { isDark, theme } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
+
+    useEffect(() => {
+        let wasOnline = true;
+        const unsubscribe = NetInfo.addEventListener(state => {
+            const isOnline = state.isConnected === true && state.isInternetReachable !== false;
+            onlineManager.setOnline(isOnline);
+            if (isOnline && !wasOnline) {
+                void appQueryClient.invalidateQueries({ refetchType: 'active' });
+            }
+            wasOnline = isOnline;
+        });
+        return unsubscribe;
+    }, [appQueryClient]);
 
     const handleUnlock = () => {
         setIsLocked(false);

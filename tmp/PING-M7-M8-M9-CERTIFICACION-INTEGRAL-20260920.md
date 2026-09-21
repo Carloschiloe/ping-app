@@ -3,6 +3,7 @@
 Fecha de preparación: 2026-09-21
 Checkout certificado: `codex/conversational-core-review-20260920`  
 Base reconciliada: `8d05698` + corrección local del flujo de sustitución de planes pendientes
+Estabilización local: health root, timeout de API y recuperación NetInfo/React Query
 
 Esta campaña sustituye la comprobación de frases aisladas. Cada caso se ejecuta como una conversación completa y se evalúan las invariantes del núcleo: interpretación, continuidad, referencias, memoria, autorización, confirmación y estado final.
 
@@ -10,7 +11,10 @@ Esta campaña sustituye la comprobación de frases aisladas. Cada caso se ejecut
 
 - Supabase local `ping-c2-local`: API `54321`, PostgreSQL `54322`.
 - Backend del checkout actual: `http://192.168.1.15:3001/api`.
+- Health operativo del backend: `http://192.168.1.15:3001/health` (no usar `/api/health` como indicador de conectividad del cliente).
+- El proceso backend de certificación usa variables efímeras del Supabase local; no arrancarlo tomando `backend/.env`, porque ese archivo apunta a staging.
 - Metro/Expo Go del checkout actual: `exp://192.168.1.15:8082`.
+- Supabase local del checkout: `http://192.168.1.15:54321` (Auth y REST activos).
 - El `mobile/.env` remoto no fue modificado; las URLs locales se inyectaron únicamente en el proceso de Expo.
 - Los procesos antiguos de Claude permanecen intactos en los puertos 3000/8081 y no forman parte de esta certificación.
 
@@ -22,8 +26,15 @@ Esta campaña sustituye la comprobación de frases aisladas. Cada caso se ejecut
 4. Ejecutar A, C, D y E en ese orden. Ejecutar B solo si ya existen dos cuentas de prueba vinculadas.
 5. No borrar la aplicación ni limpiar los datos entre pasos salvo donde se indica cerrar y reabrir. No reiniciar la base local durante la campaña.
 6. Registrar el resultado de cada paso y la respuesta observada. No copiar datos personales reales al registro.
+7. Si la lista tarda, esperar el timeout normal y usar `Reintentar` una sola vez. Al recuperar Wi-Fi o volver la app al primer plano, Ping revalida automáticamente las consultas activas.
 
 Si Expo Go no carga, comprobar primero que el teléfono puede abrir `http://192.168.1.15:3001/health` en la misma red y que el firewall de Windows permite Node/Expo en red privada. No cambiar las URLs a `localhost`: desde el iPhone `localhost` significa el propio teléfono.
+
+## Verificación única de conectividad durante la campaña
+
+Antes de A, con la sesión de prueba ya iniciada, dejar que la lista de conversaciones cargue. Luego activar modo avión durante unos segundos y desactivarlo una sola vez. No enviar mensajes ni acciones durante la interrupción.
+
+Resultado esperado: el banner puede mostrar temporalmente `Sin conexión con Ping`; al volver la red debe desaparecer, la lista debe dejar el estado de carga o mostrar el error recuperable y volver a cargar sin cerrar sesión. Si ya había conversaciones visibles, deben permanecer sin duplicarse. Esta comprobación se registra junto con la campaña; no se repite por cada caso.
 
 ## Conversación A — semana, ambigüedad y corrección
 
@@ -121,7 +132,8 @@ Marcar FALLA si ocurre cualquiera de estos casos:
 - una pregunta histórica se transforma en una orden;
 - la memoria se confirma como guardada pero no se recupera después de reabrir;
 - la cuenta sin autorización puede cancelar el compromiso;
-- el resultado informado no coincide con el estado persistido.
+- el resultado informado no coincide con el estado persistido;
+- una desconexión deja la lista cargando indefinidamente, pierde conversaciones visibles o duplica un mensaje/acción al recuperarse.
 
 Marcar ANOTAR si el resultado es correcto pero la respuesta es excesivamente larga, tarda de forma inusual, exige una reformulación innecesaria o muestra una latencia de sincronización que desaparece al actualizar.
 

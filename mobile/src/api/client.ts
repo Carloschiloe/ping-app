@@ -1,5 +1,23 @@
 import { supabase } from '../lib/supabase';
 
+export const API_REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+
+    try {
+        return await fetch(input, { ...init, signal: controller.signal });
+    } catch (error) {
+        if (controller.signal.aborted) {
+            throw new Error('Network request timed out');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL;
 
 if (!configuredApiUrl && !__DEV__) {
@@ -33,7 +51,7 @@ export const apiClient = {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetch(url, { headers });
+        const response = await fetchWithTimeout(url, { headers });
         const responseText = await response.text();
         if (!response.ok) {
             throw new Error(`Error GET ${url} (${response.status})`);
@@ -48,7 +66,7 @@ export const apiClient = {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetch(url, { method: 'DELETE', headers });
+        const response = await fetchWithTimeout(url, { method: 'DELETE', headers });
         if (!response.ok) {
             throw new Error(`Error DELETE ${url} (${response.status})`);
         }
@@ -58,7 +76,7 @@ export const apiClient = {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: { ...headers, ...extraHeaders },
             body: JSON.stringify(body),
@@ -96,7 +114,7 @@ export const apiClient = {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'PATCH',
             headers,
             body: JSON.stringify(body),

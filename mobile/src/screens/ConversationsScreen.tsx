@@ -74,7 +74,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const insets = useSafeAreaInsets();
-    const { data, isLoading } = useConversations();
+    const { data, isLoading, isError, refetch } = useConversations();
     const { user } = useAuth();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [filter, setFilter] = React.useState<'all' | 'unread' | 'groups' | 'private' | 'archived'>('all');
@@ -462,6 +462,15 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                     <View style={styles.loadingContainer}>
                         {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} styles={styles} />)}
                     </View>
+                ) : isError && !data ? (
+                    <View style={styles.empty}>
+                        <Ionicons name="cloud-offline-outline" size={60} color="#cbd5e1" />
+                        <Text style={styles.emptyTitle}>No se pudieron cargar tus conversaciones</Text>
+                        <Text style={styles.emptySubtitle}>Conservamos tus datos locales y reintentamos al recuperar la conexión.</Text>
+                        <TouchableOpacity style={styles.retryButton} onPress={() => void refetch()} accessibilityRole="button">
+                            <Text style={styles.retryButtonText}>Reintentar</Text>
+                        </TouchableOpacity>
+                    </View>
                 ) : isGlobalSearchActive ? (
                     <FlatList
                         data={globalSections}
@@ -730,6 +739,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     unreadText: { color: theme.colors.white, fontSize: 11, fontWeight: '800' },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
     emptyTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text.muted, marginTop: 12, textAlign: 'center', paddingHorizontal: 32 },
+    emptySubtitle: { fontSize: 14, color: theme.colors.text.muted, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
+    retryButton: { marginTop: 18, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 18, backgroundColor: theme.colors.primary },
+    retryButtonText: { color: theme.colors.white, fontWeight: '800' },
     emptyText: { fontSize: 15, color: theme.colors.text.muted, marginTop: 4 },
     emptyActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
     emptyPrimaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
