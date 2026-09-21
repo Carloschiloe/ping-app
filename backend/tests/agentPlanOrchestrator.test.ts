@@ -52,6 +52,19 @@ beforeEach(() => {
 });
 
 describe('runAgentPlanning: global recipient/conversation resolution', () => {
+    it('usa el parser temporal canónico para una hora escrita en palabras dentro del plan', async () => {
+        const plan = await runAgentPlanning({
+            actorUserId: ACTOR_ID,
+            input: 'Agenda entrenar el martes a las siete',
+            now: new Date('2026-09-21T15:00:00.000Z'),
+            timezone: 'America/Santiago',
+            locale: 'es-CL',
+        }, { objectiveInterpreter });
+
+        expect(plan.status).toBe('ready_for_authorization');
+        expect(plan.steps[0]?.toolId).toBe('create_commitment');
+        expect((plan.steps[0]?.arguments as { dueAt?: string }).dueAt).toBe('2026-09-22T10:00:00.000Z');
+    });
     it('finaliza ready_for_authorization con ids canónicos y el contenido exacto', async () => {
         resolvePersonMock.mockResolvedValue({ resolved: recipient, ambiguous: false, candidates: [] });
         resolveDirectConversationMock.mockResolvedValue({

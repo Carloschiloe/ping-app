@@ -26,6 +26,36 @@ const WEEKDAYS: Record<string, number> = {
     sabado: 6,
 };
 
+// Horas habladas en espaÃ±ol. Esta tabla debe vivir en el parser canÃ³nico:
+// la rama de dÃ­a de semana se resuelve antes de Chrono y, sin ella,
+// expresiones como "a las siete" caen silenciosamente en 12:00.
+const SPANISH_HOUR_WORDS: Record<string, number> = {
+    una: 1,
+    uno: 1,
+    dos: 2,
+    tres: 3,
+    cuatro: 4,
+    cinco: 5,
+    seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10,
+    once: 11,
+    doce: 12,
+    trece: 13,
+    catorce: 14,
+    quince: 15,
+    dieciseis: 16,
+    diecisiete: 17,
+    dieciocho: 18,
+    diecinueve: 19,
+    veinte: 20,
+    veintiuno: 21,
+    veintidos: 22,
+    veintitres: 23,
+};
+
 function normalizeSpanish(value: string) {
     return value
         .normalize('NFD')
@@ -103,21 +133,51 @@ function wallClockToInstant(parts: WallClockParts, timeZone: string): Date {
     return new Date(guess);
 }
 
+function applyMeridiem(hour: number, meridiem: string): number {
+    const normalized = meridiem.replace(/[\s.]/g, '').toLowerCase();
+    const isAfternoonOrNight = normalized === 'pm'
+        || normalized.includes('tarde')
+        || normalized.includes('noche');
+    const isMorning = normalized === 'am' || normalized.includes('manana');
+    if (isAfternoonOrNight && hour < 12) return hour + 12;
+    if (isMorning && hour === 12) return 0;
+    return hour;
+}
+
 function explicitTimeFromText(text: string): { hour: number; minute: number } | null {
     const normalized = normalizeSpanish(text);
+    const meridiem = '(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:manana|tarde|noche))';
     const withPrefix = normalized.match(
-        /\b(?:a\s+las?|a\s+la)\s+([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\b/i
+        new RegExp(`\\b(?:a\\s+las?|a\\s+la)\\s+([01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(${meridiem})?`, 'i')
     );
     const twentyFourHour = normalized.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-    const match = withPrefix || twentyFourHour;
-    if (!match) return null;
+    if (withPrefix) {
+        return {
+            hour: applyMeridiem(Number(withPrefix[1]), withPrefix[3] || ''),
+            minute: Number(withPrefix[2] || 0),
+        };
+    }
+    if (twentyFourHour) {
+        return { hour: Number(twentyFourHour[1]), minute: Number(twentyFourHour[2] || 0) };
+    }
 
-    let hour = Number(match[1]);
-    const minute = Number(match[2] || 0);
-    const meridiem = (match[3] || '').replace(/[\s.]/g, '').toLowerCase();
-    if (meridiem === 'pm' && hour < 12) hour += 12;
-    if (meridiem === 'am' && hour === 12) hour = 0;
-    return { hour, minute };
+    const hourWords = Object.keys(SPANISH_HOUR_WORDS)
+        .sort((a, b) => b.length - a.length)
+        .join('|');
+    const wordTime = normalized.match(
+        new RegExp(`\\b(?:a\\s+las?|a\\s+la)\\s+(${hourWords})(?:\\s+(y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(${meridiem})?`, 'i')
+    );
+    if (!wordTime) return null;
+
+    let hour = SPANISH_HOUR_WORDS[wordTime[1].toLowerCase()];
+    let minute = 0;
+    const minutePhrase = (wordTime[2] || '').toLowerCase();
+    if (minutePhrase.includes('media')) minute = 30;
+    if (minutePhrase.includes('cuarto')) {
+        if (minutePhrase.startsWith('menos')) hour = hour === 1 ? 12 : hour - 1;
+        minute = minutePhrase.startsWith('menos') ? 45 : 15;
+    }
+    return { hour: applyMeridiem(hour, wordTime[3] || ''), minute };
 }
 
 function parseExplicitWeekday(

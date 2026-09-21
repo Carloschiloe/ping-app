@@ -193,12 +193,13 @@ try {
     return { response, payload };
   }
 
-  async function planAuthorizeExecute({ actor, input, conversationId }) {
-    const plan = await request('/agent/plan', { token: actor.token, method: 'POST', body: { input, conversationId } });
+  async function planAuthorizeExecute({ actor, input, conversationId, timezone }) {
+    const context = timezone ? { timezone, locale: 'es-CL' } : {};
+    const plan = await request('/agent/plan', { token: actor.token, method: 'POST', body: { input, conversationId, ...context } });
     if (plan.response.status !== 200) throw new Error(`plan failed: ${JSON.stringify(plan.payload)}`);
     const authorize = await request('/agent/authorize', {
       token: actor.token, method: 'POST',
-      body: { input, conversationId, planDigest: plan.payload.planDigest, stepIds: plan.payload.steps.map((s) => s.stepId), confirm: true },
+      body: { input, conversationId, ...context, planDigest: plan.payload.planDigest, stepIds: plan.payload.steps.map((s) => s.stepId), confirm: true },
     });
     return { plan, authorize };
   }
@@ -218,7 +219,7 @@ try {
   // ─── A: create_commitment happy path + idempotent replay (sección 61 B) ──
   {
     const title = `EntrenarM4A-${marker.slice(-8)}`;
-    const { authorize } = await planAuthorizeExecute({ actor: ownerA, input: `Agenda ${title} mañana a las 8.` });
+    const { authorize } = await planAuthorizeExecute({ actor: ownerA, input: `Agenda ${title} mañana a las siete.`, timezone: 'America/Santiago' });
     check('A: plan+authorize succeeds', authorize.response.status === 200 && authorize.payload.authorizationId);
 
     const exec1 = await request('/agent/execute', { token: ownerA.token, method: 'POST', body: { authorizationId: authorize.payload.authorizationId } });
@@ -227,6 +228,9 @@ try {
     const commitmentId = exec1.payload.createdEntityRefs[0].entityId;
     commitmentIds.push(commitmentId);
     check('A: exactly one commitment persisted', await countCommitmentsByTitle(ownerA.id, title) === 1);
+    const { data: persistedA } = await admin.from('commitments').select('due_at').eq('id', commitmentId).single();
+    const localTimeA = new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(persistedA.due_at));
+    check('A: the spoken hour "siete" persists as 07:00 in the requested timezone', localTimeA === '07:00');
 
     // Sección 8 (audit provenance): "HOW was success verified?" must be
     // answerable from the durable row itself, not only the HTTP response.
@@ -241,7 +245,10 @@ try {
   // ─── B: send_message happy path + idempotent replay (sección 61 A) ───────
   {
     const text = `Llegaré tarde M4B ${marker.slice(-8)}`;
-    const { authorize } = await planAuthorizeExecute({ actor: ownerB, input: `Dile a Alejandra que ${text}`, conversationId: conversation.id });
+    // The local E2E deliberately disables OpenAI. Use the deterministic
+    // colon form so this fixture proves the authorization/execution pipeline,
+    // not the optional semantic content-enrichment provider.
+    const { authorize } = await planAuthorizeExecute({ actor: ownerB, input: `Dile a Alejandra: ${text}`, conversationId: conversation.id });
     check('B: plan+authorize succeeds', authorize.response.status === 200 && authorize.payload.authorizationId);
 
     const exec1 = await request('/agent/execute', { token: ownerB.token, method: 'POST', body: { authorizationId: authorize.payload.authorizationId } });
@@ -341,7 +348,7 @@ try {
   {
     const plan = await request('/agent/plan', {
       token: ownerH.token, method: 'POST',
-      body: { input: 'Pregúntale a Alejandra si puede el viernes y si acepta, agéndalo.', conversationId: conversation.id },
+      body: { input: 'Pregúntale a Alejandra: si puede el viernes; y si acepta, agéndalo.', conversationId: conversation.id },
     });
     check('H: plan produces the 2-step conditional shape', plan.response.status === 200 && plan.payload.objectiveType === 'communicate_and_wait' && plan.payload.steps.length === 2);
     const sendStep = plan.payload.steps[0];
@@ -352,7 +359,7 @@ try {
     const authorize = await request('/agent/authorize', {
       token: ownerH.token, method: 'POST',
       body: {
-        input: 'Pregúntale a Alejandra si puede el viernes y si acepta, agéndalo.', conversationId: conversation.id,
+        input: 'Pregúntale a Alejandra: si puede el viernes; y si acepta, agéndalo.', conversationId: conversation.id,
         planDigest: plan.payload.planDigest, stepIds: [sendStep.stepId, createStep.stepId], confirm: true,
       },
     });

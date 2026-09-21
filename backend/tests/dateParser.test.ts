@@ -85,6 +85,40 @@ describe('parseDateFromText', () => {
         }).format(result!.date)).toBe(expectedTime);
     });
 
+    it.each([
+        ['el martes a las siete entrenar', '2026-09-08T10:00:00.000Z', '07:00'],
+        ['el jueves a las nueve y media entrenar', '2026-09-03T13:30:00.000Z', '09:30'],
+        ['el viernes a las ocho menos cuarto reunirse', '2026-09-04T11:45:00.000Z', '07:45'],
+        ['el sabado a las siete de la tarde salir', '2026-09-05T23:00:00.000Z', '19:00'],
+    ])('interpreta horas escritas en palabras: %s', (text, expectedIso, expectedTime) => {
+        const result = parseDateFromText(text, TUESDAY_SEPTEMBER_1, 'America/Santiago');
+
+        expect(result?.date.toISOString()).toBe(expectedIso);
+        expect(new Intl.DateTimeFormat('es-CL', {
+            timeZone: 'America/Santiago',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(result!.date)).toBe(expectedTime);
+    });
+
+    it('REAL PHYSICAL FIXTURE: \"el martes a las siete\" conserva las 07:00 locales del 22 de septiembre', () => {
+        const result = parseDateFromText(
+            'Agenda entrenar el martes a las siete',
+            new Date('2026-09-21T15:00:00.000Z'),
+            'America/Santiago',
+        );
+
+        expect(result?.date.toISOString()).toBe('2026-09-22T10:00:00.000Z');
+        expect(new Intl.DateTimeFormat('es-CL', {
+            timeZone: 'America/Santiago',
+            weekday: 'long',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(result!.date)).toContain('07:00');
+    });
+
     it('usa la zona IANA del usuario en vez de fijar Chile', () => {
         const result = parseDateFromText(
             'hoy a las 16:00 reunión',

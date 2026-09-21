@@ -68,6 +68,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const { mutateAsync: authorizePlan, isPending: isAuthorizePending } = useAgentAuthorize();
     const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
+    const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
         setInputText(result.transcript.text);
@@ -110,7 +111,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
 
     const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
         const trimmed = rawInput.trim();
-        if (!canSendInput(trimmed, isPending)) return;
+        if (!canSendInput(trimmed, isPending, hasPendingPlan)) return;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const source = matchingVoiceDraft
             ? { voiceInputToken: matchingVoiceDraft.token }
@@ -162,7 +163,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const handleStarterPress = (starter: string) => handleInputChange(starter);
     const handleFollowUpOptionPress = (option: AgentFollowUpOption) => handleInputChange(option.label);
     const handleInputChange = (value: string) => {
-        if (turnState.phase === 'plan_ready') dispatchTurn({ type: 'SOURCE_EDITED' });
         if (voiceDraft && value !== voiceDraft.text) {
             setVoiceDraft(null);
             voice.reset();
@@ -370,6 +370,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     </View>
                 )}
 
+                {hasPendingPlan && inputText.trim() && (
+                    <Text style={styles.planGateHint}>
+                        Confirma o cancela el plan pendiente antes de enviar otra solicitud.
+                    </Text>
+                )}
+
                 {voice.state === 'listening' || voice.state === 'capturing' ? (
                     <View style={styles.inputContainer}>
                         <TouchableOpacity
@@ -427,9 +433,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                         />
                         {inputText.trim() ? (
                             <TouchableOpacity
-                                style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
+                                style={[styles.sendBtn, !canSendInput(inputText, isPending, hasPendingPlan) && styles.sendBtnDisabled]}
                                 onPress={handleSend}
-                                disabled={!canSendInput(inputText, isPending)}
+                                disabled={!canSendInput(inputText, isPending, hasPendingPlan)}
                                 accessibilityRole="button"
                                 accessibilityLabel="Enviar"
                             >
@@ -437,9 +443,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity
-                                style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
+                                style={[styles.sendBtn, (isPending || hasPendingPlan) && styles.sendBtnDisabled]}
                                 onPress={voice.start}
-                                disabled={isPending}
+                                disabled={isPending || hasPendingPlan}
                                 accessibilityRole="button"
                                 accessibilityLabel="Grabar pregunta por voz"
                             >
@@ -538,6 +544,10 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
             alignItems: 'center', justifyContent: 'center',
         },
         sendBtnDisabled: { backgroundColor: theme.colors.text.muted },
+        planGateHint: {
+            color: theme.colors.warning, fontSize: 12, lineHeight: 17,
+            paddingHorizontal: 14, paddingBottom: 4,
+        },
         mediaBtn: {
             width: 40, height: 40, borderRadius: 20,
             alignItems: 'center', justifyContent: 'center',

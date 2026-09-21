@@ -204,6 +204,11 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(canSendInput('hola', false)).toBe(true);
     });
 
+    it('canSendInput: conserva el bloqueo mientras haya un plan pendiente de confirmaciÃ³n', () => {
+        expect(canSendInput('mueve entrenar al viernes', false, true)).toBe(false);
+        expect(canSendInput('mueve entrenar al viernes', true, true)).toBe(false);
+    });
+
     it('describeCitationsSummary: sin citations -> null, nunca "0 fuentes"', () => {
         expect(describeCitationsSummary([])).toBeNull();
         expect(describeCitationsSummary(undefined)).toBeNull();
@@ -499,6 +504,13 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Agent Preview composer paste (ex
         const fnMatch = screenSource.match(/const handleInputChange = \(value: string\) => \{[^]*?\n    \};/);
         expect(fnMatch).not.toBeNull();
         expect(fnMatch![0]).not.toMatch(/sendInput|useAgentTurn|POST|apiClient/);
+    });
+
+    it('keeps a pending plan active while drafting and gates the next request until explicit confirmation/cancellation', () => {
+        expect(screenSource).not.toMatch(/handleInputChange[\s\S]*?SOURCE_EDITED/);
+        expect(screenSource).toContain('canSendInput(trimmed, isPending, hasPendingPlan)');
+        expect(screenSource).toContain('disabled={isPending || hasPendingPlan}');
+        expect(screenSource).toContain('Confirma o cancela el plan pendiente');
     });
 });
 
