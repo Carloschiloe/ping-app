@@ -1,7 +1,12 @@
 import { Pool } from 'pg';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AgentTurnAdmissionService } from './agentTurnAdmission.service';
 
 const ADMISSION_RPC = 'admit_agent_turn_with_routing_mode';
+const SUPABASE_ROOT_CA_PATH = resolve(__dirname, '../../certs/prod-ca-2021.crt');
+
+let cachedSupabaseRootCa: string | undefined;
 
 export type PrivateDatabaseCheckCategory =
     | 'missing_url'
@@ -9,7 +14,8 @@ export type PrivateDatabaseCheckCategory =
     | 'dns'
     | 'network'
     | 'tls'
-    | 'authentication'
+    | 'authentication_identity'
+    | 'authentication_password'
     | 'authorization'
     | 'unknown';
 
@@ -18,6 +24,8 @@ export type PrivateDatabaseCheckResult = {
     category?: PrivateDatabaseCheckCategory;
     driverCode?: string;
 };
+
+let latestPrivateDatabaseDiagnostic: PrivateDatabaseCheckResult | null = null;
 
 export type PrivatePoolerUrlFormatResult =
     | { valid: true }
@@ -68,6 +76,17 @@ function safeTlsCode(code: string, message: string): string | undefined {
     return undefined;
 }
 
+function getSupabaseRootCa(): string {
+    if (!cachedSupabaseRootCa) {
+        cachedSupabaseRootCa = readFileSync(SUPABASE_ROOT_CA_PATH, 'utf8').trim();
+        if (!cachedSupabaseRootCa.startsWith('-----BEGIN CERTIFICATE-----')
+            || !cachedSupabaseRootCa.endsWith('-----END CERTIFICATE-----')) {
+            throw new Error('Bundled Supabase root CA is invalid');
+        }
+    }
+    return cachedSupabaseRootCa;
+}
+
 function classifyPrivateDatabaseError(error: unknown): { category: PrivateDatabaseCheckCategory; driverCode?: string } {
     const candidate = error as { code?: string; message?: string };
     const code = candidate.code ?? '';
@@ -76,14 +95,15 @@ function classifyPrivateDatabaseError(error: unknown): { category: PrivateDataba
 
     if (['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL'].includes(code)) return { category: 'dns', driverCode };
     if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) return { category: 'network', driverCode };
-    if (code === '28P01' || /authentication failed|password authentication|tenant or user not found/.test(message)) return { category: 'authentication', driverCode };
+    if (/tenant or user not found/.test(message)) return { category: 'authentication_identity', driverCode };
+    if (code === '28P01' || /authentication failed|password authentication/.test(message)) return { category: 'authentication_password', driverCode };
     if (code === '42501' || /permission denied|not have permission/.test(message)) return { category: 'authorization', driverCode };
     if (driverCode && (driverCode.startsWith('CERT_') || driverCode.startsWith('DEPTH_') || driverCode.startsWith('ERR_TLS_') || driverCode.startsWith('UNABLE_') || driverCode.startsWith('SELF_') || driverCode.startsWith('ERR_SSL_'))) return { category: 'tls', driverCode };
     if (/ssl|tls|certificate|self-signed|altnames/.test(message)) return { category: 'tls', driverCode };
     return { category: 'unknown', driverCode };
 }
 
-function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { rejectUnauthorized: true } | undefined } {
+function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { ca: string; rejectUnauthorized: true } | undefined } {
     const parsed = new URL(databaseUrl);
     if (!parsed.hostname.endsWith('.pooler.supabase.com')) return { connectionString: databaseUrl, ssl: undefined };
 
@@ -91,8 +111,13 @@ function preparePrivatePoolerConnection(databaseUrl: string): { connectionString
     if (requestedMode === 'disable' || requestedMode === 'no-verify' || requestedMode === 'prefer') {
         throw new Error('PING_M7_DATABASE_URL must use verified TLS for the Session Pooler');
     }
-    parsed.searchParams.set('sslmode', 'verify-full');
-    return { connectionString: parsed.toString(), ssl: { rejectUnauthorized: true } };
+    // pg-connection-string can replace the explicit `ssl` object whenever an
+    // SSL query parameter is present. Remove every SSL query parameter before
+    // handing the URL to pg so the pinned CA cannot be discarded.
+    for (const parameter of ['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat', 'sslnegotiation']) {
+        parsed.searchParams.delete(parameter);
+    }
+    return { connectionString: parsed.toString(), ssl: { ca: getSupabaseRootCa(), rejectUnauthorized: true } };
 }
 
 type PrivateAdmissionRpcArgs = {
@@ -163,31 +188,39 @@ export async function checkPrivateAgentTurnDatabase(): Promise<boolean> {
  * present in startup logs.
  */
 export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabaseCheckResult> {
+    const finish = (result: PrivateDatabaseCheckResult): PrivateDatabaseCheckResult => {
+        latestPrivateDatabaseDiagnostic = result;
+        return result;
+    };
     const databaseUrl = process.env.PING_M7_DATABASE_URL;
-    if (!databaseUrl) return { passed: false, category: 'missing_url' };
+    if (!databaseUrl) return finish({ passed: false, category: 'missing_url' });
 
     let adapter: PrivateAgentTurnAdmissionService;
     try {
         adapter = new PrivateAgentTurnAdmissionService(databaseUrl);
     } catch {
-        return { passed: false, category: 'invalid_url' };
+        return finish({ passed: false, category: 'invalid_url' });
     }
 
     try {
         try {
             await adapter.checkConnectionOrThrow();
-            return { passed: true };
+            return finish({ passed: true });
         } catch (error) {
             const diagnosis = classifyPrivateDatabaseError(error);
-            return {
+            return finish({
                 passed: false,
                 ...diagnosis,
                 driverCode: diagnosis.driverCode ?? (diagnosis.category === 'tls' ? 'TLS_UNCLASSIFIED' : undefined),
-            };
+            });
         }
     } finally {
         await adapter.close();
     }
+}
+
+export function getLatestPrivateAgentTurnDatabaseDiagnostic(): PrivateDatabaseCheckResult | null {
+    return latestPrivateDatabaseDiagnostic ? { ...latestPrivateDatabaseDiagnostic } : null;
 }
 
 export function isPrivateAgentTurnDatabaseDiagnosticEnabled(): boolean {

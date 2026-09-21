@@ -35,7 +35,7 @@ export interface AgentClaim {
     sourceRefs: AgentCitation[]; // siempre no vacío tras validación — un claim sin soporte se descarta, nunca se presenta (sección 11)
 }
 
-export type FollowUpType = 'clarify_person' | 'clarify_time' | 'clarify_topic';
+export type FollowUpType = 'clarify_person' | 'clarify_time' | 'clarify_topic' | 'clarify_entity';
 
 export interface AgentFollowUpOption {
     id: string;   // SIEMPRE un id real de un candidato autorizado (ej. profile/contact id de resolvePerson) — nunca inventado

@@ -46,6 +46,11 @@ export interface AgentContextInput {
     // typed place to receive a legitimately authorized referent without
     // ever routing it through personHints/LLM output.
     authorizedPersonReferentId?: string;
+    // Sólo lo puede poblar el Agent Core después de que el usuario eligió
+    // uno de sus candidatos de una aclaración de lectura. Nunca llega desde
+    // el payload público ni desde el intérprete; retrieval lo vuelve a
+    // autorizar contra el actor antes de devolver evidencia.
+    authorizedCommitmentReferentId?: string;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
 }
@@ -147,6 +152,18 @@ export interface Interpretation {
     // en vez de un "no encontré evidencia" confuso (ver
     // types/agentContext.ts#CapabilityGapType, 'write_action_not_supported').
     isWriteActionRequest: boolean;
+    // PING — SINGULAR STATUS-ENTITY REFERENCE (physical certification
+    // finding): true when the text uses a definite article + a SINGULAR
+    // status adjective ("el atrasado", "la pendiente") without naming the
+    // entity by title -- grammatically presupposes exactly ONE entity in
+    // that state. Always Core-derived (agentInputInterpreter.service.ts's
+    // own wantsSingularStatusEntityReference, a pure syntactic pattern),
+    // NEVER LLM-suggested -- see that function's own header comment for why.
+    // The builder is the only consumer that decides whether this becomes a
+    // real 'entity_ambiguous' clarification (it also needs the actual
+    // candidate count from live retrieval, which this signal alone cannot
+    // know).
+    wantsSingularStatusEntityReference: boolean;
     ambiguityHints: AmbiguityHintType[]; // M-1D.1: señales, nunca una resolución — el builder decide needsClarification
     source: 'deterministic' | 'llm' | 'llm_fallback';
     fallbackReason?: string; // M-1D.1: sólo presente cuando source='llm_fallback' — nunca contenido sensible, sólo la causa (timeout/schema_invalid/api_error/...)
@@ -165,11 +182,34 @@ export interface RetrievalPlanStep {
 }
 
 // ─── Ambigüedad / sin evidencia (secciones 20, 21) ──────────────────────────
-export type ClarificationReason = 'person_ambiguous' | 'time_ambiguous' | 'topic_too_broad';
+// PING — 'entity_ambiguous' (physical certification finding): a singular
+// definite-article status reference ("el atrasado") that live retrieval
+// resolves to MORE than one real commitment. Structurally the READ-side
+// counterpart of the write-side planner's own `field: 'targetEntity'`
+// blocking ambiguity (agentPlanner.service.ts#planRescheduleOrCompleteOrRespond)
+// -- same underlying problem (a singular reference resolving to N>1 live
+// candidates), same {id,label} candidate shape, deliberately reused rather
+// than invented a second time, but never merged into the SAME type: the
+// write-side ambiguity lives in AgentObjectiveAmbiguity/AgentDialogueState
+// (a completely different pipeline, gated by write-turn authorization) while
+// this one lives in the read-only AgentContext/response-synthesis pipeline,
+// which has no dialogue-state/authorization involvement at all.
+export type ClarificationReason = 'person_ambiguous' | 'time_ambiguous' | 'topic_too_broad' | 'entity_ambiguous';
+
+export interface EntityAmbiguityCandidate {
+    id: string;
+    label: string;
+}
 
 export interface AgentClarification {
     reason: ClarificationReason;
     candidates?: PersonResolutionResult['candidates'];
+    // Only ever present when reason === 'entity_ambiguous'. Kept as its own
+    // field (never overloading `candidates` above, which is strictly typed
+    // to PersonResolutionResult's own person-shaped candidates) so a caller
+    // can never confuse a person candidate for a commitment candidate by
+    // accident.
+    entityCandidates?: EntityAmbiguityCandidate[];
 }
 
 // ─── Context item empaquetado (sección 17) ──────────────────────────────────

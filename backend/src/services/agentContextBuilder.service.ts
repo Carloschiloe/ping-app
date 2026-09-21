@@ -19,6 +19,7 @@ import {
     retrieveMessages,
     retrieveTranscriptions,
     retrieveAttachments,
+    retrieveVisibleCommitmentById,
     dedupeProvenance,
 } from './retrieval.service';
 import { retrieveMemory } from './memory.service';
@@ -877,6 +878,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                     personScope: !!resolvedPersonId,
                 });
             }
+            if (input.authorizedCommitmentReferentId) {
+                return retrieveVisibleCommitmentById(input.actorUserId, input.authorizedCommitmentReferentId)
+                    .then((commitment) => commitment ? [commitment] : []);
+            }
             return retrieveCommitments({
                 actorUserId: input.actorUserId,
                 conversationId,
@@ -1154,6 +1159,45 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             requiredSourceRefsTruncationKnown,
             countResult: countResult ?? null,
         });
+    }
+
+    // PING — 'entity_ambiguous' (physical certification finding, JARVIS
+    // conversation continuity): the user used a singular definite-article
+    // status reference ("el atrasado", "la pendiente") without naming the
+    // entity by title -- see wantsSingularStatusEntityReference's own header
+    // comment for the full grammatical rationale. This gate is the ONLY
+    // place that decides whether that syntactic signal becomes a real
+    // clarification: it requires LIVE retrieval to have actually found MORE
+    // THAN ONE real commitment matching the SAME status the user referred
+    // to. Exactly one match is never ambiguous (resolves normally,
+    // unchanged); zero matches falls through to the ordinary "no evidence"
+    // path below (unchanged). Never fires for a commitment_proposal (a
+    // proposal is never "overdue"/"resuelto"/etc. by the same canonical rule
+    // enforceOverdueDisclosure already applies -- see
+    // utils/overdueSemantics.ts's own header comment) so a proposal can
+    // never falsely count toward or resolve this ambiguity.
+    //
+    // Deliberately checked BEFORE topic_too_broad: this signal is a real,
+    // Core-verified structural ambiguity about a KNOWN set of live
+    // candidates, strictly more specific than "no signal at all".
+    if (!needsClarification && interpretation.wantsSingularStatusEntityReference) {
+        const qualifyingStatuses = interpretation.wantsOverdueFocus
+            ? null // overdue is derived, not a stored status -- checked via isCommitmentOverdue below instead
+            : interpretation.statusHints;
+        const qualifying = commitments.filter((c) => {
+            if (c.entityType !== 'commitment') return false;
+            if (interpretation.wantsOverdueFocus) {
+                return isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType);
+            }
+            return qualifyingStatuses ? qualifyingStatuses.includes(c.status) : false;
+        });
+        if (qualifying.length > 1) {
+            needsClarification = true;
+            clarification = {
+                reason: 'entity_ambiguous',
+                entityCandidates: qualifying.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` })),
+            };
+        }
     }
 
     // topic_too_broad (sección 20): general_context sin ninguna evidencia y

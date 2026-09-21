@@ -572,6 +572,70 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         const result = await interpreter.interpret('¿Qué hablamos del viaje?', {});
         expect(result.isWriteActionRequest).toBe(false);
     });
+
+    // PING — PAST-PARTICIPLE FALSE-POSITIVE FIX (physical certification
+    // finding, JARVIS conversation continuity incident): every write verb
+    // above using an open `\w*` wildcard also matched its own PAST-PARTICIPLE
+    // / adjective form ("programado", "agendado", "cancelado", etc.) --
+    // grammatically a description of a completed/passive state, never a
+    // command, but structurally indistinguishable from the imperative root
+    // without an explicit exclusion. Physical reproduction: "¿Y para qué día
+    // estaba programado el atrasado?" -- a pure follow-up READ question --
+    // matched `programa\w*` via "programado" and was misrouted to
+    // create_commitment_or_proposal, which then asked "no indicaste una
+    // fecha/hora" for a commitment the user never asked to create. Fixed
+    // with the SAME negative-lookahead technique the existing "-amos"
+    // exclusion above already uses (never a per-phrase patch), so it
+    // protects every verb sharing this wildcard, not just "programa".
+    it('DeterministicInputInterpreter: EL FALLO FÍSICO REAL -- "¿Y para qué día estaba programado el atrasado?" nunca es una petición de escritura', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Y para qué día estaba programado el atrasado?', {});
+        expect(result.isWriteActionRequest).toBe(false);
+    });
+
+    it('DeterministicInputInterpreter: participios pasados de TODOS los verbos de escritura con wildcard abierto nunca activan isWriteActionRequest', async () => {
+        const pastParticiplePhrases = [
+            '¿estaba agendado para el viernes?',
+            'fue cancelado ayer',
+            'ya fue borrado',
+            'fue eliminado ayer',
+            'fue modificado',
+            'fue cambiado',
+            'fue completado la semana pasada',
+            'fue terminado el lunes',
+            'fue aprobado por Alejandra',
+            'fue rechazado',
+            'fue marcado como hecho',
+            'fue enviado ayer',
+            'fue avisado por Juan',
+        ];
+        for (const phrase of pastParticiplePhrases) {
+            const result = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect({ phrase, isWriteActionRequest: result.isWriteActionRequest }).toEqual({ phrase, isWriteActionRequest: false });
+        }
+    });
+
+    it('DeterministicInputInterpreter: los imperativos REALES de cada uno de esos verbos siguen activando isWriteActionRequest (sin regresión)', async () => {
+        const realImperatives = [
+            'Agenda entrenar mañana a las 8',
+            'Programa una reunión con Juan',
+            'Cancela Entrenar',
+            'Modifica el compromiso',
+            'Cambia la fecha',
+            'Borra ese mensaje',
+            'Elimina la tarea',
+            'Completa Entrenar',
+            'Termina esto ahora',
+            'Marca como hecho',
+            'Aprueba la propuesta',
+            'Rechaza esto',
+            'Envía un mensaje a Pedro',
+            'Avisa a Juan que llegaré tarde',
+        ];
+        for (const phrase of realImperatives) {
+            const result = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect({ phrase, isWriteActionRequest: result.isWriteActionRequest }).toEqual({ phrase, isWriteActionRequest: true });
+        }
+    });
 });
 
 // M-1G.3 — causa raíz REAL del caso "Entrenar" (M-1G-S2/M-1G.2): "vencido"

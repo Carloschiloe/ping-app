@@ -639,49 +639,84 @@ describe('PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
     });
 });
 
-// PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY. Root cause: cancel is
-// not a supported WRITE capability (toolRegistry.service.ts has exactly 5
-// WRITE tools, none for cancel; AgentObjectiveType has no
+// PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY. Root cause (pre-M-9):
+// cancel was not a supported WRITE capability (toolRegistry.service.ts had
+// exactly 5 WRITE tools, none for cancel; AgentObjectiveType had no
 // cancel_existing_commitment variant) -- the LLM prompt lists 8 fixed
 // choices with no "cancel" option, so a cancellation utterance got mapped
 // to the semantically nearest one (physically observed:
 // complete_existing_commitment), and the planner then produced a
 // user-facing message describing an inability to "completar" for a
-// request that was never about completing anything. Core now
-// deterministically forces objectiveType back to 'unsupported' whenever
-// the raw text contains a cancel verb, regardless of what the LLM (or the
-// deterministic fallback) proposed -- the SAME "LLM suggests, Core
-// decides" precedence already established for target-hint normalization,
-// now applied to objectiveType itself for this one structurally-absent
-// capability.
-describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never silently substituted by another lifecycle transition', () => {
+// request that was never about completing anything.
+//
+// M-9: cancel_existing_commitment is now a real capability, but ONLY for
+// the genuine imperative form ("Cancela X") -- the historical plural
+// ("Cancelamos X", a statement/question about something already decided,
+// never a write request) must still be forced to 'unsupported' exactly as
+// before, or the original substitution bug resurfaces for that one form.
+// Core deterministically decides which form applies from the raw text,
+// regardless of what the LLM (or the deterministic fallback's OTHER verb
+// checks) proposed -- the SAME "LLM suggests, Core decides" precedence
+// already established for target-hint normalization, now applied to
+// objectiveType itself.
+describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is a real capability for the imperative form, still never silently substituted by another lifecycle transition for the historical form', () => {
     describe('DeterministicObjectiveInterpreter', () => {
         const interpreter = new DeterministicObjectiveInterpreter();
 
-        it('REAL PHYSICAL FIXTURE: "Cancelamos el compromiso ir a acostarse" -> unsupported, never complete_existing_commitment', async () => {
+        it('M-9: "Cancela la tarea X" (genuine imperative) -> cancel_existing_commitment, a real capability now', async () => {
+            const obj = await interpreter.interpret('Cancela la tarea X', CTX);
+            expect(obj.objectiveType).toBe('cancel_existing_commitment');
+            // extractEntityHint strips the generic "la tarea" noun phrase,
+            // same as it already does for every other verb branch in this
+            // file -- 'X' alone is the correct, consistent extraction.
+            expect(obj.targetEntities.entityHints).toEqual(['X']);
+        });
+
+        it('M-9: "Cancelar X" and "Cancel X" (other imperative surface forms) also route to cancel_existing_commitment', async () => {
+            const es = await interpreter.interpret('Cancelar X', CTX);
+            const en = await interpreter.interpret('Cancel X', CTX);
+            expect(es.objectiveType).toBe('cancel_existing_commitment');
+            expect(en.objectiveType).toBe('cancel_existing_commitment');
+        });
+
+        it('REAL PHYSICAL FIXTURE, historical form still protected: "Cancelamos el compromiso ir a acostarse" -> unsupported, never complete_existing_commitment', async () => {
             const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
             expect(obj.objectiveType).toBe('unsupported');
             expect(obj.objectiveType).not.toBe('complete_existing_commitment');
+            expect(obj.objectiveType).not.toBe('cancel_existing_commitment');
         });
 
-        it('"Cancela la tarea X" (imperative form) -> unsupported', async () => {
-            const obj = await interpreter.interpret('Cancela la tarea X', CTX);
-            expect(obj.objectiveType).toBe('unsupported');
-        });
-
-        it('"Cancelamos la propuesta ir a acostarse" -> unsupported, never respond_to_existing_proposal/reject (cancel and reject are distinct actions -- this fix never conflates them)', async () => {
+        it('historical form: "Cancelamos la propuesta ir a acostarse" -> unsupported, never respond_to_existing_proposal/reject (cancel and reject are distinct actions -- this fix never conflates them)', async () => {
             const obj = await interpreter.interpret('Cancelamos la propuesta ir a acostarse', CTX);
             expect(obj.objectiveType).toBe('unsupported');
         });
 
-        it('cancel is checked before accept/reject/reschedule/complete -- a sentence that happens to also contain another domain word never escapes the unsupported routing', async () => {
+        it('historical form is checked before accept/reject/reschedule/complete -- a sentence that happens to also contain another domain word never escapes the unsupported routing', async () => {
             const obj = await interpreter.interpret('Cancelamos el compromiso de completar el reporte', CTX);
             expect(obj.objectiveType).toBe('unsupported');
         });
+
+        it('imperative form is ALSO checked before accept/reject/reschedule/complete -- never coincidentally escapes to a different capability', async () => {
+            const obj = await interpreter.interpret('Cancela el compromiso de completar el reporte', CTX);
+            expect(obj.objectiveType).toBe('cancel_existing_commitment');
+        });
     });
 
-    describe('LlmObjectiveInterpreter -- Core overrides the LLM\'s guessed objectiveType whenever the raw text contains a cancel verb', () => {
-        it('REAL PHYSICAL FIXTURE: LLM returns the exact wrong objectiveType observed in staging (complete_existing_commitment) for a cancel utterance -- Core forces unsupported', async () => {
+    describe('LlmObjectiveInterpreter -- Core overrides the LLM\'s guessed objectiveType whenever the raw text contains a cancel verb, for BOTH forms', () => {
+        it('M-9: imperative form -- LLM guesses complete_existing_commitment, Core still forces the REAL cancel capability (imperative text always wins over any LLM guess)', async () => {
+            const model = fakeModel(JSON.stringify({
+                objectiveType: 'complete_existing_commitment',
+                personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+            }));
+            const interpreter = new LlmObjectiveInterpreter({ model });
+            const obj = await interpreter.interpret('Cancela el compromiso ir a acostarse', CTX);
+            expect(obj.objectiveType).toBe('cancel_existing_commitment');
+            expect(obj.objectiveType).not.toBe('complete_existing_commitment');
+        });
+
+        it('REAL PHYSICAL FIXTURE, historical form: LLM returns the exact wrong objectiveType observed in staging (complete_existing_commitment) for a cancel utterance -- Core still forces unsupported, never the real write capability either', async () => {
             const model = fakeModel(JSON.stringify({
                 objectiveType: 'complete_existing_commitment',
                 personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
@@ -692,9 +727,10 @@ describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never si
             const obj = await interpreter.interpret('Cancelamos el compromiso ir a acostarse', CTX);
             expect(obj.objectiveType).toBe('unsupported');
             expect(obj.objectiveType).not.toBe('complete_existing_commitment');
+            expect(obj.objectiveType).not.toBe('cancel_existing_commitment');
         });
 
-        it('LLM guesses reschedule_existing_commitment for a cancel utterance -- Core still forces unsupported (any wrong guess is corrected, not just the one physically observed)', async () => {
+        it('historical form: LLM guesses reschedule_existing_commitment for a cancel utterance -- Core still forces unsupported (any wrong guess is corrected, not just the one physically observed)', async () => {
             const model = fakeModel(JSON.stringify({
                 objectiveType: 'reschedule_existing_commitment',
                 personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
@@ -706,7 +742,7 @@ describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never si
             expect(obj.objectiveType).toBe('unsupported');
         });
 
-        it('LLM guesses respond_to_existing_proposal/reject for a cancel utterance -- Core still forces unsupported (cancel is never silently treated as reject even though both are "closing" actions)', async () => {
+        it('historical form: LLM guesses respond_to_existing_proposal/reject for a cancel utterance -- Core still forces unsupported (cancel is never silently treated as reject even though both are "closing" actions)', async () => {
             const model = fakeModel(JSON.stringify({
                 objectiveType: 'respond_to_existing_proposal',
                 personHints: [], entityHints: ['ir a acostarse'], timeHint: null,
@@ -718,7 +754,7 @@ describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never si
             expect(obj.objectiveType).toBe('unsupported');
         });
 
-        it('LLM correctly guesses unsupported already -- Core override is a no-op, never corrupts an already-correct classification', async () => {
+        it('historical form: LLM correctly guesses unsupported already -- Core override is a no-op, never corrupts an already-correct classification', async () => {
             const model = fakeModel(JSON.stringify({
                 objectiveType: 'unsupported',
                 personHints: [], entityHints: [], timeHint: null,
@@ -747,10 +783,17 @@ describe('PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY: cancel is never si
     // MUST equal the objectiveType (and therefore the transition
     // referenced downstream in planner/synthesizer prose) unless Core
     // explicitly and intentionally maps to a different canonical action.
-    // cancel_* entries map to 'unsupported' (the one intentional,
-    // documented mapping — no cancel capability exists); every other
-    // entry preserves its own requested transition exactly.
-    describe('8-transition audit matrix: requested transition == objectiveType, unless intentionally mapped (cancel -> unsupported, documented)', () => {
+    // All phrases in this matrix use the HISTORICAL "-amos" plural form
+    // (a statement/question about something already decided) -- the
+    // matrix's own point is that requested transition == objectiveType for
+    // this form specifically, never that the underlying capability is
+    // absent (M-9 added cancel_existing_commitment as a real capability for
+    // the SEPARATE imperative form, covered in its own dedicated describe
+    // block above; the historical form entries #1/#6 below continue to map
+    // to 'unsupported', exactly as before M-9, since a historical statement
+    // must never itself become a write action). reabrir (#4) remains a
+    // genuine capability gap for both forms -- no reopen tool exists yet.
+    describe('8-transition audit matrix (historical "-amos" form): requested transition == objectiveType, unless intentionally mapped (cancel/reopen -> unsupported, documented)', () => {
         const interpreter = new DeterministicObjectiveInterpreter();
         const MATRIX: Array<[string, string, string]> = [
             ['1', 'Cancelamos el compromiso X', 'unsupported'],

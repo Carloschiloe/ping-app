@@ -1120,6 +1120,20 @@ export function realizeAgentClarification(
             ? '¿Puedes darme un poco más de detalle sobre lo que buscas?'
             : 'Could you give me a bit more detail about what you\'re looking for?';
         followUp = { type: 'clarify_topic', question: answer };
+    } else if (clarification?.reason === 'entity_ambiguous' && (clarification.entityCandidates?.length ?? 0) > 0) {
+        // PING — entity_ambiguous (physical certification finding): mirrors
+        // person_ambiguous's own wording pattern exactly (same structure:
+        // count + real candidate labels + a direct question), never a newly
+        // invented tone. Candidate labels already carry the real title AND
+        // due date (built by the ONE gate that produces this reason,
+        // agentContextBuilder.service.ts), so the user can tell them apart
+        // without Core guessing which one they meant.
+        const entityCandidates = clarification.entityCandidates!;
+        const labels = entityCandidates.map((c) => c.label);
+        answer = language === 'es'
+            ? `Hay más de un resultado. ¿A cuál compromiso te refieres? ${labels.join(', ')}.`
+            : `There's more than one match. Which commitment do you mean? ${labels.join(', ')}.`;
+        followUp = { type: 'clarify_entity', question: answer, options: entityCandidates };
     } else {
         // TASK 8 — safe generic fallback in the user's language. Only reached
         // when `clarification` itself is missing/reason-less, i.e. there is
@@ -1236,6 +1250,17 @@ export interface LlmResponseSynthesizerOptions {
     maxContextChars?: number;
 }
 
+function fallbackCommitmentState(status: string, isOverdue: boolean, language: 'es' | 'en'): string {
+    if (isOverdue) return language === 'es' ? 'vencido' : 'overdue';
+    const normalized = status.toLowerCase();
+    if (['resolved', 'completed', 'done'].includes(normalized)) return language === 'es' ? 'resuelto' : 'resolved';
+    if (['cancelled', 'canceled', 'rejected'].includes(normalized)) return language === 'es' ? 'cancelado' : 'cancelled';
+    if (['accepted', 'pending', 'in_progress', 'proposed', 'counter_proposal'].includes(normalized)) {
+        return language === 'es' ? 'pendiente' : 'pending';
+    }
+    return status.trim();
+}
+
 const DEFAULT_SYNTHESIS_TIMEOUT_MS = 8000;
 
 export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
@@ -1348,7 +1373,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // misma invariante que se acaba de establecer para el camino LLM
         // (response.citations ⊆ allowedSourceRefs ⊆ provenance autorizado,
         // sin excepción por camino).
-        const fallback = this.buildStructuredFallback(evidence, language);
+        const fallback = this.buildStructuredFallback(evidence, language, context.timezone, input.locale);
         return this.withDiagnostics(fallback, 'fallback', startedAt, sourceCount, { ...diagExtra, schemaValid: false, claimValidationPassed: false, fallbackReason: attempt.reason });
     }
 
@@ -1419,10 +1444,37 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         };
     }
 
-    private buildStructuredFallback(evidence: SerializedEvidence, language: 'es' | 'en'): AgentResponse {
+    private buildStructuredFallback(evidence: SerializedEvidence, language: 'es' | 'en', timezone = 'UTC', locale?: string): AgentResponse {
         const { payload } = evidence;
+
+        // El fallback también forma parte de la experiencia conversacional:
+        // no puede degradar una consulta ya resuelta a un conteo opaco. En
+        // particular, después de una aclaración de entidad debe conservar el
+        // título y la fecha del compromiso autorizado, sin volver a mezclar
+        // evidencia de otras entidades recuperadas.
+        if (payload.commitments.length > 0) {
+            const resolvedLocale = locale ?? (language === 'es' ? 'es-CL' : 'en-US');
+            const lines = payload.commitments.slice(0, 8).map((commitment) => {
+                const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+                const due = commitment.dueAt
+                    ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale)
+                    : (language === 'es' ? 'sin fecha' : 'no date');
+                const state = fallbackCommitmentState(commitment.status, commitment.isOverdue, language);
+                return language === 'es'
+                    ? `"${title}" — ${due}${state ? ` (${state})` : ''}`
+                    : `"${title}" — ${due}${state ? ` (${state})` : ''}`;
+            });
+            const omitted = payload.commitments.length - lines.length;
+            const suffix = omitted > 0
+                ? (language === 'es' ? ` y ${omitted} más` : ` and ${omitted} more`)
+                : '';
+            const answer = language === 'es'
+                ? `Encontré ${payload.commitments.length} compromiso${payload.commitments.length === 1 ? '' : 's'}: ${lines.join('; ')}${suffix}.`
+                : `I found ${payload.commitments.length} commitment${payload.commitments.length === 1 ? '' : 's'}: ${lines.join('; ')}${suffix}.`;
+            return { status: 'answered', answer, claims: [], citations: evidence.allowedSourceRefs };
+        }
+
         const parts: string[] = [];
-        if (payload.commitments.length > 0) parts.push(language === 'es' ? `${payload.commitments.length} compromiso(s)` : `${payload.commitments.length} commitment(s)`);
         if (payload.messages.length > 0) parts.push(language === 'es' ? `${payload.messages.length} mensaje(s)` : `${payload.messages.length} message(s)`);
         if (payload.transcriptions.length > 0) parts.push(language === 'es' ? `${payload.transcriptions.length} transcripción(es)` : `${payload.transcriptions.length} transcript(s)`);
         if (payload.attachments.length > 0) parts.push(language === 'es' ? `${payload.attachments.length} adjunto(s)` : `${payload.attachments.length} attachment(s)`);

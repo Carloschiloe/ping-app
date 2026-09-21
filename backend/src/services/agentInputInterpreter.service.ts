@@ -168,15 +168,48 @@ const FALTA_WAITING_KEYWORDS = wordBounded('falta por confirmar|falta que (?:me 
 // no una lista de frases: cualquier input futuro con esa misma conjugación
 // (de estos u otros verbos ya cubiertos) queda correctamente clasificado
 // como consulta sin necesidad de un nuevo caso especial.
+//
+// PING — PAST-PARTICIPLE FALSE-POSITIVE FIX (root cause, physical
+// certification finding): the SAME `\w*` wildcard also matched each verb's
+// own PAST-PARTICIPLE / adjective form ("programado", "agendado",
+// "cancelado", "modificado", "cambiado", "borrado", "eliminado",
+// "completado", "terminado", "aprobado", "rechazado", "aceptado") --
+// grammatically never a command (a participle is a description of a
+// completed/passive state, "estaba programado", "quedó cancelado"), but
+// structurally indistinguishable from the imperative root without this
+// exclusion. Physical reproduction: "¿Y para qué día estaba programado el
+// atrasado?" -- a pure follow-up READ question about an existing
+// commitment's due date -- matched `programa\w*` via "programado" and was
+// misrouted to `create_commitment_or_proposal`, which then asked "no
+// indicaste una fecha/hora" for a compromiso the user never asked to
+// create. This is the exact same "imperative root swallows an unrelated
+// real conjugation" class of bug the "-amos" exclusion above already
+// fixed for OTHER conjugations of these same verbs -- applying the SAME
+// negative-lookahead technique here (`(?!d[oa]s?)`, gender/number-aware)
+// rather than a new phrase list, so it protects every verb sharing this
+// wildcard, present and future, not just "programa". Combined with the
+// existing "-amos" exclusion into one shared negative lookahead
+// `(?!(?:mos|d[oa]s?))` wherever both apply.
+const PAST_PARTICIPLE_OR_AMOS_EXCLUSION = '(?!(?:mos|d[oa]s?))';
 const WRITE_ACTION_KEYWORDS = wordBounded(
-    'crea|crear|agenda|agendar|programa\\w*|cancela(?!mos)\\w*|cancelar|env[ií]a\\w*|enviar|modifica(?!mos)\\w*|modificar|cambia(?!mos)\\w*|cambiar|'
-    + 'mueve\\w*|reprogram(?!amos)\\w*|posp\\w*|borra(?!mos)\\w*|borrar|elimina(?!mos)\\w*|eliminar|'
-    + 'dile|avisa(?!mos)\\w*|av[íi]sale|cu[ée]ntale|comun[íi]cale|preg[úu]ntale|pregunta(?!mos)\\w*|'
-    + 'completa(?!mos)\\w*|termina(?!mos)\\w*|marca(?!mos)\\w*|'
-    + 'acept[oa](?!mos)\\w*|aprueba(?!mos)\\w*|apruebo|rechaz(?!amos)\\w*|'
+    'crea|crear|agenda|agendar|programa' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|'
+    + 'cancela' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|cancelar|env[ií]a' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|modifica' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|modificar|'
+    + 'cambia' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|cambiar|enviar|'
+    + 'mueve\\w*|reprogram(?!amos)\\w*|posp\\w*|borra' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|borrar|'
+    + 'elimina' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|eliminar|'
+    + 'dile|avisa' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|av[íi]sale|cu[ée]ntale|comun[íi]cale|preg[úu]ntale|pregunta(?!mos)\\w*|'
+    + 'completa' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|termina' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|marca' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|'
+    + 'acept[oa](?!mos)\\w*|aprueba' + PAST_PARTICIPLE_OR_AMOS_EXCLUSION + '\\w*|apruebo|rechaz(?!(?:amos|ad[oa]s?))\\w*|'
     + 'recu[ée]rdame|haz(?:me)?|'
+    // M-8 remember_fact: same "-amos" historical-question exclusion as every
+    // verb above ("¿cuándo recordamos X?" stays a query, never misroutes to
+    // a write). Requires "que" bound directly to the verb (via wordBounded's
+    // own \s+ join, matching REMEMBER_FACT_VERB's own pattern exactly in
+    // agentObjectiveInterpreter.service.ts) so a bare "recuerda"/"acuérdate"
+    // without the transitive clause never fires this gate on its own.
+    + 'recuerda(?!mos)\\s+que|acu[ée]rdate(?!mos)\\s+que|'
     + 'create|schedule|cancel|send|modify|delete|remove|move[sd]?|reschedule[sd]?|'
-    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me',
+    + 'tell|inform|ask|complete[sd]?|finish(?:es|ed)?|approve[sd]?|accept(?:s|ed)?|reject(?:s|ed)?|remind\\s+me|remember\\s+that',
 );
 // PING — R-01 CANONICAL LIFECYCLE VERB TABLE (audit finding: "completamos"
 // had short-stem/general conjugation coverage via `complet[ae]\w*` that no
@@ -242,6 +275,41 @@ const LIFECYCLE_TRANSITION_TABLE: readonly LifecycleTransitionEntry[] = [
     { status: 'rejected', adjectiveForms: 'rechazad[oa]s?|rejected', historicalVerbForms: 'rechazamos|rejected' },
 ];
 const CLOSED_STATUS_KEYWORDS = wordBounded(LIFECYCLE_TRANSITION_TABLE.map((e) => e.adjectiveForms).join('|'));
+// PING — SINGULAR STATUS-ENTITY REFERENCE (physical certification finding,
+// JARVIS conversation continuity): a follow-up like "¿Y para qué día estaba
+// programado EL atrasado?" or "¿Cuándo vence LA pendiente?" uses a definite
+// article + a SINGULAR status adjective, never naming the entity by title --
+// grammatically, this presupposes exactly ONE entity in that state. When
+// Core's real retrieval finds MORE than one commitment matching that state,
+// silently answering about just one is a genuine referential ambiguity,
+// structurally identical to `person_ambiguous` resolving a pronoun to more
+// than one real candidate -- it deserves the SAME clarification treatment,
+// never a silently-picked answer (see agentContextBuilder.service.ts's new
+// 'entity_ambiguous' gate, which consumes this signal).
+//
+// Deliberately a SEPARATE, explicit singular-only fragment (never derived by
+// string-mutating LIFECYCLE_TRANSITION_TABLE's already-compiled adjectiveForms,
+// which mixes ES+EN and an optional trailing "s?" per alternative -- textually
+// stripping that back apart would be fragile). Same words, same status
+// coverage, just the singular half of each pair kept explicit and readable.
+// Never a new hand-invented vocabulary: OVERDUE (not itself a
+// CanonicalCommitmentStatus, so not in the table) plus the exact same three
+// closed statuses the table already tracks, plus the two open-status words
+// OPEN_STATUS_KEYWORDS already recognizes in plural form.
+const SINGULAR_STATUS_ADJECTIVE_FRAGMENT = 'atrasad[oa]|vencid[oa]|resuelt[oa]|cerrad[oa]|completad[oa]|complet[oa]|cancelad[oa]|rechazad[oa]|pendiente|abiert[oa]';
+const SINGULAR_STATUS_ENTITY_PATTERN = wordBounded(`(?:el|la)\\s+${SINGULAR_STATUS_ADJECTIVE_FRAGMENT}`);
+// Deliberately requires the definite article immediately before the
+// adjective (el/la) so a bare "algo atrasado" or an already-unambiguous
+// plural ("los atrasados", EXPLICIT_LIST_KEYWORDS-shaped) never triggers
+// this -- both stay exactly as they were classified before this signal
+// existed. This is a pure SYNTACTIC pattern (singular article + singular
+// adjective), never something requiring semantic understanding, so it is
+// detected directly by Core and never routed through the LLM (per "LLM
+// suggests, Core decides") -- the LLM's own interpretation is never trusted
+// to recognize this on its own.
+export function wantsSingularStatusEntityReference(input: string): boolean {
+    return SINGULAR_STATUS_ENTITY_PATTERN.test(input) && !EXPLICIT_LIST_KEYWORDS.test(input);
+}
 // PING — R-01: forma histórica "-amos" para cancelar/resolver/reabrir/
 // rechazar/reasignar (aceptar/confirmar ya cubiertos por
 // CONFIRMATION_CONTROL_WORDS, reutilizado tal cual, nunca duplicado aquí) --
@@ -271,8 +339,18 @@ function stripLifecycleHistoricalVerbs(text: string): string {
 // pregunta "cuándo"/"when" inmediatamente antes, igual que
 // MEMORY_EPISODIC_PATTERN exige "cuándo (verbo)" para episodic_search.
 const ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN = LIFECYCLE_TRANSITION_TABLE.map((e) => e.historicalVerbForms).join('|') + '|reasignamos|reassigned|' + ACCEPT_CONFIRM_HISTORICAL_VERB_FORMS;
+// PING — M-7 GENERALIZATION: allow exactly one optional Spanish direct-object
+// pronoun ("lo"/"la"/"los"/"las") between the question word and the verb, so
+// "¿Cuándo LO completamos?" matches the same as "¿Cuándo completamos X?" --
+// the elliptical, entity-omitted phrasing a real follow-up question uses.
+// Deliberately still just ONE optional word slot with its own word boundary,
+// never open text ("cuándo.*completamos") -- adjacency to the question word
+// remains exactly as strict as the original comment above requires; this
+// only widens what counts as "immediately before the verb" by the single,
+// closed, non-lexical-content pronoun class a real ellipsis actually uses.
+const OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN = `(?:(?:lo|la|los|las)${WB_END}\\s+)?`;
 const HISTORICAL_LIFECYCLE_QUERY_PATTERN = new RegExp(
-    `${WB_START}(?:cu[áa]ndo|when)\\s+(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
+    `${WB_START}(?:cu[áa]ndo|when)\\s+${OPTIONAL_ELLIPTICAL_OBJECT_PRONOUN}(?:${ALL_LIFECYCLE_HISTORICAL_VERBS_ES_EN})${WB_END}`, 'iu',
 );
 // PING — M-2 RETRIEVAL LAYER FIX (segunda causa raíz probada del mismo bug
 // físico "Cuando completamos lo de entrenar?"): expone la MISMA condición
@@ -1052,6 +1130,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             wantsOverdueFocus,
             proposalFocus: extractProposalFocus(trimmed),
             isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(trimmed),
+            wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(trimmed),
             ambiguityHints: [],
             source: 'deterministic',
         };
@@ -1090,6 +1169,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
         proposalFocus: extractProposalFocus(input),
         isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input),
+        wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(input),
         ambiguityHints: [],
         source: 'llm_fallback',
         fallbackReason: reason,
@@ -1259,6 +1339,11 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         wantsOverdueFocus: payload.wantsOverdueFocus,
         proposalFocus: payload.proposalFocus,
         isWriteActionRequest: payload.isWriteActionRequest,
+        // PING — same "LLM suggests, Core decides" invariant as
+        // requestedTransition above: this is a pure syntactic pattern over
+        // the RAW input, never something the model is asked to judge or
+        // that its payload could influence.
+        wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(rawInput),
         ambiguityHints: payload.ambiguityHints as AmbiguityHintType[],
         source: 'llm',
         modelUsed: modelName,

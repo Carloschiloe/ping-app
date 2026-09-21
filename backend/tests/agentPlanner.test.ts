@@ -360,6 +360,48 @@ describe('planRescheduleOrCompleteOrRespond — entity resolution (sección 13)'
         expect(result.steps[0].toolId).toBe('complete_commitment');
     });
 
+    // M-9 — cancel_existing_commitment. Mirrors complete's own owner/status
+    // test coverage, with the one structural difference verified directly
+    // against commitmentTransitions.ts#computeCancel before writing these
+    // tests: cancel is OWNER-ONLY, unlike complete/reschedule (owner OR
+    // assignee).
+    it('cancel: owner + status válido (accepted) -> 1 step cancel_commitment', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].toolId).toBe('cancel_commitment');
+        expect(result.steps[0].arguments).toEqual({ commitmentId: ENTRENAR_ID });
+    });
+
+    it('SECURITY: cancel by an ASSIGNEE (not owner) -> failureMode not_authorized, unlike complete/reschedule which both allow the assignee', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted', ownerUserId: 'someone-else', assignedToUserId: CARLOS })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('not_authorized');
+        expect(result.steps).toEqual([]);
+    });
+
+    it('cancel on a pending proposal -> failureMode invalid_lifecycle (cancelling a proposal uses a reject response, not this action)', async () => {
+        retrieveCommitmentProposalsMock.mockResolvedValue([commitmentFixture({ entityType: 'commitment_proposal', status: 'pending' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('invalid_lifecycle');
+    });
+
+    it('cancel on an already-terminal commitment (e.g. already resolved) -> failureMode invalid_lifecycle, never a redundant/silent second cancellation', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'resolved' })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.failureMode).toBe('invalid_lifecycle');
+    });
+
+    it('cancel is risk-escalated to "high" when the commitment is shared, same as complete/reschedule', async () => {
+        retrieveCommitmentsMock.mockResolvedValue([commitmentFixture({ status: 'accepted', conversationId: CONVERSATION_ID })]);
+        const objective = baseObjective({ objectiveType: 'cancel_existing_commitment', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].riskLevel).toBe('high');
+    });
+
     it('respond_to_existing_proposal: actorCanRespond=false (ya aprobó, o no le corresponde) -> failureMode not_authorized (sección 24, adversarial D)', async () => {
         retrieveCommitmentProposalsMock.mockResolvedValue([commitmentFixture({ entityType: 'commitment_proposal', actorCanRespond: false, actorHasApproved: true })]);
         const objective = baseObjective({ objectiveType: 'respond_to_existing_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] }, constraints: { decisionHint: 'reject' } });
@@ -976,5 +1018,72 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: objectiveType unsupporte
         const es = await planObjective({ objective: baseObjective({ objectiveType: 'unsupported', sourceUtterance: 'Borra definitivamente todos mis compromisos' }), actorUserId: CARLOS, now: new Date(), locale: 'es-CL' });
         expect(es.steps).toEqual([]);
         expect(es.blockingAmbiguities).toEqual([]);
+    });
+});
+
+// M-8 — remember_fact planning. Mirrors validateCommunicateContent's own
+// test coverage style (verbatim-substring proof, never trust the
+// interpreter's own extracted fragment as automatically correct).
+describe('M-8: planObjective — remember_fact (Core-verified verbatim content, no LLM/free-text trust)', () => {
+    it('a genuine verbatim fragment of sourceUtterance produces a real remember_fact step', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que mi hermano se llama Andrés',
+            targetEntities: { personHints: [], entityHints: ['mi hermano se llama Andrés'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('remember_fact');
+        expect(result.steps[0].arguments).toEqual({ factContent: 'mi hermano se llama Andrés' });
+    });
+
+    it('an empty entityHints (no fact content extracted) blocks with factContent ambiguity, never plans an empty-content step', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que',
+            targetEntities: { personHints: [], entityHints: [] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No identifiqué qué quieres que recuerde.' }]);
+    });
+
+    it('SECURITY: a candidate that is NOT a real substring of sourceUtterance (e.g. an LLM-paraphrased/invented fragment, in a future LLM-enabled iteration) is rejected, never planned as-is', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que mi hermano se llama Andrés',
+            // Simulates a hypothetical future interpreter path proposing
+            // paraphrased/invented content instead of the real fragment --
+            // this MUST be rejected exactly like a hallucinated
+            // communicate_message candidate would be.
+            targetEntities: { personHints: [], entityHints: ['Su hermano se llama Andrés Pérez'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }]);
+    });
+
+    it('SECURITY: an ambiguous candidate matching 2+ locations in sourceUtterance is rejected, never guesses which occurrence', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que Andrés y Andrés son la misma persona',
+            targetEntities: { personHints: [], entityHints: ['Andrés'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toEqual([]);
+        expect(result.blockingAmbiguities).toEqual([{ field: 'factContent', kind: 'blocking', reason: 'No pude confirmar exactamente qué texto quieres que recuerde.' }]);
+    });
+
+    it('remember_fact requires only actor_identity authorization -- no conversation/commitment scope, since a personal memory has none', async () => {
+        const objective = baseObjective({
+            objectiveType: 'remember_fact',
+            sourceUtterance: 'Recuerda que prefiero reuniones por la mañana',
+            targetEntities: { personHints: [], entityHints: ['prefiero reuniones por la mañana'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps[0].authorizationRequirement).toBe('actor_identity');
+        expect(result.steps[0].confirmationRequirement).toBe('explicit');
+        expect(result.steps[0].sideEffectClass).toBe('state_change');
     });
 });

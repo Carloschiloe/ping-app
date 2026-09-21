@@ -12,6 +12,7 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -24,10 +25,24 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      # Estas cuatro suites crean usuarios y fixtures en un Supabase local
+      # real. Se ejecutan aparte cuando existe ese stack; nunca deben heredar
+      # una URL remota ni fingir que un host .invalid es una base disponible.
+      - name: Offline backend tests
+        run: |
+          export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          npm test -- \
+            --exclude '**/agentExactCommitmentCount.integration.test.ts' \
+            --exclude '**/agentReadV4DurableOrchestration.integration.test.ts' \
+            --exclude '**/agentTurnAdmissionRoutingMode.integration.test.ts' \
+            --exclude '**/agentTurnRoutingSelection.integration.test.ts'
+        env:
+          SUPABASE_URL: https://supabase-ci.invalid
+          SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
 
   mobile:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
