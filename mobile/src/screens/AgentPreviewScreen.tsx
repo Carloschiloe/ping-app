@@ -106,7 +106,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     }, []);
 
     useEffect(() => {
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+        const timer = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 250);
+        return () => clearTimeout(timer);
     }, [messages]);
 
     const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
@@ -340,6 +341,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                         data={messages}
                         keyExtractor={(item) => item.id}
                         renderItem={renderItem}
+                        extraData={turnState}
+                        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
                         contentContainerStyle={styles.listContent}
                         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                         keyboardShouldPersistTaps="handled"
@@ -491,7 +494,11 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
 
         keyboardArea: { flex: 1 },
         messageList: { flex: 1 },
-        listContent: { padding: 16, paddingBottom: 24 },
+        // Leave room for the fixed composer. Without this, the active plan's
+        // confirmation actions could sit behind the composer on short iPhone
+        // viewports, encouraging the user to send a new turn and thereby
+        // correctly invalidating the still-unconfirmed plan.
+        listContent: { padding: 16, paddingBottom: 180 },
         messageRow: { flexDirection: 'row', marginBottom: 12 },
         agentRow: { justifyContent: 'flex-start' },
         userRow: { justifyContent: 'flex-end' },

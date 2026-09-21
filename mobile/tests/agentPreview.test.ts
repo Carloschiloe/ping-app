@@ -512,6 +512,12 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Agent Preview composer paste (ex
         expect(screenSource).toContain('disabled={isPending}');
         expect(screenSource).toContain('Puedes enviar esta corrección para reemplazar el plan');
     });
+
+    it('keeps the active plan synchronized with FlatList state and leaves room for its confirmation actions', () => {
+        expect(screenSource).toContain('extraData={turnState}');
+        expect(screenSource).toContain('onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}');
+        expect(screenSource).toMatch(/listContent:\s*\{ padding: 16, paddingBottom: 180 \}/);
+    });
 });
 
 describe('PING — COPY / PASTE / CLIPBOARD UX: Ping -> external copy for Agent Preview bubbles (user messages + agent prose responses)', () => {

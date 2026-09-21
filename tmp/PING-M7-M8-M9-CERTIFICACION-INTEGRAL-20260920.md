@@ -41,9 +41,9 @@ Resultado esperado: el banner puede mostrar temporalmente `Sin conexión con Pin
 Preparar dos compromisos propios con el mismo título `Entrenar`, uno martes a las 07:00 y otro jueves a las 07:00. Se pueden crear dentro de la conversación:
 
 1. “Agenda entrenar el martes a las siete.”
-2. Confirmar el plan.
+2. Desplazarse hasta el final de la tarjeta si es necesario y tocar `Confirmar` antes de enviar otro turno.
 3. “Y agrega entrenar también el jueves a las siete.”
-4. Confirmar el segundo plan.
+4. Desplazarse hasta el final de la tarjeta si es necesario y confirmar el segundo plan.
 5. “Mueve entrenar al viernes.”
 6. Ping debe pedir cuál, mostrando martes y jueves. No debe elegir silenciosamente.
 7. Responder con una variante natural: “el del jueves” / “el que estaba para el jueves”.
