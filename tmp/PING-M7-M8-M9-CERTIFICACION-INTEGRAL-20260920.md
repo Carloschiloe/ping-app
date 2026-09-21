@@ -1,8 +1,8 @@
 # Ping — campaña integral M-7/M-8/M-9
 
-Fecha de preparación: 2026-09-20  
+Fecha de preparación: 2026-09-21
 Checkout certificado: `codex/conversational-core-review-20260920`  
-Commit: `0291806` (`feat(agent): consolidate conversational core and local validation`)
+Base reconciliada: `8d05698` + corrección local del flujo de sustitución de planes pendientes
 
 Esta campaña sustituye la comprobación de frases aisladas. Cada caso se ejecuta como una conversación completa y se evalúan las invariantes del núcleo: interpretación, continuidad, referencias, memoria, autorización, confirmación y estado final.
 
@@ -23,7 +23,7 @@ Esta campaña sustituye la comprobación de frases aisladas. Cada caso se ejecut
 5. No borrar la aplicación ni limpiar los datos entre pasos salvo donde se indica cerrar y reabrir. No reiniciar la base local durante la campaña.
 6. Registrar el resultado de cada paso y la respuesta observada. No copiar datos personales reales al registro.
 
-Si Expo Go no carga, comprobar primero que el teléfono puede abrir `http://192.168.1.15:3001/api/health` en la misma red y que el firewall de Windows permite Node/Expo en red privada. No cambiar las URLs a `localhost`: desde el iPhone `localhost` significa el propio teléfono.
+Si Expo Go no carga, comprobar primero que el teléfono puede abrir `http://192.168.1.15:3001/health` en la misma red y que el firewall de Windows permite Node/Expo en red privada. No cambiar las URLs a `localhost`: desde el iPhone `localhost` significa el propio teléfono.
 
 ## Conversación A — semana, ambigüedad y corrección
 
@@ -37,8 +37,8 @@ Preparar dos compromisos propios con el mismo título `Entrenar`, uno martes a l
 6. Ping debe pedir cuál, mostrando martes y jueves. No debe elegir silenciosamente.
 7. Responder con una variante natural: “el del jueves” / “el que estaba para el jueves”.
 8. Confirmar que el plan nuevo conserva el compromiso del jueves y propone viernes.
-9. Antes de confirmar, corregir: “No, mejor déjalo para el sábado.”
-10. Debe aparecer un plan nuevo para sábado, no reutilizar el de viernes.
+9. Sin confirmar ni cancelar el plan de viernes, escribir y enviar: “No, mejor déjalo para el sábado.”
+10. El plan anterior debe quedar sustituido y debe aparecer un plan nuevo para sábado, con un digest diferente. El plan de viernes no puede seguir siendo confirmable.
 11. Confirmar el plan corregido.
 12. Preguntar, con otra formulación, “¿Qué tengo esta semana?” o “¿Cómo quedó mi semana?”.
 
@@ -92,12 +92,23 @@ Resultado esperado: la pregunta histórica del paso 7 es informativa; no genera 
 
 1. Por voz: “Agenda comprar el regalo de cumpleaños para el sábado.”
 2. Revisar la transcripción y el plan antes de confirmar.
-3. Confirmar el plan por voz.
-4. Escribir inmediatamente: “Mejor el domingo.”
-5. Confirmar que se interpreta como corrección del plan pendiente, no como una segunda compra.
+3. Mantener el plan pendiente; no confirmarlo ni cancelarlo todavía.
+4. Escribir y enviar inmediatamente: “Mejor el domingo.” No cancelar primero: esta es la prueba de corrección conversacional.
+5. Confirmar que el Core invalida el plan anterior y presenta una corrección, no una segunda compra independiente.
 6. Confirmar el nuevo plan y verificar que el compromiso final queda el domingo.
 
+Si el plan del sábado ya fue confirmado, no registrar la siguiente solicitud como sustitución de plan pendiente: corresponde a otro flujo de reprogramación y debe evaluarse separadamente.
+
 Variar la entrada de voz con “para este sábado” y la corrección escrita con “al final, el domingo”. Registrar errores de transcripción por separado de errores del núcleo conversacional.
+
+## Contrato vigente para corregir un plan pendiente
+
+- Mientras el usuario escribe, el plan mostrado permanece visible y no se ejecuta ni se invalida por cada carácter.
+- Al enviar una corrección explícita, la pantalla entrega el nuevo turno al Core. El Core decide si es una corrección válida, una solicitud independiente o una salida del contexto.
+- Para una corrección válida de fecha, el Core registra la sustitución, invalida la referencia/digest anterior y devuelve un plan nuevo. Sólo ese plan nuevo puede confirmarse.
+- Si el usuario quiere conservar el plan, toca `Confirmar`. Si quiere abandonarlo sin otra solicitud, toca `Cancelar`. Ninguna de las dos acciones es necesaria para enviar una corrección explícita.
+- Si la corrección no tiene fecha reconocible o es ambigua, Ping debe pedir aclaración; no debe crear ni modificar un compromiso.
+- La evidencia de aprobación debe incluir el plan anterior, el plan corregido y el resultado persistido final, sin contar como éxito la mera prosa de la respuesta.
 
 ## Criterios de fallo transversal
 

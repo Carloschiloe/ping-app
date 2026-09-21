@@ -95,13 +95,11 @@ export function appendExecutionMessage(
 
 // Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca
 // permitir un segundo envío mientras uno está en curso.
-export function canSendInput(input: string, isPending: boolean, hasPendingPlan = false): boolean {
-    // Un plan pendiente no se invalida silenciosamente porque el usuario
-    // empiece a escribir otra cosa. Debe confirmarlo o cancelarlo primero;
-    // de lo contrario la siguiente solicitud no encontrarÃ¡ ningÃºn compromiso
-    // persistido que pueda mover y el card anterior quedarÃ¡ engaÃ±osamente
-    // como "no disponible".
-    return input.trim().length > 0 && !isPending && !hasPendingPlan;
+export function canSendInput(input: string, isPending: boolean): boolean {
+    // La edición sólo prepara una posible corrección. El envío explícito
+    // deja que el Core decida si reemplaza el plan pendiente, inicia otra
+    // solicitud o sale del contexto; nunca ejecuta por sí solo.
+    return input.trim().length > 0 && !isPending;
 }
 
 const CITATION_TYPE_LABELS: Record<string, string> = {

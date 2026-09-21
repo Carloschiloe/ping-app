@@ -111,7 +111,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
 
     const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
         const trimmed = rawInput.trim();
-        if (!canSendInput(trimmed, isPending, hasPendingPlan)) return;
+        if (!canSendInput(trimmed, isPending)) return;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const source = matchingVoiceDraft
             ? { voiceInputToken: matchingVoiceDraft.token }
@@ -372,7 +372,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
 
                 {hasPendingPlan && inputText.trim() && (
                     <Text style={styles.planGateHint}>
-                        Confirma o cancela el plan pendiente antes de enviar otra solicitud.
+                        Puedes enviar esta corrección para reemplazar el plan, o confirmar/cancelar el pendiente.
                     </Text>
                 )}
 
@@ -433,9 +433,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                         />
                         {inputText.trim() ? (
                             <TouchableOpacity
-                                style={[styles.sendBtn, !canSendInput(inputText, isPending, hasPendingPlan) && styles.sendBtnDisabled]}
+                                style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
                                 onPress={handleSend}
-                                disabled={!canSendInput(inputText, isPending, hasPendingPlan)}
+                                disabled={!canSendInput(inputText, isPending)}
                                 accessibilityRole="button"
                                 accessibilityLabel="Enviar"
                             >
@@ -443,9 +443,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity
-                                style={[styles.sendBtn, (isPending || hasPendingPlan) && styles.sendBtnDisabled]}
+                                style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
                                 onPress={voice.start}
-                                disabled={isPending || hasPendingPlan}
+                                disabled={isPending}
                                 accessibilityRole="button"
                                 accessibilityLabel="Grabar pregunta por voz"
                             >
