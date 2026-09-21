@@ -138,4 +138,20 @@ describe('M-7 private database startup diagnostic', () => {
         expect(options.ssl.ca).toContain('-----END CERTIFICATE-----');
         expect(getLatestPrivateAgentTurnDatabaseDiagnostic()).toEqual({ passed: true });
     });
+
+    it('pins the Supabase root CA without allowing the URL parser to discard it', async () => {
+        process.env.PING_M7_DATABASE_URL = 'postgresql://ping_m7_admission.oonijgmddgyymhrlnvuu:placeholder@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require';
+        query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+
+        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: true });
+        const options = poolOptions.mock.calls[0][0] as {
+            connectionString: string;
+            ssl: { ca: string; rejectUnauthorized: boolean };
+        };
+        expect(new URL(options.connectionString).searchParams.has('sslmode')).toBe(false);
+        expect(options.ssl.rejectUnauthorized).toBe(true);
+        expect(options.ssl.ca).toContain('-----BEGIN CERTIFICATE-----');
+        expect(options.ssl.ca).toContain('-----END CERTIFICATE-----');
+        expect(getLatestPrivateAgentTurnDatabaseDiagnostic()).toEqual({ passed: true });
+    });
 });

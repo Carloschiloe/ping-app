@@ -118,6 +118,7 @@ function preparePrivatePoolerConnection(databaseUrl: string): { connectionString
         parsed.searchParams.delete(parameter);
     }
     return { connectionString: parsed.toString(), ssl: { ca: getSupabaseRootCa(), rejectUnauthorized: true } };
+    return { connectionString: parsed.toString(), ssl: { ca: getSupabaseRootCa(), rejectUnauthorized: true } };
 }
 
 type PrivateAdmissionRpcArgs = {
