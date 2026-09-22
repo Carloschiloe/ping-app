@@ -36,6 +36,7 @@ import {
     isHistoricalLifecycleQuery,
     isDeclarativeLifecycleMention,
     isTemporalComparisonQuery,
+    extractTemporalComparison,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -552,10 +553,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // the same input (notably comparative follow-ups like "¿Cuál es el más
     // temprano?"), causing the no-evidence/topic-too-broad gate to ask for
     // detail instead of retrieving the commitments already in scope.
+    const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || isHistoricalLifecycleQuery(input.input)
-        || isDeclarativeLifecycleMention(input.input);
+        || isDeclarativeLifecycleMention(input.input)
+        || temporalComparison !== null;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -575,6 +578,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
         textQuery: commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery,
+        temporalComparison,
         // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4,
         // proven via real end-to-end trace against real staging data): this
         // field was NEVER brought under Core's deterministic authority the
@@ -1291,6 +1295,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         explicitPersonMention: canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId,
         proposalFocus: interpretation.proposalFocus,
         queryCardinality,
+        temporalComparison: interpretation.temporalComparison ?? null,
         requiredSourceRefs,
         requiredSourceRefsTruncated,
         requiredSourceRefsTruncationKnown,

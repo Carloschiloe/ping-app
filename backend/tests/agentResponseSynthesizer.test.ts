@@ -178,6 +178,27 @@ describe('M-1E: deriveStatus (sección 6) — siempre determinístico', () => {
         const ctx = baseContext({ evidenceFound: true, commitments: [commitment('cm1') as any] });
         expect(deriveStatus(ctx)).toBe('answered');
     });
+
+    it('selecciona el compromiso más temprano desde Core y conserva título, fecha y cita sin invocar al modelo', async () => {
+        const early = commitment('cm-early', { title: 'Probar la voz de Ping', dueAt: '2026-09-22T13:00:00.000Z' });
+        const late = commitment('cm-late', { title: 'Ir a terreno', dueAt: '2026-09-22T18:00:00.000Z' });
+        const model = fakeModel(claimPayload([{ text: 'respuesta incorrecta', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-late' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({
+            input: '¿Cuál es más temprano?',
+            context: baseContext({
+                evidenceFound: true,
+                commitments: [early, late] as any,
+                temporalComparison: 'earliest',
+            }),
+        });
+
+        expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
+        expect(response.answer).toContain('Probar la voz de Ping');
+        expect(response.answer).not.toContain('Ir a terreno');
+        expect(response.citations).toEqual([{ sourceType: 'commitment', sourceId: 'cm-early' }]);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
 });
 
 // ─── Claim validation ─────────────────────────────────────────────────────

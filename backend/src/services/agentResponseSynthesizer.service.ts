@@ -1051,6 +1051,38 @@ function buildCountResponse(context: AgentContext, language: 'es' | 'en'): Agent
     return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
 }
 
+// La selección comparativa pertenece al Core, no al modelo de redacción.
+function buildTemporalComparisonResponse(
+    context: AgentContext,
+    language: 'es' | 'en',
+    timezone: string,
+    locale?: string,
+): AgentResponse | null {
+    const comparison = context.temporalComparison;
+    if (!comparison) return null;
+    const dated = context.commitments
+        .map((commitment) => ({ commitment, dueMs: commitment.dueAt ? Date.parse(commitment.dueAt) : NaN }))
+        .filter((entry) => Number.isFinite(entry.dueMs));
+    if (dated.length === 0) return null;
+    dated.sort((a, b) => comparison === 'earliest' ? a.dueMs - b.dueMs : b.dueMs - a.dueMs);
+    const selected = dated[0].commitment;
+    const title = selected.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+    const due = selected.dueAt
+        ? formatEventTimestampInZone(selected.dueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
+        : (language === 'es' ? 'sin fecha' : 'no date');
+    const isProposal = selected.entityType === 'commitment_proposal';
+    const ref: AgentCitation = { sourceType: selected.provenance.sourceType, sourceId: selected.provenance.sourceId };
+    const claimText = language === 'es'
+        ? dated.length === 1
+            ? `${isProposal ? 'La única propuesta' : 'El único compromiso'} es "${title}", con fecha ${due}.`
+            : `${isProposal ? 'La propuesta' : 'El compromiso'} ${comparison === 'earliest' ? 'más temprano' : 'más tardío'} es "${title}", con fecha ${due}.`
+        : dated.length === 1
+            ? `The only ${isProposal ? 'proposal' : 'commitment'} is "${title}", due ${due}.`
+            : `The ${isProposal ? 'proposal' : 'commitment'} that is ${comparison === 'earliest' ? 'earliest' : 'latest'} is "${title}", due ${due}.`;
+    const claim: AgentClaim = { text: claimText, sourceRefs: [ref] };
+    return { status: 'answered', answer: claimText, claims: [claim], citations: [ref] };
+}
+
 function assembleAnswerFromClaims(claims: AgentClaim[], language: 'es' | 'en'): string {
     if (claims.length === 0) {
         return language === 'es'
@@ -1313,6 +1345,12 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // manualmente, el Core ya conoce el número con certeza estructural.
         if (status === 'answered' && context.queryCardinality === 'count') {
             return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && context.temporalComparison) {
+            const comparisonResponse = buildTemporalComparisonResponse(context, language, context.timezone, input.locale);
+            if (comparisonResponse) {
+                return this.withDiagnostics(comparisonResponse, 'deterministic', startedAt, sourceCount);
+            }
         }
 
         // status === 'answered': única rama que invoca al modelo. La

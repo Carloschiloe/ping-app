@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
@@ -102,6 +102,14 @@ const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|
 const TEMPORAL_COMPARISON_QUERY_KEYWORDS = wordBounded('m[aá]s\\s+(?:tempran[oa]|tarde)|earliest|latest|soonest');
 export function isTemporalComparisonQuery(input: string): boolean {
     return TEMPORAL_COMPARISON_QUERY_KEYWORDS.test(input);
+}
+
+// Fallback semántico mínimo: reconoce la operación, no un título ni una
+// respuesta. El LLM cubre formulaciones y lenguas fuera de este fast-path.
+export function extractTemporalComparison(input: string): TemporalComparison | null {
+    if (wordBounded('m[aá]s\\s+(?:tempran[oa]|pronto)|earliest|soonest').test(input)) return 'earliest';
+    if (wordBounded('m[aá]s\\s+tarde|latest').test(input)) return 'latest';
+    return null;
 }
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
 // M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B) — "háblame de X"/
@@ -1151,6 +1159,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const wantsOverdueFocus = OVERDUE_KEYWORDS.test(trimmed);
         const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints);
         const requestedTransition = extractRequestedTransition(trimmed);
+        const temporalComparison = extractTemporalComparison(trimmed);
 
         return {
             intent,
@@ -1159,6 +1168,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             topicHints: textQuery ? [textQuery] : [],
             textQuery,
             timeExpression,
+            temporalComparison,
             statusHints,
             requestedTransition,
             wantsCommitments: intent !== 'document_search' && (intent !== 'general_context' || generalContextRetrievable),
@@ -1198,6 +1208,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         topicHints: [],
         textQuery: input.trim() || null,
         timeExpression: null,
+        temporalComparison: null,
         statusHints: null,
         requestedTransition: extractRequestedTransition(input),
         wantsCommitments: false,
@@ -1255,8 +1266,9 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
         '"proposalFocus" is a SEPARATE, OPTIONAL signal about the approval lifecycle of a not-yet-confirmed proposal (never about an already-active commitment). Set it to "waiting_for_others" when the user asks what they themselves are still waiting on someone else for (e.g. "what am I waiting for?", "¿qué estoy esperando?"). Set it to "needs_my_response" when the user asks what they themselves still need to accept/respond to (e.g. "what do I have to accept?", "¿qué tengo por aceptar?"). Set it to "pending_response_from_person" when the user asks specifically what a NAMED person still needs to accept or respond to (e.g. "what is Alejandra still missing to accept?", "¿qué falta que acepte Alejandra?") — in that case you MUST also include that person in personHints. Leave it null for anything else, including a plain overdue/pending question with no approval-lifecycle angle. NEVER put any of this language (esperando/waiting/por aceptar/to accept/falta que acepte) into textQuery — it is already fully captured here.',
         '"isWriteActionRequest" is true when the user is asking to CREATE, CANCEL, SEND, MODIFY, or DELETE something (e.g. "create a commitment", "send a message to X", "cancel my meeting") — this Agent is READ-ONLY and can never perform these actions, so the backend needs this signal to answer honestly ("I can\'t do that yet") instead of a confusing "no evidence found". False for any question/query/consultation, even about the same topic (e.g. "what did I promise Laura" is a query, not an action request).',
+        'If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". This is an operation over retrieved commitments, not a topic and never belongs in textQuery. Use null when no temporal comparison is requested.',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalComparison":"earliest"|"latest"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -1356,6 +1368,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // Core sobre qué evidencia haría falta, no una interpretación que el
     // modelo pueda sugerir libremente).
     const requestedTransition = extractRequestedTransition(rawInput);
+    const temporalComparison = extractTemporalComparison(rawInput) ?? payload.temporalComparison;
 
     return {
         intent: payload.intent,
@@ -1367,6 +1380,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         topicHints: payload.topicHints,
         textQuery,
         timeExpression: payload.timeExpression,
+        temporalComparison,
         statusHints,
         requestedTransition,
         wantsCommitments: payload.intent !== 'document_search'

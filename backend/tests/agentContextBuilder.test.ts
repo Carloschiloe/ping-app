@@ -355,6 +355,7 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         );
 
         expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.temporalComparison).toBe('earliest');
         expect(ctx.needsClarification).toBe(false);
         expect(ctx.commitments).toHaveLength(1);
         expect(mockRetrieveCommitments).toHaveBeenCalled();

@@ -60,6 +60,15 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
         expect(result.schemaValid).toBe(true);
     });
 
+    it('conserva el operador temporal estructurado entregado por el LLM', async () => {
+        const model = fakeModel(validPayload({ intent: 'general_context', temporalComparison: 'latest' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const result = await interpreter.interpret('Which one is latest?', {});
+
+        expect(result.source).toBe('llm');
+        expect(result.temporalComparison).toBe('latest');
+    });
+
     // M-1D.2: bug real encontrado en el smoke contra el proveedor real — el
     // modelo, de forma perfectamente razonable, a veces devuelve
     // `commitmentFilterHints: null` directamente (en vez de `{status:null}`)
@@ -162,6 +171,7 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('What pending commitments do I have this week?', {});
         expect(result.textQuery).toBeNull();
+        expect(result.temporalComparison).toBe('earliest');
         expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
         expect(result.timeExpression).toBe('this week');
     });
