@@ -205,6 +205,12 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(() => parseAgentTurnResult({ ...turnPlan, presentation: { ...presentation, planDigest: 'b'.repeat(64) } })).toThrow('invalid_agent_turn_shape');
     });
 
+    it('preserves the Core confirmation operator marker on a natural-language confirmation', () => {
+        const parsed = parseAgentTurnResult({ ...turnPlan, confirmationRequested: true });
+        expect(parsed.kind).toBe('plan');
+        if (parsed.kind === 'plan') expect(parsed.confirmationRequested).toBe(true);
+    });
+
     const screen = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf8');
     const planCard = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentPlanCard.tsx'), 'utf8');
 

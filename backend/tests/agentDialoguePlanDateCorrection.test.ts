@@ -93,6 +93,20 @@ describe('Turn 1 — a real plan reaching ready_for_authorization is tracked as 
         expect(state?.pendingClarification).toBeNull();
         expect(state?.openObjective?.objectiveType).toBe('reschedule_existing_commitment');
     });
+
+    it('a natural confirmation re-enters the same plan pipeline without becoming a new clarification', async () => {
+        const first = await moveEntrenarToFriday();
+        expect(first.kind).toBe('plan');
+
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', '2026-09-20T08:00:00.000Z')]);
+        const confirmed = await runAgentTurn({ actorUserId: ACTOR, input: 'Sí, créalo.', conversationId: CONVERSATION_ID });
+
+        expect(confirmed.kind).toBe('plan');
+        if (confirmed.kind === 'plan' && first.kind === 'plan') {
+            expect(confirmed.confirmationRequested).toBe(true);
+            expect(confirmed.plan.planDigest).toBe(first.plan.planDigest);
+        }
+    });
 });
 
 describe('Turn 2 — a bare date correction regenerates the SAME plan with the new date, never forcing the user to restate the request', () => {

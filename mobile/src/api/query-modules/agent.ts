@@ -293,6 +293,7 @@ export interface AgentPlanPresentation {
 
 export interface AgentTurnPlan {
     kind: 'plan';
+    confirmationRequested?: boolean;
     plan: {
         planId: string;
         status: string;

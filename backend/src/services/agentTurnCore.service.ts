@@ -58,6 +58,7 @@ import {
     tryAnswerPendingClarification,
     classifyPlanCorrection,
     buildPlanDateCorrection,
+    isExplicitPlanConfirmation,
 } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
@@ -169,6 +170,20 @@ export async function runAgentTurn(
     });
     const pendingAnswerable = isPendingClarificationAnswerable(existingDialogueState);
     traceAgentDevice(traceId, 'AGENT_PENDING_CLARIFICATION_CHECK', { pendingAnswerable });
+
+    if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
+        && existingDialogueState.openObjective
+        && existingDialogueState.currentPlanDigestRef
+        && isExplicitPlanConfirmation(content)) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'natural_plan_confirmation', dialogueScopeKey });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: existingDialogueState.openObjective,
+            confirmationRequested: true,
+        }), traceId);
+    }
+
     if (pendingAnswerable) {
         const pendingResult = await tryAnswerPendingClarification(
             existingDialogueState!, content, input.actorUserId, conversationId,
@@ -565,6 +580,7 @@ async function runWriteActionTurn(params: {
     dialogueScopeKey: string;
     dialogueService: AgentDialogueStateService;
     newTurnObjective: AgentObjective;
+    confirmationRequested?: boolean;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
     const dialogueService = params.dialogueService;
@@ -657,12 +673,15 @@ async function runWriteActionTurn(params: {
         dialogueService.reset({ actorUserId, dialogueScopeKey });
     }
 
-    return routePlanningResult(plan, { locale: params.locale, timezone: params.timezone, now: params.now, traceId: params.traceId });
+    return routePlanningResult(plan, {
+        locale: params.locale, timezone: params.timezone, now: params.now, traceId: params.traceId,
+        confirmationRequested: params.confirmationRequested,
+    });
 }
 
 function routePlanningResult(
     plan: AgentPlan,
-    context: { locale?: string; timezone?: string; now: Date; traceId: string },
+    context: { locale?: string; timezone?: string; now: Date; traceId: string; confirmationRequested?: boolean },
 ): AgentTurnResult {
     tracePlan(context.traceId, 'TURN_PLAN_RESULT', { status: plan.status, failureMode: plan.failureMode });
     if (plan.status === 'needs_clarification') {
@@ -671,6 +690,7 @@ function routePlanningResult(
     if (plan.status === 'ready_for_authorization') {
         return {
             kind: 'plan',
+            confirmationRequested: context.confirmationRequested,
             plan: toPublicAgentPlanResponse(plan),
             presentation: buildPlanPresentation(plan, context),
         };

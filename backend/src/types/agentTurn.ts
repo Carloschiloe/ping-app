@@ -18,6 +18,8 @@ export interface AgentTurnResponse {
 
 export interface AgentTurnPlan {
     kind: 'plan';
+    /** True when this plan is the Core's response to an explicit natural confirmation. */
+    confirmationRequested?: boolean;
     plan: AgentPlanPublicResponse;
     // Core-owned presentation projection — mobile renders this, never reconstructs from plan internals
     presentation: AgentPlanPresentation;

@@ -27,6 +27,7 @@ import {
     classifyContinuation,
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
+    isExplicitPlanConfirmation,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -80,6 +81,16 @@ describe('isContinuationEligibleObjectiveType', () => {
         expect(isContinuationEligibleObjectiveType('reschedule_existing_commitment')).toBe(false);
         expect(isContinuationEligibleObjectiveType('respond_to_existing_proposal')).toBe(false);
         expect(isContinuationEligibleObjectiveType('unsupported')).toBe(false);
+    });
+});
+
+describe('isExplicitPlanConfirmation', () => {
+    it.each(['Sí, créalo.', 'si hazlo', 'Dale', 'confirmo', 'adelante', 'OK'])('reconoce confirmación natural: %s', (input) => {
+        expect(isExplicitPlanConfirmation(input)).toBe(true);
+    });
+
+    it.each(['No lo crees', 'mejor mañana a las 12', '¿Qué compromisos tengo hoy?', 'créalo y avisa a Pedro'])('no convierte una instrucción nueva o negativa en confirmación: %s', (input) => {
+        expect(isExplicitPlanConfirmation(input)).toBe(false);
     });
 });
 

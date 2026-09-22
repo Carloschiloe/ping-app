@@ -97,6 +97,44 @@ export function isDialogueTrackedObjectiveType(objectiveType: AgentObjectiveType
         || PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
 }
 
+const EXPLICIT_PLAN_CONFIRMATION_PHRASES = new Set([
+    'si',
+    'si crea',
+    'si crealo',
+    'si hazlo',
+    'si adelante',
+    'ok',
+    'ok crea',
+    'ok crealo',
+    'dale',
+    'dale crea',
+    'dale crealo',
+    'confirmo',
+    'confirmar',
+    'crealo',
+    'hazlo',
+    'adelante',
+    'procede',
+    'de acuerdo',
+]);
+
+/**
+ * Core-owned confirmation operator. It is deliberately limited to short,
+ * affirmative utterances and is only meaningful while a plan is pending.
+ * Anything that carries a new object, date, or negation remains a new turn
+ * or a plan correction and must not authorize an old plan implicitly.
+ */
+export function isExplicitPlanConfirmation(rawTurn: string): boolean {
+    const normalized = rawTurn
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('es-CL')
+        .replace(/[¿?¡!.,;:]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return EXPLICIT_PLAN_CONFIRMATION_PHRASES.has(normalized);
+}
+
 export interface ContinuationClassification {
     // true only when Core has validated (not merely the LLM proposing) that
     // the new turn should be merged into the open dialogue objective.

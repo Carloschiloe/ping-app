@@ -30,7 +30,7 @@ import { formatRecordingDuration } from '../utils/audioRecording';
 import { voiceStatusCopy } from '../utils/voiceSession';
 import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
-    isAgentTurnBusy, reduceAgentTurnUi,
+    isAgentTurnBusy, reduceAgentTurnUi, type PendingAgentPlan,
 } from '../utils/agentTurnState';
 import { AgentPlanCard } from '../components/agent/AgentPlanCard';
 import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
@@ -116,6 +116,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending)) return;
+        const pendingPlanBeforeSubmit = turnState.pendingPlan;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
         const idempotencyKey = retryIdempotencyKey ?? createAgentTurnIdempotencyKey();
@@ -145,8 +146,23 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished();
-                dispatchTurn({ type: 'TURN_RESULT', result, source, sourceText: trimmed });
-                setMessages((prev) => appendAgentTurnMessage(prev, result));
+                const isNaturalPlanConfirmation = result.kind === 'plan'
+                    && result.confirmationRequested === true
+                    && pendingPlanBeforeSubmit !== null;
+                dispatchTurn({
+                    type: 'TURN_RESULT',
+                    result,
+                    source: isNaturalPlanConfirmation ? pendingPlanBeforeSubmit!.source : source,
+                    sourceText: isNaturalPlanConfirmation ? pendingPlanBeforeSubmit!.sourceText : trimmed,
+                });
+                if (!isNaturalPlanConfirmation) setMessages((prev) => appendAgentTurnMessage(prev, result));
+                if (isNaturalPlanConfirmation) {
+                    void executePendingPlan({
+                        turn: result,
+                        source: pendingPlanBeforeSubmit!.source,
+                        sourceText: pendingPlanBeforeSubmit!.sourceText,
+                    });
+                }
             },
             onError: (error) => {
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
@@ -188,9 +204,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         dispatchTurn({ type: 'FAIL', message, failureCode: code, status: error instanceof ApiError ? error.status : null });
     };
 
-    const handleConfirmPlan = async () => {
-        const pending = turnState.pendingPlan;
-        if (!pending || !canConfirmAgentPlan(turnState) || confirmationInFlightRef.current) return;
+    const executePendingPlan = async (pending: PendingAgentPlan) => {
+        if (confirmationInFlightRef.current) return;
         confirmationInFlightRef.current = true;
         dispatchTurn({ type: 'CONFIRM' });
         try {
@@ -207,6 +222,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         } catch (error) {
             handlePlanFailure(error);
         }
+    };
+
+    const handleConfirmPlan = async () => {
+        const pending = turnState.pendingPlan;
+        if (!pending || !canConfirmAgentPlan(turnState) || confirmationInFlightRef.current) return;
+        await executePendingPlan(pending);
     };
 
     const handleCancelPlan = () => {
