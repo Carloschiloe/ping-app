@@ -26,8 +26,8 @@ const WEEKDAYS: Record<string, number> = {
     sabado: 6,
 };
 
-// Horas habladas en espaÃ±ol. Esta tabla debe vivir en el parser canÃ³nico:
-// la rama de dÃ­a de semana se resuelve antes de Chrono y, sin ella,
+// Horas habladas en español. Esta tabla debe vivir en el parser canónico:
+// la rama de día de semana se resuelve antes de Chrono y, sin ella,
 // expresiones como "a las siete" caen silenciosamente en 12:00.
 const SPANISH_HOUR_WORDS: Record<string, number> = {
     una: 1,

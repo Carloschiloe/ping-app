@@ -1076,7 +1076,7 @@ function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', time
         || a.commitment.createdAt.localeCompare(b.commitment.createdAt)
         || a.commitment.id.localeCompare(b.commitment.id));
     const selected = candidates[0];
-    const title = selected.commitment.title.trim() || (language === 'es' ? 'Sin tÃ­tulo' : 'Untitled');
+    const title = selected.commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
     const due = selected.commitment.dueAt
         ? formatEventTimestampInZone(selected.commitment.dueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
         : null;
@@ -1084,12 +1084,12 @@ function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', time
         ? (language === 'es' ? 'compromiso' : 'commitment')
         : (language === 'es' ? 'propuesta' : 'proposal');
     const detail = selected.overdue
-        ? (language === 'es' ? 'estÃ¡ atrasado' : 'is overdue')
+        ? (language === 'es' ? 'está atrasado' : 'is overdue')
         : due
             ? (language === 'es' ? `vence ${due}` : `is due ${due}`)
             : (language === 'es' ? 'no tiene fecha' : 'has no due date');
     const text = language === 'es'
-        ? `El ${label} mÃ¡s urgente es "${title}": ${detail}.`
+        ? `El ${label} más urgente es "${title}": ${detail}.`
         : `The most urgent ${label} is "${title}": ${detail}.`;
     const ref: AgentCitation = { sourceType: selected.commitment.provenance.sourceType, sourceId: selected.commitment.provenance.sourceId };
     const claim: AgentClaim = { text, sourceRefs: [ref] };

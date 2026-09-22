@@ -435,7 +435,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         if (requestedMessageId && focusDecision !== 'idle' && focusDecision !== 'already_handled') {
             if (focusDecision === 'unavailable') {
                 handledScrollTargetRef.current = requestedMessageId;
-                Alert.alert('Mensaje no disponible', 'El mensaje fue eliminado o ya no estÃ¡ disponible.');
+                Alert.alert('Mensaje no disponible', 'El mensaje fue eliminado o ya no está disponible.');
                 navigation.setParams({ scrollToMessageId: undefined });
                 return;
             }

@@ -220,6 +220,25 @@ describe('M-1E: deriveStatus (sección 6) — siempre determinístico', () => {
         expect(response.citations).toEqual([{ sourceType: 'commitment', sourceId: 'cm-overdue' }]);
         expect(model.synthesize).not.toHaveBeenCalled();
     });
+
+    it('emite UTF-8 válido en la respuesta determinística de urgencia', async () => {
+        const overdue = commitment('cm-utf8', { title: 'Probar la voz de Ping', dueAt: '2026-09-01T00:00:00.000Z', priority: 'medium' });
+        const model = fakeModel(claimPayload([]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({
+            input: '¿Cuál es el más urgente?',
+            context: baseContext({
+                evidenceFound: true,
+                commitments: [overdue] as any,
+                urgencyComparison: 'most_urgent',
+            }),
+        });
+
+        expect(response.answer).toContain('más urgente');
+        expect(response.answer).toContain('está atrasado');
+        expect(response.answer).not.toMatch(/[ÃÂ�]/u);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
 });
 
 // ─── Claim validation ─────────────────────────────────────────────────────

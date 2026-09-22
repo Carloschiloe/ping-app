@@ -45,7 +45,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
     const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
 
     const name = isSelf
-        ? 'Para mÃ­'
+        ? 'Para mí'
         : isGroup
             ? currentConv?.groupMetadata?.name || groupMetadata?.name || 'Grupo'
             : otherUser?.full_name || otherUser?.email?.split('@')[0] || 'Chat';
@@ -109,7 +109,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
 
     const toggleAdmin = (member: any) => {
         const role = member.role === 'admin' ? 'member' : 'admin';
-        Alert.alert('Administradores', `Â¿Confirmas cambiar el rol de ${member.full_name || member.email}?`, [
+        Alert.alert('Administradores', `¿Confirmas cambiar el rol de ${member.full_name || member.email}?`, [
             { text: 'Cancelar', style: 'cancel' },
             { text: 'Confirmar', onPress: () => updateParticipantRole({ userId: member.id, role }) },
         ]);
@@ -117,7 +117,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
 
     const confirmDeleteGroup = () => Alert.alert(
         'Eliminar grupo',
-        'Â¿EstÃ¡s seguro? Esta acciÃ³n no se puede deshacer.',
+        '¿Estás seguro? Esta acción no se puede deshacer.',
         [
             { text: 'Cancelar', style: 'cancel' },
             {
@@ -154,7 +154,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                 {isAdmin && (
                     <TouchableOpacity style={styles.compactAction} onPress={() => navigation.navigate('AddParticipants', { conversationId })}>
                         <Ionicons name="person-add-outline" size={20} color={theme.colors.accent} />
-                        <Text style={styles.compactActionText}>AÃ±adir participante</Text>
+                        <Text style={styles.compactActionText}>Añadir participante</Text>
                     </TouchableOpacity>
                 )}
             </View>
