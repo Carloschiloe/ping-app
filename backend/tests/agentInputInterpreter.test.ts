@@ -576,6 +576,13 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         expect(result.timeExpression).toBe('hoy');
     });
 
+    it('DeterministicInputInterpreter: una comparación temporal sin sustantivo consulta compromisos y no contamina el FTS', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Cuál es el más temprano?', {});
+        expect(result.intent).toBe('commitment_query');
+        expect(result.wantsCommitments).toBe(true);
+        expect(result.textQuery).toBeNull();
+    });
+
     it('DeterministicInputInterpreter: una CONSULTA sobre el mismo tema nunca activa isWriteActionRequest', async () => {
         const result = await new DeterministicInputInterpreter().interpret('¿Qué le prometí a Laura?', {});
         expect(result.isWriteActionRequest).toBe(false);

@@ -95,6 +95,11 @@ const NATURAL_WRITE_ACTION_PHRASES = /(?:acordarme\s+de|acu[ée]rdate\s+de|puede
 
 const COMMITMENT_KEYWORDS = wordBounded('promet[íi]\\w*|promise[ds]?|pendientes?|pending|tareas?|tasks?|compromisos?|commitments?|debo|owe');
 const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|archivos?|files?|adjuntos?|attachments?|mandaron|enviaron|sent');
+// Comparative temporal questions are commitment reads even when the user
+// omits the noun entirely (for example, "¿Cuál es el más temprano?").
+// Without this signal the turn falls into general_context/topic_too_broad
+// instead of comparing the commitments already in scope.
+const TEMPORAL_COMPARISON_QUERY_KEYWORDS = wordBounded('m[aá]s\\s+(?:tempran[oa]|tarde)|earliest|latest|soonest');
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
 // M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B) — "háblame de X"/
 // "cuéntame sobre X" son la MISMA familia semántica que "hablamos de X"/
@@ -510,7 +515,7 @@ const STOPWORDS = new Set([
     // preguntas de vencido/status ("¿Qué hay vencido?" -> "hay", "¿Tengo
     // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
     // have..." -> "I") — sin significado temático propio en ningún idioma.
-    'hay', 'algo', 'is', 'i',
+    'hay', 'algo', 'es', 'is', 'i',
     // M-1H v6: mismo residuo que arriba pero para proposalFocus -- "¿Qué
     // estoy esperando?" ya captura "esperando" vía
     // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo
@@ -636,6 +641,13 @@ function stripCardinalityControlWords(text: string): string {
         cleaned = cleaned.replace(new RegExp(kw.source, 'giu'), ' ');
     }
     return cleaned.replace(/\s+/g, ' ').trim();
+}
+
+function stripTemporalComparisonLanguage(text: string): string {
+    return text
+        .replace(new RegExp(TEMPORAL_COMPARISON_QUERY_KEYWORDS.source, 'giu'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 // M-1G.3 — hallazgo real de staging (M-1G-S2/M-1G.2, caso "Entrenar"): esta
@@ -827,6 +839,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     if (WRITE_ACTION_KEYWORDS.test(input) || NATURAL_WRITE_ACTION_PHRASES.test(input)) {
         return { type: 'general_context', confidence: 0.9 };
     }
+    if (TEMPORAL_COMPARISON_QUERY_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
     if (DOCUMENT_KEYWORDS.test(input)) return { type: 'document_search', confidence: 0.8 };
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
     // M-1H v6 (Gap B): "¿qué estoy esperando?"/"¿qué tengo por aceptar?"/
@@ -1064,6 +1077,8 @@ function normalizeControlLanguageFromTextQuery(candidate: string): string {
     cleaned = stripConfirmationControlWords(cleaned);
     // M-1H (bloqueo B): "cuántos"/"resume" ya capturados en queryCardinality.
     cleaned = stripCardinalityControlWords(cleaned);
+    // Comparative temporal language is a query operator, not an FTS topic.
+    cleaned = stripTemporalComparisonLanguage(cleaned);
     return cleaned;
 }
 
