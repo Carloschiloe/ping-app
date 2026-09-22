@@ -5,6 +5,10 @@ import path from 'node:path';
 vi.mock('expo-localization', () => ({
     getLocales: vi.fn(() => [{ languageTag: 'es-CL', languageCode: 'es', regionCode: 'CL' }]),
 }));
+vi.mock('expo-device', () => ({
+    DeviceType: { TABLET: 2 },
+    deviceType: null,
+}));
 vi.mock('expo-file-system', () => ({ File: class MockFile { constructor(public uri: string) {} } }));
 vi.mock('../src/api/client', () => {
     class MockApiError extends Error {
@@ -27,7 +31,7 @@ import { apiClient } from '../src/api/client';
 import type {
     AgentAuthorizationResult, AgentExecutionResult, AgentTurnInput, AgentTurnPlan, AgentTurnResult,
 } from '../src/api/query-modules/agent';
-import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, requestAgentSurfaceTurn } from '../src/api/query-modules/agent';
+import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, publicPingSurface, requestAgentSurfaceTurn, surfaceForDeviceType } from '../src/api/query-modules/agent';
 import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
@@ -164,8 +168,8 @@ describe('M-6 mobile API and presentation boundary', () => {
     it('text and final voice transcript use the same /agent/turn request contract', () => {
         expect(buildAgentTurnRequestBody({ input: ' hola ' }).input).toBe('hola');
         expect(buildAgentTurnRequestBody({ voiceInputToken: 'signed-token' })).toEqual({ voiceInputToken: 'signed-token' });
-        expect(buildAgentTurnRequestBody({ input: 'revisar el audio', reviewedVoiceInputToken: 'signed-token' })).toMatchObject({
-            input: 'revisar el audio',
+        expect(buildAgentTurnRequestBody({ input: 'recuÃ©rdame revisar el audio', reviewedVoiceInputToken: 'signed-token' })).toMatchObject({
+            input: 'recuÃ©rdame revisar el audio',
             reviewedVoiceInputToken: 'signed-token',
         });
     });
@@ -195,6 +199,8 @@ describe('M-6 mobile API and presentation boundary', () => {
         });
         expect(adapterSurfaceForTurn({ input: 'tablet', channel: 'tablet' })).toBe('tablet');
         expect(adapterSurfaceForTurn({ voiceInputToken: 'voice' })).toBe('mobile_voice');
+        expect(publicPingSurface()).toBe('mobile_text');
+        expect(surfaceForDeviceType(2, 2)).toBe('tablet');
     });
 
     it('authorization echoes only the signed source, frozen digest, step IDs and explicit confirmation', () => {

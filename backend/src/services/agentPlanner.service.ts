@@ -51,6 +51,10 @@ export interface AgentPlannerInput {
     timezone?: string;
     traceId?: string;
     contextReferents?: ContextReferent[];
+    // Candidates already retrieved by the canonical turn context. The Core
+    // may pass these to avoid a second, divergent lookup after the semantic
+    // context has already established the authorized evidence set.
+    preloadedCommitments?: RetrievalCommitment[];
     // PING — AGENT RESPONSE LANGUAGE CONSISTENCY: the real device locale
     // (BCP-47), already threaded through agentTurn.service.ts /
     // agentPlanOrchestrator.service.ts, was previously dropped exactly at
@@ -128,11 +132,13 @@ function dateFromCanonicalTemporal(temporal: TemporalCoreResult | undefined): Da
 // clarification-answer resolution (M-7): a user picking/naming among
 // multiple candidate commitments must go through this SAME live,
 // substring-verified resolution, never a second, divergent lookup.
-export async function resolveEntityHint(actorUserId: string, hint: string): Promise<RetrievalCommitment[]> {
-    const [commitments, proposals] = await Promise.all([
-        retrieveCommitments({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
-        retrieveCommitmentProposals({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
-    ]);
+export async function resolveEntityHint(actorUserId: string, hint: string, preloadedCommitments?: RetrievalCommitment[]): Promise<RetrievalCommitment[]> {
+    const [commitments, proposals] = preloadedCommitments
+        ? [preloadedCommitments, [] as RetrievalCommitment[]]
+        : await Promise.all([
+            retrieveCommitments({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
+            retrieveCommitmentProposals({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
+        ]);
     const needle = hint.trim().toLowerCase();
     // Nunca confía ciegamente en el ranking de relevancia textual del FTS —
     // exige que el título REAL devuelto contenga el hint, honestamente
@@ -636,7 +642,7 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         candidates = referenced ? [referenced] : [];
         resolvedFromContext = true;
     } else {
-        candidates = await resolveEntityHint(input.actorUserId, hint);
+        candidates = await resolveEntityHint(input.actorUserId, hint, input.preloadedCommitments);
     }
     if (candidates.length === 0) {
         return { steps: [], blockingAmbiguities: [], failureMode: 'entity_not_found', failureMessage: resolvedFromContext

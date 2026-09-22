@@ -62,6 +62,8 @@ describe('Ping Core — contrato de lenguaje natural antes de voz/tablet', () =>
         ['Ayúdame a coordinar la reunión con Ana', 'create_commitment_or_proposal', 'la reunión con Ana'],
         ['¿Me puedes recordar que llame a Pedro mañana?', 'create_personal_commitment', 'llame a Pedro'],
         ['¿Puedes recordarme revisar el contrato el viernes?', 'create_personal_commitment', 'revisar el contrato'],
+        ['Recuérdame mañana verificar el audio bueno a las 12', 'create_personal_commitment', 'verificar el audio bueno'],
+        ['Recuérdame verificar el audio bueno mañana a las 12', 'create_personal_commitment', 'verificar el audio bueno'],
     ] as const)('tolera variaciones informales o transcript sin tildes: %s', async (utterance, objectiveType, entityHint) => {
         const routing = await resolveDeterministicRouting(utterance, { actorUserId: ACTOR_ID });
         expect(routing.isWriteActionRequest).toBe(true);

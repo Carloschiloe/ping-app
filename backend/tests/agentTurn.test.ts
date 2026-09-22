@@ -334,7 +334,7 @@ describe('POST /agent/turn — Core routing ownership (mobile must NOT decide)',
         const res = await postTurn({ input: 'Dile a Alejandra que llegaré tarde.', conversationId: CONVERSATION_ID });
 
         expect(res.body.kind).toBe('plan');
-        expect(buildAgentContextSpy).not.toHaveBeenCalled();
+        expect(buildAgentContextSpy).toHaveBeenCalledTimes(1);
     });
 });
 

@@ -312,6 +312,19 @@ describe('agentInputEnvelope.service — voiceInputToken is signed, TTL-bound an
         const { token } = issueVoiceInputToken(envelope, now);
         const result = verifyVoiceInputToken(token, CARLOS, now);
         expect(result.envelope.inputId).toBe('input-1');
+        const { createReviewedVoiceTextInputEnvelope } = await import('../src/services/agentInputEnvelope.service');
+        const reviewed = createReviewedVoiceTextInputEnvelope({
+            actorUserId: CARLOS,
+            content: 'texto corregido por el usuario',
+            reviewedVoiceInputToken: token,
+            traceId: 'review-trace',
+            now,
+        });
+        expect(reviewed.envelope.modality).toBe('text');
+        expect(reviewed.envelope.content).toBe('texto corregido por el usuario');
+        expect(reviewed.envelope.audioRef).toBe('audio-1');
+        expect(reviewed.envelope.provenance.reviewedByUser).toBe(true);
+        expect(reviewed.envelope.provenance.reviewedVoiceInputId).toBe('input-1');
         expect(result.envelope.content).toBe('¿Qué tengo hoy?');
     });
 
@@ -413,6 +426,25 @@ describe('agentPlanOrchestrator — low-confidence voice transcript blocks plann
         expect(result.steps).toEqual([]);
         expect(result.canExecute).toBe(false);
         expect(interpreter.interpret).not.toHaveBeenCalled();
+    });
+
+    it('reviewed transcript text bypasses the provider confidence block', async () => {
+        resolvePersonMock.mockResolvedValue({ resolved: { kind: 'user', id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', displayName: 'Alejandra' } as RetrievalPerson, ambiguous: false, candidates: [] });
+        const sourceEnvelope = envelope(0.4);
+        const result = await runAgentPlanning(
+            {
+                actorUserId: CARLOS,
+                input: 'Dile a Alejandra que llegare tarde',
+                conversationId: '11111111-1111-4111-8111-111111111111',
+                inputEnvelope: {
+                    ...sourceEnvelope,
+                    modality: 'text',
+                    provenance: { ...sourceEnvelope.provenance, reviewedByUser: true },
+                },
+            },
+            { semanticContentModel: fakeSemanticModel('llegare tarde') },
+        );
+        expect(result.status).not.toBe('needs_clarification');
     });
 
     it('confianza null (proveedor sin señal de confianza) -> NO bloquea, sigue el flujo normal', async () => {

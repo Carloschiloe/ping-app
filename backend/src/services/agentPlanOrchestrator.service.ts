@@ -13,10 +13,10 @@
 // tercera [llamada] agregada aquí").
 import { randomUUID } from 'crypto';
 import {
-    LlmObjectiveInterpreter, DeterministicObjectiveInterpreter, proposeSemanticContentCandidate,
+    LlmObjectiveInterpreter, proposeSemanticContentCandidate,
     type AgentObjectiveInterpreter, type AgentObjectiveModel,
 } from './agentObjectiveInterpreter.service';
-import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
+import { interpretAgentSemanticTurn } from './agentSemanticInterpreter.service';
 import { planObjective, requiredConfirmationsFor, toClarificationQuestions, type AgentPlannerInput, type AgentPlannerCanonicalFacts } from './agentPlanner.service';
 import { validateAgentPlan } from './agentPlanValidator.service';
 import { computePlanDigest } from './agentPlanDigest.service';
@@ -26,22 +26,11 @@ import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 import { LOW_CONFIDENCE_ACTION_THRESHOLD } from './agentVoice.service';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 
-// ─── Canonical deterministic-first routing (sección: "ONE owner of agent
-// input -> deterministic-first interpretation -> optional semantic
-// enrichment -> canonical objective -> runAgentPlanning -> canonical
-// AgentPlan/digest"). /agent/turn, /api/agent/plan, and /agent/authorize's
-// re-plan ALL call this exact function to decide whether an input is
-// write-shaped and, if so, what its deterministic objective is — none of
-// them independently re-implements this decision. It NEVER performs I/O
-// beyond the pure/regex-based deterministic interpreters (no model call, no
-// DB): a write-shaped input whose deterministic objective is usable is
-// handed straight to the caller as `resolvedObjective`; runAgentPlanning
-// (the sole remaining decision-maker) falls back to the full
-// LlmObjectiveInterpreter — and, for communicate_* objectives, the
-// semantic-enrichment bridge — only when this returns none. This is the
-// ONLY place that reads DeterministicInputInterpreter/
-// DeterministicObjectiveInterpreter for planning purposes; no other module
-// may instantiate them for that reason.
+// ─── Canonical semantic routing. This compatibility-named export is retained
+// for plan/authorize callers, but no longer implements deterministic-first
+// routing. All callers now share agentSemanticInterpreter.service.ts, which
+// lets novel language reach the semantic interpreter before planning. The
+// planner remains the sole owner of validation, digest and plan status.
 export interface DeterministicRoutingResult {
     isWriteActionRequest: boolean;
     resolvedObjective?: AgentObjective;
@@ -51,16 +40,13 @@ export async function resolveDeterministicRouting(
     inputText: string,
     context: { actorUserId: string; conversationId?: string },
 ): Promise<DeterministicRoutingResult> {
-    const routing = await new DeterministicInputInterpreter().interpret(inputText);
-    if (!routing.isWriteActionRequest) return { isWriteActionRequest: false };
-
-    const objective = await new DeterministicObjectiveInterpreter().interpret(inputText, {
+    const routing = await interpretAgentSemanticTurn(inputText, {
         actorUserId: context.actorUserId,
         conversationId: context.conversationId,
     });
     return {
-        isWriteActionRequest: true,
-        resolvedObjective: objective.objectiveType !== 'unsupported' ? objective : undefined,
+        isWriteActionRequest: routing.route === 'write',
+        resolvedObjective: routing.objective ?? undefined,
     };
 }
 
@@ -75,6 +61,7 @@ export interface AgentPlanOrchestratorInput {
     traceId?: string;
     inputEnvelope?: AgentInputEnvelope;
     contextReferents?: ContextReferent[];
+    preloadedCommitments?: AgentPlannerInput['preloadedCommitments'];
     canonicalFacts?: AgentPlannerCanonicalFacts;
 }
 
@@ -196,6 +183,7 @@ export async function runAgentPlanning(input: AgentPlanOrchestratorInput, option
         timezone: input.timezone,
         traceId: input.traceId,
         contextReferents: input.contextReferents,
+        preloadedCommitments: input.preloadedCommitments,
         // PING — AGENT RESPONSE LANGUAGE CONSISTENCY (root cause fix):
         // AgentPlanOrchestratorInput already carried `locale` (threaded in
         // from agentTurn.service.ts) but it was never copied into

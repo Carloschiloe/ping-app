@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_OBJECTIVE_TYPE_VALUES } from '../types/agentPlan';
 
 // M-3 — Schema estricto para la salida estructurada del LLM Objective
 // Interpreter. Mismo principio que agentInterpretation.schema.ts (sección
@@ -9,17 +10,6 @@ import { z } from 'zod';
 // planner + el validator) es quien resuelve identidad/entidad/tiempo y
 // decide todo lo demás.
 const HINT_STRING = z.string().trim().min(1).max(80);
-
-export const AGENT_OBJECTIVE_TYPE_VALUES = [
-    'communicate_message',
-    'communicate_and_wait',
-    'create_commitment_or_proposal',
-    'create_personal_commitment',
-    'reschedule_existing_commitment',
-    'complete_existing_commitment',
-    'respond_to_existing_proposal',
-    'unsupported',
-] as const;
 
 export const agentObjectiveInterpretationPayloadSchema = z.object({
     objectiveType: z.enum(AGENT_OBJECTIVE_TYPE_VALUES),

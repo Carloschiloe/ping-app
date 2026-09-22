@@ -80,17 +80,21 @@ export interface ToolContract {
 
 // ─── AgentObjective (sección 7) — user intent turned into a structured,
 // never free-text-only, canonical objective. ────────────────────────────────
-export type AgentObjectiveType =
-    | 'communicate_message'
-    | 'communicate_and_wait'
-    | 'create_commitment_or_proposal'
-    | 'create_personal_commitment'
-    | 'reschedule_existing_commitment'
-    | 'complete_existing_commitment'
-    | 'respond_to_existing_proposal'
-    | 'remember_fact'
-    | 'cancel_existing_commitment'
-    | 'unsupported';
+/** Canonical semantic objective catalog shared by the model contract and Core. */
+export const AGENT_OBJECTIVE_TYPE_VALUES = [
+    'communicate_message',
+    'communicate_and_wait',
+    'create_commitment_or_proposal',
+    'create_personal_commitment',
+    'reschedule_existing_commitment',
+    'complete_existing_commitment',
+    'respond_to_existing_proposal',
+    'remember_fact',
+    'cancel_existing_commitment',
+    'unsupported',
+] as const;
+
+export type AgentObjectiveType = typeof AGENT_OBJECTIVE_TYPE_VALUES[number];
 
 export type AmbiguityKind = 'blocking' | 'non_blocking';
 

@@ -29,6 +29,36 @@ export function channelForSurface(surface: AgentAdapterSurface): AgentAdapterCha
     return surface === 'mobile_text' || surface === 'mobile_voice' ? 'mobile' : surface;
 }
 
+/**
+ * The public Ping entrypoint must choose the device surface without exposing
+ * internal brain/mode choices. Expo Device is the platform-owned source for
+ * phone/tablet form factor; unknown devices conservatively use mobile text.
+ */
+type ExpoDeviceModule = {
+    deviceType?: unknown;
+    DeviceType?: { TABLET?: unknown };
+};
+
+function loadExpoDevice(): ExpoDeviceModule {
+    try {
+        // Runtime-only loading keeps this adapter usable in Node/Vitest where
+        // expo-modules-core may not be installed, while native builds still
+        // use Expo Device as the platform-owned form-factor source.
+        return require('expo-device') as ExpoDeviceModule;
+    } catch {
+        return {};
+    }
+}
+
+export function surfaceForDeviceType(deviceType: unknown, tabletType?: unknown): 'mobile_text' | 'tablet' {
+    return deviceType !== undefined && deviceType === tabletType ? 'tablet' : 'mobile_text';
+}
+
+export function publicPingSurface(): 'mobile_text' | 'tablet' {
+    const device = loadExpoDevice();
+    return surfaceForDeviceType(device.deviceType, device.DeviceType?.TABLET);
+}
+
 export function surfaceForTurn(input: {
     voiceInputToken?: string;
     channel?: AgentAdapterChannel;
@@ -62,6 +92,8 @@ export function buildAgentSurfaceRequest(
         locale: context.locale,
     };
     if (input.conversationId) body.conversationId = input.conversationId;
+    if (input.reviewedVoiceInputToken) body.reviewedVoiceInputToken = input.reviewedVoiceInputToken;
     if (input.readCapability) body.readCapability = input.readCapability;
     return { body, headers };
 }
+import * as Device from 'expo-device';

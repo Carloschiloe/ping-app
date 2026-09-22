@@ -20,6 +20,7 @@ import { apiClient } from '../api/client';
 import { ConversationRow } from '../components/ConversationRow';
 import { GlobalSearchSection } from '../components/GlobalSearchSection';
 import { deriveIsSelf } from '../utils/conversationCompat';
+import { publicPingSurface } from '../api/agentSurfaceAdapter';
 
 // Fixed reveal width for swipe actions — the row must stay mostly visible
 // while dragging (a lateral button, not a full-width wipe). On a typical
@@ -325,15 +326,15 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     // press without touching Touchable semantics anywhere else.
     const suppressPingAIPressRef = React.useRef(false);
 
-    // M-1G — entrada discreta al preview del nuevo Agent (read-only): NO
-    // reemplaza el botón ✨ (Ping AI legacy sigue en el tap normal), sólo se
-    // ofrece detrás de un long-press, mismo patrón de ActionSheetIOS/Alert
-    // ya usado para "Nuevo chat/Nuevo grupo" arriba.
+    // Public product entry is always Ping/Core. Preview, tablet and legacy
+    // remain available only in development so the user never has to choose a
+    // brain or modality in the shipped app.
     const handleOpenAgentMenu = React.useCallback(() => {
+        if (!__DEV__) return;
         suppressPingAIPressRef.current = true;
         const items: { label: string; onPress: () => void }[] = [
-            { label: 'Ping (Core)', onPress: () => navigation.navigate('PingAI') },
-            { label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') },
+            { label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) },
+            { label: 'Preview interno', onPress: () => navigation.navigate('AgentPreview') },
         ];
         if (__DEV__) {
             items.push({
@@ -436,11 +437,11 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                         suppressPingAIPressRef.current = false;
                                         return;
                                     }
-                                    navigation.navigate('PingAI');
+                                    navigation.navigate('PingAI', { surface: publicPingSurface() });
                                 }}
                                 onLongPress={handleOpenAgentMenu}
                                 accessibilityRole="button"
-                                accessibilityLabel="Abrir Ping AI. Mantén presionado para el preview del nuevo Agent"
+                                accessibilityLabel="Abrir Ping"
                             >
                                 <Ionicons name="sparkles" size={22} color="white" />
                             </TouchableOpacity>

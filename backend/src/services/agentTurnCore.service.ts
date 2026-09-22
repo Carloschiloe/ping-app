@@ -22,8 +22,9 @@
 // planning needs write-shaped entity resolution buildAgentContext's
 // read-only heuristics were never tuned for (see the header comment of
 // agentPlanOrchestrator.service.ts).
-import { runAgentPlanning, resolveDeterministicRouting } from './agentPlanOrchestrator.service';
+import { runAgentPlanning } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
+import { interpretAgentSemanticTurn } from './agentSemanticInterpreter.service';
 import { synthesizeAgentResponse, realizeAgentClarification } from './agentResponseSynthesizer.service';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
@@ -38,6 +39,7 @@ import type {
     AgentPlanPresentation,
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
+import type { AgentContext } from '../types/agentContext';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
@@ -331,29 +333,22 @@ export async function runAgentTurn(
         }
     }
 
-    // A deterministic action can enter the planner directly. Reusing the
-    // resolved objective avoids both an unnecessary read-context retrieval
-    // and a second provider/model interpretation. Unknown action language
-    // still falls through to the general context + objective pipeline.
-    // resolveDeterministicRouting is the ONE canonical owner of this
-    // decision (sección: "no duplicated routing logic") — agentTurn.service.ts
-    // never independently re-implements deterministic-vs-LLM classification;
-    // it only asks the canonical function and, when the input qualifies,
-    // hands the already-resolved objective straight into runAgentPlanning
-    // (the sole final plan-status owner) exactly as agentAuthorization.service.ts's
-    // re-plan and agentPlan.controller.ts's initial plan now also do.
-    const routing = await resolveDeterministicRouting(content, { actorUserId: input.actorUserId, conversationId });
-    if (routing.isWriteActionRequest && routing.resolvedObjective) {
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'deterministic_write', dialogueScopeKey });
-        return finalizeAgentTurn(await runWriteActionTurn({
-            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: routing.resolvedObjective,
-        }), traceId);
-    }
-
-    // Single buildAgentContext call — both the routing decision AND (when
-    // the turn resolves to a response) the synthesis input come from this
-    // one context. Never rebuilt.
+    // M-7: one semantic interpretation owns the route. Deterministic
+    // classifiers are fallback/safety signals inside the interpreter and can
+    // no longer decide that an unrecognised wording is a READ before the LLM
+    // gets a chance to understand it.
+    const semantic = await interpretAgentSemanticTurn(content, {
+        actorUserId: input.actorUserId,
+        conversationId,
+        channel,
+    });
+    traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
+        route: semantic.route,
+        inputSource: semantic.interpretation.source,
+        objectiveType: semantic.objective?.objectiveType ?? null,
+    });
+    // Single buildAgentContext call using the same semantic interpretation;
+    // the read pipeline must not reinterpret the text through another policy.
     const context = await buildAgentContext({
         actorUserId: input.actorUserId,
         input: content,
@@ -365,20 +360,22 @@ export async function runAgentTurn(
         traceId,
         priorReadContext: existingDialogueState?.lastReadContext ?? null,
         authorizedCommitmentReferentId: options.authorizedCommitmentReferentId,
-    }, {});
+    }, { interpretation: semantic.interpretation });
 
     // `isWriteActionRequest` itself lives on the internal `Interpretation`
     // type, never propagated onto the public `AgentContext` — the
     // externally-visible signal it produces is exactly this capability gap
     // (agentContextBuilder.service.ts always adds it when the interpreter
     // flagged a write action, sección 20/M-1G.1).
-    const isWriteActionRequest = context.capabilityGaps.some((g) => g.type === 'write_action_not_supported');
+    const contextCapabilityWriteSignal = context.capabilityGaps.some((g) => g.type === 'write_action_not_supported');
+    const isWriteActionRequest = semantic.route === 'write';
 
     tracePlan(traceId, 'TURN_CONTEXT_BUILT', {
         intentType: context.intent.type,
         intentConfidence: context.intent.confidence,
         wantsOverdueFocus: context.wantsOverdueFocus,
         isWriteActionRequest,
+        contextCapabilityWriteSignal,
         explicitPersonMention: context.explicitPersonMention,
     });
     traceAgentDevice(traceId, 'AGENT_CONTEXT_RESULT', {
@@ -387,6 +384,7 @@ export async function runAgentTurn(
         needsClarification: context.needsClarification,
         clarificationReason: context.clarification?.reason ?? null,
         isWriteActionRequest,
+        contextCapabilityWriteSignal,
         resolvedPersonCandidateCount: context.clarification?.candidates?.length ?? null,
         sourceRefCount: context.commitments.length + context.events.length + context.messages.length
             + context.transcriptions.length + context.attachments.length,
@@ -436,8 +434,14 @@ export async function runAgentTurn(
             isWriteActionRequest,
         });
         if (clarification?.reason === 'person_ambiguous') {
-            const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {
-                actorUserId: input.actorUserId, conversationId,
+            // A provider may conservatively mark the input READ while the
+            // resolved read context proves that an unresolved person is
+            // blocking a write-shaped commitment. In that narrow case Core
+            // asks the canonical objective interpreter for the pending
+            // objective so the dialogue state is not lost.
+            const candidateObjective = semantic.objective ?? await new LlmObjectiveInterpreter().interpret(content, {
+                actorUserId: input.actorUserId,
+                conversationId,
             });
             const eligible = !!candidateObjective && isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
@@ -478,35 +482,20 @@ export async function runAgentTurn(
         }, traceId);
     }
 
-    // 2) Core routing decision: write-shaped requests go to the M-3 planning
-    // pipeline (never executes — /turn is a dry-run, same as /agent/plan).
-    // Read-only requests reuse the context already built above.
-    if (isWriteActionRequest) {
-        // M-7B — the deterministic fast path above didn't resolve an
-        // objective (or this turn didn't take it), so this is the primary
-        // LLM interpretation path. Interpreted HERE (rather than left to
-        // runAgentPlanning's own internal interpretation) so dialogue-state
-        // continuation can be classified against a real objective before
-        // planning -- runAgentPlanning is then called with this exact
-        // objective as `resolvedObjective`, so interpretation still happens
-        // exactly once per turn, same cost discipline as before.
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'llm_write', dialogueScopeKey });
-        const newTurnObjective = await new LlmObjectiveInterpreter().interpret(content, {
-            actorUserId: input.actorUserId, conversationId,
-        });
+    // The same semantic objective now enters the write pipeline only after
+    // context construction has had a chance to resolve blocking ambiguity.
+    // This preserves dialogue-first clarification while ensuring novel write
+    // wording never falls through to a misleading read response.
+    if (semantic.route === 'write' && semantic.objective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'semantic_write', dialogueScopeKey });
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: semantic.objective,
+            preloadedCommitments: context.commitments,
         }), traceId);
-
-        // status === 'draft': structurally blocked or genuinely unsupported —
-        // never a plan a client could confirm, and nothing left to ask
-        // (needs_clarification already handled above) — the honest kind is
-        // 'unsupported', with the SAME failure message already computed by
-        // the planner (never independently re-worded here).
     }
 
-    // 3) Read-only request. Any capability gap OTHER than
+    // Read-only request. Any capability gap OTHER than
     // 'write_action_not_supported' (which only applies to the branch above)
     // is a genuine "can't do that" — e.g. transcription/attachment search
     // without a conversation scope.
@@ -581,6 +570,7 @@ async function runWriteActionTurn(params: {
     dialogueScopeKey: string;
     dialogueService: AgentDialogueStateService;
     newTurnObjective: AgentObjective;
+    preloadedCommitments?: AgentContext['commitments'];
     confirmationRequested?: boolean;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
@@ -620,6 +610,7 @@ async function runWriteActionTurn(params: {
         traceId: params.traceId,
         inputEnvelope: params.envelope,
         contextReferents: params.referents,
+        preloadedCommitments: params.preloadedCommitments,
     }, { resolvedObjective: objectiveForPlanning });
 
     // M-7B dialogue-state bookkeeping, strictly AFTER the real plan result

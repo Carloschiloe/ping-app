@@ -12,7 +12,7 @@ import {
     type AgentAdapterSurface,
     type AgentSurfaceRequestInput,
 } from '../agentSurfaceAdapter';
-export { buildAgentSurfaceRequest, channelForSurface, surfaceForTurn } from '../agentSurfaceAdapter';
+export { buildAgentSurfaceRequest, channelForSurface, publicPingSurface, surfaceForDeviceType, surfaceForTurn } from '../agentSurfaceAdapter';
 export type { AgentAdapterChannel, AgentAdapterSurface, AgentSurfaceRequestContext, AgentSurfaceRequestInput } from '../agentSurfaceAdapter';
 
 // M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
@@ -386,6 +386,7 @@ export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string,
         locale: getDeviceLocale(),
     };
     if (input.conversationId) body.conversationId = input.conversationId;
+    if (input.reviewedVoiceInputToken) body.reviewedVoiceInputToken = input.reviewedVoiceInputToken;
     if (input.readCapability) body.readCapability = input.readCapability;
     return body;
 }

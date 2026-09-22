@@ -48,14 +48,20 @@ export type ConversationsStackParamList = {
         conversationId: string;
     };
     /** Main Ping entrypoint: unified Agent Core. */
-    PingAI: undefined;
+    PingAI: AgentCoreRouteParams | undefined;
     /** Compatibility route for the previous /ai/ask screen. */
     PingAIClassic: undefined;
     // M-1G — preview interna del nuevo Agent read-only. `conversationId`
     // opcional: ausente = Agent global (sin scope), presente = Agent
     // scoped a esa conversación (sección 8 del ticket).
-    AgentPreview: { conversationId?: string; currentCommitmentId?: string; surface?: 'mobile_text' | 'tablet' } | undefined;
+    AgentPreview: AgentCoreRouteParams | undefined;
     QuickCapture: undefined;
+};
+
+type AgentCoreRouteParams = {
+    conversationId?: string;
+    currentCommitmentId?: string;
+    surface?: 'mobile_text' | 'tablet';
 };
 
 export type MainTabParamList = {

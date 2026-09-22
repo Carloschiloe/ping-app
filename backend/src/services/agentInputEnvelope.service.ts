@@ -111,7 +111,14 @@ export function createTextInputEnvelope(input: {
     };
 }
 
-/** A transcript becomes a user-authored turn after the user presses Send. */
+/**
+ * A displayed transcript becomes a user-authored turn only after the user
+ * presses Send. Keep the signed audio/transcript provenance for audit and
+ * traceability, but change the semantic modality to text so a low-confidence
+ * provider score cannot block text the user has explicitly reviewed (or
+ * corrected). The signed token still proves the source belonged to this
+ * actor and was a final transcript; it is not a client-provided bypass flag.
+ */
 export function createReviewedVoiceTextInputEnvelope(input: {
     actorUserId: string;
     content: string;

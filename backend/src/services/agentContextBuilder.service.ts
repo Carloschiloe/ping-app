@@ -445,6 +445,8 @@ function buildMemoryQueryPlan(
 
 export interface BuildAgentContextOptions {
     interpreter?: AgentInputInterpreter;
+    /** Semantic interpretation already resolved by Ping Core for this turn. */
+    interpretation?: Interpretation;
     budget?: AgentContextBudget;
 }
 
@@ -465,7 +467,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const timezoneSource: 'input' | 'fallback' = input.timezone?.trim() && timezone === input.timezone.trim() ? 'input' : 'fallback';
     const conversationId = input.conversationId; // ÚNICA fuente de conversationId — nunca el intérprete.
 
-    const rawInterpretation = await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
+    const rawInterpretation = options.interpretation
+        ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
 
     // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
     // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
@@ -974,7 +977,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve<ProposalFocusFillResult>({ matches: [], scannedCount: 0, sourceExhausted: true, safetyCapReached: false });
 
-    const messagesPromise = interpretation.wantsMessages && !personScopeBlocked
+    // A write turn needs Core's authorized people/commitment evidence for
+    // planning, but it must not execute the read-only message search as a
+    // side effect of semantic routing. In particular, a write request scoped
+    // to a conversation must not fail merely because the actor cannot read
+    // that conversation's message history; the write planner validates its
+    // own target/authorization separately. This also keeps READ retrieval
+    // and WRITE planning as two consumers of the same interpretation rather
+    // than making WRITE depend on unrelated read capability.
+    const messagesPromise = !interpretation.isWriteActionRequest
+        && interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
             return retrieveMessages({
@@ -1017,14 +1029,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         });
     }
 
-    const transcriptionsPromise = interpretation.wantsTranscriptions && conversationId
+    const transcriptionsPromise = !interpretation.isWriteActionRequest
+        && interpretation.wantsTranscriptions && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveTranscriptions', params: { conversationId: true, hasTextQuery: !!interpretation.textQuery } });
             return retrieveTranscriptions(input.actorUserId, conversationId, budget.transcriptions, timeRange ?? undefined, interpretation.textQuery ?? undefined);
         })()
         : Promise.resolve([]);
 
-    const attachmentsPromise = interpretation.wantsAttachments && conversationId
+    const attachmentsPromise = !interpretation.isWriteActionRequest
+        && interpretation.wantsAttachments && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveAttachments', params: { conversationId: true, kind: 'document' } });
             return retrieveAttachments(input.actorUserId, conversationId, budget.attachments, ['document']);
@@ -1036,7 +1050,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // siempre `.eq('owner_user_id', ...)`); memoryBlocked es sólo el mismo
     // principio de "nunca ampliar el scope semántico" ya aplicado a
     // commitments/messages, no una segunda barrera de autorización.
-    const memoryPromise: Promise<RetrievalMemory[]> = memoryIntentSignal.wantsMemory && !memoryBlocked
+    const memoryPromise: Promise<RetrievalMemory[]> = !interpretation.isWriteActionRequest
+        && memoryIntentSignal.wantsMemory && !memoryBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMemory', params: { subjectPersonId: !!memorySubjectPersonId, freshness: memoryIntentSignal.memoryFreshness, hasTopicQuery: !!memoryTopicQuery } });
             const plan = buildMemoryQueryPlan(input.actorUserId, memorySubjectPersonId, memoryTopicQuery, timeRange, memoryIntentSignal.memoryFreshness, budget.memory);

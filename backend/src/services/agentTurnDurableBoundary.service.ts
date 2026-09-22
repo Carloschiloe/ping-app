@@ -61,6 +61,7 @@ export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date())
             surface = envelope.surface;
             conversationId = envelope.conversationId ?? undefined;
         } catch {
+            // Core remains the authoritative validator for the reviewed token.
             surface = resolveTextSurface(input.channel);
         }
     }
