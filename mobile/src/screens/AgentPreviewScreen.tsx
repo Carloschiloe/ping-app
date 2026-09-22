@@ -120,8 +120,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
         const idempotencyKey = retryIdempotencyKey ?? createAgentTurnIdempotencyKey();
+        // Pressing Send is the explicit transcript-review boundary. Keep the
+        // signed provenance, but submit the visible text as the semantic input
+        // so a low-confidence provider score cannot block reviewed text.
         const source = matchingVoiceDraft
-            ? { voiceInputToken: matchingVoiceDraft.token, idempotencyKey }
+            ? { input: trimmed, reviewedVoiceInputToken: matchingVoiceDraft.token, idempotencyKey }
             : {
                 input: trimmed,
                 conversationId,

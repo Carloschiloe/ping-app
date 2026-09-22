@@ -98,6 +98,7 @@ export async function runAgentTurn(
         body: {
             input: input.input,
             voiceInputToken: input.voiceInputToken,
+            reviewedVoiceInputToken: input.reviewedVoiceInputToken,
             conversationId: input.conversationId,
             channel: input.channel,
             locale: input.locale,

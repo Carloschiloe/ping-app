@@ -160,6 +160,8 @@ export interface AgentInputEnvelope {
         transcriptStatus: 'final' | null;
         provider: string | null;
         confidence: number | null;
+        reviewedByUser?: boolean;
+        reviewedVoiceInputId?: string;
     };
 }
 

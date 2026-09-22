@@ -55,6 +55,15 @@ export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date())
             surface = 'mobile_voice';
         }
     }
+    if (input.reviewedVoiceInputToken) {
+        try {
+            const envelope = verifyVoiceInputToken(input.reviewedVoiceInputToken, input.actorUserId, now).envelope;
+            surface = envelope.surface;
+            conversationId = envelope.conversationId ?? undefined;
+        } catch {
+            surface = resolveTextSurface(input.channel);
+        }
+    }
     return buildDialogueScopeKey({ conversationId, surface });
 }
 
@@ -69,9 +78,10 @@ function normalizeIdempotencyKey(value: string): string {
 function semanticRequestFor(input: AgentTurnInput): Record<string, unknown> {
     return {
         version: 1,
-        modality: input.voiceInputToken ? 'voice' : 'text',
+        modality: input.voiceInputToken ? 'voice' : input.reviewedVoiceInputToken ? 'reviewed_voice_text' : 'text',
         input: input.input ?? null,
         voiceInputToken: input.voiceInputToken ?? null,
+        reviewedVoiceInputToken: input.reviewedVoiceInputToken ?? null,
         conversationId: input.conversationId ?? null,
         channel: input.channel ?? null,
         locale: input.locale ?? null,

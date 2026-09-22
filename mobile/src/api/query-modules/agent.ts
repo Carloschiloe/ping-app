@@ -343,6 +343,8 @@ export type AgentTurnResult =
 export interface AgentTurnInput {
     input?: string;
     voiceInputToken?: string;
+    /** Signed provenance retained after the user reviews the visible transcript. */
+    reviewedVoiceInputToken?: string;
     conversationId?: string;
     /** Delivery surface metadata; semantic routing remains backend-owned. */
     channel?: 'mobile' | 'web' | 'desktop' | 'tablet' | 'car' | 'device';
@@ -373,6 +375,10 @@ function enabledReadCapability(): typeof READ_V4_EXACT_COUNT_OPT_IN | undefined 
 
 export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string, unknown> {
     if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
+    if (input.reviewedVoiceInputToken) return {
+        input: input.input?.trim(),
+        reviewedVoiceInputToken: input.reviewedVoiceInputToken,
+    };
     const body: Record<string, unknown> = {
         input: input.input?.trim(),
         channel: input.channel ?? 'mobile',

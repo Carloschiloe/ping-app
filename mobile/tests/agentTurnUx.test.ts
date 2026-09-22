@@ -164,6 +164,10 @@ describe('M-6 mobile API and presentation boundary', () => {
     it('text and final voice transcript use the same /agent/turn request contract', () => {
         expect(buildAgentTurnRequestBody({ input: ' hola ' }).input).toBe('hola');
         expect(buildAgentTurnRequestBody({ voiceInputToken: 'signed-token' })).toEqual({ voiceInputToken: 'signed-token' });
+        expect(buildAgentTurnRequestBody({ input: 'revisar el audio', reviewedVoiceInputToken: 'signed-token' })).toMatchObject({
+            input: 'revisar el audio',
+            reviewedVoiceInputToken: 'signed-token',
+        });
     });
 
     it('sends the explicit count capability in the body and the stable retry key as a header only', () => {
@@ -217,8 +221,8 @@ describe('M-6 mobile API and presentation boundary', () => {
     it('P) Agent Preview submits both text and voice through useAgentTurn, never useAgentRespond', () => {
         expect(screen).toContain('useAgentTurn');
         expect(screen).not.toContain('useAgentRespond');
-        expect(screen).toContain('voiceInputToken: matchingVoiceDraft.token');
-        expect(screen).toContain('voiceInputToken: matchingVoiceDraft.token, idempotencyKey');
+        expect(screen).toContain('reviewedVoiceInputToken: matchingVoiceDraft.token');
+        expect(screen).toContain('input: trimmed, reviewedVoiceInputToken: matchingVoiceDraft.token, idempotencyKey');
     });
 
     it('Q/R) PlanCard renders Core presentation directly and never derives confirmation copy from toolId', () => {

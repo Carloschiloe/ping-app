@@ -111,6 +111,36 @@ export function createTextInputEnvelope(input: {
     };
 }
 
+/** A transcript becomes a user-authored turn after the user presses Send. */
+export function createReviewedVoiceTextInputEnvelope(input: {
+    actorUserId: string;
+    content: string;
+    reviewedVoiceInputToken: string;
+    traceId: string;
+    now?: Date;
+}): { envelope: AgentInputEnvelope; referents: ContextReferent[] } {
+    const verified = verifyVoiceInputToken(input.reviewedVoiceInputToken, input.actorUserId, input.now);
+    const source = verified.envelope;
+    const content = input.content.trim();
+    if (!content) throw new AppError('Reviewed transcript text is required', 400);
+    return {
+        envelope: {
+            ...source,
+            inputId: randomUUID(),
+            modality: 'text',
+            content,
+            capturedAt: (input.now ?? new Date()).toISOString(),
+            provenance: {
+                ...source.provenance,
+                traceId: input.traceId,
+                reviewedByUser: true,
+                reviewedVoiceInputId: source.inputId,
+            },
+        },
+        referents: verified.referents,
+    };
+}
+
 /**
  * Canonical text-surface mapping shared by HTTP adapters and durable scope
  * construction. Unknown channels intentionally degrade to mobile_text until
@@ -130,6 +160,7 @@ export function resolveAgentRequestInput(input: {
     body: {
         input?: string;
         voiceInputToken?: string;
+        reviewedVoiceInputToken?: string;
         conversationId?: string;
         channel?: string;
         locale?: string;
@@ -139,6 +170,16 @@ export function resolveAgentRequestInput(input: {
     now?: Date;
 }): { envelope: AgentInputEnvelope; referents: ContextReferent[] } {
     if (input.body.voiceInputToken) return verifyVoiceInputToken(input.body.voiceInputToken, input.actorUserId, input.now);
+    if (input.body.reviewedVoiceInputToken) {
+        if (!input.body.input) throw new AppError('Reviewed transcript text is required', 400);
+        return createReviewedVoiceTextInputEnvelope({
+            actorUserId: input.actorUserId,
+            content: input.body.input,
+            reviewedVoiceInputToken: input.body.reviewedVoiceInputToken,
+            traceId: input.traceId,
+            now: input.now,
+        });
+    }
     if (!input.body.input) throw new AppError('Agent input is required', 400);
     return {
         envelope: createTextInputEnvelope({

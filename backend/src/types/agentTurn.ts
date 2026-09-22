@@ -101,6 +101,8 @@ export interface AgentTurnInput {
     actorUserId: string;
     input?: string;
     voiceInputToken?: string;
+    /** Signed voice provenance plus the transcript explicitly reviewed by the user. */
+    reviewedVoiceInputToken?: string;
     conversationId?: string;
     channel?: string;
     locale?: string;

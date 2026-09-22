@@ -34,6 +34,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
             actorUserId,
             input: req.body.input,
             voiceInputToken: req.body.voiceInputToken,
+            reviewedVoiceInputToken: req.body.reviewedVoiceInputToken,
             conversationId: req.body.conversationId,
             channel: req.body.channel,
             locale: req.body.locale,
