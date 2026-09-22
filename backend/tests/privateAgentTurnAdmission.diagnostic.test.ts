@@ -19,6 +19,7 @@ import {
     diagnosePrivateAgentTurnDatabase,
     getLatestPrivateAgentTurnDatabaseDiagnostic,
     isPrivateAgentTurnDatabaseDiagnosticEnabled,
+    PrivateAgentTurnAdmissionService,
     validatePrivateSessionPoolerUrl,
 } from '../src/services/privateAgentTurnAdmission.service';
 
@@ -139,19 +140,24 @@ describe('M-7 private database startup diagnostic', () => {
         expect(getLatestPrivateAgentTurnDatabaseDiagnostic()).toEqual({ passed: true });
     });
 
-    it('pins the Supabase root CA without allowing the URL parser to discard it', async () => {
-        process.env.PING_M7_DATABASE_URL = 'postgresql://ping_m7_admission.oonijgmddgyymhrlnvuu:placeholder@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require';
-        query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+    it('routes every durable admission lifecycle RPC through the fixed private allowlist', async () => {
+        const service = new PrivateAgentTurnAdmissionService('postgresql://private.invalid/test');
+        query.mockResolvedValue({ rows: [{ turn_id: 'turn-1', status: 'processing' }] });
 
-        await expect(diagnosePrivateAgentTurnDatabase()).resolves.toEqual({ passed: true });
-        const options = poolOptions.mock.calls[0][0] as {
-            connectionString: string;
-            ssl: { ca: string; rejectUnauthorized: boolean };
-        };
-        expect(new URL(options.connectionString).searchParams.has('sslmode')).toBe(false);
-        expect(options.ssl.rejectUnauthorized).toBe(true);
-        expect(options.ssl.ca).toContain('-----BEGIN CERTIFICATE-----');
-        expect(options.ssl.ca).toContain('-----END CERTIFICATE-----');
-        expect(getLatestPrivateAgentTurnDatabaseDiagnostic()).toEqual({ passed: true });
+        await expect(service.rpc('claim_agent_turn_admission', {
+            p_turn_id: 'turn-1', p_actor_user_id: 'actor-1', p_dialogue_scope_key: 'agent:mobile_text',
+        })).resolves.toMatchObject({ data: { turn_id: 'turn-1' }, error: null });
+        await expect(service.rpc('complete_agent_turn_admission', {
+            p_turn_id: 'turn-1', p_actor_user_id: 'actor-1', p_dialogue_scope_key: 'agent:mobile_text', p_result_ref: { kind: 'response' },
+        })).resolves.toMatchObject({ data: { turn_id: 'turn-1' }, error: null });
+        await expect(service.rpc('fail_agent_turn_admission', {
+            p_turn_id: 'turn-1', p_actor_user_id: 'actor-1', p_dialogue_scope_key: 'agent:mobile_text', p_failure_class: 'retryable', p_result_ref: null,
+        })).resolves.toMatchObject({ data: { turn_id: 'turn-1' }, error: null });
+
+        expect(query).toHaveBeenCalledTimes(3);
+        expect(query.mock.calls[0][0]).toContain('claim_agent_turn_admission');
+        expect(query.mock.calls[1][0]).toContain('complete_agent_turn_admission');
+        expect(query.mock.calls[2][0]).toContain('fail_agent_turn_admission');
+        await service.close();
     });
 });

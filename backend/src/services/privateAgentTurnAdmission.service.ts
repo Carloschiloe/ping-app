@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { AgentTurnAdmissionService } from './agentTurnAdmission.service';
 
 const ADMISSION_RPC = 'admit_agent_turn_with_routing_mode';
+const CLAIM_RPC = 'claim_agent_turn_admission';
+const COMPLETE_RPC = 'complete_agent_turn_admission';
+const FAIL_RPC = 'fail_agent_turn_admission';
 const SUPABASE_ROOT_CA_PATH = resolve(__dirname, '../../certs/prod-ca-2021.crt');
 
 let cachedSupabaseRootCa: string | undefined;
@@ -129,9 +132,25 @@ type PrivateAdmissionRpcArgs = {
     p_routing_mode: string;
 };
 
+type PrivateClaimRpcArgs = {
+    p_turn_id: string;
+    p_actor_user_id: string;
+    p_dialogue_scope_key: string;
+};
+
+type PrivateCompleteRpcArgs = PrivateClaimRpcArgs & {
+    p_result_ref: Record<string, unknown>;
+};
+
+type PrivateFailRpcArgs = PrivateClaimRpcArgs & {
+    p_failure_class: string;
+    p_result_ref: Record<string, unknown> | null;
+};
+
 /**
  * Backend-only PostgreSQL transport for durable admission. It deliberately
- * exposes one fixed RPC and never accepts SQL or function names from callers.
+ * exposes a fixed allowlist of lifecycle RPCs and never accepts SQL or
+ * function names from callers.
  */
 export class PrivateAgentTurnAdmissionService {
     private readonly pool: Pool;
@@ -153,6 +172,30 @@ export class PrivateAgentTurnAdmissionService {
                     [typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_client_turn_key || null, typedArgs.p_request_fingerprint, typedArgs.p_routing_mode],
                 );
                 return { data: result.rows, error: null } as any;
+            }
+            if (name === CLAIM_RPC) {
+                const typedArgs = args as unknown as PrivateClaimRpcArgs;
+                const result = await this.pool.query(
+                    'select * from public.claim_agent_turn_admission($1::uuid, $2::uuid, $3::text)',
+                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key],
+                );
+                return { data: result.rows[0] ?? null, error: null } as any;
+            }
+            if (name === COMPLETE_RPC) {
+                const typedArgs = args as unknown as PrivateCompleteRpcArgs;
+                const result = await this.pool.query(
+                    'select * from public.complete_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::jsonb)',
+                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, JSON.stringify(typedArgs.p_result_ref)],
+                );
+                return { data: result.rows[0] ?? null, error: null } as any;
+            }
+            if (name === FAIL_RPC) {
+                const typedArgs = args as unknown as PrivateFailRpcArgs;
+                const result = await this.pool.query(
+                    'select * from public.fail_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb)',
+                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_failure_class, typedArgs.p_result_ref === null ? null : JSON.stringify(typedArgs.p_result_ref)],
+                );
+                return { data: result.rows[0] ?? null, error: null } as any;
             }
             throw new Error('Private admission transport does not support this RPC');
         } catch (error) {
