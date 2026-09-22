@@ -165,6 +165,48 @@ describe('general Agent Turn durable boundary', () => {
         }
     });
 
+    it('derives the conversation scope from a valid voice token, matching Core', async () => {
+        const previousKey = process.env.ENCRYPTION_KEY;
+        process.env.ENCRYPTION_KEY = 'test-only-voice-token-signing-key';
+        const { issueVoiceInputToken } = await import('../src/services/agentInputEnvelope.service');
+        const { createAgentSession, clearAgentSessionsForTests } = await import('../src/services/agentSession.service');
+        const now = new Date('2026-09-21T12:00:00.000Z');
+        clearAgentSessionsForTests();
+        const session = createAgentSession({
+            actorUserId,
+            deviceSessionId: 'mobile-device-1',
+            surface: 'mobile_voice',
+            signals: [],
+            referents: [],
+            now,
+        });
+        try {
+            const { token } = issueVoiceInputToken({
+                inputId: 'mobile-voice-input-1',
+                actorUserId,
+                surface: 'mobile_voice',
+                modality: 'voice',
+                content: 'recuérdame verificar el audio bueno mañana a las doce',
+                audioRef: 'audio-2',
+                transcriptRef: 'transcript-2',
+                conversationId,
+                agentSessionId: session.sessionId,
+                deviceSessionId: 'mobile-device-1',
+                locale: 'es-CL',
+                timeZone: 'America/Santiago',
+                capturedAt: now.toISOString(),
+                explicitConsentContext: { captureInitiatedBy: 'user_action', voiceAuthorizationAllowed: false },
+                provenance: { traceId: 'trace-2', transcriptStatus: 'final', provider: 'test', confidence: 0.9 },
+            }, now);
+
+            expect(durableDialogueScopeKey({ actorUserId, voiceInputToken: token }, now)).toBe(conversationId);
+        } finally {
+            clearAgentSessionsForTests();
+            if (previousKey === undefined) delete process.env.ENCRYPTION_KEY;
+            else process.env.ENCRYPTION_KEY = previousKey;
+        }
+    });
+
     it('keeps surface capabilities server-owned and does not grant authorization', () => {
         expect(surfaceSupports('mobile_text', 'text_input')).toBe(true);
         expect(surfaceSupports('mobile_text', 'voice_input')).toBe(false);

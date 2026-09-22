@@ -36,9 +36,18 @@ export function isDurableGeneralAgentTurnEnabled(): boolean {
 
 export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date()): string {
     let surface = resolveTextSurface(input.channel);
+    let conversationId = input.conversationId;
     if (input.voiceInputToken) {
         try {
-            surface = verifyVoiceInputToken(input.voiceInputToken, input.actorUserId, now).envelope.surface;
+            const envelope = verifyVoiceInputToken(input.voiceInputToken, input.actorUserId, now).envelope;
+            surface = envelope.surface;
+            // The controller receives only the signed token for voice turns.
+            // The token is therefore the authoritative carrier of the
+            // conversation scope. Without this assignment the durable
+            // boundary admitted/committed under `agent:mobile` while Core
+            // persisted dialogue under the real conversationId, making the
+            // next confirmation look like an unrelated first turn.
+            conversationId = envelope.conversationId ?? undefined;
         } catch {
             // Core performs the authoritative token validation. Keep the
             // historical mobile_voice fallback only for invalid tokens so
@@ -46,7 +55,7 @@ export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date())
             surface = 'mobile_voice';
         }
     }
-    return buildDialogueScopeKey({ conversationId: input.conversationId, surface });
+    return buildDialogueScopeKey({ conversationId, surface });
 }
 
 function normalizeIdempotencyKey(value: string): string {
