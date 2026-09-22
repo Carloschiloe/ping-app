@@ -397,6 +397,28 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(response.answer.toLowerCase()).not.toContain('probablemente');
         expect(model.synthesize).not.toHaveBeenCalled();
     });
+
+    it('una consulta temporal de compromisos sin resultados explica el alcance, no simula un fallo genérico de búsqueda', async () => {
+        const ctx = baseContext({
+            input: '¿Qué compromisos tengo mañana?',
+            evidenceFound: false,
+            capabilityGaps: [],
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T03:00:00.000Z', to: '2026-09-24T03:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.status).toBe('no_evidence');
+        expect(response.answer).toBe('No encontré compromisos en el período solicitado.');
+        expect(response.answer).not.toContain('documentos');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
 });
 
 describe('M-1G.1: write_action_not_supported — nunca afirma haber creado/enviado/cancelado nada', () => {

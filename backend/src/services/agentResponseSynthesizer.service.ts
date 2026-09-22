@@ -1187,10 +1187,20 @@ function buildClarificationResponse(context: AgentContext, language: 'es' | 'en'
     return { status: 'needs_clarification', answer, claims: [], citations: [], followUp };
 }
 
-function buildNoEvidenceResponse(language: 'es' | 'en'): AgentResponse {
-    const answer = language === 'es'
-        ? 'No encontré conversaciones, compromisos ni documentos relacionados con eso.'
-        : 'I didn\'t find any conversations, commitments, or documents related to that.';
+function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const isTemporalCommitmentRead = context.intent.type === 'commitment_query' && !!context.entities.timeRange;
+    const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
+    const answer = isTemporalCommitmentRead
+        ? (language === 'es'
+            ? 'No encontré compromisos en el período solicitado.'
+            : 'I didn\'t find any commitments in the requested period.')
+        : isComparisonWithoutEvidence
+            ? (language === 'es'
+                ? 'No encontré compromisos con fecha para comparar.'
+                : 'I didn\'t find dated commitments to compare.')
+            : language === 'es'
+                ? 'No encontré conversaciones, compromisos ni documentos relacionados con eso.'
+                : 'I didn\'t find any conversations, commitments, or documents related to that.';
     return { status: 'no_evidence', answer, claims: [], citations: [] };
 }
 
@@ -1334,7 +1344,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'no_evidence') {
-            return this.withDiagnostics(buildNoEvidenceResponse(language), 'deterministic', startedAt, sourceCount);
+            return this.withDiagnostics(buildNoEvidenceResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'capability_gap') {
             return this.withDiagnostics(buildCapabilityGapResponse(context, language), 'deterministic', startedAt, sourceCount);
