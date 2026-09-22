@@ -408,7 +408,15 @@ export async function runAgentTurn(
         // create objective. A genuinely read-only query still persists
         // nothing because its objective is absent or ineligible.
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'read_pipeline_person_ambiguous', dialogueScopeKey, isWriteActionRequest,
+            // Keep the device trace aligned with the actual clarification
+            // reason. This branch handles person, time, topic and entity
+            // clarifications; labeling every one as person_ambiguous hides
+            // the real routing cause during physical debugging.
+            path: clarification?.reason
+                ? `read_pipeline_${clarification.reason}`
+                : 'read_pipeline_clarification',
+            dialogueScopeKey,
+            isWriteActionRequest,
         });
         if (clarification?.reason === 'person_ambiguous') {
             const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {

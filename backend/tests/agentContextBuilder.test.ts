@@ -339,6 +339,26 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(ctx.needsClarification).toBe(true);
         expect(ctx.clarification?.reason).toBe('topic_too_broad');
     });
+
+    it('una consulta de compromisos conserva autoridad aunque el LLM la etiquete como general_context', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-earliest', title: 'probar la voz de Ping', dueAt: '2026-09-22T10:00:00Z' })] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context',
+            wantsCommitments: true,
+            wantsMessages: true,
+        }));
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: '¿Cuál es el más temprano?' },
+            { interpreter },
+        );
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments).toHaveLength(1);
+        expect(mockRetrieveCommitments).toHaveBeenCalled();
+    });
 });
 
 describe('M-1D: buildAgentContext — authorization (sección 23)', () => {

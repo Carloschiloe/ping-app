@@ -544,7 +544,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // declarative utterance actually named -- the same "entrenar
     // disappeared" failure mode M-2 RETRIEVAL LAYER FIX closed for the
     // historical-question form, now closed for the declarative form too.
-    const commitmentSignalConfident = deterministicSignals.proposalFocus !== null
+    // The deterministic interpreter is also authoritative for a plain
+    // commitment query. Without this, a primary LLM response such as
+    // `general_context` could erase a real commitment-domain signal from
+    // the same input (notably comparative follow-ups like "¿Cuál es el más
+    // temprano?"), causing the no-evidence/topic-too-broad gate to ask for
+    // detail instead of retrieving the commitments already in scope.
+    const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
+        || deterministicSignals.proposalFocus !== null
         || isHistoricalLifecycleQuery(input.input)
         || isDeclarativeLifecycleMention(input.input);
     const interpretation: Interpretation = {
