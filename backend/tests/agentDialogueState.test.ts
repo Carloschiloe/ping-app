@@ -46,6 +46,7 @@ function objective(overrides: Partial<AgentObjective> = {}): AgentObjective {
 describe('buildDialogueScopeKey (ADR Q4)', () => {
     it('uses conversationId when present', () => {
         expect(buildDialogueScopeKey({ conversationId: CONV_1, surface: 'mobile_text' })).toBe(CONV_1);
+        expect(buildDialogueScopeKey({ conversationId: CONV_1, surface: 'mobile_voice' })).toBe(CONV_1);
     });
 
     it('degrades to agent:<surface> when conversationId is absent (Agent Preview / global Agent)', () => {

@@ -78,6 +78,14 @@ describe('M-1G: buildAgentRequestBody — contrato exacto del request', () => {
         expect(body.conversationId).toBe('conv-real');
     });
 
+    it('AgentPreview crea un scope efímero para que texto y voz compartan continuidad', () => {
+        const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf8');
+        expect(screenSource).toContain('createEphemeralAgentConversationId');
+        expect(screenSource).toContain('route.params?.conversationId');
+        expect(screenSource).toContain('ephemeralConversationIdRef.current');
+        expect(screenSource).toContain('conversationId,');
+    });
+
     it('NUNCA incluye userId ni actorUserId, sea cual sea el input', () => {
         const body = buildAgentRequestBody({ input: 'x', conversationId: 'c1' });
         expect(body).not.toHaveProperty('userId');
