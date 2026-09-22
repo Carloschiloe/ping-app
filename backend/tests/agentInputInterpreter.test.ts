@@ -591,6 +591,21 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         expect(result.intent).toBe('commitment_query');
         expect(result.wantsCommitments).toBe(true);
         expect(result.textQuery).toBeNull();
+        expect(result.temporalComparison).toBe('earliest');
+    });
+
+    it.each([
+        ['¿Cuál vence antes?', 'earliest'],
+        ['¿Cuál viene primero?', 'earliest'],
+        ['¿Cuál es el más próximo?', 'earliest'],
+        ['¿Cuál vence después?', 'latest'],
+        ['¿Cuál es el último?', 'latest'],
+    ] as const)('DeterministicInputInterpreter: reconoce comparaciones temporales naturales: %s', async (input, comparison) => {
+        const result = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(result.intent).toBe('commitment_query');
+        expect(result.wantsCommitments).toBe(true);
+        expect(result.textQuery).toBeNull();
+        expect(result.temporalComparison).toBe(comparison);
     });
 
     it('DeterministicInputInterpreter: una CONSULTA sobre el mismo tema nunca activa isWriteActionRequest', async () => {

@@ -44,6 +44,19 @@ describe('Ping Core — contrato de lenguaje natural antes de voz/tablet', () =>
     });
 
     it.each([
+        ['¿Qué compromisos tengo hoy?', 'commitment_query', 'hoy', null],
+        ['¿Cuál es más temprano?', 'commitment_query', null, 'earliest'],
+        ['¿Cuál vence antes?', 'commitment_query', null, 'earliest'],
+        ['¿Cuál vence después?', 'commitment_query', null, 'latest'],
+    ] as const)('un transcript hablado de lectura conserva el contrato semántico: %s', async (transcript, intent, timeExpression, temporalComparison) => {
+        const interpretation = await inputInterpreter.interpret(transcript, {});
+        expect(interpretation.intent).toBe(intent);
+        expect(interpretation.timeExpression).toBe(timeExpression);
+        expect(interpretation.temporalComparison ?? null).toBe(temporalComparison);
+        expect(interpretation.isWriteActionRequest).toBe(false);
+    });
+
+    it.each([
         ['No se me olvide llamar a Pedro manana', 'create_personal_commitment', 'llamar a Pedro'],
         ['Acuérdate de enviar el informe el viernes', 'create_personal_commitment', 'enviar el informe'],
         ['Ayúdame a coordinar la reunión con Ana', 'create_commitment_or_proposal', 'la reunión con Ana'],

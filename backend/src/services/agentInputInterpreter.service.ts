@@ -99,7 +99,20 @@ const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|
 // omits the noun entirely (for example, "¿Cuál es el más temprano?").
 // Without this signal the turn falls into general_context/topic_too_broad
 // instead of comparing the commitments already in scope.
-const TEMPORAL_COMPARISON_QUERY_KEYWORDS = wordBounded('m[aá]s\\s+(?:tempran[oa]|tarde)|earliest|latest|soonest');
+// Bounded temporal operators used by the deterministic safety net. The LLM
+// remains the primary interpreter; these variants only keep an otherwise
+// clear commitment comparison on the same Core path when a transcript is
+// informal or the provider is unavailable. Keep the phrases relational and
+// avoid broad words such as "primero" on their own, which are ambiguous
+// outside a date comparison.
+const TEMPORAL_COMPARISON_QUERY_KEYWORDS = wordBounded(
+    'm[aá]s\\s+(?:tempran[oa]|tarde|pr[oó]xim[oa])'
+    + '|(?:vence|vencen|expira|expiran)\\s+(?:antes|despu[eé]s)'
+    + '|(?:viene|van)\\s+primero'
+    + '|(?:es|ser[aá])\\s+(?:el|la)\\s+primer[oa]'
+    + '|(?:es|ser[aá])\\s+(?:el|la)\\s+últim[oa]'
+    + '|earliest|latest|soonest',
+);
 export function isTemporalComparisonQuery(input: string): boolean {
     return TEMPORAL_COMPARISON_QUERY_KEYWORDS.test(input);
 }
@@ -107,8 +120,19 @@ export function isTemporalComparisonQuery(input: string): boolean {
 // Fallback semántico mínimo: reconoce la operación, no un título ni una
 // respuesta. El LLM cubre formulaciones y lenguas fuera de este fast-path.
 export function extractTemporalComparison(input: string): TemporalComparison | null {
-    if (wordBounded('m[aá]s\\s+(?:tempran[oa]|pronto)|earliest|soonest').test(input)) return 'earliest';
-    if (wordBounded('m[aá]s\\s+tarde|latest').test(input)) return 'latest';
+    if (wordBounded(
+        'm[aá]s\\s+(?:tempran[oa]|pronto|pr[oó]xim[oa])'
+        + '|(?:vence|vencen|expira|expiran)\\s+antes'
+        + '|(?:viene|van)\\s+primero'
+        + '|(?:es|ser[aá])\\s+(?:el|la)\\s+primer[oa]'
+        + '|earliest|soonest',
+    ).test(input)) return 'earliest';
+    if (wordBounded(
+        'm[aá]s\\s+tarde'
+        + '|(?:vence|vencen|expira|expiran)\\s+despu[eé]s'
+        + '|(?:es|ser[aá])\\s+(?:el|la)\\s+últim[oa]'
+        + '|latest',
+    ).test(input)) return 'latest';
     return null;
 }
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
