@@ -381,6 +381,43 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
             expect.any(Number),
         );
     });
+
+    it('una fecha determinista gana al LLM y no dispara aclaración para un seguimiento elíptico', async () => {
+        const tomorrow = commitmentFixture({ id: 'cm-tomorrow', title: 'Mañana', dueAt: '2026-09-23T12:00:00Z' });
+        mockRetrieveCommitments.mockResolvedValue([tomorrow] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context',
+            timeExpression: null,
+            ambiguityHints: ['time_ambiguous'],
+            wantsCommitments: false,
+            wantsMessages: false,
+        }));
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: 'Y mañana...?', now: '2026-09-22T12:00:00Z', timezone: 'UTC' },
+            { interpreter },
+        );
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.entities.timeRange).toEqual({ from: '2026-09-23T00:00:00.000Z', to: '2026-09-24T00:00:00.000Z' });
+    });
+
+    it('el operador más urgente reutiliza el alcance temporal del último turno', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-tomorrow', title: 'Mañana' })] as any);
+        const priorTimeRange = { from: '2026-09-23T00:00:00.000Z', to: '2026-09-23T23:59:59.999Z' };
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Y el más urgente?',
+            priorReadContext: { kind: 'commitment_query', timeRange: priorTimeRange, sourceTurnId: 'prior-turn' },
+        });
+
+        expect(ctx.urgencyComparison).toBe('most_urgent');
+        expect(ctx.entities.timeRange).toEqual(priorTimeRange);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ timeRange: priorTimeRange }), expect.any(Number));
+    });
 });
 
 describe('M-1D: buildAgentContext — authorization (sección 23)', () => {
@@ -1234,8 +1271,8 @@ describe('M-1H: buildAgentContext — combina commitments + commitment_proposals
         const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo vencido?', now: '2026-09-05T12:00:00Z' });
 
         for (let i = 0; i < 3; i++) expect(ctx.commitments.some((c) => c.id === `cm-overdue-${i}`)).toBe(true);
-        for (let i = 0; i < 2; i++) expect(ctx.commitments.some((c) => c.id === `pr-overdue-${i}`)).toBe(true);
-        expect(ctx.commitments).toHaveLength(10); // budget único, nunca 10+10
+        for (let i = 0; i < 2; i++) expect(ctx.commitments.some((c) => c.id === `pr-overdue-${i}`)).toBe(false);
+        expect(ctx.commitments).toHaveLength(3); // las proposals no son compromisos vencidos
     });
 
     // M-1H v2 — CASO ADVERSARIAL (respuesta al bloqueo "6. 100 items — revisar
@@ -1303,17 +1340,15 @@ describe('M-1H: buildAgentContext — combina commitments + commitment_proposals
         expect(ctx.commitments).toHaveLength(10);
 
         // (b) exactamente los 10 más vencidos (días 1-10), intercalados 5+5.
-        const expectedIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((day) =>
-            day % 2 === 1 ? `cm-overdue-day${day}` : `pr-overdue-day${day}`
-        );
+        const expectedIds = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19].map((day) => `cm-overdue-day${day}`);
         expect(ctx.commitments.map((c) => c.id).sort()).toEqual(expectedIds.sort());
-        expect(ctx.commitments.filter((c) => c.entityType === 'commitment')).toHaveLength(5);
-        expect(ctx.commitments.filter((c) => c.entityType === 'commitment_proposal')).toHaveLength(5);
+        expect(ctx.commitments.filter((c) => c.entityType === 'commitment')).toHaveLength(10);
+        expect(ctx.commitments.filter((c) => c.entityType === 'commitment_proposal')).toHaveLength(0);
 
         // (c) los 10 vencidos "menos vencidos" (días 11-20) NO llegan -- se
         // documenta la pérdida, no se declara falsamente "ninguno se pierde".
-        for (let day = 11; day <= 20; day++) {
-            const id = day % 2 === 1 ? `cm-overdue-day${day}` : `pr-overdue-day${day}`;
+        for (let day = 2; day <= 20; day += 2) {
+            const id = `pr-overdue-day${day}`;
             expect(ctx.commitments.some((c) => c.id === id)).toBe(false);
         }
         // Ningún item de ruido futuro llega jamás.

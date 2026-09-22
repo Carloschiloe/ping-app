@@ -25,6 +25,7 @@ const RETRIEVAL_SOURCE_VALUES = ['messages', 'commitments', 'commitment_events',
 const ATTACHMENT_KIND_VALUES = ['image', 'video', 'audio', 'document'] as const;
 const AMBIGUITY_HINT_VALUES = ['unresolved_pronoun', 'time_ambiguous', 'topic_too_broad'] as const;
 const TEMPORAL_COMPARISON_VALUES = ['earliest', 'latest'] as const;
+const URGENCY_COMPARISON_VALUES = ['most_urgent'] as const;
 
 export const agentInterpretationPayloadSchema = z.object({
     intent: z.enum(AGENT_INTENT_VALUES),
@@ -36,6 +37,7 @@ export const agentInterpretationPayloadSchema = z.object({
     // cualquier idioma; Core la combina con su propia normalización y nunca
     // la usa como texto de búsqueda.
     temporalComparison: z.enum(TEMPORAL_COMPARISON_VALUES).nullable().default(null),
+    urgencyComparison: z.enum(URGENCY_COMPARISON_VALUES).nullable().default(null),
     requestedSources: z.array(z.enum(RETRIEVAL_SOURCE_VALUES)).max(5).default([]),
     // M-1D.2: certificado contra el modelo real que, cuando no hay filtro de
     // status relevante, a veces devuelve `commitmentFilterHints: null`

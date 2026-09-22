@@ -384,14 +384,27 @@ describe('M-1G.1: keyboard + offline — el composer ya no depende de un offset 
     });
 });
 
-describe('M-1G.1: legacy coexistence — sin cambios de diseño, sólo el fix del onPress fantasma', () => {
+describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda aislado', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
+    const navigationSource = fs.readFileSync(path.join(__dirname, '../src/navigation/index.tsx'), 'utf-8');
 
-    it('tap normal en ✨ sigue navegando a PingAI (legacy), long-press sigue abriendo el menú del Agent nuevo', () => {
+    it('tap normal conserva la ruta PingAI pero ahora renderiza Core; legacy queda en ruta explícita', () => {
         expect(screenSource).toContain("navigation.navigate('PingAI')");
         expect(screenSource).toContain('onLongPress={handleOpenAgentMenu}');
-        expect(screenSource).toContain("{ label: 'Ping AI (actual)', onPress: () => navigation.navigate('PingAI') }");
+        expect(screenSource).toContain("{ label: 'Ping (Core)', onPress: () => navigation.navigate('PingAI') }");
         expect(screenSource).toContain("{ label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') }");
+        expect(screenSource).toContain("navigation.navigate('PingAIClassic')");
+    });
+
+    it('expone el piloto tablet sólo en desarrollo y reutiliza AgentPreview con surface tablet', () => {
+        expect(screenSource).toContain('if (__DEV__)');
+        expect(screenSource).toContain("label: 'Piloto tablet (voz)'");
+        expect(screenSource).toContain("navigation.navigate('AgentPreview', { surface: 'tablet' })");
+    });
+
+    it('la ruta PingAI principal monta Agent Core y conserva PingAIClassic como compatibilidad', () => {
+        expect(navigationSource).toMatch(/name="PingAI"[\s\S]*component=\{AgentPreviewScreen\}/);
+        expect(navigationSource).toMatch(/name="PingAIClassic"[\s\S]*component=\{PingAIScreen\}/);
     });
 });
 

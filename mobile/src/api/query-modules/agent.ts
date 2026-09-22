@@ -4,10 +4,16 @@
 // imports from or writes to the legacy module.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
-import { apiClient, ApiError } from '../client';
-import { API_URL, getAuthHeaders } from '../client';
-import { File } from 'expo-file-system';
+import { apiClient, ApiError, API_URL, getAuthHeaders } from '../client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
+import {
+    buildAgentSurfaceRequest,
+    surfaceForTurn,
+    type AgentAdapterSurface,
+    type AgentSurfaceRequestInput,
+} from '../agentSurfaceAdapter';
+export { buildAgentSurfaceRequest, channelForSurface, surfaceForTurn } from '../agentSurfaceAdapter';
+export type { AgentAdapterChannel, AgentAdapterSurface, AgentSurfaceRequestContext, AgentSurfaceRequestInput } from '../agentSurfaceAdapter';
 
 // M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
 // commitment_proposals, distinta de commitments) — ver backend
@@ -102,6 +108,7 @@ export interface AgentVoiceCaptureRequest {
     deviceSessionId: string;
     conversationId?: string;
     currentCommitmentId?: string;
+    surface?: Exclude<AgentAdapterSurface, 'mobile_text'>;
     signal?: AbortSignal;
 }
 
@@ -111,7 +118,7 @@ export function buildAgentVoiceTranscriptionUrl(input: Omit<AgentVoiceCaptureReq
         capturedAt: input.capturedAt,
         voiceSessionId: input.voiceSessionId,
         deviceSessionId: input.deviceSessionId,
-        surface: 'mobile_voice',
+        surface: input.surface ?? 'mobile_voice',
         locale: getDeviceLocale(),
         timezone: getDeviceTimeZone(),
         activeScreen: 'agent_preview',
@@ -336,6 +343,8 @@ export interface AgentTurnInput {
     input?: string;
     voiceInputToken?: string;
     conversationId?: string;
+    /** Delivery surface metadata; semantic routing remains backend-owned. */
+    channel?: 'mobile' | 'web' | 'desktop' | 'tablet' | 'car' | 'device';
     /** Stable across retries of one logical turn; never sent in the body. */
     idempotencyKey?: string;
     /** Explicit test-build capability opt-in; semantic meaning remains backend-owned. */
@@ -349,7 +358,7 @@ export function createAgentTurnIdempotencyKey(): string {
 }
 
 export function buildAgentTurnHeaders(input: AgentTurnInput): Record<string, string> {
-    return input.readCapability && input.idempotencyKey
+    return input.idempotencyKey
         ? { 'Idempotency-Key': input.idempotencyKey }
         : {};
 }
@@ -365,13 +374,34 @@ export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string,
     if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
     const body: Record<string, unknown> = {
         input: input.input?.trim(),
-        channel: 'mobile',
+        channel: input.channel ?? 'mobile',
         timezone: getDeviceTimeZone(),
         locale: getDeviceLocale(),
     };
     if (input.conversationId) body.conversationId = input.conversationId;
     if (input.readCapability) body.readCapability = input.readCapability;
     return body;
+}
+
+export type AgentSurfaceTurnInput = AgentSurfaceRequestInput;
+
+/**
+ * Surface-neutral adapter contract. A future tablet/desktop client can reuse
+ * this request construction without reimplementing idempotency or changing
+ * the Core-owned response semantics.
+ */
+export function buildAgentSurfaceTurnRequest(input: AgentSurfaceTurnInput): {
+    body: Record<string, unknown>;
+    headers: Record<string, string>;
+} {
+    return buildAgentSurfaceRequest(input, {
+        timezone: getDeviceTimeZone(),
+        locale: getDeviceLocale(),
+    });
+}
+
+export function adapterSurfaceForTurn(input: AgentTurnInput): AgentAdapterSurface {
+    return surfaceForTurn(input);
 }
 
 export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
@@ -408,20 +438,35 @@ export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
     return obj as unknown as AgentTurnResult;
 }
 
+/**
+ * Network adapter shared by mobile and future tablet/desktop surfaces. The
+ * caller provides only the surface and user turn; capability flags, request
+ * headers, parsing and diagnostic handling stay in one place.
+ */
+export async function requestAgentSurfaceTurn(input: AgentSurfaceTurnInput): Promise<AgentTurnResult> {
+    const capability = input.readCapability ?? enabledReadCapability();
+    const requestInput = capability === input.readCapability ? input : { ...input, readCapability: capability };
+    const request = buildAgentSurfaceTurnRequest(requestInput);
+    const raw = await apiClient.post('/agent/turn', request.body, request.headers);
+    const result = parseAgentTurnResult(raw);
+    const isStagingBuild = process.env.APP_VARIANT !== 'production';
+    // Expo/RN provides __DEV__ at runtime, while pure Node tests do not.
+    // Keep diagnostics enabled for development/staging without making the
+    // shared adapter depend on a native global.
+    const isDevelopmentRuntime = typeof __DEV__ !== 'undefined' && __DEV__;
+    if ((isDevelopmentRuntime || isStagingBuild) && result.debug) {
+        console.log('PING_DEVICE_TRACE', result.debug);
+    }
+    return result;
+}
+
 export function useAgentTurn() {
     return useMutation({
         mutationFn: async (input: AgentTurnInput): Promise<AgentTurnResult> => {
-            const capability = input.readCapability ?? enabledReadCapability();
-            const requestInput = capability === input.readCapability ? input : { ...input, readCapability: capability };
-            const body = buildAgentTurnRequestBody(requestInput);
-            const raw = await apiClient.post('/agent/turn', body, buildAgentTurnHeaders(requestInput));
-            const result = parseAgentTurnResult(raw);
-            const isStagingBuild = process.env.APP_VARIANT !== 'production';
-            if ((__DEV__ || isStagingBuild) && result.debug) {
-                // eslint-disable-next-line no-console
-                console.log('PING_DEVICE_TRACE', result.debug);
-            }
-            return result;
+            return requestAgentSurfaceTurn({
+                ...input,
+                surface: adapterSurfaceForTurn(input),
+            });
         },
     });
 }

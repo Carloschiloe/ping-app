@@ -33,10 +33,6 @@ import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
-import {
-    getLatestPrivateAgentTurnDatabaseDiagnostic,
-    isPrivateAgentTurnDatabaseDiagnosticEnabled,
-} from '../services/privateAgentTurnAdmission.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -102,18 +98,9 @@ router.get('/health', async (req, res) => {
     try {
         const { error } = await supabaseAdmin.from('profiles').select('count', { count: 'exact', head: true });
         if (error) throw error;
-        const privateDbCheckEnabled = isPrivateAgentTurnDatabaseDiagnosticEnabled();
-        const privateDbDiagnostic = privateDbCheckEnabled
-            ? getLatestPrivateAgentTurnDatabaseDiagnostic()
-            : null;
         res.json({
             ok: true,
             db_status: 'connected',
-            ...(privateDbCheckEnabled ? {
-                private_db_status: privateDbDiagnostic === null
-                    ? 'pending'
-                    : privateDbDiagnostic.passed ? 'connected' : 'failed',
-            } : {}),
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME

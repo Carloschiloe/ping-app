@@ -23,10 +23,11 @@ vi.mock('../src/api/client', () => {
     };
 });
 
+import { apiClient } from '../src/api/client';
 import type {
     AgentAuthorizationResult, AgentExecutionResult, AgentTurnInput, AgentTurnPlan, AgentTurnResult,
 } from '../src/api/query-modules/agent';
-import { buildAgentAuthorizationRequestBody, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult } from '../src/api/query-modules/agent';
+import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, requestAgentSurfaceTurn } from '../src/api/query-modules/agent';
 import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
@@ -147,6 +148,19 @@ describe('M-6 mobile state machine', () => {
 });
 
 describe('M-6 mobile API and presentation boundary', () => {
+    it('sends a surface-neutral turn through one network adapter', async () => {
+        vi.mocked(apiClient.post).mockResolvedValueOnce({ kind: 'unsupported', reason: 'test' });
+        const result = await requestAgentSurfaceTurn({
+            surface: 'tablet', input: 'hola tablet', idempotencyKey: 'tablet-turn-1',
+        });
+        expect(result).toEqual({ kind: 'unsupported', reason: 'test' });
+        expect(apiClient.post).toHaveBeenCalledWith(
+            '/agent/turn',
+            expect.objectContaining({ input: 'hola tablet', channel: 'tablet' }),
+            { 'Idempotency-Key': 'tablet-turn-1' },
+        );
+    });
+
     it('text and final voice transcript use the same /agent/turn request contract', () => {
         expect(buildAgentTurnRequestBody({ input: ' hola ' }).input).toBe('hola');
         expect(buildAgentTurnRequestBody({ voiceInputToken: 'signed-token' })).toEqual({ voiceInputToken: 'signed-token' });
@@ -161,7 +175,22 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(buildAgentTurnRequestBody(input)).toMatchObject({ readCapability: 'commitment_count_v4' });
         expect(buildAgentTurnRequestBody(input)).not.toHaveProperty('idempotencyKey');
         expect(buildAgentTurnHeaders(input)).toEqual({ 'Idempotency-Key': 'stable-turn-key' });
-        expect(buildAgentTurnHeaders({ input: 'legacy', idempotencyKey: 'legacy-key' })).toEqual({});
+        expect(buildAgentTurnHeaders({ input: 'legacy', idempotencyKey: 'legacy-key' })).toEqual({ 'Idempotency-Key': 'legacy-key' });
+        expect(buildAgentTurnRequestBody({ input: 'tablet turn', channel: 'tablet' })).toMatchObject({ channel: 'tablet' });
+        expect(buildAgentSurfaceTurnRequest({
+            surface: 'tablet', input: 'hablar con Ping', idempotencyKey: 'tablet-turn-1',
+        })).toEqual({
+            body: expect.objectContaining({ input: 'hablar con Ping', channel: 'tablet' }),
+            headers: { 'Idempotency-Key': 'tablet-turn-1' },
+        });
+        expect(buildAgentSurfaceTurnRequest({
+            surface: 'mobile_voice', voiceInputToken: 'signed-voice-token', idempotencyKey: 'voice-turn-1',
+        })).toEqual({
+            body: { voiceInputToken: 'signed-voice-token' },
+            headers: { 'Idempotency-Key': 'voice-turn-1' },
+        });
+        expect(adapterSurfaceForTurn({ input: 'tablet', channel: 'tablet' })).toBe('tablet');
+        expect(adapterSurfaceForTurn({ voiceInputToken: 'voice' })).toBe('mobile_voice');
     });
 
     it('authorization echoes only the signed source, frozen digest, step IDs and explicit confirmation', () => {
@@ -183,6 +212,7 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(screen).toContain('useAgentTurn');
         expect(screen).not.toContain('useAgentRespond');
         expect(screen).toContain('voiceInputToken: matchingVoiceDraft.token');
+        expect(screen).toContain('voiceInputToken: matchingVoiceDraft.token, idempotencyKey');
     });
 
     it('Q/R) PlanCard renders Core presentation directly and never derives confirmation copy from toolId', () => {

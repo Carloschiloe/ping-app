@@ -199,6 +199,27 @@ describe('M-1E: deriveStatus (sección 6) — siempre determinístico', () => {
         expect(response.citations).toEqual([{ sourceType: 'commitment', sourceId: 'cm-early' }]);
         expect(model.synthesize).not.toHaveBeenCalled();
     });
+
+    it('selecciona el compromiso más urgente con una regla determinista y sin duplicar evidencia', async () => {
+        const overdue = commitment('cm-overdue', { title: 'Resolver atraso', dueAt: '2026-09-01T00:00:00.000Z', priority: 'medium' });
+        const futureHigh = commitment('cm-high', { title: 'Revisar contrato', dueAt: '2026-09-23T00:00:00.000Z', priority: 'high' });
+        const model = fakeModel(claimPayload([{ text: 'respuesta incorrecta', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-high' }] }]));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({
+            input: '¿Y el más urgente?',
+            context: baseContext({
+                evidenceFound: true,
+                commitments: [overdue, futureHigh] as any,
+                urgencyComparison: 'most_urgent',
+            }),
+        });
+
+        expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
+        expect(response.answer).toContain('Resolver atraso');
+        expect(response.answer).not.toContain('Revisar contrato');
+        expect(response.citations).toEqual([{ sourceType: 'commitment', sourceId: 'cm-overdue' }]);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
 });
 
 // ─── Claim validation ─────────────────────────────────────────────────────

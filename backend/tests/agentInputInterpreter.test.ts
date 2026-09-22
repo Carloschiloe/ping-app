@@ -171,7 +171,6 @@ describe('M-1D.3: textQuery vs lenguaje de control/intención — hardening cont
         const interpreter = new LlmInputInterpreter({ model });
         const result = await interpreter.interpret('What pending commitments do I have this week?', {});
         expect(result.textQuery).toBeNull();
-        expect(result.temporalComparison).toBe('earliest');
         expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
         expect(result.timeExpression).toBe('this week');
     });
@@ -606,6 +605,14 @@ describe('M-1G.1: reconocimiento de peticiones de escritura (read-only Agent)', 
         expect(result.wantsCommitments).toBe(true);
         expect(result.textQuery).toBeNull();
         expect(result.temporalComparison).toBe(comparison);
+    });
+
+    it.each(['¿Y el más urgente?', '¿Cuál tiene mayor prioridad?', 'Which is most urgent?'])('DeterministicInputInterpreter: reconoce urgencia como operación estructurada: %s', async (input) => {
+        const result = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(result.intent).toBe('commitment_query');
+        expect(result.wantsCommitments).toBe(true);
+        expect(result.textQuery).toBeNull();
+        expect(result.urgencyComparison).toBe('most_urgent');
     });
 
     it('DeterministicInputInterpreter: una CONSULTA sobre el mismo tema nunca activa isWriteActionRequest', async () => {

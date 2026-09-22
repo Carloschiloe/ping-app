@@ -119,8 +119,8 @@ describe('general Agent Turn durable boundary', () => {
     it('uses one canonical scope contract across conversation and future surfaces', () => {
         expect(durableDialogueScopeKey({ actorUserId, input: 'hola', conversationId, channel: 'tablet' })).toBe(conversationId);
         expect(durableDialogueScopeKey({ actorUserId, input: 'hola', channel: 'tablet' })).toBe('agent:tablet');
-        expect(durableDialogueScopeKey({ actorUserId, voiceInputToken: 'signed-voice-token' })).toBe('agent:mobile_voice');
-        expect(durableDialogueScopeKey({ actorUserId, input: 'hola', channel: 'unknown-future-surface' })).toBe('agent:mobile_text');
+        expect(durableDialogueScopeKey({ actorUserId, voiceInputToken: 'signed-voice-token' })).toBe('agent:mobile');
+        expect(durableDialogueScopeKey({ actorUserId, input: 'hola', channel: 'unknown-future-surface' })).toBe('agent:mobile');
     });
 
     it('derives the tablet scope from a valid signed tablet voice token', async () => {

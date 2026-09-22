@@ -24,7 +24,7 @@ import {
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
-import type { AgentPreviewScreenProps } from '../navigation/types';
+import type { AgentCoreScreenProps } from '../navigation/types';
 import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { voiceStatusCopy } from '../utils/voiceSession';
@@ -39,10 +39,12 @@ import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
 const SLOW_REQUEST_COPY_DELAY_MS = 10_000;
 
-export default function AgentPreviewScreen({ navigation, route }: AgentPreviewScreenProps) {
+export default function AgentPreviewScreen({ navigation, route }: AgentCoreScreenProps) {
     const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const conversationId = route.params?.conversationId;
+    const adapterSurface = route.params?.surface ?? 'mobile_text';
+    const isMainCoreEntry = route.name === 'PingAI';
 
     const [messages, setMessages] = useState<AgentChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -93,6 +95,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
     const voice = useAgentVoiceInput({
         conversationId,
         currentCommitmentId: route.params?.currentCommitmentId,
+        surface: adapterSurface === 'tablet' ? 'tablet' : 'mobile_voice',
         onTranscriptReady: handleTranscriptReady,
         onFailure: handleVoiceFailure,
     });
@@ -114,12 +117,15 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending)) return;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
+        const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
+        const idempotencyKey = retryIdempotencyKey ?? createAgentTurnIdempotencyKey();
         const source = matchingVoiceDraft
-            ? { voiceInputToken: matchingVoiceDraft.token }
+            ? { voiceInputToken: matchingVoiceDraft.token, idempotencyKey }
             : {
                 input: trimmed,
                 conversationId,
-                idempotencyKey: retryIdempotencyKey ?? createAgentTurnIdempotencyKey(),
+                channel: requestChannel,
+                idempotencyKey,
             };
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
@@ -309,8 +315,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentPreviewSc
                     <Ionicons name="arrow-back" size={24} color={theme.colors.white} />
                 </TouchableOpacity>
                 <View style={styles.headerInfo}>
-                    <Text style={styles.title}>Nuevo Agent</Text>
-                    <Text style={styles.subtitle}>Preview interna · confirma antes de actuar</Text>
+                        <Text style={styles.title}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
+                    <Text style={styles.subtitle}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
                 </View>
                 <View style={styles.headerBtn} />
             </View>

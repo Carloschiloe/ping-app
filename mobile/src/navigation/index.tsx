@@ -129,6 +129,11 @@ const ConversationsStack = () => {
         />
         <ConversationsStackNav.Screen
             name="PingAI"
+            component={AgentPreviewScreen}
+            options={{ headerShown: false }}
+        />
+        <ConversationsStackNav.Screen
+            name="PingAIClassic"
             component={PingAIScreen}
             options={{ headerShown: false }}
         />

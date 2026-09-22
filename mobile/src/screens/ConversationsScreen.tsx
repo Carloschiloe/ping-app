@@ -332,9 +332,19 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     const handleOpenAgentMenu = React.useCallback(() => {
         suppressPingAIPressRef.current = true;
         const items: { label: string; onPress: () => void }[] = [
-            { label: 'Ping AI (actual)', onPress: () => navigation.navigate('PingAI') },
+            { label: 'Ping (Core)', onPress: () => navigation.navigate('PingAI') },
             { label: 'Nuevo Agent (preview)', onPress: () => navigation.navigate('AgentPreview') },
         ];
+        if (__DEV__) {
+            items.push({
+                label: 'Piloto tablet (voz)',
+                onPress: () => navigation.navigate('AgentPreview', { surface: 'tablet' }),
+            });
+            items.push({
+                label: 'Ping AI clásico (legacy)',
+                onPress: () => navigation.navigate('PingAIClassic'),
+            });
+        }
 
         if (Platform.OS === 'ios') {
             ActionSheetIOS.showActionSheetWithOptions(

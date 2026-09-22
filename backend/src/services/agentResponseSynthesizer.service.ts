@@ -893,6 +893,13 @@ export function enforceOverdueDisclosure(claims: AgentClaim[], evidence: Seriali
     for (const commitment of overdueCommitments) {
         const ref = evidence.allowedSourceRefs.find((r) => isCommitmentLikeSourceType(r.sourceType) && r.sourceId === commitment.id);
         if (!ref) continue; // nunca citar fuera del boundary de evidencia ya serializado (M-1E.1)
+        const alreadyDisclosed = claims.some((claim) =>
+            claim.sourceRefs.length === 1
+            && claim.sourceRefs.some((sourceRef) => sourceRef.sourceType === ref.sourceType && sourceRef.sourceId === ref.sourceId)
+            && /vencid[oa]s?|atrasad[oa]s?|overdue|late/iu.test(claim.text)
+            && !/\bno\s+(?:tienes?|hay|tengo)\b[\s\S]*\b(?:vencid|atrasad|overdue|late)/iu.test(claim.text),
+        );
+        if (alreadyDisclosed) continue;
         additions.push(buildOverdueClaim(commitment, ref, language));
     }
     return additions.length > 0 ? [...claims, ...additions] : claims;
@@ -1051,7 +1058,49 @@ function buildCountResponse(context: AgentContext, language: 'es' | 'en'): Agent
     return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
 }
 
-// La selección comparativa pertenece al Core, no al modelo de redacción.
+function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', timezone: string, locale?: string): AgentResponse | null {
+    if (context.commitments.length === 0) return null;
+    const priorityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    const candidates = context.commitments
+        .map((commitment) => ({
+            commitment,
+            overdue: isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, timezone, commitment.entityType),
+            dueMs: commitment.dueAt ? Date.parse(commitment.dueAt) : Number.POSITIVE_INFINITY,
+            priority: priorityRank[commitment.priority?.toLowerCase() ?? ''] ?? 0,
+        }))
+        .filter((entry) => !['resolved', 'cancelled', 'rejected'].includes(entry.commitment.status));
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => Number(b.overdue) - Number(a.overdue)
+        || b.priority - a.priority
+        || a.dueMs - b.dueMs
+        || a.commitment.createdAt.localeCompare(b.commitment.createdAt)
+        || a.commitment.id.localeCompare(b.commitment.id));
+    const selected = candidates[0];
+    const title = selected.commitment.title.trim() || (language === 'es' ? 'Sin tÃ­tulo' : 'Untitled');
+    const due = selected.commitment.dueAt
+        ? formatEventTimestampInZone(selected.commitment.dueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
+        : null;
+    const label = selected.commitment.entityType === 'commitment'
+        ? (language === 'es' ? 'compromiso' : 'commitment')
+        : (language === 'es' ? 'propuesta' : 'proposal');
+    const detail = selected.overdue
+        ? (language === 'es' ? 'estÃ¡ atrasado' : 'is overdue')
+        : due
+            ? (language === 'es' ? `vence ${due}` : `is due ${due}`)
+            : (language === 'es' ? 'no tiene fecha' : 'has no due date');
+    const text = language === 'es'
+        ? `El ${label} mÃ¡s urgente es "${title}": ${detail}.`
+        : `The most urgent ${label} is "${title}": ${detail}.`;
+    const ref: AgentCitation = { sourceType: selected.commitment.provenance.sourceType, sourceId: selected.commitment.provenance.sourceId };
+    const claim: AgentClaim = { text, sourceRefs: [ref] };
+    return { status: 'answered', answer: text, claims: [claim], citations: [ref] };
+}
+
+// Comparaciones temporales: la selección del resultado pertenece al Core, no
+// al modelo de redacción. Así "¿cuál es más temprano?" no puede degradarse a
+// una respuesta que mencione sólo una fecha y omita el compromiso ganador.
+// El modelo sigue siendo libre para redactar consultas normales, pero nunca
+// decide qué entidad resulta de un operador comparativo ya normalizado.
 function buildTemporalComparisonResponse(
     context: AgentContext,
     language: 'es' | 'en',
@@ -1060,10 +1109,12 @@ function buildTemporalComparisonResponse(
 ): AgentResponse | null {
     const comparison = context.temporalComparison;
     if (!comparison) return null;
+
     const dated = context.commitments
         .map((commitment) => ({ commitment, dueMs: commitment.dueAt ? Date.parse(commitment.dueAt) : NaN }))
         .filter((entry) => Number.isFinite(entry.dueMs));
     if (dated.length === 0) return null;
+
     dated.sort((a, b) => comparison === 'earliest' ? a.dueMs - b.dueMs : b.dueMs - a.dueMs);
     const selected = dated[0].commitment;
     const title = selected.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
@@ -1360,6 +1411,12 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             const comparisonResponse = buildTemporalComparisonResponse(context, language, context.timezone, input.locale);
             if (comparisonResponse) {
                 return this.withDiagnostics(comparisonResponse, 'deterministic', startedAt, sourceCount);
+            }
+        }
+        if (status === 'answered' && context.urgencyComparison === 'most_urgent') {
+            const urgencyResponse = buildUrgencyResponse(context, language, context.timezone, input.locale);
+            if (urgencyResponse) {
+                return this.withDiagnostics(urgencyResponse, 'deterministic', startedAt, sourceCount);
             }
         }
 

@@ -10,13 +10,15 @@ describe('M-7B device trace mobile delivery', () => {
     });
 
     it('gates logging to dev or staging and never renders a UI element', () => {
-        expect(source).toContain('__DEV__ || isStagingBuild');
+        expect(source).toContain("typeof __DEV__ !== 'undefined' && __DEV__");
+        expect(source).toContain('isDevelopmentRuntime || isStagingBuild');
         expect(source).not.toContain('debugText');
         expect(source).not.toContain('DebugView');
     });
 
     it('does not log request text, tokens, PII, or model payloads', () => {
-        const loggingBlock = source.slice(source.indexOf("console.log('PING_DEVICE_TRACE'", source.indexOf('useAgentTurn')) - 300, source.indexOf("console.log('PING_DEVICE_TRACE'", source.indexOf('useAgentTurn')) + 100);
+        const logIndex = source.indexOf("console.log('PING_DEVICE_TRACE'");
+        const loggingBlock = source.slice(logIndex - 300, logIndex + 100);
         expect(loggingBlock).not.toContain('input');
         expect(loggingBlock).not.toContain('access_token');
         expect(loggingBlock).not.toContain('email');

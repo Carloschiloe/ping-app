@@ -37,6 +37,7 @@ import {
     isDeclarativeLifecycleMention,
     isTemporalComparisonQuery,
     extractTemporalComparison,
+    extractUrgencyComparison,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -554,11 +555,17 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // temprano?"), causing the no-evidence/topic-too-broad gate to ask for
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
+    const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
+        || deterministicSignals.timeExpression !== null
         || isHistoricalLifecycleQuery(input.input)
         || isDeclarativeLifecycleMention(input.input)
-        || temporalComparison !== null;
+        // A bounded semantic operator returned by the LLM is enough to route
+        // this turn into the commitment domain even when its wording is not
+        // present in the deterministic multilingual fast-path.
+        || temporalComparison !== null
+        || urgencyComparison !== null;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -569,6 +576,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // adding a new use).
         personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
+        timeExpression: deterministicSignals.timeExpression ?? rawInterpretation.timeExpression ?? null,
         intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
@@ -578,7 +586,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
         textQuery: commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery,
+        // El operador de comparación es una decisión del Core sobre la
+        // semántica observable del input. La señal determinística gana cuando
+        // existe; el enum acotado del intérprete LLM cubre formulaciones y
+        // lenguas que el fast-path no conoce.
         temporalComparison,
+        urgencyComparison,
         // PING — STATUS-HINTS FALSE POSITIVE FIX (physical regression #4,
         // proven via real end-to-end trace against real staging data): this
         // field was NEVER brought under Core's deterministic authority the
@@ -653,7 +666,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     });
     const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
-        ?? (isTemporalComparisonQuery(input.input) && input.priorReadContext?.kind === 'commitment_query'
+        ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
             ? input.priorReadContext.timeRange
             : null);
 
@@ -949,7 +962,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // fillProposalFocusMatches arriba). Sin proposalFocus, topic/status/
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked
+    const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
@@ -1043,7 +1057,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // uniformidad/defensa en profundidad, nunca cambia el resultado. El
     // budget final se aplica DESPUÉS del filtro, nunca antes.
     const sortedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, interpretation.wantsOverdueFocus);
-    const filteredCommitments = filterByProposalFocus(sortedCommitments, interpretation.proposalFocus, resolvedPersonId);
+    const semanticallyFilteredCommitments = overdueOnlyQuery
+        ? sortedCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
+        : sortedCommitments;
+    const filteredCommitments = filterByProposalFocus(semanticallyFilteredCommitments, interpretation.proposalFocus, resolvedPersonId);
     const commitments = filteredCommitments.slice(0, budget.commitments);
 
     // M-2 — INVARIANTE NO NEGOCIABLE: la verdad canónica siempre domina a la
@@ -1296,6 +1313,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         queryCardinality,
         temporalComparison: interpretation.temporalComparison ?? null,
+        urgencyComparison: interpretation.urgencyComparison ?? null,
         requiredSourceRefs,
         requiredSourceRefsTruncated,
         requiredSourceRefsTruncationKnown,

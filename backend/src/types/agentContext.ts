@@ -119,8 +119,7 @@ export type ProposalFocus = 'waiting_for_others' | 'needs_my_response' | 'pendin
 //     hoy se tratan igual que 'focused_lookup' (sin requiredSourceRefs).
 export type QueryCardinality = 'exhaustive_list' | 'focused_lookup' | 'summary' | 'count' | 'unknown';
 
-// Operador semántico de comparación temporal: representa la operación que el
-// usuario pidió aplicar sobre los resultados ya recuperados.
+export type UrgencyComparison = 'most_urgent';
 
 // Operador semántico de comparación temporal. No es vocabulario de una frase
 // concreta: representa la operación que el usuario pidió aplicar sobre los
@@ -137,6 +136,7 @@ export interface Interpretation {
     textQuery: string | null;    // texto residual para FTS (M-1C) — null si no aporta
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
     temporalComparison?: TemporalComparison | null;
+    urgencyComparison?: UrgencyComparison | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"
     // M-2 HISTORICAL TRANSITION ABSENCE FIX — el/los CommitmentEventType(s)
     // que constituirían evidencia real de la transición histórica
@@ -329,10 +329,10 @@ export interface AgentContext {
     // (agentContextBuilder.service.ts#classifyQueryCardinality lógica),
     // nunca por el modelo de síntesis.
     queryCardinality: QueryCardinality;
-    // Operación comparativa ya normalizada por el Core; no se delega al LLM.
-    temporalComparison?: TemporalComparison | null;
     // Operación comparativa ya normalizada por el Core. Cuando existe, la
     // selección del compromiso ganador no se delega al sintetizador LLM.
+    temporalComparison?: TemporalComparison | null;
+    urgencyComparison?: UrgencyComparison | null;
     // M-1H — sólo no-vacío cuando queryCardinality='exhaustive_list': el
     // subconjunto EXACTO de `provenance` que la respuesta final DEBE citar
     // (sección 8/9 del ticket). Es un subconjunto de `provenance`/

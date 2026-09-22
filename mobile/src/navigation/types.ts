@@ -47,11 +47,14 @@ export type ConversationsStackParamList = {
     AddParticipants: {
         conversationId: string;
     };
+    /** Main Ping entrypoint: unified Agent Core. */
     PingAI: undefined;
+    /** Compatibility route for the previous /ai/ask screen. */
+    PingAIClassic: undefined;
     // M-1G — preview interna del nuevo Agent read-only. `conversationId`
     // opcional: ausente = Agent global (sin scope), presente = Agent
     // scoped a esa conversación (sección 8 del ticket).
-    AgentPreview: { conversationId?: string; currentCommitmentId?: string } | undefined;
+    AgentPreview: { conversationId?: string; currentCommitmentId?: string; surface?: 'mobile_text' | 'tablet' } | undefined;
     QuickCapture: undefined;
 };
 
@@ -85,6 +88,7 @@ export type TaskHistoryScreenProps = NativeStackScreenProps<ConversationsStackPa
 export type AddParticipantsScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AddParticipants'>;
 export type ConversationsListScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'ConversationsList'>;
 export type AgentPreviewScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'AgentPreview'>;
+export type AgentCoreScreenProps = NativeStackScreenProps<ConversationsStackParamList, 'PingAI' | 'AgentPreview'>;
 export type ChatCompositeNavigationProp = CompositeNavigationProp<
     NativeStackNavigationProp<ConversationsStackParamList, 'Chat'>,
     NativeStackNavigationProp<RootStackParamList>

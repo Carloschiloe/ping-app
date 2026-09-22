@@ -521,7 +521,7 @@ export async function runAgentTurn(
         context: context.intent.type === 'commitment_query'
             ? {
                 kind: 'commitment_query',
-                timeRange: context.entities.timeRange,
+                timeRange: context.entities?.timeRange ?? null,
                 sourceTurnId: traceId,
             }
             : null,

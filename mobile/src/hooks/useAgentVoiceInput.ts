@@ -9,7 +9,7 @@ import {
     useAudioRecorderState,
 } from 'expo-audio';
 import { File } from 'expo-file-system';
-import { transcribeAgentVoice, type AgentVoiceTranscriptResult } from '../api/query-modules/agent';
+import { transcribeAgentVoice, type AgentAdapterSurface, type AgentVoiceTranscriptResult } from '../api/query-modules/agent';
 import { resolveRecordingDurationMs } from '../utils/audioRecording';
 import {
     createEphemeralUuid,
@@ -23,6 +23,7 @@ import {
 interface UseAgentVoiceInputOptions {
     conversationId?: string;
     currentCommitmentId?: string;
+    surface?: Exclude<AgentAdapterSurface, 'mobile_text'>;
     onTranscriptReady: (result: AgentVoiceTranscriptResult) => void;
     onFailure?: (code: string) => void;
 }
@@ -173,6 +174,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
                 deviceSessionId: deviceSessionIdRef.current,
                 conversationId: optionsRef.current.conversationId,
                 currentCommitmentId: optionsRef.current.currentCommitmentId,
+                surface: optionsRef.current.surface,
                 signal: requestAbort.signal,
             });
             requestAbortRef.current = null;
