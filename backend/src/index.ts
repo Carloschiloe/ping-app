@@ -22,11 +22,12 @@ try {
 }
 
 const env = getEnvConfig();
+const host = '0.0.0.0';
 
 startScheduledJobs();
 startAudioTranscriptionWorker();
 void runPrivateDatabaseDiagnostic();
 
-app.listen(env.port, () => {
-    console.log(`✅ PING Backend listening on port ${env.port} (${env.nodeEnv})`);
+app.listen(env.port, host, () => {
+    console.log(`✅ PING Backend listening on ${host}:${env.port} (${env.nodeEnv})`);
 });
