@@ -19,6 +19,7 @@ import type {
     RetrievalTranscript,
 } from './retrieval';
 import type { MemoryFreshness, MemoryQueryCardinality, RetrievalMemory } from './memory';
+import type { AgentReadContext } from './agentDialogueState';
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 // `channel` is contextual metadata only — it never changes authorization or
@@ -51,6 +52,9 @@ export interface AgentContextInput {
     // el payload público ni desde el intérprete; retrieval lo vuelve a
     // autorizar contra el actor antes de devolver evidencia.
     authorizedCommitmentReferentId?: string;
+    // Core-derived, bounded context from the immediately preceding read in
+    // the same dialogue scope. It contains no raw utterance or canonical ID.
+    priorReadContext?: AgentReadContext | null;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
 }

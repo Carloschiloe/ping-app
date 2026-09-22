@@ -17,6 +17,7 @@
 import { AppError } from '../utils/AppError';
 import type {
     AgentDialogueState,
+    AgentReadContext,
     DialogueLifecycleState,
     DialogueReferentCandidate,
     SlotCorrection,
@@ -173,6 +174,7 @@ function emptyState(actorUserId: string, dialogueScopeKey: string, now: Date): A
         pendingClarification: null,
         corrections: {},
         referents: [],
+        lastReadContext: null,
         currentPlanDigestRef: null,
         currentAuthorizationIdRef: null,
         version: 0,
@@ -237,6 +239,7 @@ export class AgentDialogueStateService {
             openObjective: input.objective,
             ambiguities: input.ambiguities ?? [],
             pendingClarification: null,
+            lastReadContext: null,
             // ADR §3.2 -- opening a fresh objective on top of a superseded
             // one starts a new correction ledger for that objective rather
             // than carrying forward unrelated prior-objective corrections.
@@ -245,6 +248,30 @@ export class AgentDialogueStateService {
             lastTurnSequence: input.turnSequence,
             updatedAt: now.toISOString(),
             expiresAt: computeExpiry(nextLifecycle, now),
+        };
+        return this.persist(next, existing ? existing.version : null);
+    }
+
+    // Stores only Core-derived read scope so a bounded comparative follow-up
+    // can reuse the prior temporal window. This never stores raw text,
+    // retrieved evidence, canonical IDs or authorization decisions.
+    setReadContext(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        context: AgentReadContext | null;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        this.assertFreshTurn(existing, input.turnSequence);
+        const base = existing ?? emptyState(input.actorUserId, input.dialogueScopeKey, now);
+        const next: AgentDialogueState = {
+            ...base,
+            lastReadContext: input.context,
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry(base.lifecycle, now),
         };
         return this.persist(next, existing ? existing.version : null);
     }

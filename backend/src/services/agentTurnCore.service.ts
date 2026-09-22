@@ -347,6 +347,7 @@ export async function runAgentTurn(
         timezone,
         now: now.toISOString(),
         traceId,
+        priorReadContext: existingDialogueState?.lastReadContext ?? null,
         authorizedCommitmentReferentId: options.authorizedCommitmentReferentId,
     }, {});
 
@@ -514,6 +515,19 @@ export async function runAgentTurn(
         kind: 'response', sourceRefCount: response.citations?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
+    dialogueService.setReadContext({
+        actorUserId: input.actorUserId,
+        dialogueScopeKey,
+        context: context.intent.type === 'commitment_query'
+            ? {
+                kind: 'commitment_query',
+                timeRange: context.entities.timeRange,
+                sourceTurnId: traceId,
+            }
+            : null,
+        turnId: traceId,
+        turnSequence: (existingDialogueState?.lastTurnSequence ?? 0) + 1,
+    });
     return finalizeAgentTurn({ kind: 'response', response: toPublicAgentResponse(response) }, traceId);
 }
 

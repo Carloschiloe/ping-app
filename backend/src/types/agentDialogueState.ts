@@ -17,6 +17,7 @@
 //     only -- dialogue state never duplicates AgentPlan/AgentAuthorization
 //     state machines (ADR Q2, Q13, Q14).
 import type { AgentObjective, AgentObjectiveAmbiguity, ClarificationQuestion } from './agentPlan';
+import type { RetrievalTimeRange } from './retrieval';
 
 // ADR Q5 — explicitly distinct from AgentPlanStatus ('draft' |
 // 'needs_clarification' | 'ready_for_authorization') and
@@ -57,6 +58,16 @@ export interface DialogueReferentCandidate {
     addedAt: string;
 }
 
+// Bounded read continuity: only a Core-derived temporal scope is retained,
+// never raw user text, retrieved rows, entity IDs or permissions. This lets a
+// follow-up such as "¿Cuál es el más temprano?" stay inside the immediately
+// preceding "mañana" window without turning dialogue state into memory.
+export interface AgentReadContext {
+    kind: 'commitment_query';
+    timeRange: RetrievalTimeRange | null;
+    sourceTurnId: string;
+}
+
 // ADR Q1/Q2 — the minimum cross-turn state: one open, partially-filled
 // AgentObjective, its correction history, its referent candidates, and
 // (only once they exist) references to the canonical systems that own the
@@ -90,6 +101,9 @@ export interface AgentDialogueState {
 
     // ADR Q7 — raw-text-only referent candidates, never resolved IDs.
     referents: DialogueReferentCandidate[];
+
+    // Short-lived, derived scope for read-only comparative follow-ups.
+    lastReadContext?: AgentReadContext | null;
 
     // ADR Q13/Q14 — REFERENCES only, never copies. Cleared the instant a
     // correction supersedes them (Q13's UX-honesty rule), never treated as

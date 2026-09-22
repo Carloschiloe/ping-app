@@ -359,6 +359,27 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(ctx.commitments).toHaveLength(1);
         expect(mockRetrieveCommitments).toHaveBeenCalled();
     });
+
+    it('una comparativa reutiliza sólo la ventana temporal derivada del turno anterior', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-tomorrow', title: 'probar la voz de Ping' })] as any);
+        const priorTimeRange = {
+            from: '2026-09-22T03:00:00.000Z',
+            to: '2026-09-23T03:00:00.000Z',
+        };
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Cuál es el más temprano?',
+            priorReadContext: { kind: 'commitment_query', timeRange: priorTimeRange, sourceTurnId: 'prior-turn' },
+        });
+
+        expect(ctx.entities.timeRange).toEqual(priorTimeRange);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(
+            expect.objectContaining({ timeRange: priorTimeRange }),
+            expect.any(Number),
+        );
+    });
 });
 
 describe('M-1D: buildAgentContext — authorization (sección 23)', () => {

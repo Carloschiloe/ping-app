@@ -137,6 +137,28 @@ describe('create/read + versioning (test areas 4-7)', () => {
         // The state is untouched by the rejected stale write.
         expect(service.getSnapshot(ACTOR_A, CONV_1)?.lastTurnSequence).toBe(5);
     });
+
+    it('7b. read context is bounded, scoped and reusable without storing raw text', () => {
+        const service = new AgentDialogueStateService();
+        const state = service.setReadContext({
+            actorUserId: ACTOR_A,
+            dialogueScopeKey: 'agent:mobile_text',
+            context: {
+                kind: 'commitment_query',
+                timeRange: { from: '2026-09-22T03:00:00.000Z', to: '2026-09-23T03:00:00.000Z' },
+                sourceTurnId: 'trace-1',
+            },
+            turnId: 'turn-1',
+            turnSequence: 1,
+        });
+
+        expect(state.lastReadContext).toEqual({
+            kind: 'commitment_query',
+            timeRange: { from: '2026-09-22T03:00:00.000Z', to: '2026-09-23T03:00:00.000Z' },
+            sourceTurnId: 'trace-1',
+        });
+        expect(JSON.stringify(state.lastReadContext)).not.toContain('raw');
+    });
 });
 
 describe('lifecycle transitions (test areas 8-9)', () => {

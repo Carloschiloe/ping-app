@@ -100,6 +100,9 @@ const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|
 // Without this signal the turn falls into general_context/topic_too_broad
 // instead of comparing the commitments already in scope.
 const TEMPORAL_COMPARISON_QUERY_KEYWORDS = wordBounded('m[aá]s\\s+(?:tempran[oa]|tarde)|earliest|latest|soonest');
+export function isTemporalComparisonQuery(input: string): boolean {
+    return TEMPORAL_COMPARISON_QUERY_KEYWORDS.test(input);
+}
 const SEARCH_KEYWORDS = wordBounded('busca|buscar|búsqueda|search|find|encuentra');
 // M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B) — "háblame de X"/
 // "cuéntame sobre X" son la MISMA familia semántica que "hablamos de X"/
@@ -839,7 +842,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     if (WRITE_ACTION_KEYWORDS.test(input) || NATURAL_WRITE_ACTION_PHRASES.test(input)) {
         return { type: 'general_context', confidence: 0.9 };
     }
-    if (TEMPORAL_COMPARISON_QUERY_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
+    if (isTemporalComparisonQuery(input)) return { type: 'commitment_query', confidence: 0.8 };
     if (DOCUMENT_KEYWORDS.test(input)) return { type: 'document_search', confidence: 0.8 };
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
     // M-1H v6 (Gap B): "¿qué estoy esperando?"/"¿qué tengo por aceptar?"/

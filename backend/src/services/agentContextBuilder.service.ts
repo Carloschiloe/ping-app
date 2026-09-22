@@ -35,6 +35,7 @@ import {
     CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
     isHistoricalLifecycleQuery,
     isDeclarativeLifecycleMention,
+    isTemporalComparisonQuery,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -49,6 +50,7 @@ import type {
     RetrievalPlanStep,
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
+import type { AgentReadContext } from '../types/agentDialogueState';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 // [PING_PROPOSAL_TRACE] TEMPORARY (ticket "M-1H: DETERMINISTIC QUERY
@@ -645,7 +647,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
     });
-    const timeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+    const timeRange: RetrievalTimeRange | null = explicitTimeRange
+        ?? (isTemporalComparisonQuery(input.input) && input.priorReadContext?.kind === 'commitment_query'
+            ? input.priorReadContext.timeRange
+            : null);
 
     // [PING_PROPOSAL_TRACE] TEMPORARY — captura RAW vs NORMALIZED para poder
     // comparar dos ejecuciones idénticas del mismo input (sección 2 del
