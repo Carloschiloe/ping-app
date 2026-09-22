@@ -39,26 +39,10 @@ import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
 const SLOW_REQUEST_COPY_DELAY_MS = 10_000;
 
-// PingAI global has no persisted chat conversation yet, but text and voice
-// turns made inside the same mounted screen must share one Core dialogue
-// scope. Otherwise `hoy` typed in text lands in `agent:mobile_text` while a
-// spoken follow-up lands in `agent:mobile_voice` and loses its temporal
-// window. This is an ephemeral UUID: it scopes this screen session only and
-// never grants access to another conversation or changes canonical data.
-function createEphemeralAgentConversationId(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (token) => {
-        const random = Math.floor(Math.random() * 16);
-        const value = token === 'x' ? random : (random & 0x3) | 0x8;
-        return value.toString(16);
-    });
-}
-
 export default function AgentPreviewScreen({ navigation, route }: AgentPreviewScreenProps) {
     const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
-    const ephemeralConversationIdRef = useRef<string | null>(null);
-    const conversationId = route.params?.conversationId
-        ?? (ephemeralConversationIdRef.current ??= createEphemeralAgentConversationId());
+    const conversationId = route.params?.conversationId;
 
     const [messages, setMessages] = useState<AgentChatMessage[]>([]);
     const [inputText, setInputText] = useState('');

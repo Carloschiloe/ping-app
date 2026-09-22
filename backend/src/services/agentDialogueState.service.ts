@@ -37,13 +37,17 @@ export const DIALOGUE_STATE_LIMITS = {
 } as const;
 
 // ADR Q4 — the SOLE owner of scope-key construction. Never inlined ad hoc
-// by a caller. dialogueScopeKey = conversationId when present, else
-// 'agent:' + surface for conversation-less surfaces (Agent Preview /
-// global Agent / future voice-only) -- this degrades safely instead of
-// crashing or silently merging into an unrelated scope.
+// by a caller. A real conversationId always wins. For the global Ping Agent,
+// mobile text and mobile voice are two modalities of the SAME conversation,
+// so they intentionally share `agent:mobile`; otherwise a voice follow-up
+// would lose the temporal/read context established by text. Other
+// conversation-less surfaces remain isolated by surface.
 export function buildDialogueScopeKey(input: { conversationId?: string | null; surface: AgentSurface }): string {
     if (input.conversationId) return input.conversationId;
-    return `agent:${input.surface}`;
+    const scope = input.surface === 'mobile_text' || input.surface === 'mobile_voice'
+        ? 'mobile'
+        : input.surface;
+    return `agent:${scope}`;
 }
 
 function dialogueMapKey(actorUserId: string, dialogueScopeKey: string): string {

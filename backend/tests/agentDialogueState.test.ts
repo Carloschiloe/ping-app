@@ -49,13 +49,13 @@ describe('buildDialogueScopeKey (ADR Q4)', () => {
         expect(buildDialogueScopeKey({ conversationId: CONV_1, surface: 'mobile_voice' })).toBe(CONV_1);
     });
 
-    it('degrades to agent:<surface> when conversationId is absent (Agent Preview / global Agent)', () => {
-        expect(buildDialogueScopeKey({ surface: 'mobile_text' })).toBe('agent:mobile_text');
-        expect(buildDialogueScopeKey({ conversationId: null, surface: 'mobile_voice' })).toBe('agent:mobile_voice');
+    it('shares the global scope between mobile text and voice when conversationId is absent', () => {
+        expect(buildDialogueScopeKey({ surface: 'mobile_text' })).toBe('agent:mobile');
+        expect(buildDialogueScopeKey({ conversationId: null, surface: 'mobile_voice' })).toBe('agent:mobile');
     });
 
-    it('different surfaces produce different global scope keys -- never collide', () => {
-        expect(buildDialogueScopeKey({ surface: 'mobile_text' })).not.toBe(buildDialogueScopeKey({ surface: 'mobile_voice' }));
+    it('keeps different global surfaces isolated', () => {
+        expect(buildDialogueScopeKey({ surface: 'mobile_text' })).not.toBe(buildDialogueScopeKey({ surface: 'tablet' }));
     });
 });
 
