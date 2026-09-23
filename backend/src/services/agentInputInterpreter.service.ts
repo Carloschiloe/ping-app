@@ -359,7 +359,7 @@ const CLOSED_STATUS_KEYWORDS = wordBounded(LIFECYCLE_TRANSITION_TABLE.map((e) =>
 // closed statuses the table already tracks, plus the two open-status words
 // OPEN_STATUS_KEYWORDS already recognizes in plural form.
 const SINGULAR_STATUS_ADJECTIVE_FRAGMENT = 'atrasad[oa]|vencid[oa]|resuelt[oa]|cerrad[oa]|completad[oa]|complet[oa]|cancelad[oa]|rechazad[oa]|pendiente|abiert[oa]';
-const SINGULAR_STATUS_ENTITY_PATTERN = wordBounded(`(?:el|la)\\s+${SINGULAR_STATUS_ADJECTIVE_FRAGMENT}`);
+const SINGULAR_STATUS_ENTITY_PATTERN = wordBounded(`(?:el|la)\\s+(?:${SINGULAR_STATUS_ADJECTIVE_FRAGMENT})`);
 // Deliberately requires the definite article immediately before the
 // adjective (el/la) so a bare "algo atrasado" or an already-unambiguous
 // plural ("los atrasados", EXPLICIT_LIST_KEYWORDS-shaped) never triggers
@@ -561,6 +561,8 @@ const STOPWORDS = new Set([
     'talked', 'talk', 'said', 'say', 'says', 'told', 'happened', 'discussed', 'decided',
     'prometí', 'prometi', 'promise', 'promised', 'pendiente', 'pendientes', 'pending', 'tengo', 'have', 'this', 'esta', 'este',
     'hola', 'hello', 'hi', 'hey', 'buenas',
+    'oye', 'cosa', 'cosas', 'thing', 'things', 'stuff', 'item', 'items',
+    'muéstrame', 'muestrame', 'muestra', 'dame', 'dime', 'decime',
     'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'my', 'your', 'his', 'her', 'their', 'our',
     // M-1G.3: verbos/pronombres funcionales que quedaban como residuo de
     // preguntas de vencido/status ("¿Qué hay vencido?" -> "hay", "¿Tengo
@@ -763,6 +765,26 @@ function stripProposalFocusLanguage(text: string): string {
     return cleaned.replace(/\s+/g, ' ').trim();
 }
 
+// A time expression is a structured retrieval constraint, never an FTS topic.
+// Remove only the exact expression detected by the same canonical extractor;
+// this prevents broad phrases such as "los próximos días" from becoming a
+// text filter while preserving real topics that merely contain similar words.
+function stripTimeExpressionLanguage(text: string): string {
+    const detected = extractTimeExpression(text);
+    if (!detected) return text;
+    return text.replace(detected, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Invocation words are transport/conversation scaffolding, not user data.
+// This is intentionally anchored to the beginning and to a named Ping
+// invocation; a real topic named "Ping" in the body is never discarded.
+function stripInvocationScaffolding(text: string): string {
+    return text
+        .replace(/^\s*(?:oye|hey|hola|hello|buenas)\s+ping\b\s*[,;:]?\s*/iu, '')
+        .replace(/^\s*ping\b\s*[,;:]\s*/iu, '')
+        .trim();
+}
+
 // Orden específico -> general, ver comentario de las keywords arriba.
 //
 // OJO: "pending_response_from_person" NUNCA se decide por la frase suelta
@@ -881,6 +903,7 @@ const TIME_EXPRESSIONS: RegExp[] = [
     /\besta semana\b|\bthis week\b/i,
     /\b(?:el\s+|este\s+|proximo\s+|\u00fapr\u00f3ximo\s+)?(?:lunes|martes|mi(?:e|\u00e9)rcoles|jueves|viernes|s(?:a|\u00e1)bado|domingo)\b/i,
     /\b(?:la\s+)?(?:proxima|\u00fapr\u00f3xima)\s+semana\b|\bnext week\b|\bthis weekend\b|\beste fin de semana\b/i,
+    /\b(?:los\s+)?pr[o\u00f3]ximos?\s+d[i\u00ed]as?\b|\bnext\s+(?:few\s+)?days?\b|\b(?:the\s+)?coming\s+days?\b/i,
     /\bla semana pasada\b|\blast week\b/i,
     /\bel mes pasado\b|\blast month\b/i,
     /\bhace (\d+) d[ií]as?\b|\b(\d+) days? ago\b/i,
@@ -1104,7 +1127,7 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
 // string, closing the boundary gap by construction rather than by adding a
 // second call site that could drift again later.
 function normalizeControlLanguageFromTextQuery(candidate: string): string {
-    let cleaned = candidate;
+    let cleaned = stripInvocationScaffolding(candidate);
     // M-1G.3: "vencido"/"overdue"/"past due" ya está capturado por
     // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
     // (ver stripOverdueLanguage).
@@ -1138,11 +1161,12 @@ function normalizeControlLanguageFromTextQuery(candidate: string): string {
     // Comparative temporal language is a query operator, not an FTS topic.
     cleaned = stripTemporalComparisonLanguage(cleaned);
     cleaned = stripUrgencyComparisonLanguage(cleaned);
+    cleaned = stripTimeExpressionLanguage(cleaned);
     return cleaned;
 }
 
 function extractTextQuery(input: string, personHints: string[]): string | null {
-    let cleaned = input;
+    let cleaned = stripInvocationScaffolding(input);
     for (const hint of personHints) {
         cleaned = cleaned.replace(hint, ' ');
     }
