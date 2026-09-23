@@ -18,6 +18,7 @@
 //     state machines (ADR Q2, Q13, Q14).
 import type { AgentObjective, AgentObjectiveAmbiguity, ClarificationQuestion } from './agentPlan';
 import type { RetrievalTimeRange } from './retrieval';
+import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 // ADR Q5 — explicitly distinct from AgentPlanStatus ('draft' |
 // 'needs_clarification' | 'ready_for_authorization') and
@@ -58,14 +59,19 @@ export interface DialogueReferentCandidate {
     addedAt: string;
 }
 
-// Bounded read continuity: only a Core-derived temporal scope is retained,
-// never raw user text, retrieved rows, entity IDs or permissions. This lets a
-// follow-up such as "¿Cuál es el más temprano?" stay inside the immediately
-// preceding "mañana" window without turning dialogue state into memory.
+// Bounded read continuity: only Core-derived scope is retained. Canonical
+// entity IDs are references, not evidence or permissions: every follow-up
+// must re-authorize them through the actor-scoped retrieval layer.
 export interface AgentReadContext {
     kind: 'commitment_query';
     timeRange: RetrievalTimeRange | null;
     sourceTurnId: string;
+    commitmentReferents?: Array<{
+        rawText: string;
+        entityType: 'commitment' | 'commitment_proposal';
+        canonicalId?: string;
+    }>;
+    statuses?: CanonicalCommitmentStatus[] | null;
 }
 
 // ADR Q1/Q2 — the minimum cross-turn state: one open, partially-filled

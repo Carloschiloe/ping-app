@@ -41,6 +41,7 @@ export const agentInterpretationPayloadSchema = z.object({
     textQuery: z.string().trim().max(200).nullable().default(null),
     timeExpression: z.string().trim().max(60).nullable().default(null),
     temporalIntent: TEMPORAL_INTENT_SCHEMA.nullable().default(null),
+    priorReferenceIntent: z.enum(['single_entity', 'result_set']).nullable().default(null),
     // Operación semántica, no texto libre. El modelo puede reconocerla en
     // cualquier idioma; Core la combina con su propia normalización y nunca
     // la usa como texto de búsqueda.

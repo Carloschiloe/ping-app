@@ -241,6 +241,34 @@ describe('M-1E: deriveStatus (sección 6) — siempre determinístico', () => {
     });
 });
 
+describe('M-7 continuity: commitment due times remain in the actor timezone', () => {
+    it('serializes and falls back to the actor-local due time instead of exposing UTC', async () => {
+        const target = commitment('cm-santiago', {
+            title: 'Verificar el audio de PING',
+            dueAt: '2026-09-23T14:00:00.000Z',
+        });
+        const model = fakeModel('not json');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({
+            input: '¿Y a qué hora tengo que hacerlo?',
+            locale: 'es-CL',
+            context: baseContext({
+                timezone: 'America/Santiago',
+                now: '2026-09-22T12:00:00.000Z',
+                evidenceFound: true,
+                commitments: [target] as any,
+                provenance: [target.provenance],
+            }),
+        });
+
+        const prompt = model.calls[0].prompt;
+        expect(prompt).toContain('dueAtLocal');
+        expect(prompt).toContain('11:00');
+        expect(response.answer).toContain('11:00');
+        expect(response.answer).not.toContain('14:00');
+    });
+});
+
 // ─── Claim validation ─────────────────────────────────────────────────────
 
 describe('M-1E.1: validateClaimsAgainstAllowedRefs — frontera de evidencia serializada (secciones 2, 3, 7)', () => {

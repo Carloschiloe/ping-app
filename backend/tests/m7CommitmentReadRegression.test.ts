@@ -10,6 +10,7 @@ vi.mock('../src/services/retrieval.service', () => ({
     retrieveCommitments: vi.fn(),
     retrieveCommitmentProposals: vi.fn(),
     retrieveCommitmentEvents: vi.fn(),
+    retrieveVisibleCommitmentById: vi.fn(),
     retrieveMessages: vi.fn(),
     retrieveTranscriptions: vi.fn(),
     retrieveAttachments: vi.fn(),
@@ -26,6 +27,7 @@ import * as memoryService from '../src/services/memory.service';
 const retrieveCommitments = vi.mocked(retrievalService.retrieveCommitments);
 const retrieveCommitmentProposals = vi.mocked(retrievalService.retrieveCommitmentProposals);
 const retrieveCommitmentEvents = vi.mocked(retrievalService.retrieveCommitmentEvents);
+const retrieveVisibleCommitmentById = vi.mocked(retrievalService.retrieveVisibleCommitmentById);
 const retrieveMessages = vi.mocked(retrievalService.retrieveMessages);
 const retrieveTranscriptions = vi.mocked(retrievalService.retrieveTranscriptions);
 const retrieveAttachments = vi.mocked(retrievalService.retrieveAttachments);
@@ -76,6 +78,7 @@ beforeEach(() => {
     retrieveCommitments.mockReset().mockResolvedValue([TODAY, TOMORROW]);
     retrieveCommitmentProposals.mockReset().mockResolvedValue([]);
     retrieveCommitmentEvents.mockReset().mockResolvedValue([]);
+    retrieveVisibleCommitmentById.mockReset().mockResolvedValue(null);
     retrieveMessages.mockReset().mockResolvedValue([]);
     retrieveTranscriptions.mockReset().mockResolvedValue([]);
     retrieveAttachments.mockReset().mockResolvedValue([]);
@@ -313,5 +316,86 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
         expect(interpretation.temporalIntent).toEqual({ kind: 'relative_days', daysAhead: 5, futureOnly: true });
         expect(context.entities.timeRange).toEqual({ from: '2026-09-22T12:00:00.000Z', to: '2026-09-28T00:00:00.000Z' });
         expect(context.commitments.map((item) => item.id)).toEqual(['cm-tomorrow']);
+    });
+});
+
+describe('M-7 conversational continuity: a singular follow-up keeps the authorized entity', () => {
+    it('re-authorizes the prior canonical commitment by id and never broadens to proposals or unrelated commitments', async () => {
+        const interpreter = new DeterministicInputInterpreter();
+        retrieveCommitments.mockResolvedValue([TOMORROW] as any);
+        const firstInput = 'Oye Ping, ¿qué cosas tengo pendientes para los próximos días?';
+        const first = await buildAgentContext({
+            actorUserId: 'actor-1', input: firstInput, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'America/Santiago', traceId: 'm7-continuity-first',
+        }, { interpreter, interpretation: await interpreter.interpret(firstInput, {}) });
+
+        retrieveCommitments.mockClear();
+        retrieveCommitmentProposals.mockClear();
+        retrieveVisibleCommitmentById.mockClear();
+
+        const priorReadContext = {
+            kind: 'commitment_query' as const,
+            timeRange: first.entities.timeRange,
+            sourceTurnId: 'm7-continuity-first',
+            commitmentReferents: [{ rawText: TOMORROW.title, entityType: 'commitment' as const, canonicalId: TOMORROW.id }],
+            statuses: ['accepted' as const],
+        };
+        retrieveVisibleCommitmentById.mockResolvedValue(TOMORROW as any);
+        retrieveCommitments.mockResolvedValue([OVERDUE, TODAY, TOMORROW] as any);
+        retrieveCommitmentProposals.mockResolvedValue([PROPOSAL] as any);
+
+        const followInput = '¿Y a qué hora tengo que hacerlo?';
+        const follow = await buildAgentContext({
+            actorUserId: 'actor-1', input: followInput, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'America/Santiago', traceId: 'm7-continuity-follow', priorReadContext,
+        }, { interpreter, interpretation: await interpreter.interpret(followInput, {}) });
+
+        expect(retrieveVisibleCommitmentById).toHaveBeenCalledWith('actor-1', TOMORROW.id);
+        expect(retrieveCommitments).not.toHaveBeenCalled();
+        expect(retrieveCommitmentProposals).not.toHaveBeenCalled();
+        expect(follow.commitments.map((item) => item.id)).toEqual([TOMORROW.id]);
+        expect(follow.commitments[0].dueAt).toBe(TOMORROW.dueAt);
+        expect(follow.needsClarification).toBe(false);
+    });
+
+    it('does not guess when the prior result contains multiple possible referents', async () => {
+        const interpreter = new DeterministicInputInterpreter();
+        const followInput = '¿Y a qué hora tengo que hacerlo?';
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1', input: followInput, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'America/Santiago', traceId: 'm7-continuity-ambiguous',
+            priorReadContext: {
+                kind: 'commitment_query', timeRange: null, sourceTurnId: 'm7-prior',
+                commitmentReferents: [
+                    { rawText: 'probar la voz de Ping', entityType: 'commitment' },
+                    { rawText: 'verificar el audio de PING', entityType: 'commitment' },
+                ], statuses: ['accepted'],
+            },
+        }, { interpreter, interpretation: await interpreter.interpret(followInput, {}) });
+
+        expect(context.needsClarification).toBe(true);
+        expect(context.commitments).toEqual([]);
+        expect(retrieveVisibleCommitmentById).not.toHaveBeenCalled();
+        expect(retrieveCommitments).not.toHaveBeenCalled();
+        expect(retrieveCommitmentProposals).not.toHaveBeenCalled();
+    });
+
+    it('lets an explicit new topic replace the previous referent instead of inheriting it', async () => {
+        const interpreter = new DeterministicInputInterpreter();
+        retrieveCommitments.mockResolvedValue([OVERDUE] as any);
+        const input = '¿Qué compromisos tengo sobre terreno?';
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1', input, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'America/Santiago', traceId: 'm7-continuity-topic-change',
+            priorReadContext: {
+                kind: 'commitment_query', timeRange: null, sourceTurnId: 'm7-prior',
+                commitmentReferents: [{ rawText: 'verificar el audio de PING', entityType: 'commitment', canonicalId: TOMORROW.id }],
+                statuses: ['accepted'],
+            },
+        }, { interpreter, interpretation: await interpreter.interpret(input, {}) });
+
+        expect(retrieveVisibleCommitmentById).not.toHaveBeenCalled();
+        expect(retrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'terreno' }), expect.any(Number));
+        expect(context.commitments.map((item) => item.id)).toEqual([OVERDUE.id]);
     });
 });

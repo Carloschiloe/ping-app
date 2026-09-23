@@ -528,6 +528,12 @@ export async function runAgentTurn(
                 kind: 'commitment_query',
                 timeRange: context.entities?.timeRange ?? null,
                 sourceTurnId: traceId,
+                commitmentReferents: context.commitments.slice(0, 10).map((commitment) => ({
+                    rawText: commitment.title,
+                    entityType: commitment.entityType,
+                    canonicalId: commitment.id,
+                })),
+                statuses: Array.from(new Set(context.commitments.map((commitment) => commitment.status))),
             }
             : null,
         turnId: traceId,

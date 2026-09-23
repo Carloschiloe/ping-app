@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
@@ -1141,6 +1141,19 @@ export function inferTemporalIntent(input: string): TemporalIntent | null {
     return null;
 }
 
+// A follow-up reference is a semantic relation to the immediately preceding
+// read result, not a topic. The Core may use it only when dialogue state has
+// a live, re-resolvable referent; this signal never carries an id.
+export function inferPriorReferenceIntent(input: string): PriorReferenceIntent | null {
+    if (/\b(?:hacerlo|hacerla|hacerlos|hacerlas|eso|esa|ese|esas|esos|it|that|this|the\s+one)\b/i.test(input)) {
+        return 'single_entity';
+    }
+    if (/\b(?:ellos|ellas|esos|esas|los\s+anteriores|las\s+anteriores|those|these|the\s+others)\b/i.test(input)) {
+        return 'result_set';
+    }
+    return null;
+}
+
 function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
     // Algo vencido/atrasado, por definición, sigue sin resolverse -- mismo
     // filtro que "pendientes/open" (M-1G.1: antes "vencido" no matcheaba
@@ -1286,6 +1299,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const personHints = extractPersonHints(trimmed);
         const timeExpression = extractTimeExpression(trimmed);
         const temporalIntent = inferTemporalIntent(trimmed);
+        const priorReferenceIntent = inferPriorReferenceIntent(trimmed);
         const statusHints = extractStatusHints(trimmed);
         const textQuery = extractTextQuery(trimmed, personHints);
         const wantsAudio = AUDIO_KEYWORDS.test(trimmed);
@@ -1303,6 +1317,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             textQuery,
             timeExpression,
             temporalIntent,
+            priorReferenceIntent,
             temporalComparison,
             urgencyComparison,
             statusHints,
@@ -1345,6 +1360,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         textQuery: input.trim() || null,
         timeExpression: null,
         temporalIntent: null,
+        priorReferenceIntent: null,
         temporalComparison: null,
         urgencyComparison: null,
         statusHints: null,
@@ -1404,9 +1420,9 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
         '"proposalFocus" is a SEPARATE, OPTIONAL signal about the approval lifecycle of a not-yet-confirmed proposal (never about an already-active commitment). Set it to "waiting_for_others" when the user asks what they themselves are still waiting on someone else for (e.g. "what am I waiting for?", "¿qué estoy esperando?"). Set it to "needs_my_response" when the user asks what they themselves still need to accept/respond to (e.g. "what do I have to accept?", "¿qué tengo por aceptar?"). Set it to "pending_response_from_person" when the user asks specifically what a NAMED person still needs to accept or respond to (e.g. "what is Alejandra still missing to accept?", "¿qué falta que acepte Alejandra?") — in that case you MUST also include that person in personHints. Leave it null for anything else, including a plain overdue/pending question with no approval-lifecycle angle. NEVER put any of this language (esperando/waiting/por aceptar/to accept/falta que acepte) into textQuery — it is already fully captured here.',
         '"isWriteActionRequest" describes the user\'s SPEECH ACT, not the presence of a particular verb. Set it true whenever the user asks Ping to change durable state or carry out an enabled action: create a personal reminder/commitment, schedule or organize a commitment, remember a fact, send or draft a message, ask/contact someone, respond to a proposal, reschedule, complete, or cancel an existing commitment. This includes indirect lifecycle speech acts such as changing an existing date (“dejemos el informe para el lunes”), closing an item (“dalo por terminado”), withdrawing it (“no sigamos con eso”), and explicit memory capture (“recuerda que…” or “guarda que…”). Users may express the same intent indirectly (for example as an obligation, a request not to forget, a request to keep something pending, a colloquial/passive formulation, or a question asking whether Ping can take responsibility for handling something); classify the meaning, not a memorized phrase. A request to sort, rank, filter, compare, or show stored items is READ even when it uses an action verb such as “ordena”. A vague action with no object should remain WRITE-shaped but produce clarification downstream rather than being reported as “no evidence”. Set it false for retrieval, explanation, history, comparison, or a question about something already stored. Important contrast: “recuérdame qué hablamos” retrieves a past conversation (false), while “recuérdame revisar el contrato” asks Ping to create a reminder (true). Negation can still be a write request when it expresses the user\'s intention to avoid forgetting or asks Ping to preserve something (for example “no quiero olvidarme de enviar esto”); it is not a write request when it merely denies or rejects an action (for example “no quiero enviar nada”).',
-        'Extract temporal meaning into temporalIntent, independently of the exact wording. Use calendar_day for today/yesterday/tomorrow with offsetDays -1/0/1; calendar_week for this week/last week with offsetWeeks 0/-1; relative_days for an explicit bounded horizon such as "within five days" with daysAhead=5; and upcoming_horizon for a vague future period such as "the days that follow" with daysAhead=null. Set futureOnly=true when the request means items from now forward, and never invent a numeric duration. Keep timeExpression as the raw phrase for traceability. If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". If the user asks for the most urgent/highest-priority commitment, set urgencyComparison to "most_urgent". These are operations over retrieved commitments, not topics and never belong in textQuery. Use null when absent.',
+        'Extract temporal meaning into temporalIntent, independently of the exact wording. Use calendar_day for today/yesterday/tomorrow with offsetDays -1/0/1; calendar_week for this week/last week with offsetWeeks 0/-1; relative_days for an explicit bounded horizon such as "within five days" with daysAhead=5; and upcoming_horizon for a vague future period such as "the days that follow" with daysAhead=null. Set futureOnly=true when the request means items from now forward, and never invent a numeric duration. Keep timeExpression as the raw phrase for traceability. For a follow-up that refers to the immediately preceding result with a singular anaphor ("it", "that", "hacerlo", "eso", or equivalent), set priorReferenceIntent="single_entity"; for a plural reference to the prior result set, use "result_set". Do not set it when the user names a new topic. If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". If the user asks for the most urgent/highest-priority commitment, set urgencyComparison to "most_urgent". These are operations over retrieved commitments, not topics and never belong in textQuery. Use null when absent.',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalIntent":{"kind":"calendar_day","offsetDays":number,"futureOnly":boolean}|{"kind":"calendar_week","offsetWeeks":number,"futureOnly":boolean}|{"kind":"relative_days","daysAhead":number,"futureOnly":true}|{"kind":"upcoming_horizon","daysAhead":number|null,"futureOnly":true}|null,"temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalIntent":{"kind":"calendar_day","offsetDays":number,"futureOnly":boolean}|{"kind":"calendar_week","offsetWeeks":number,"futureOnly":boolean}|{"kind":"relative_days","daysAhead":number,"futureOnly":true}|{"kind":"upcoming_horizon","daysAhead":number|null,"futureOnly":true}|null,"priorReferenceIntent":"single_entity"|"result_set"|null,"temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -1520,6 +1536,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         textQuery,
         timeExpression: payload.timeExpression,
         temporalIntent: payload.temporalIntent,
+        priorReferenceIntent: payload.priorReferenceIntent,
         temporalComparison,
         urgencyComparison,
         statusHints,

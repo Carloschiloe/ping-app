@@ -98,7 +98,7 @@ interface SerializedContext {
     // proposal está aprobada (sección 15 del ticket).
     commitments: Array<{
         id: string; entityType: 'commitment' | 'commitment_proposal'; title: string; status: string;
-        dueAt: string | null; resolvedAt: string | null; resolutionResult: string | null;
+        dueAt: string | null; dueAtLocal: string | null; resolvedAt: string | null; resolutionResult: string | null;
         ownerUserId: string; assignedToUserId: string | null; isOverdue: boolean;
         actorHasApproved?: boolean; actorCanRespond?: boolean; pendingResponderNamesSafe?: string[];
         isFullyApproved?: boolean; proposalDatePassed?: boolean;
@@ -264,6 +264,7 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
     const full: SerializedContext = {
         commitments: context.commitments.map((c) => ({
             id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: c.dueAt,
+            dueAtLocal: c.dueAt ? formatEventTimestampInZone(c.dueAt, context.timezone, locale) : null,
             resolvedAt: c.resolvedAt, resolutionResult: c.resolutionResult, ownerUserId: c.ownerUserId,
             assignedToUserId: c.assignedToUserId,
             isOverdue: isCommitmentOverdue(c.dueAt, c.status, context.now, context.timezone, c.entityType),
@@ -358,7 +359,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         '"commitments" entries are the CANONICAL, CURRENT state — always outweigh "messages"/"transcriptions" (informal, historical evidence) and "events" (history of status changes) when they conflict. If a commitment is directly relevant to the question, prefer citing its current status/due_at fields over an older message/transcript for that same fact — if a commitment was rescheduled, state the CURRENT date, and you may mention it changed if useful.',
         'A commitment with status "resolved", "cancelled", or "rejected" must NEVER be described as pending or open — check its "status" field before asserting anything about it being due or pending.',
         'Each commitment has an "entityType" field: "commitment" is a canonical, already-established, active commitment. "commitment_proposal" is a PROPOSAL that is NOT a commitment yet — it only becomes one once every required person has approved it. Never call a "commitment_proposal" a "commitment" and never say it is overdue, active, or pending completion — it simply does not exist as a real obligation until fully approved.',
-        'Each commitment already has a boolean "isOverdue" field, computed by the backend — TRUST it exactly, never compute overdue status yourself. For "entityType":"commitment_proposal", "isOverdue" is ALWAYS false by design (a proposal can never be overdue, no matter its due date) — never contradict this or call a proposal overdue yourself. If the user asks about overdue/late/past-due items and ANY "commitment" (not "commitment_proposal") has "isOverdue":true, you MUST mention it as overdue.',
+        'Each commitment already has a boolean "isOverdue" field, computed by the backend — TRUST it exactly, never compute overdue status yourself. For "entityType":"commitment_proposal", "isOverdue" is ALWAYS false by design (a proposal can never be overdue, no matter its due date) — never contradict this or call a proposal overdue yourself. If the user asks about overdue/late/past-due items and ANY "commitment" (not "commitment_proposal") has "isOverdue":true, you MUST mention it as overdue. For due dates/times, use "dueAtLocal" verbatim; it is already formatted in the actor timezone. Use raw "dueAt" only for chronological comparison, never to display a clock time.',
         'For "entityType":"commitment_proposal" you are given the exact participation facts, already resolved by the backend — never infer or guess any of them from "status" or dates yourself: "actorHasApproved" (the user already approved it), "actorCanRespond" (the user still needs to respond — accept, propose another date, or reject), "pendingResponderNamesSafe" (the real names of people whose approval is still missing), "isFullyApproved" (nothing more is needed, it is about to become a real commitment), and "proposalDatePassed" (its proposed date has already passed — this is informational only, it is NEVER the same as "overdue"). Phrase these naturally: if pendingResponderNamesSafe has names, say the proposal is waiting on them (e.g. "\'Entrenar\' is waiting for Alejandra to respond"); if proposalDatePassed is true, you may add that the proposed date has already passed, but always alongside who it is still waiting on, and NEVER phrase this as "overdue" or "vencido". If actorCanRespond is true, say the user still needs to respond to it themselves.',
         'Distinguish "we talked about X" (a message/transcript mentions a topic) from "we agreed to X" (only assert an agreement if a canonical commitment actually reflects it) — do not upgrade an informal remark into a commitment.',
         'Attachments are metadata references only (id, kind, filename) — never assert what a document says internally unless its actual text is given to you (it is not, in this version).',
@@ -1562,9 +1563,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             const resolvedLocale = locale ?? (language === 'es' ? 'es-CL' : 'en-US');
             const lines = payload.commitments.slice(0, 8).map((commitment) => {
                 const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-                const due = commitment.dueAt
-                    ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale)
-                    : (language === 'es' ? 'sin fecha' : 'no date');
+                const due = commitment.dueAtLocal
+                    ?? (commitment.dueAt ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale) : null)
+                    ?? (language === 'es' ? 'sin fecha' : 'no date');
                 const state = fallbackCommitmentState(commitment.status, commitment.isOverdue, language);
                 return language === 'es'
                     ? `"${title}" — ${due}${state ? ` (${state})` : ''}`

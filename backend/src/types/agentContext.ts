@@ -53,7 +53,8 @@ export interface AgentContextInput {
     // autorizar contra el actor antes de devolver evidencia.
     authorizedCommitmentReferentId?: string;
     // Core-derived, bounded context from the immediately preceding read in
-    // the same dialogue scope. It contains no raw utterance or canonical ID.
+    // the same dialogue scope. It contains no raw utterance; canonical IDs,
+    // when present, are only re-authorized references, never evidence.
     priorReadContext?: AgentReadContext | null;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
@@ -127,6 +128,7 @@ export type UrgencyComparison = 'most_urgent';
 // latest"). El intérprete puede sugerirlo, pero el Core lo valida y lo usa
 // para seleccionar evidencia canónica antes de redactar.
 export type TemporalComparison = 'earliest' | 'latest';
+export type PriorReferenceIntent = 'single_entity' | 'result_set';
 
 // Semantic temporal constraint proposed by the interpreter and resolved by
 // Core. The raw wording remains available in timeExpression for traceability,
@@ -145,6 +147,7 @@ export interface Interpretation {
     textQuery: string | null;    // texto residual para FTS (M-1C) — null si no aporta
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
     temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
+    priorReferenceIntent?: PriorReferenceIntent | null;
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"

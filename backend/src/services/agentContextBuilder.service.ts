@@ -37,6 +37,7 @@ import {
     isDeclarativeLifecycleMention,
     isUpcomingTimeExpression,
     inferTemporalIntent,
+    inferPriorReferenceIntent,
     isTemporalComparisonQuery,
     extractTemporalComparison,
     extractUrgencyComparison,
@@ -53,6 +54,7 @@ import type {
     QueryCardinality,
     RetrievalPlanStep,
     TemporalIntent,
+    PriorReferenceIntent,
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 import type { AgentReadContext } from '../types/agentDialogueState';
@@ -594,6 +596,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
     const temporalIntent = deterministicSignals.temporalIntent ?? rawInterpretation.temporalIntent ?? inferTemporalIntent(input.input);
+    const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent ?? rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input);
+    const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
+    const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
+        ? priorCommitmentReferents[0]
+        : null;
+    const priorCanonicalCommitmentId = priorSingleReferent?.entityType === 'commitment'
+        ? priorSingleReferent.canonicalId
+        : undefined;
+    const priorProposalReferent = priorSingleReferent?.entityType === 'commitment_proposal';
+    const priorReferenceAmbiguous = priorReferenceIntent !== null && priorCommitmentReferents.length !== 1;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -604,7 +616,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // present in the deterministic multilingual fast-path.
         || temporalComparison !== null
         || urgencyComparison !== null
-        || temporalIntent !== null;
+        || temporalIntent !== null
+        || priorSingleReferent !== null;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -625,7 +638,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // language de confirmación/aceptación/aprobación, ver
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
-        textQuery: commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery,
+        textQuery: priorSingleReferent?.rawText
+            ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
+        priorReferenceIntent,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
@@ -714,9 +729,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // proposal path available for explicit approval questions.
     const upcomingOnlyCommitmentRead = (interpretation.temporalIntent?.futureOnly === true || isUpcomingTimeExpression(interpretation.timeExpression))
         && interpretation.proposalFocus === null;
-    const commitmentStatuses: CanonicalCommitmentStatus[] | null = upcomingOnlyCommitmentRead
-        ? ['accepted']
-        : interpretation.statusHints;
+    const commitmentStatuses: CanonicalCommitmentStatus[] | null = priorSingleReferent
+        ? (input.priorReadContext?.statuses ?? null)
+        : upcomingOnlyCommitmentRead
+            ? ['accepted']
+            : interpretation.statusHints;
 
     // [PING_PROPOSAL_TRACE] TEMPORARY — captura RAW vs NORMALIZED para poder
     // comparar dos ejecuciones idénticas del mismo input (sección 2 del
@@ -780,8 +797,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // theoretically be bypassed by a different LLM phrasing.
     const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
-    let needsClarification = false;
-    let clarification: AgentClarification | undefined;
+    let needsClarification = priorReferenceAmbiguous;
+    let clarification: AgentClarification | undefined = priorReferenceAmbiguous ? { reason: 'topic_too_broad' } : undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
@@ -908,6 +925,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // on) — an LLM-only hint can never block a source it has no authority
     // over.
     const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
+    const readReferenceScopeBlocked = priorReferenceAmbiguous;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
     // Mismo guard que commitments/messages: un personHint explícito que no
@@ -937,7 +955,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
+    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -956,8 +974,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                     personScope: !!resolvedPersonId,
                 });
             }
-            if (input.authorizedCommitmentReferentId) {
-                return retrieveVisibleCommitmentById(input.actorUserId, input.authorizedCommitmentReferentId)
+            const authorizedReferentId = input.authorizedCommitmentReferentId ?? priorCanonicalCommitmentId;
+            if (authorizedReferentId) {
+                return retrieveVisibleCommitmentById(input.actorUserId, authorizedReferentId)
                     .then((commitment) => commitment ? [commitment] : []);
             }
             return retrieveCommitments({
@@ -1011,7 +1030,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && !priorCanonicalCommitmentId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
@@ -1121,7 +1140,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         ? sortedCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
         : sortedCommitments;
     const filteredCommitments = filterByProposalFocus(semanticallyFilteredCommitments, interpretation.proposalFocus, resolvedPersonId);
-    const commitments = filteredCommitments.slice(0, budget.commitments);
+    const focusedReferentMatches = priorSingleReferent
+        ? filteredCommitments.filter((commitment) => commitment.entityType === priorSingleReferent.entityType
+            && commitment.title.trim().toLocaleLowerCase() === priorSingleReferent.rawText.trim().toLocaleLowerCase())
+        : filteredCommitments;
+    const focusedReferentMissing = priorSingleReferent !== null && focusedReferentMatches.length === 0;
+    if (focusedReferentMissing) {
+        needsClarification = true;
+        clarification = { reason: 'topic_too_broad' };
+    }
+    const commitments = focusedReferentMatches.slice(0, priorSingleReferent ? 1 : budget.commitments);
 
     // M-2 — INVARIANTE NO NEGOCIABLE: la verdad canónica siempre domina a la
     // memoria. Se aplica AQUÍ, después de que `commitments` ya es el conjunto
