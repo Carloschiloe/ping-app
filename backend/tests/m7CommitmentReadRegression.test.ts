@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     DeterministicInputInterpreter,
     LlmInputInterpreter,
+    type AgentInputModel,
+    type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 import { buildAgentContext } from '../src/services/agentContextBuilder.service';
+import { interpretAgentSemanticTurn } from '../src/services/agentSemanticInterpreter.service';
 
 vi.mock('../src/services/retrieval.service', () => ({
     resolvePerson: vi.fn(),
@@ -397,5 +400,106 @@ describe('M-7 conversational continuity: a singular follow-up keeps the authoriz
         expect(retrieveVisibleCommitmentById).not.toHaveBeenCalled();
         expect(retrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'terreno' }), expect.any(Number));
         expect(context.commitments.map((item) => item.id)).toEqual([OVERDUE.id]);
+    });
+
+    it('passes structural prior-read context to the semantic interpreter for text and voice transcripts', async () => {
+        const conversationId = 'conversation-m7-continuity';
+        const priorReadSummary = {
+            kind: 'commitment_query' as const,
+            referentCount: 1,
+            uniqueReferent: true,
+            entityTypes: ['commitment' as const],
+            hasTimeRange: true,
+        };
+        const priorReadContext = {
+            kind: 'commitment_query' as const,
+            timeRange: { from: '2026-09-23T00:00:00.000Z', to: '2026-09-24T00:00:00.000Z' },
+            sourceTurnId: 'm7-first-turn',
+            commitmentReferents: [{ rawText: TOMORROW.title, entityType: 'commitment' as const, canonicalId: TOMORROW.id }],
+            statuses: ['accepted' as const],
+        };
+        const requests: AgentInputModelRequest[] = [];
+        const model: AgentInputModel = {
+            modelName: 'm7-context-aware-test-model',
+            interpret: vi.fn(async (request) => {
+                requests.push(request);
+                return JSON.stringify({
+                    intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                    timeExpression: null, temporalIntent: null, priorReferenceIntent: 'single_entity',
+                    temporalComparison: null, urgencyComparison: null, requestedSources: ['commitments'],
+                    commitmentFilterHints: { status: null, statusBasis: null }, attachmentKindHints: [],
+                    ambiguityHints: [], wantsOverdueFocus: false, proposalFocus: null, isWriteActionRequest: false,
+                });
+            }),
+        };
+        const interpreter = new LlmInputInterpreter({ model });
+        const utterances = [
+            { input: '¿Y a qué hora?', channel: 'mobile' },
+            { input: '¿Y a qué hora?', channel: 'mobile' }, // voice transcript reaches the same semantic boundary
+        ];
+
+        for (const utterance of utterances) {
+            const semantic = await interpretAgentSemanticTurn(utterance.input, {
+                actorUserId: 'actor-1', conversationId, channel: utterance.channel,
+                priorReadSummary,
+            }, { inputInterpreter: interpreter });
+            expect(semantic.route).toBe('read');
+            expect(semantic.interpretation.priorReferenceIntent).toBe('single_entity');
+
+            retrieveVisibleCommitmentById.mockResolvedValue(TOMORROW as any);
+            const follow = await buildAgentContext({
+                actorUserId: 'actor-1', input: utterance.input, conversationId,
+                now: '2026-09-22T12:00:00.000Z', timezone: 'America/Santiago',
+                traceId: `m7-continuity-${utterance.channel}`,
+                priorReadContext,
+            }, { interpretation: semantic.interpretation });
+            expect(follow.needsClarification).toBe(false);
+            expect(follow.commitments.map((item) => item.id)).toEqual([TOMORROW.id]);
+            expect(follow.commitments[0].dueAt).toBe(TOMORROW.dueAt);
+            retrieveVisibleCommitmentById.mockClear();
+            retrieveCommitments.mockClear();
+            retrieveCommitmentProposals.mockClear();
+        }
+
+        expect(requests).toHaveLength(2);
+        for (const request of requests) {
+            expect(request.context.conversationId).toBe(conversationId);
+            expect(request.context.priorReadSummary).toEqual(priorReadSummary);
+            expect(JSON.stringify(request.context)).not.toContain(TOMORROW.id);
+            expect(JSON.stringify(request.context)).not.toContain(TOMORROW.title);
+        }
+    });
+
+    it.each([
+        '¿Y para qué día quedó?',
+        '¿Quién se encarga?',
+        '¿Sigue pendiente?',
+        'Cuéntame un poco más.',
+    ])('reuses one authorized referent for an unseen attribute follow-up: %s', async (input) => {
+        const interpretation = {
+            ...(await new DeterministicInputInterpreter().interpret(input, {})),
+            intent: 'commitment_query' as const,
+            priorReferenceIntent: 'single_entity' as const,
+            textQuery: null,
+            topicHints: [],
+            wantsCommitments: true,
+        };
+        retrieveVisibleCommitmentById.mockResolvedValue(TOMORROW as any);
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1', input, conversationId: 'conversation-m7-continuity',
+            now: '2026-09-22T12:00:00.000Z', timezone: 'America/Santiago', traceId: 'm7-attribute-follow-up',
+            priorReadContext: {
+                kind: 'commitment_query', timeRange: null, sourceTurnId: 'm7-first-turn',
+                commitmentReferents: [{ rawText: TOMORROW.title, entityType: 'commitment', canonicalId: TOMORROW.id }],
+                statuses: ['accepted'],
+            },
+        }, { interpretation });
+
+        expect(context.needsClarification).toBe(false);
+        expect(context.commitments).toHaveLength(1);
+        expect(context.commitments[0].id).toBe(TOMORROW.id);
+        expect(retrieveVisibleCommitmentById).toHaveBeenCalledWith('actor-1', TOMORROW.id);
+        expect(retrieveCommitments).not.toHaveBeenCalled();
+        expect(retrieveCommitmentProposals).not.toHaveBeenCalled();
     });
 });

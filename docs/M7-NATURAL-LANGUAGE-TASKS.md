@@ -114,7 +114,7 @@ La prueba física sólo es válida si se identifica el artefacto exacto antes de
 
 - Mobile local: `mobile/app.json` y `mobile/package.json` declaran `1.0.0`.
 - Backend local: `backend/package.json` declara `1.0.0`.
-- Checkout local al corte: `codex/staging-beta`, HEAD corto `17c5a8c`; el árbol está sucio, por lo que este SHA no representa por sí solo un artefacto limpio.
+- Checkout M-7 aislado de este corte: `codex/m7-staging-prep-20260922`, base `1b309b0`; no se hizo push ni deploy durante esta corrección.
 - Backend remoto: debe responder `/api/health` con `ok`, `db_status` conectado, marcador de staging y el commit exacto que se probará. En este corte la consulta remota agotó tiempo de espera; la versión desplegada no está verificada.
 - Expo Go debe iniciarse desde este checkout exacto, o desde un checkout cuyo SHA y cambios coincidan con el backend verificado. No se acepta una sesión Expo caducada ni una URL de Metro de versión desconocida.
 
@@ -138,12 +138,12 @@ Esta prueba no se simula ni se marca como PASS hasta contar con evidencia físic
 
 ## 10. Estado final verificable
 
-- Casillas: 35/37 completadas = **94.6%**.
+- Casillas del corte anterior: 35/37 completadas = **94.6%**. La incidencia de continuidad añadida en la sección 12 deja el corte actual en 41/44 = **93.2%**, porque incorpora una nueva validación física pendiente.
 - M-7: **no cerrado**.
-- Pendientes reales: integración privada con variable autorizada y prueba física de voz en tablet.
+- Pendientes reales: integración privada con variable autorizada, prueba física de voz en tablet y validación física de continuidad en iPhone sobre el backend corregido.
 - Producción: intacta; no hubo push, deploy, migración remota ni cambio de credenciales.
-- Commits M-7: ninguno creado durante este cierre.
-- Cambios locales previos: preservados y no mezclados con una afirmación de publicación; la separación exacta por commit no es posible sin alterar o revertir el árbol sucio.
+- Commit base de trabajo: `1b309b0` (`fix(m7): preserve conversational commitment referents`). La corrección de esta sección se prepara en un checkout aislado y no se ha publicado.
+- Cambios locales previos: preservados y no mezclados con producción.
 
 ## 11. Archivos M-7 agregados o afectados
 
@@ -154,3 +154,13 @@ Pruebas M-7: `backend/tests/m7RoutingReproduction.test.ts`, `backend/tests/m7Sem
 Acceso unificado: `mobile/src/api/agentSurfaceAdapter.ts`, `mobile/src/api/query-modules/agent.ts`, `mobile/src/navigation/index.tsx`, `mobile/src/navigation/types.ts`, `mobile/src/screens/ConversationsScreen.tsx`, `mobile/src/screens/AgentPreviewScreen.tsx` y pruebas mobile relacionadas.
 
 Este inventario no atribuye a M-7 todos los cambios del árbol: el repositorio ya contenía modificaciones locales anteriores, que fueron conservadas.
+
+## 12. Incidencia: continuidad de preguntas breves en texto y voz (2026-09-22)
+
+- [x] Reproducir la secuencia real con el mismo `conversationId`: una lectura de mañana seguida por la transcripción de voz «¿Y a qué hora?». Evidencia: `backend/tests/agentReadFollowup.regression.test.ts`, 3/3 PASS.
+- [x] Trazar interpretación, estado, ruta, entidad y recuperación. Causa confirmada: `agentTurnCore` conservaba `lastReadContext` para `buildAgentContext`, pero no lo entregaba a `interpretAgentSemanticTurn`; el segundo turno llegaba al intérprete sin contexto y caía en aclaración.
+- [x] Comparar texto y voz. Evidencia: ambos usan el mismo límite semántico y el mismo `conversationId`; la regresión verifica dos invocaciones con el mismo resumen estructural y sin exponer IDs/títulos al intérprete.
+- [x] Corregir la causa raíz sin frases especiales: Core deriva un resumen estructural acotado del resultado previo; el intérprete LLM resuelve continuaciones elípticas y Core vuelve a autorizar el ID canónico antes de recuperar.
+- [x] Generalizar atributos y controles: hora, fecha, responsable, estado y detalle reutilizan un único referente; múltiples referentes producen aclaración y un tema explícito abandona el contexto anterior. Evidencia: `backend/tests/m7CommitmentReadRegression.test.ts`, 24/24 PASS.
+- [x] Ejecutar regresiones afectadas. Resultado: `m7CommitmentReadRegression.test.ts` 24/24 PASS, `agentReadFollowup.regression.test.ts` 3/3 PASS y TypeScript `tsc --noEmit` PASS. Los modelos fueron dobles controlados; no se simuló proveedor real ni dispositivo físico.
+- [ ] Repetir la pregunta en el iPhone contra el backend corregido y comprobar la respuesta visible «Mañana a las 11:00». Pendiente: requiere publicar/desplegar el commit en staging y ejecutar la prueba física; no se marca PASS por una simulación.

@@ -40,6 +40,7 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
+import type { AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
@@ -72,6 +73,9 @@ export interface RunAgentTurnOptions {
     // Internal Core binding only. The public HTTP body cannot populate this;
     // it is produced after a read clarification selects a real candidate.
     authorizedCommitmentReferentId?: string;
+    // Test/integration seam for the semantic boundary. Production uses the
+    // configured interpreter; callers cannot provide this through HTTP.
+    inputInterpreter?: AgentInputInterpreter;
 }
 
 // Sección 20/34 del ticket — ejemplos honestos de lo que SÍ existe hoy,
@@ -337,11 +341,21 @@ export async function runAgentTurn(
     // classifiers are fallback/safety signals inside the interpreter and can
     // no longer decide that an unrecognised wording is a READ before the LLM
     // gets a chance to understand it.
+    const priorReadContext = existingDialogueState?.lastReadContext ?? null;
+    const priorReadSummary = priorReadContext ? {
+        kind: priorReadContext.kind,
+        referentCount: priorReadContext.commitmentReferents?.length ?? 0,
+        uniqueReferent: (priorReadContext.commitmentReferents?.length ?? 0) === 1,
+        entityTypes: Array.from(new Set((priorReadContext.commitmentReferents ?? []).map((referent) => referent.entityType))),
+        hasTimeRange: priorReadContext.timeRange !== null,
+    } : null;
+    traceAgentDevice(traceId, 'AGENT_PRIOR_READ_SUMMARY', priorReadSummary ?? { present: false });
     const semantic = await interpretAgentSemanticTurn(content, {
         actorUserId: input.actorUserId,
         conversationId,
         channel,
-    });
+        priorReadSummary,
+    }, { inputInterpreter: options.inputInterpreter });
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
@@ -358,7 +372,7 @@ export async function runAgentTurn(
         timezone,
         now: now.toISOString(),
         traceId,
-        priorReadContext: existingDialogueState?.lastReadContext ?? null,
+        priorReadContext,
         authorizedCommitmentReferentId: options.authorizedCommitmentReferentId,
     }, { interpretation: semantic.interpretation });
 

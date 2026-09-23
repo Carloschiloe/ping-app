@@ -6,6 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAgentDialogueStateForTests } from '../src/services/agentDialogueState.service';
 import { clearReadFollowupReferentsForTests, resolveVerifiedReadFollowup } from '../src/services/agentReadFollowupReferent.service';
+import { DeterministicInputInterpreter } from '../src/services/agentInputInterpreter.service';
+import type { RunAgentTurnOptions } from '../src/services/agentTurnCore.service';
 
 const { buildContextMock, synthesizeMock } = vi.hoisted(() => ({
     buildContextMock: vi.fn(),
@@ -72,11 +74,67 @@ beforeEach(() => {
     }));
 });
 
-async function read(actorUserId: string, conversationId: string, input: string) {
-    return runAgentTurn({ actorUserId, conversationId, input, locale: 'es-CL', channel: 'mobile' });
+async function read(actorUserId: string, conversationId: string, input: string, options: RunAgentTurnOptions = {}) {
+    return runAgentTurn({ actorUserId, conversationId, input, locale: 'es-CL', channel: 'mobile' }, options);
 }
 
 describe('M-7: read-only follow-up keeps an authorized referent', () => {
+    it('carries the same conversation read context into an unseen voice follow-up', async () => {
+        const firstInput = '¿Qué tengo que hacer mañana?';
+        const voiceTranscript = '¿Y a qué hora?';
+        const baseInterpreter = new DeterministicInputInterpreter();
+        const seenContexts: Array<{ input: string; context: any }> = [];
+        const inputInterpreter = {
+            interpret: async (input: string, context: any) => {
+                seenContexts.push({ input, context });
+                const interpretation = await baseInterpreter.interpret(input, context);
+                return input === voiceTranscript
+                    ? {
+                        ...interpretation,
+                        intent: 'commitment_query' as const,
+                        textQuery: null,
+                        topicHints: [],
+                        priorReferenceIntent: 'single_entity' as const,
+                        wantsCommitments: true,
+                    }
+                    : interpretation;
+            },
+        };
+        buildContextMock.mockImplementation(async (input: any) => {
+            const referentFromPriorRead = input.priorReadContext?.commitmentReferents?.[0];
+            const hasEvidence = input.input === firstInput || !!referentFromPriorRead;
+            return {
+                intent: { type: 'commitment_query', confidence: 1 },
+                wantsOverdueFocus: false,
+                needsClarification: false,
+                clarification: null,
+                capabilityGaps: [],
+                evidenceFound: hasEvidence,
+                commitments: hasEvidence ? [{
+                    id: 'commitment-m7-tomorrow', title: 'verificar el audio de PING',
+                    status: 'accepted', dueAt: '2026-09-23T11:00:00.000Z',
+                    provenance: { sourceType: 'commitment', sourceId: 'commitment-m7-tomorrow' },
+                }] : [],
+                events: [], messages: [], transcriptions: [], attachments: [],
+            };
+        });
+
+        const first = await read(ACTOR, CONVERSATION, firstInput, { inputInterpreter });
+        expect(first.kind).toBe('response');
+        const second = await read(ACTOR, CONVERSATION, voiceTranscript, { inputInterpreter });
+        expect(second.kind).toBe('response');
+
+        expect(seenContexts).toHaveLength(2);
+        expect(seenContexts[0].context.priorReadSummary).toBeNull();
+        expect(seenContexts[1].context.priorReadSummary).toMatchObject({
+            kind: 'commitment_query', referentCount: 1, uniqueReferent: true,
+        });
+        expect(seenContexts[1].context.conversationId).toBe(CONVERSATION);
+        expect(buildContextMock.mock.calls[1][0].priorReadContext.commitmentReferents).toEqual([
+            expect.objectContaining({ canonicalId: 'commitment-m7-tomorrow' }),
+        ]);
+    }, 10000);
+
     it('re-queries the uniquely identified commitment when the next turn says only «lo»', async () => {
         const first = await read(ACTOR, CONVERSATION, '¿Qué pasó con Ver Spiderman?');
         expect(first.kind).toBe('response');

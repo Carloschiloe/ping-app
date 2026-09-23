@@ -596,7 +596,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
     const temporalIntent = deterministicSignals.temporalIntent ?? rawInterpretation.temporalIntent ?? inferTemporalIntent(input.input);
-    const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent ?? rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input);
+    // A model may use the prior-read summary to understand an elliptical
+    // follow-up, but it must not make a new explicit topic inherit the old
+    // entity. Core-owned surface evidence wins this boundary: a substantive
+    // topic/person in the current utterance is a new scope, while an
+    // otherwise topic-free utterance may refer back to the prior result.
+    const currentTurnIntroducesScope = rawInterpretation.textQuery !== null
+        || rawInterpretation.topicHints.length > 0
+        || deterministicSignals.personHints.length > 0;
+    const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
+        ?? (currentTurnIntroducesScope ? null : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
     const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
     const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
         ? priorCommitmentReferents[0]

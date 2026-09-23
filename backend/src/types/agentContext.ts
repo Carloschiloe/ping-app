@@ -130,6 +130,19 @@ export type UrgencyComparison = 'most_urgent';
 export type TemporalComparison = 'earliest' | 'latest';
 export type PriorReferenceIntent = 'single_entity' | 'result_set';
 
+// Structural, non-authoritative summary of the immediately preceding read.
+// It is safe to expose to the language interpreter because it contains no
+// identifiers, titles, evidence, permissions, or other canonical facts. Core
+// remains responsible for re-authorizing the actual referent after semantic
+// interpretation.
+export interface AgentPriorReadSummary {
+    kind: 'commitment_query';
+    referentCount: number;
+    uniqueReferent: boolean;
+    entityTypes: Array<'commitment' | 'commitment_proposal'>;
+    hasTimeRange: boolean;
+}
+
 // Semantic temporal constraint proposed by the interpreter and resolved by
 // Core. The raw wording remains available in timeExpression for traceability,
 // but retrieval never needs to recognize one exact sentence.

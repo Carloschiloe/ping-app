@@ -64,13 +64,14 @@ async function interpretInput(
  */
 export async function interpretAgentSemanticTurn(
     input: string,
-    context: { actorUserId: string; conversationId?: string; channel?: string },
+    context: { actorUserId: string; conversationId?: string; channel?: string; priorReadSummary?: InterpreterContext['priorReadSummary'] },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
     const interpretation = await interpretInput(input, {
         conversationId: context.conversationId,
         channel: context.channel,
+        priorReadSummary: context.priorReadSummary,
     }, inputInterpreter);
 
     // Safety veto, never a semantic gate: an LLM write proposal cannot turn a
