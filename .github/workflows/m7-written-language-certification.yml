@@ -1,6 +1,9 @@
 name: M-7 written language certification
 
 on:
+  push:
+    tags:
+      - 'm7-cert-*'
   workflow_dispatch:
     inputs:
       ref:
@@ -40,11 +43,21 @@ jobs:
       - name: Checkout requested certification ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          # Tag pushes use the immutable event ref; manual runs keep the
+          # operator-selected ref from workflow_dispatch.
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.ref }}
           fetch-depth: 1
 
       - name: Record checked-out commit
         run: git rev-parse HEAD
+
+      - name: Verify tag points to the checked-out commit
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          checked_sha="$(git rev-parse HEAD)"
+          test "$checked_sha" = "$GITHUB_SHA"
+          echo "Verified certification tag target: $checked_sha"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
