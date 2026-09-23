@@ -1,0 +1,90 @@
+name: M-7 written language certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref containing the frozen battery and runner
+        required: true
+        default: codex/staging-beta
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m7-written-language-certification
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: Run isolated LLM certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: m7-llm-certification
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # The runner overwrites these values as a second containment layer.
+      SUPABASE_URL: https://supabase-cert.invalid
+      SUPABASE_ANON_KEY: certification-placeholder-not-a-secret
+      SUPABASE_SERVICE_ROLE_KEY: certification-placeholder-not-a-secret
+      ENCRYPTION_KEY: certification-placeholder-not-a-secret
+      PING_ENVIRONMENT: certification
+      ENABLE_AUTOMATIONS: 'false'
+      RUN_CRON_JOBS: 'false'
+
+    steps:
+      - name: Checkout requested certification ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Record checked-out commit
+        run: git rev-parse HEAD
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Run LLM and Core certification
+        id: llm_certification
+        continue-on-error: true
+        env:
+          M7_CERT_REPORT_PATH: ${{ runner.temp }}/m7-certification-llm.json
+        run: node certification/m7-written-language-certification.mjs --mode all
+
+      - name: Run deterministic fallback separately
+        env:
+          M7_CERT_REPORT_PATH: ${{ runner.temp }}/m7-certification-fallback.json
+        run: node certification/m7-written-language-certification.mjs --mode fallback
+
+      - name: Upload certification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-written-language-certification-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/m7-certification-llm.json
+            ${{ runner.temp }}/m7-certification-fallback.json
+            backend/certification/m7-written-language-battery.v1.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail when provider or semantic certification is not clean
+        if: steps.llm_certification.outcome == 'failure'
+        run: |
+          echo "Certification produced an infrastructure or semantic failure; inspect the uploaded report."
+          exit 1
