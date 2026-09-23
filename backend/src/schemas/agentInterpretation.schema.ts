@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+const TEMPORAL_INTENT_SCHEMA = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('calendar_day'), offsetDays: z.number().int().min(-366).max(366), futureOnly: z.boolean() }),
+    z.object({ kind: z.literal('calendar_week'), offsetWeeks: z.number().int().min(-52).max(52), futureOnly: z.boolean() }),
+    z.object({ kind: z.literal('relative_days'), daysAhead: z.number().int().min(1).max(366), futureOnly: z.literal(true) }),
+    z.object({ kind: z.literal('upcoming_horizon'), daysAhead: z.number().int().min(1).max(366).nullable(), futureOnly: z.literal(true) }),
+]);
+
 // M-1D.1 — Schema estricto para la salida estructurada del LLM Input
 // Interpreter. Esta es la ÚNICA superficie por la que pasa cualquier
 // interpretación generada por un modelo antes de llegar al resto del
@@ -33,6 +40,7 @@ export const agentInterpretationPayloadSchema = z.object({
     topicHints: z.array(HINT_STRING).max(5).default([]),
     textQuery: z.string().trim().max(200).nullable().default(null),
     timeExpression: z.string().trim().max(60).nullable().default(null),
+    temporalIntent: TEMPORAL_INTENT_SCHEMA.nullable().default(null),
     // Operación semántica, no texto libre. El modelo puede reconocerla en
     // cualquier idioma; Core la combina con su propia normalización y nunca
     // la usa como texto de búsqueda.

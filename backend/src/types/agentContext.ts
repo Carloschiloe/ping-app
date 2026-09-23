@@ -128,6 +128,15 @@ export type UrgencyComparison = 'most_urgent';
 // para seleccionar evidencia canónica antes de redactar.
 export type TemporalComparison = 'earliest' | 'latest';
 
+// Semantic temporal constraint proposed by the interpreter and resolved by
+// Core. The raw wording remains available in timeExpression for traceability,
+// but retrieval never needs to recognize one exact sentence.
+export type TemporalIntent =
+    | { kind: 'calendar_day'; offsetDays: number; futureOnly: boolean }
+    | { kind: 'calendar_week'; offsetWeeks: number; futureOnly: boolean }
+    | { kind: 'relative_days'; daysAhead: number; futureOnly: true }
+    | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true };
+
 export interface Interpretation {
     intent: AgentIntentType;
     intentConfidence: number;
@@ -135,6 +144,7 @@ export interface Interpretation {
     topicHints: string[];        // M-1D.1: conceptos/temas explícitos del input — nunca expansión semántica (sección 14/19)
     textQuery: string | null;    // texto residual para FTS (M-1C) — null si no aporta
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
+    temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"

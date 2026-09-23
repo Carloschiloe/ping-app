@@ -35,6 +35,8 @@ import {
     CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
     isHistoricalLifecycleQuery,
     isDeclarativeLifecycleMention,
+    isUpcomingTimeExpression,
+    inferTemporalIntent,
     isTemporalComparisonQuery,
     extractTemporalComparison,
     extractUrgencyComparison,
@@ -50,9 +52,11 @@ import type {
     ProposalFocus,
     QueryCardinality,
     RetrievalPlanStep,
+    TemporalIntent,
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 import type { AgentReadContext } from '../types/agentDialogueState';
+import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 // [PING_PROPOSAL_TRACE] TEMPORARY (ticket "M-1H: DETERMINISTIC QUERY
@@ -85,6 +89,8 @@ function addDays(date: Date, days: number): Date {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+const UPCOMING_DAYS_HORIZON = 7;
+
 function endOfDayInZone(date: Date, timeZone: string): Date {
     return addDays(startOfDayInZone(date, timeZone), 1);
 }
@@ -110,7 +116,27 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
-export function resolveTimeExpression(expression: string | null, now: Date, timezone: string): RetrievalTimeRange | null {
+export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: TemporalIntent | null): RetrievalTimeRange | null {
+    if (temporalIntent) {
+        if (temporalIntent.kind === 'calendar_day') {
+            const target = addDays(now, temporalIntent.offsetDays);
+            return temporalIntent.futureOnly
+                ? { from: now.toISOString(), to: endOfDayInZone(target, timezone).toISOString() }
+                : { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+        }
+        if (temporalIntent.kind === 'calendar_week') {
+            const start = addDays(startOfWeekInZone(now, timezone), temporalIntent.offsetWeeks * 7);
+            const end = endOfDayInZone(addDays(start, 6), timezone);
+            return temporalIntent.futureOnly && temporalIntent.offsetWeeks === 0
+                ? { from: now.toISOString(), to: end.toISOString() }
+                : { from: start.toISOString(), to: end.toISOString() };
+        }
+        const daysAhead = temporalIntent.daysAhead ?? 7;
+        return {
+            from: now.toISOString(),
+            to: endOfDayInZone(addDays(now, daysAhead), timezone).toISOString(),
+        };
+    }
     if (!expression) return null;
     const expr = expression.toLowerCase();
 
@@ -124,6 +150,14 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
     if (/mañana|tomorrow/.test(expr)) {
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
+    }
+    if (isUpcomingTimeExpression(expression)) {
+        // "Próximos días" is a future-only horizon: start at this instant
+        // (so an item due earlier today is not presented as upcoming) and end
+        // at the end of the seventh local calendar day. The same range is
+        // passed to every temporal retrieval source.
+        const horizonEnd = endOfDayInZone(addDays(now, UPCOMING_DAYS_HORIZON), timezone);
+        return { from: now.toISOString(), to: horizonEnd.toISOString() };
     }
     if (/semana pasada|last week/.test(expr)) {
         const startThisWeek = startOfWeekInZone(now, timezone);
@@ -559,6 +593,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
+    const temporalIntent = deterministicSignals.temporalIntent ?? rawInterpretation.temporalIntent ?? inferTemporalIntent(input.input);
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -568,7 +603,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // this turn into the commitment domain even when its wording is not
         // present in the deterministic multilingual fast-path.
         || temporalComparison !== null
-        || urgencyComparison !== null;
+        || urgencyComparison !== null
+        || temporalIntent !== null;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -580,6 +616,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         timeExpression: deterministicSignals.timeExpression ?? rawInterpretation.timeExpression ?? null,
+        temporalIntent,
         intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
@@ -667,11 +704,19 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
     });
-    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone, interpretation.temporalIntent);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
         ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
             ? input.priorReadContext.timeRange
             : null);
+    // A future-only horizon means the user is asking for confirmed upcoming
+    // obligations, not the separate proposal/approval lifecycle. Keep the
+    // proposal path available for explicit approval questions.
+    const upcomingOnlyCommitmentRead = (interpretation.temporalIntent?.futureOnly === true || isUpcomingTimeExpression(interpretation.timeExpression))
+        && interpretation.proposalFocus === null;
+    const commitmentStatuses: CanonicalCommitmentStatus[] | null = upcomingOnlyCommitmentRead
+        ? ['accepted']
+        : interpretation.statusHints;
 
     // [PING_PROPOSAL_TRACE] TEMPORARY — captura RAW vs NORMALIZED para poder
     // comparar dos ejecuciones idénticas del mismo input (sección 2 del
@@ -894,12 +939,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
     const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
             if (interpretation.wantsOverdueFocus) {
                 traceOverdue(input.traceId, 'RETRIEVAL_INPUT', {
                     actorPresent: !!input.actorUserId,
-                    statuses: interpretation.statusHints,
+                    statuses: commitmentStatuses,
                     query: interpretation.textQuery,
                     ftsWillRun: !!interpretation.textQuery,
                     timeRange: timeRange ?? null,
@@ -919,7 +964,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 actorUserId: input.actorUserId,
                 conversationId,
                 personId: resolvedPersonId,
-                statuses: interpretation.statusHints ?? undefined,
+                statuses: commitmentStatuses ?? undefined,
                 timeRange: timeRange ?? undefined,
                 query: interpretation.textQuery ?? undefined,
                 // M-1G.2: prioriza lo realmente vencido en el budget de 10
@@ -966,9 +1011,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
+            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
                 return fillProposalFocusMatches(baseProposalInput, interpretation.proposalFocus, resolvedPersonId, budget.commitments);
             }

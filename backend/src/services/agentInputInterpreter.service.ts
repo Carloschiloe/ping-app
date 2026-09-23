@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
@@ -598,6 +598,10 @@ const STOPWORDS = new Set([
     // frases como "¿Qué propuestas esperan mi respuesta?".
     'espera', 'esperan', 'esperas', 'esperamos',
     'siguen', 'debo',
+    // Generic temporal/obligation predicates are control language when a
+    // temporalIntent is present; they are not FTS topics by themselves.
+    'viene', 'vienen', 'venir', 'cumplir', 'vence', 'vencen', 'expira', 'expiran',
+    'durante', 'coming', 'following', 'due',
     // M-1H (ticket "FINAL ARCHITECTURE GATE", bloqueo B/sección 10) — mismo
     // residuo que "pendiente"/"propuestas" arriba: "compromiso(s)" ya está
     // capturado estructuralmente por COMMITMENT_KEYWORDS (intent), nunca
@@ -769,8 +773,8 @@ function stripProposalFocusLanguage(text: string): string {
 // Remove only the exact expression detected by the same canonical extractor;
 // this prevents broad phrases such as "los próximos días" from becoming a
 // text filter while preserving real topics that merely contain similar words.
-function stripTimeExpressionLanguage(text: string): string {
-    const detected = extractTimeExpression(text);
+function stripTimeExpressionLanguage(text: string, temporalExpression?: string | null): string {
+    const detected = temporalExpression || extractTimeExpression(text);
     if (!detected) return text;
     return text.replace(detected, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -899,11 +903,17 @@ const PENDING_RESPONSE_PERSON_CUE = new RegExp(
 // resolución a rango de fechas real (con timezone) vive en
 // agentContextBuilder.service.ts#resolveTimeExpression, separada a
 // propósito para que sea testeable de forma aislada y determinista.
+const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]ximos?\s+d[i\u00ed]as?\b|\bnext\s+(?:few\s+)?days?\b|\b(?:the\s+)?coming\s+days?\b/i;
+const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+que\s+siguen\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
+const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
+
 const TIME_EXPRESSIONS: RegExp[] = [
     /\besta semana\b|\bthis week\b/i,
     /\b(?:el\s+|este\s+|proximo\s+|\u00fapr\u00f3ximo\s+)?(?:lunes|martes|mi(?:e|\u00e9)rcoles|jueves|viernes|s(?:a|\u00e1)bado|domingo)\b/i,
     /\b(?:la\s+)?(?:proxima|\u00fapr\u00f3xima)\s+semana\b|\bnext week\b|\bthis weekend\b|\beste fin de semana\b/i,
-    /\b(?:los\s+)?pr[o\u00f3]ximos?\s+d[i\u00ed]as?\b|\bnext\s+(?:few\s+)?days?\b|\b(?:the\s+)?coming\s+days?\b/i,
+    UPCOMING_DAYS_TIME_EXPRESSION,
+    FOLLOWING_DAYS_TIME_EXPRESSION,
+    RELATIVE_DAYS_TIME_EXPRESSION,
     /\bla semana pasada\b|\blast week\b/i,
     /\bel mes pasado\b|\blast month\b/i,
     /\bhace (\d+) d[ií]as?\b|\b(\d+) days? ago\b/i,
@@ -1091,6 +1101,46 @@ function extractTimeExpression(input: string): string | null {
     return null;
 }
 
+const NUMBER_WORDS: Record<string, number> = {
+    uno: 1, una: 1, one: 1, dos: 2, two: 2, tres: 3, three: 3,
+    cuatro: 4, four: 4, cinco: 5, five: 5, seis: 6, six: 6,
+    siete: 7, seven: 7, ocho: 8, eight: 8, nueve: 9, nine: 9,
+    diez: 10, ten: 10, once: 11, eleven: 11, doce: 12, twelve: 12,
+    trece: 13, thirteen: 13, catorce: 14, fourteen: 14, quince: 15,
+    fifteen: 15, dieciseis: 16, sixteen: 16, diecisiete: 17,
+    seventeen: 17, dieciocho: 18, eighteen: 18, diecinueve: 19,
+    nineteen: 19, veinte: 20, twenty: 20,
+};
+
+function parseDayCount(token: string): number | null {
+    const normalized = token.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const value = /^\d+$/.test(normalized) ? Number(normalized) : NUMBER_WORDS[normalized];
+    return Number.isInteger(value) && value >= 1 && value <= 366 ? value : null;
+}
+
+// Converts temporal language into a bounded semantic operator. This is a
+// fallback for when the model is unavailable; the LLM emits the same shape
+// through the schema for wording the deterministic extractor does not know.
+export function inferTemporalIntent(input: string): TemporalIntent | null {
+    const lower = input.toLowerCase();
+    const relative = lower.match(RELATIVE_DAYS_TIME_EXPRESSION);
+    if (relative) {
+        const daysAhead = parseDayCount(relative[1]);
+        if (daysAhead !== null) return { kind: 'relative_days', daysAhead, futureOnly: true };
+    }
+    if (FOLLOWING_DAYS_TIME_EXPRESSION.test(lower) || UPCOMING_DAYS_TIME_EXPRESSION.test(lower)) {
+        return { kind: 'upcoming_horizon', daysAhead: null, futureOnly: true };
+    }
+    if (/\b(?:esta semana|this week)\b/i.test(lower)) {
+        const futureOnly = /\b(?:viene|vienen|venir|se me viene|coming|upcoming|resto|siguientes?)\b/i.test(lower);
+        return { kind: 'calendar_week', offsetWeeks: 0, futureOnly };
+    }
+    if (/\b(?:hoy|today)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 0, futureOnly: false };
+    if (/\b(?:ayer|yesterday)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: -1, futureOnly: false };
+    if (/\b(?:ma\u00f1ana|manana|tomorrow)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 1, futureOnly: false };
+    return null;
+}
+
 function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
     // Algo vencido/atrasado, por definición, sigue sin resolverse -- mismo
     // filtro que "pendientes/open" (M-1G.1: antes "vencido" no matcheaba
@@ -1126,7 +1176,7 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
 // no longer differ by which interpreter merely SUGGESTED the candidate
 // string, closing the boundary gap by construction rather than by adding a
 // second call site that could drift again later.
-function normalizeControlLanguageFromTextQuery(candidate: string): string {
+function normalizeControlLanguageFromTextQuery(candidate: string, temporalExpression?: string | null): string {
     let cleaned = stripInvocationScaffolding(candidate);
     // M-1G.3: "vencido"/"overdue"/"past due" ya está capturado por
     // wantsOverdueFocus/statusHints -- nunca debe sobrevivir como textQuery
@@ -1161,8 +1211,17 @@ function normalizeControlLanguageFromTextQuery(candidate: string): string {
     // Comparative temporal language is a query operator, not an FTS topic.
     cleaned = stripTemporalComparisonLanguage(cleaned);
     cleaned = stripUrgencyComparisonLanguage(cleaned);
-    cleaned = stripTimeExpressionLanguage(cleaned);
+    cleaned = stripTimeExpressionLanguage(cleaned, temporalExpression);
     return cleaned;
+}
+
+// A broad "upcoming days" request is future-only, not an arbitrary open
+// status query. The range itself is resolved by Context Builder so all
+// retrieval sources share one timezone-aware boundary.
+export function isUpcomingTimeExpression(expression: string | null): boolean {
+    if (!expression) return false;
+    UPCOMING_DAYS_TIME_EXPRESSION.lastIndex = 0;
+    return UPCOMING_DAYS_TIME_EXPRESSION.test(expression);
 }
 
 function extractTextQuery(input: string, personHints: string[]): string | null {
@@ -1215,8 +1274,9 @@ export function generalContextHasRetrievableSignal(
     timeExpression: string | null,
     wantsOverdueFocus?: boolean,
     statusHints?: CanonicalCommitmentStatus[] | null,
+    temporalIntent?: TemporalIntent | null,
 ): boolean {
-    return !!textQuery || personHints.length > 0 || !!timeExpression || !!wantsOverdueFocus || !!(statusHints && statusHints.length > 0);
+    return !!textQuery || personHints.length > 0 || !!timeExpression || !!temporalIntent || !!wantsOverdueFocus || !!(statusHints && statusHints.length > 0);
 }
 
 export class DeterministicInputInterpreter implements AgentInputInterpreter {
@@ -1225,11 +1285,12 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const { type: intent, confidence } = classifyIntent(trimmed);
         const personHints = extractPersonHints(trimmed);
         const timeExpression = extractTimeExpression(trimmed);
+        const temporalIntent = inferTemporalIntent(trimmed);
         const statusHints = extractStatusHints(trimmed);
         const textQuery = extractTextQuery(trimmed, personHints);
         const wantsAudio = AUDIO_KEYWORDS.test(trimmed);
         const wantsOverdueFocus = OVERDUE_KEYWORDS.test(trimmed);
-        const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints);
+        const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints, temporalIntent);
         const requestedTransition = extractRequestedTransition(trimmed);
         const temporalComparison = extractTemporalComparison(trimmed);
         const urgencyComparison = extractUrgencyComparison(trimmed);
@@ -1241,6 +1302,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             topicHints: textQuery ? [textQuery] : [],
             textQuery,
             timeExpression,
+            temporalIntent,
             temporalComparison,
             urgencyComparison,
             statusHints,
@@ -1282,6 +1344,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         topicHints: [],
         textQuery: input.trim() || null,
         timeExpression: null,
+        temporalIntent: null,
         temporalComparison: null,
         urgencyComparison: null,
         statusHints: null,
@@ -1341,9 +1404,9 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         '"wantsOverdueFocus" is true ONLY when the user specifically asks about overdue/late/past-due items (not just "pending" in general) — this tells the backend to double-check that anything actually overdue gets mentioned. Default false.',
         '"proposalFocus" is a SEPARATE, OPTIONAL signal about the approval lifecycle of a not-yet-confirmed proposal (never about an already-active commitment). Set it to "waiting_for_others" when the user asks what they themselves are still waiting on someone else for (e.g. "what am I waiting for?", "¿qué estoy esperando?"). Set it to "needs_my_response" when the user asks what they themselves still need to accept/respond to (e.g. "what do I have to accept?", "¿qué tengo por aceptar?"). Set it to "pending_response_from_person" when the user asks specifically what a NAMED person still needs to accept or respond to (e.g. "what is Alejandra still missing to accept?", "¿qué falta que acepte Alejandra?") — in that case you MUST also include that person in personHints. Leave it null for anything else, including a plain overdue/pending question with no approval-lifecycle angle. NEVER put any of this language (esperando/waiting/por aceptar/to accept/falta que acepte) into textQuery — it is already fully captured here.',
         '"isWriteActionRequest" describes the user\'s SPEECH ACT, not the presence of a particular verb. Set it true whenever the user asks Ping to change durable state or carry out an enabled action: create a personal reminder/commitment, schedule or organize a commitment, remember a fact, send or draft a message, ask/contact someone, respond to a proposal, reschedule, complete, or cancel an existing commitment. This includes indirect lifecycle speech acts such as changing an existing date (“dejemos el informe para el lunes”), closing an item (“dalo por terminado”), withdrawing it (“no sigamos con eso”), and explicit memory capture (“recuerda que…” or “guarda que…”). Users may express the same intent indirectly (for example as an obligation, a request not to forget, a request to keep something pending, a colloquial/passive formulation, or a question asking whether Ping can take responsibility for handling something); classify the meaning, not a memorized phrase. A request to sort, rank, filter, compare, or show stored items is READ even when it uses an action verb such as “ordena”. A vague action with no object should remain WRITE-shaped but produce clarification downstream rather than being reported as “no evidence”. Set it false for retrieval, explanation, history, comparison, or a question about something already stored. Important contrast: “recuérdame qué hablamos” retrieves a past conversation (false), while “recuérdame revisar el contrato” asks Ping to create a reminder (true). Negation can still be a write request when it expresses the user\'s intention to avoid forgetting or asks Ping to preserve something (for example “no quiero olvidarme de enviar esto”); it is not a write request when it merely denies or rejects an action (for example “no quiero enviar nada”).',
-        'If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". If the user asks for the most urgent/highest-priority commitment, set urgencyComparison to "most_urgent". These are operations over retrieved commitments, not topics and never belong in textQuery. Use null when absent.',
+        'Extract temporal meaning into temporalIntent, independently of the exact wording. Use calendar_day for today/yesterday/tomorrow with offsetDays -1/0/1; calendar_week for this week/last week with offsetWeeks 0/-1; relative_days for an explicit bounded horizon such as "within five days" with daysAhead=5; and upcoming_horizon for a vague future period such as "the days that follow" with daysAhead=null. Set futureOnly=true when the request means items from now forward, and never invent a numeric duration. Keep timeExpression as the raw phrase for traceability. If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". If the user asks for the most urgent/highest-priority commitment, set urgencyComparison to "most_urgent". These are operations over retrieved commitments, not topics and never belong in textQuery. Use null when absent.',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalIntent":{"kind":"calendar_day","offsetDays":number,"futureOnly":boolean}|{"kind":"calendar_week","offsetWeeks":number,"futureOnly":boolean}|{"kind":"relative_days","daysAhead":number,"futureOnly":true}|{"kind":"upcoming_horizon","daysAhead":number|null,"futureOnly":true}|null,"temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -1427,7 +1490,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // determinístico -- un único normalizador compartido, para que el
     // textQuery final de Core nunca dependa de cuál intérprete meramente
     // SUGIRIÓ el candidato.
-    const finalTextQuery = rawTextQuery ? normalizeControlLanguageFromTextQuery(rawTextQuery) : null;
+    const finalTextQuery = rawTextQuery ? normalizeControlLanguageFromTextQuery(rawTextQuery, payload.timeExpression) : null;
     const textQuery = finalTextQuery && !isControlLanguageOnly(finalTextQuery) ? finalTextQuery : null;
 
     // PING — CANONICAL RETRIEVAL ROUTING: same Core-owned boundary as
@@ -1436,7 +1499,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
     // never trusted directly for broad fan-out; only deterministically
     // present textQuery/personHints/timeExpression justify it. This closes
     // the LLM path that produced the exact same "Hola" defect.
-    const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, payload.personHints, payload.timeExpression, payload.wantsOverdueFocus, statusHints);
+    const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, payload.personHints, payload.timeExpression, payload.wantsOverdueFocus, statusHints, payload.temporalIntent);
     // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: derivado del INPUT CRUDO
     // real, nunca del payload del LLM (invariante "LLM sugiere, Core
     // decide" -- la transición pedida es una decisión determinística de
@@ -1456,6 +1519,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         topicHints: payload.topicHints,
         textQuery,
         timeExpression: payload.timeExpression,
+        temporalIntent: payload.temporalIntent,
         temporalComparison,
         urgencyComparison,
         statusHints,
