@@ -129,6 +129,7 @@ export type UrgencyComparison = 'most_urgent';
 // para seleccionar evidencia canónica antes de redactar.
 export type TemporalComparison = 'earliest' | 'latest';
 export type PriorReferenceIntent = 'single_entity' | 'result_set';
+export type AgentFollowUpAttribute = 'time' | 'date' | 'responsible' | 'status' | 'details';
 
 // Structural, non-authoritative summary of the immediately preceding read.
 // It is safe to expose to the language interpreter because it contains no
@@ -161,6 +162,7 @@ export interface Interpretation {
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
     temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
     priorReferenceIntent?: PriorReferenceIntent | null;
+    followUpAttribute?: AgentFollowUpAttribute | null;
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"
@@ -359,6 +361,7 @@ export interface AgentContext {
     // selección del compromiso ganador no se delega al sintetizador LLM.
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
+    followUpAttribute?: AgentFollowUpAttribute | null;
     // M-1H — sólo no-vacío cuando queryCardinality='exhaustive_list': el
     // subconjunto EXACTO de `provenance` que la respuesta final DEBE citar
     // (sección 8/9 del ticket). Es un subconjunto de `provenance`/

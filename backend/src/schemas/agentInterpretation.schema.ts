@@ -33,6 +33,7 @@ const ATTACHMENT_KIND_VALUES = ['image', 'video', 'audio', 'document'] as const;
 const AMBIGUITY_HINT_VALUES = ['unresolved_pronoun', 'time_ambiguous', 'topic_too_broad'] as const;
 const TEMPORAL_COMPARISON_VALUES = ['earliest', 'latest'] as const;
 const URGENCY_COMPARISON_VALUES = ['most_urgent'] as const;
+const FOLLOW_UP_ATTRIBUTE_VALUES = ['time', 'date', 'responsible', 'status', 'details'] as const;
 
 export const agentInterpretationPayloadSchema = z.object({
     intent: z.enum(AGENT_INTENT_VALUES),
@@ -42,6 +43,7 @@ export const agentInterpretationPayloadSchema = z.object({
     timeExpression: z.string().trim().max(60).nullable().default(null),
     temporalIntent: TEMPORAL_INTENT_SCHEMA.nullable().default(null),
     priorReferenceIntent: z.enum(['single_entity', 'result_set']).nullable().default(null),
+    followUpAttribute: z.enum(FOLLOW_UP_ATTRIBUTE_VALUES).nullable().default(null),
     // Operación semántica, no texto libre. El modelo puede reconocerla en
     // cualquier idioma; Core la combina con su propia normalización y nunca
     // la usa como texto de búsqueda.

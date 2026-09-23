@@ -7,6 +7,7 @@ import {
 } from '../src/services/agentInputInterpreter.service';
 import { buildAgentContext } from '../src/services/agentContextBuilder.service';
 import { interpretAgentSemanticTurn } from '../src/services/agentSemanticInterpreter.service';
+import { synthesizeAgentResponse } from '../src/services/agentResponseSynthesizer.service';
 
 vi.mock('../src/services/retrieval.service', () => ({
     resolvePerson: vi.fn(),
@@ -61,7 +62,9 @@ const commitment = (id: string, title: string, dueAt: string) => ({
 });
 
 const TODAY = commitment('cm-today', 'probar la voz de Ping', '2026-09-22T10:00:00.000Z');
-const TOMORROW = commitment('cm-tomorrow', 'verificar el audio de PING', '2026-09-23T11:00:00.000Z');
+// 14:00Z is 11:00 in America/Santiago on this date. The regression must
+// verify presentation in the actor's timezone, not accidentally assert UTC.
+const TOMORROW = commitment('cm-tomorrow', 'verificar el audio de PING', '2026-09-23T14:00:00.000Z');
 const OVERDUE = commitment('cm-overdue', 'compromiso vencido', '2026-09-14T10:00:00.000Z');
 const PROPOSAL = {
     ...commitment('pr-pending', 'propuesta pendiente de aceptacion', '2026-09-24T15:00:00.000Z'),
@@ -425,7 +428,7 @@ describe('M-7 conversational continuity: a singular follow-up keeps the authoriz
                 requests.push(request);
                 return JSON.stringify({
                     intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
-                    timeExpression: null, temporalIntent: null, priorReferenceIntent: 'single_entity',
+                    timeExpression: null, temporalIntent: null, priorReferenceIntent: null, followUpAttribute: 'time',
                     temporalComparison: null, urgencyComparison: null, requestedSources: ['commitments'],
                     commitmentFilterHints: { status: null, statusBasis: null }, attachmentKindHints: [],
                     ambiguityHints: [], wantsOverdueFocus: false, proposalFocus: null, isWriteActionRequest: false,
@@ -444,7 +447,8 @@ describe('M-7 conversational continuity: a singular follow-up keeps the authoriz
                 priorReadSummary,
             }, { inputInterpreter: interpreter });
             expect(semantic.route).toBe('read');
-            expect(semantic.interpretation.priorReferenceIntent).toBe('single_entity');
+            expect(semantic.interpretation.followUpAttribute).toBe('time');
+            expect(semantic.interpretation.priorReferenceIntent).toBeNull();
 
             retrieveVisibleCommitmentById.mockResolvedValue(TOMORROW as any);
             const follow = await buildAgentContext({
@@ -454,8 +458,22 @@ describe('M-7 conversational continuity: a singular follow-up keeps the authoriz
                 priorReadContext,
             }, { interpretation: semantic.interpretation });
             expect(follow.needsClarification).toBe(false);
+            expect(follow.followUpAttribute).toBe('time');
             expect(follow.commitments.map((item) => item.id)).toEqual([TOMORROW.id]);
             expect(follow.commitments[0].dueAt).toBe(TOMORROW.dueAt);
+            const model = {
+                modelName: 'must-not-run-for-canonical-follow-up',
+                synthesize: vi.fn(async () => JSON.stringify({
+                    answer: '13:00', claims: [{ text: '13:00', sourceRefs: [TOMORROW.provenance] }],
+                })),
+            };
+            const response = await synthesizeAgentResponse({
+                input: utterance.input, context: follow, locale: 'es-CL', channel: utterance.channel,
+            }, { model });
+            expect(response.answer).toContain('11:00');
+            expect(response.answer).not.toContain('13:00');
+            expect(response.citations).toEqual([TOMORROW.provenance]);
+            expect(model.synthesize).not.toHaveBeenCalled();
             retrieveVisibleCommitmentById.mockClear();
             retrieveCommitments.mockClear();
             retrieveCommitmentProposals.mockClear();

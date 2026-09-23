@@ -605,7 +605,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         || rawInterpretation.topicHints.length > 0
         || deterministicSignals.personHints.length > 0;
     const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
-        ?? (currentTurnIntroducesScope ? null : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
+        ?? (currentTurnIntroducesScope ? null
+            : rawInterpretation.followUpAttribute != null
+                ? 'single_entity'
+                : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
     const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
     const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
         ? priorCommitmentReferents[0]
@@ -650,6 +653,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         textQuery: priorSingleReferent?.rawText
             ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
+        followUpAttribute: rawInterpretation.followUpAttribute ?? null,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
@@ -1411,6 +1415,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         queryCardinality,
         temporalComparison: interpretation.temporalComparison ?? null,
         urgencyComparison: interpretation.urgencyComparison ?? null,
+        followUpAttribute: interpretation.followUpAttribute ?? null,
         requiredSourceRefs,
         requiredSourceRefsTruncated,
         requiredSourceRefsTruncationKnown,

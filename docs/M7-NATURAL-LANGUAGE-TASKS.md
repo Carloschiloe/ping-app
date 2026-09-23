@@ -155,12 +155,17 @@ Acceso unificado: `mobile/src/api/agentSurfaceAdapter.ts`, `mobile/src/api/query
 
 Este inventario no atribuye a M-7 todos los cambios del árbol: el repositorio ya contenía modificaciones locales anteriores, que fueron conservadas.
 
-## 12. Incidencia: continuidad de preguntas breves en texto y voz (2026-09-22)
+## 12. Incidencia: continuidad de atributos en preguntas breves (2026-09-23)
 
-- [x] Reproducir la secuencia real con el mismo `conversationId`: una lectura de mañana seguida por la transcripción de voz «¿Y a qué hora?». Evidencia: `backend/tests/agentReadFollowup.regression.test.ts`, 3/3 PASS.
-- [x] Trazar interpretación, estado, ruta, entidad y recuperación. Causa confirmada: `agentTurnCore` conservaba `lastReadContext` para `buildAgentContext`, pero no lo entregaba a `interpretAgentSemanticTurn`; el segundo turno llegaba al intérprete sin contexto y caía en aclaración.
-- [x] Comparar texto y voz. Evidencia: ambos usan el mismo límite semántico y el mismo `conversationId`; la regresión verifica dos invocaciones con el mismo resumen estructural y sin exponer IDs/títulos al intérprete.
-- [x] Corregir la causa raíz sin frases especiales: Core deriva un resumen estructural acotado del resultado previo; el intérprete LLM resuelve continuaciones elípticas y Core vuelve a autorizar el ID canónico antes de recuperar.
-- [x] Generalizar atributos y controles: hora, fecha, responsable, estado y detalle reutilizan un único referente; múltiples referentes producen aclaración y un tema explícito abandona el contexto anterior. Evidencia: `backend/tests/m7CommitmentReadRegression.test.ts`, 24/24 PASS.
-- [x] Ejecutar regresiones afectadas. Resultado: `m7CommitmentReadRegression.test.ts` 24/24 PASS, `agentReadFollowup.regression.test.ts` 3/3 PASS y TypeScript `tsc --noEmit` PASS. Los modelos fueron dobles controlados; no se simuló proveedor real ni dispositivo físico.
-- [ ] Repetir la pregunta en el iPhone contra el backend corregido y comprobar la respuesta visible «Mañana a las 11:00». Pendiente: requiere publicar/desplegar el commit en staging y ejecutar la prueba física; no se marca PASS por una simulación.
+- [x] Aislar la secuencia `¿Qué tengo que hacer hoy?` → `¿Y a qué hora?` sobre la base limpia `ba36e5c`, con un único compromiso canónico y el mismo contexto de diálogo.
+- [x] Confirmar la causa estructural: `AgentReadContext` ya conservaba la referencia canónica y `agentTurnCore` ya la entregaba al límite semántico, pero el contrato de interpretación no representaba el atributo solicitado. Sin esa señal, el builder no podía convertir una continuación sin pronombre en referencia singular y la síntesis podía caer en el recorrido general.
+- [x] Añadir `followUpAttribute` como operador semántico acotado (`time`, `date`, `responsible`, `status`, `details`) en el esquema, tipos y prompt del intérprete. No se añadieron frases, regex ni sinónimos.
+- [x] Reutilizar la autorización existente: cuando el atributo llega sin tema nuevo, Core deriva `priorReferenceIntent=single_entity`, reautoriza el `canonicalId` contra el actor y recupera sólo esa entidad. Un conjunto ambiguo o un tema explícito no se fuerza a una entidad.
+- [x] Responder atributos desde evidencia canónica antes de llamar al modelo de síntesis. La hora/fecha se formatea con la zona del usuario; responsable, estado y detalles no inventan datos ausentes.
+- [x] Verificar que texto y transcripción de voz atraviesan el mismo límite semántico y conservan el mismo referente. Evidencia: `backend/tests/m7CommitmentReadRegression.test.ts`, 24/24 PASS.
+- [x] Ejecutar regresiones relacionadas: `agentInputInterpreter.test.ts`, `agentReadFollowup.regression.test.ts` y `agentContextBuilder.test.ts`, 493/493 PASS. TypeScript `tsc --noEmit` y `npm run build` en la copia aislada: PASS.
+- [ ] Ejecutar la prueba física en iPhone contra el backend corregido y verificar la respuesta visible con la hora real del usuario. No se marca PASS con mocks ni con la compilación.
+
+### Suite completa en este corte
+
+La suite completa no se declara PASS. Se ejecutó en la copia aislada con valores Supabase no operativos para impedir escrituras o uso accidental de producción: falló por `fetch failed` en integraciones que requieren Supabase, además de fallos basales de pruebas que requieren secretos de voz o una aserción de política de adjuntos. Los fallos no pertenecen a esta corrección; las suites M-7 enfocadas sí pasan. No se ocultaron ni se transformaron en PASS.

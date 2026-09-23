@@ -1059,6 +1059,73 @@ function buildCountResponse(context: AgentContext, language: 'es' | 'en'): Agent
     return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
 }
 
+// A semantic follow-up is answered from the single canonical referent already
+// re-authorized by the Core. It must not fall back to the general retrieval or
+// synthesis path: that would allow unrelated commitments to contaminate a
+// question about the immediately preceding result.
+function buildReadReferentAttributeResponse(
+    context: AgentContext,
+    language: 'es' | 'en',
+    timezone: string,
+    locale?: string,
+): AgentResponse | null {
+    if (!context.followUpAttribute || context.commitments.length !== 1) return null;
+
+    const commitment = context.commitments[0];
+    const reference: AgentCitation = {
+        sourceType: commitment.provenance.sourceType,
+        sourceId: commitment.provenance.sourceId,
+    };
+    const claim = (text: string): AgentResponse => ({
+        status: 'answered',
+        answer: text,
+        claims: [{ text, sourceRefs: [reference] }],
+        citations: [reference],
+    });
+    const es = language === 'es';
+    const dueAt = commitment.dueAt ?? commitment.proposedDueAt ?? null;
+
+    if (context.followUpAttribute === 'time' || context.followUpAttribute === 'date') {
+        if (!dueAt || !Number.isFinite(Date.parse(dueAt))) {
+            return claim(es ? 'Ese compromiso no tiene una fecha u hora registrada.' : 'That commitment has no recorded date or time.');
+        }
+        const formatter = context.followUpAttribute === 'time'
+            ? new Intl.DateTimeFormat(locale ?? (es ? 'es-CL' : 'en-US'), {
+                hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
+            })
+            : new Intl.DateTimeFormat(locale ?? (es ? 'es-CL' : 'en-US'), {
+                day: 'numeric', month: 'long', year: 'numeric', timeZone: timezone,
+            });
+        const value = formatter.format(new Date(dueAt));
+        return claim(es
+            ? context.followUpAttribute === 'time' ? `Es a las ${value}.` : `Es el ${value}.`
+            : context.followUpAttribute === 'time' ? `It is at ${value}.` : `It is on ${value}.`);
+    }
+
+    if (context.followUpAttribute === 'responsible') {
+        const names = commitment.pendingResponderNamesSafe?.filter(Boolean) ?? [];
+        if (names.length === 0) {
+            return claim(es
+                ? 'No tengo un nombre de responsable disponible en la información autorizada.'
+                : 'I do not have an authorized responsible person name available.');
+        }
+        return claim(es
+            ? `La persona responsable pendiente es ${names.join(', ')}.`
+            : `The pending responsible person is ${names.join(', ')}.`);
+    }
+
+    if (context.followUpAttribute === 'status') {
+        const overdue = isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, timezone, commitment.entityType);
+        const state = fallbackCommitmentState(commitment.status, overdue, language);
+        return claim(es ? `Está ${state}.` : `It is ${state}.`);
+    }
+
+    const details = commitment.description?.trim() || commitment.expectedResult?.trim();
+    return claim(details
+        ? (es ? `El detalle es: ${details}` : `The detail is: ${details}`)
+        : (es ? 'No tengo detalles adicionales autorizados para ese compromiso.' : 'I do not have additional authorized details for that commitment.'));
+}
+
 function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', timezone: string, locale?: string): AgentResponse | null {
     if (context.commitments.length === 0) return null;
     const priorityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -1407,6 +1474,12 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // manualmente, el Core ya conoce el número con certeza estructural.
         if (status === 'answered' && context.queryCardinality === 'count') {
             return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && context.followUpAttribute) {
+            const referentResponse = buildReadReferentAttributeResponse(context, language, context.timezone, input.locale);
+            if (referentResponse) {
+                return this.withDiagnostics(referentResponse, 'deterministic', startedAt, sourceCount);
+            }
         }
         if (status === 'answered' && context.temporalComparison) {
             const comparisonResponse = buildTemporalComparisonResponse(context, language, context.timezone, input.locale);
