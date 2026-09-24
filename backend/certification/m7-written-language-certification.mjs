@@ -69,7 +69,7 @@ function loadCore(fixtureAdapter, { stubSynthesis = false, semanticTrace = [] } 
     ? {
         ...productionResponse,
         synthesizeAgentResponse: async ({ context }) => ({
-          status: 'completed',
+          status: 'answered',
           answer: 'controlled certification response',
           claims: [],
           citations: (context?.commitments ?? []).map((commitment) => ({
