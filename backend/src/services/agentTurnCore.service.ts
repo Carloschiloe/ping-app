@@ -40,6 +40,7 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
+import { buildReadContextFromAnswer } from './agentReadContext.service';
 import type { AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
@@ -537,19 +538,15 @@ export async function runAgentTurn(
     dialogueService.setReadContext({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
-        context: context.intent.type === 'commitment_query'
-            ? {
-                kind: 'commitment_query',
-                timeRange: context.entities?.timeRange ?? null,
-                sourceTurnId: traceId,
-                commitmentReferents: context.commitments.slice(0, 10).map((commitment) => ({
-                    rawText: commitment.title,
-                    entityType: commitment.entityType,
-                    canonicalId: commitment.id,
-                })),
-                statuses: Array.from(new Set(context.commitments.map((commitment) => commitment.status))),
-            }
-            : null,
+        // Preserve the result that was actually answered, not the whole
+        // retrieval window.  The old code stored up to ten retrieved
+        // commitments even when synthesis answered one of them.  A later
+        // attribute question then saw a plural/contaminated referent set and
+        // either searched globally or selected the wrong date.  Citations
+        // are already Core-validated against authorized provenance, so this
+        // narrows conversational state without trusting the synthesizer to
+        // create identity or permission.
+        context: buildReadContextFromAnswer(context, response, traceId),
         turnId: traceId,
         turnSequence: (existingDialogueState?.lastTurnSequence ?? 0) + 1,
     });
