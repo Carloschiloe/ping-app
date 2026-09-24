@@ -10,8 +10,8 @@ const require = createRequire(import.meta.url);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BATTERY_PATH = resolve(ROOT, 'certification/m7-written-language-battery.v1.json');
 const EXPECTED_SHA256 = '5fda1888b7c37ca04348a966161ed89424f1f719a4b3d80935dd0a87c4c40168';
-const ACTOR = '00000000-0000-0000-0000-000000000001';
-const CONVERSATION = '00000000-0000-0000-0000-000000000777';
+const ACTOR = '00000000-0000-4000-8000-000000000001';
+const CONVERSATION = '00000000-0000-4000-8000-000000000777';
 const MODEL_NAME = 'gpt-4o-mini';
 const mode = process.argv.includes('--mode') ? process.argv[process.argv.indexOf('--mode') + 1] : 'all';
 const reportPath = process.env.M7_CERT_REPORT_PATH || resolve(ROOT, 'certification/m7-certification-report.json');
@@ -39,7 +39,7 @@ function loadBattery() {
   return { battery, sha256 };
 }
 
-function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
+function loadCore(fixtureAdapter, { stubSynthesis = false, semanticTrace = [] } = {}) {
   // The real Core imports retrieval through CommonJS. The certification
   // replaces only that I/O boundary with an in-memory, actor-scoped fixture;
   // the semantic, context, planner, dialogue and response stages remain the
@@ -50,15 +50,32 @@ function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
   // removed pure production exports such as dedupeProvenance.
   const productionRetrieval = require(resolve(ROOT, 'dist/services/retrieval.service.js'));
   const isolatedRetrieval = { ...productionRetrieval, ...fixtureAdapter.retrieval };
+  const productionSemantic = require(resolve(ROOT, 'dist/services/agentSemanticInterpreter.service.js'));
+  const isolatedSemantic = {
+    ...productionSemantic,
+    interpretAgentSemanticTurn: async (...args) => {
+      const result = await productionSemantic.interpretAgentSemanticTurn(...args);
+      semanticTrace.push({
+        input: args[0],
+        route: result.route,
+        intent: result.interpretation?.intent ?? null,
+        objectiveType: result.objective?.objectiveType ?? null,
+      });
+      return result;
+    },
+  };
   const productionResponse = require(resolve(ROOT, 'dist/services/agentResponseSynthesizer.service.js'));
   const isolatedResponse = stubSynthesis
     ? {
         ...productionResponse,
-        synthesizeAgentResponse: async () => ({
+        synthesizeAgentResponse: async ({ context }) => ({
           status: 'completed',
           answer: 'controlled certification response',
           claims: [],
-          citations: [],
+          citations: (context?.commitments ?? []).map((commitment) => ({
+            sourceType: 'commitment',
+            sourceId: commitment.id,
+          })),
         }),
       }
     : productionResponse;
@@ -71,6 +88,7 @@ function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
       // Let Node produce the original error for unknown modules.
     }
     const normalized = resolved ? resolved.replaceAll('\\', '/') : '';
+    if (normalized.endsWith('/services/agentSemanticInterpreter.service.js')) return isolatedSemantic;
     if (normalized.endsWith('/services/retrieval.service.js')) return isolatedRetrieval;
     if (normalized.endsWith('/services/memory.service.js')) return fixtureAdapter.memory;
     if (normalized.endsWith('/services/agentResponseSynthesizer.service.js')) return isolatedResponse;
@@ -85,8 +103,10 @@ function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
     const dialogue = require(resolve(ROOT, 'dist/services/agentDialogueState.service.js'));
     const interpretationSchema = require(resolve(ROOT, 'dist/schemas/agentInterpretation.schema.js'));
     const objectiveSchema = require(resolve(ROOT, 'dist/schemas/agentObjectiveInterpretation.schema.js'));
+    const toolRegistry = require(resolve(ROOT, 'dist/services/toolRegistry.service.js'));
     return {
       semantic,
+      semanticTrace,
       input,
       objective,
       planner,
@@ -94,6 +114,7 @@ function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
       dialogue,
       interpretationSchema,
       objectiveSchema,
+      toolRegistry,
       retrieval: isolatedRetrieval,
     };
   } finally {
@@ -297,8 +318,9 @@ function priorSummary(result) {
 }
 
 function safeCommitment(title) {
+  const id = deterministicUuid(`commitment:${title || 'certification target'}`);
   return {
-    id: `cert-${createHash('sha1').update(title).digest('hex').slice(0, 12)}`,
+    id,
     title: title || 'certification target',
     entityType: 'commitment',
     description: null,
@@ -319,7 +341,7 @@ function safeCommitment(title) {
     createdAt: '2026-09-23T12:00:00.000Z',
     provenance: {
       sourceType: 'commitment',
-      sourceId: `cert-source-${createHash('sha1').update(title || 'target').digest('hex').slice(0, 8)}`,
+      sourceId: id,
       conversationId: CONVERSATION,
     },
   };
@@ -328,12 +350,12 @@ function safeCommitment(title) {
 function safeProposal(title) {
   return {
     ...safeCommitment(title),
-    id: `proposal-${createHash('sha1').update(title).digest('hex').slice(0, 12)}`,
+    id: deterministicUuid(`proposal:${title}`),
     entityType: 'commitment_proposal',
     status: 'proposed',
     provenance: {
       sourceType: 'commitment_proposal',
-      sourceId: `proposal-source-${createHash('sha1').update(title).digest('hex').slice(0, 8)}`,
+      sourceId: deterministicUuid(`proposal-source:${title}`),
       conversationId: CONVERSATION,
     },
     actorHasApproved: false,
@@ -343,6 +365,14 @@ function safeProposal(title) {
     isFullyApproved: false,
     proposalDatePassed: false,
   };
+}
+
+function deterministicUuid(seed) {
+  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][parseInt(hex[16], 16) % 4];
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20, 32)]
+    .map((part) => part.join('')).join('-');
 }
 
 function createFixtureAdapter() {
@@ -395,20 +425,30 @@ function createFixtureAdapter() {
       current = {
         commitments: commitmentTitles.map((title, index) => ({
           ...safeCommitment(title),
-          id: `cert-commitment-${index + 1}`,
           dueAt: new Date(CERT_NOW.getTime() + (index + 1) * 24 * 60 * 60 * 1000).toISOString(),
-          provenance: { sourceType: 'commitment', sourceId: `cert-commitment-${index + 1}`, conversationId: CONVERSATION },
+          provenance: { sourceType: 'commitment', sourceId: deterministicUuid(`case-source:${index + 1}`), conversationId: CONVERSATION },
         })),
         proposals: [safeProposal('visita del viernes')],
         people: ['Paula', 'Rodrigo', 'Camila', 'Diego', 'Marcela', 'Felipe'].map((displayName, index) => ({
-          kind: 'contact', id: `cert-person-${index + 1}`, displayName,
+          kind: 'contact', id: deterministicUuid(`person:${index + 1}`), displayName,
         })),
         messages: [{
-          id: 'cert-message-1', conversationId: CONVERSATION, senderId: 'cert-person-1',
+          id: deterministicUuid('message:1'), conversationId: CONVERSATION, senderId: deterministicUuid('person:1'),
           content: 'Conversación de certificación aislada', isSystem: false,
-          createdAt: CERT_NOW.toISOString(), provenance: { sourceType: 'message', sourceId: 'cert-message-1', conversationId: CONVERSATION },
+          createdAt: CERT_NOW.toISOString(), provenance: { sourceType: 'message', sourceId: deterministicUuid('message:1'), conversationId: CONVERSATION },
         }],
       };
+    },
+    setSingleCommitmentFixture() {
+      current = {
+        commitments: [{ ...safeCommitment('compromiso unico de smoke'), dueAt: '2026-09-24T14:00:00.000Z' }],
+        proposals: [],
+        people: [],
+        messages: [],
+      };
+    },
+    snapshot() {
+      return current;
     },
     retrieval,
     memory: { retrieveMemory: async () => [] },
@@ -503,9 +543,9 @@ async function runCoreDryRun(item, result, core) {
 }
 
 async function runCoreReadContinuitySmoke(core, fixtureAdapter) {
-  fixtureAdapter.setCaseFixture();
-  const dialogueService = new core.dialogue.AgentDialogueStateService();
-  const inputInterpreter = new core.input.DeterministicInputInterpreter();
+  fixtureAdapter.setSingleCommitmentFixture();
+  const dialogueService = createIsolatedDialogueService(core);
+  const inputInterpreter = createContinuityInputInterpreter(core);
   const utterances = ['Que tengo pendiente esta semana?', 'Y a que hora?'];
   const turns = [];
   const originalFetch = globalThis.fetch;
@@ -544,12 +584,126 @@ async function runCoreReadContinuitySmoke(core, fixtureAdapter) {
   }
   globalThis.fetch = originalFetch;
   const writerCalls = turns.filter((turn) => turn.result?.kind === 'execution').length;
+  const scopeKey = core.dialogue.buildDialogueScopeKey({ conversationId: CONVERSATION, surface: 'mobile_voice' });
+  const snapshot = dialogueService.getSnapshot(ACTOR, scopeKey);
   return {
-    status: turns.every((turn) => turn.result?.kind !== 'core_error') && writerCalls === 0 ? 'pass' : 'fail',
+    status: turns.every((turn) => turn.result?.kind !== 'core_error') && writerCalls === 0
+      && snapshot?.lastTurnSequence === 2 ? 'pass' : 'fail',
     turns,
     fetchCalls,
     writerCalls,
     sameConversationId: true,
+    initialStateFound: false,
+    finalTurnSequence: snapshot?.lastTurnSequence ?? null,
+    finalReferentIds: (snapshot?.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
+  };
+}
+
+function createIsolatedDialogueService(core) {
+  return new core.dialogue.AgentDialogueStateService({
+    repository: core.dialogue.createInMemoryDialogueStateRepository(),
+    now: () => CERT_NOW,
+  });
+}
+
+function createContinuityInputInterpreter(core) {
+  const deterministic = new core.input.DeterministicInputInterpreter();
+  let callCount = 0;
+  return {
+    async interpret(input, context) {
+      const base = await deterministic.interpret(input, context);
+      callCount += 1;
+      if (callCount !== 2) return base;
+      return {
+        ...base,
+        intent: 'commitment_query',
+        intentConfidence: 0.9,
+        textQuery: null,
+        timeExpression: null,
+        priorReferenceIntent: 'single_entity',
+        followUpAttribute: 'time',
+        statusHints: null,
+        wantsCommitments: true,
+        wantsMessages: false,
+        wantsTranscriptions: false,
+        wantsAttachments: false,
+        isWriteActionRequest: false,
+      };
+    },
+  };
+}
+
+async function runCoreHarnessSmokes(core, fixtureAdapter) {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  fixtureAdapter.setCaseFixture();
+  const fixture = fixtureAdapter.snapshot();
+  const toolChecks = [
+    ['get_commitment', { commitmentId: fixture.commitments[0].id }],
+    ['get_commitment_proposal', { proposalId: fixture.proposals[0].id }],
+    ['get_person', { personId: fixture.people[0].id }],
+    ['get_conversation', { conversationId: CONVERSATION }],
+  ].map(([toolId, args]) => {
+    const parsed = core.toolRegistry.getToolArgumentSchema(toolId)?.safeParse(args);
+    return { toolId, idShape: Object.values(args).every((value) => uuidPattern.test(value)), schemaAccepted: parsed?.success === true };
+  });
+  const fixturesPass = toolChecks.every((check) => check.idShape && check.schemaAccepted);
+
+  const semanticTrace = core.semanticTrace;
+  const writeService = createIsolatedDialogueService(core);
+  const writeTraceStart = semanticTrace.length;
+  const writeResult = await core.turn.runAgentTurn({
+    actorUserId: ACTOR, input: 'Recuérdame revisar el techo', conversationId: CONVERSATION,
+    channel: 'mobile', locale: 'es-CL', timezone: CERT_TIMEZONE, now: CERT_NOW, traceId: 'm7-core-smoke-write',
+  }, { dialogueService: writeService, inputInterpreter: new core.input.DeterministicInputInterpreter(), now: CERT_NOW });
+  const writeTrace = semanticTrace.slice(writeTraceStart).at(-1) ?? null;
+  const writeNeedsClarification = writeTrace?.route === 'write' && writeResult.kind === 'clarification';
+
+  fixtureAdapter.setSingleCommitmentFixture();
+  const continuityService = createIsolatedDialogueService(core);
+  const continuityTraceStart = semanticTrace.length;
+  const continuityTurns = [];
+  const continuityInterpreter = createContinuityInputInterpreter(core);
+  for (const [index, input] of ['Que tengo pendiente?', 'Y a que hora?'].entries()) {
+    const result = await core.turn.runAgentTurn({
+      actorUserId: ACTOR, input, conversationId: CONVERSATION, channel: 'mobile', locale: 'es-CL',
+      timezone: CERT_TIMEZONE, now: CERT_NOW, traceId: `m7-core-smoke-single-${index + 1}`,
+    }, { dialogueService: continuityService, inputInterpreter: continuityInterpreter, now: CERT_NOW });
+    continuityTurns.push({ result: publicCoreTurn(result), semantic: semanticTrace[continuityTraceStart + index] ?? null });
+  }
+  const continuityScope = core.dialogue.buildDialogueScopeKey({ conversationId: CONVERSATION, surface: 'mobile_voice' });
+  const continuityState = continuityService.getSnapshot(ACTOR, continuityScope);
+  const canonicalId = continuityState?.lastReadContext?.commitmentReferents?.[0]?.canonicalId ?? null;
+  const followUpCitations = new Set(continuityTurns[1]?.result?.citationIds ?? []);
+  const oneReferentPass = continuityState?.lastReadContext?.commitmentReferents?.length === 1
+    && uuidPattern.test(canonicalId ?? '')
+    && followUpCitations.has(`commitment:${canonicalId}`);
+
+  const isolatedA = createIsolatedDialogueService(core);
+  const isolatedB = createIsolatedDialogueService(core);
+  const isolationScope = core.dialogue.buildDialogueScopeKey({ conversationId: CONVERSATION, surface: 'mobile_voice' });
+  const initialB = isolatedB.getSnapshot(ACTOR, isolationScope);
+  await core.turn.runAgentTurn({
+    actorUserId: ACTOR, input: 'Que tengo pendiente?', conversationId: CONVERSATION, channel: 'mobile',
+    locale: 'es-CL', timezone: CERT_TIMEZONE, now: CERT_NOW, traceId: 'm7-core-smoke-isolation-a',
+  }, { dialogueService: isolatedA, inputInterpreter: new core.input.DeterministicInputInterpreter(), now: CERT_NOW });
+  const stateA = isolatedA.getSnapshot(ACTOR, isolationScope);
+  const stateB = isolatedB.getSnapshot(ACTOR, isolationScope);
+  const isolationPass = initialB === null && stateA !== null && stateB === null;
+
+  const writePlan = await runCoreDryRun(
+    { id: 'SMOKE-WRITE', utterance: 'Recuérdame revisar el techo' },
+    { route: 'write', objective: { objectiveType: 'create_personal_commitment', targetEntities: { personHints: [], entityHints: ['revisar el techo'] }, constraints: {}, desiredOutcome: 'crear un compromiso aislado', timeConstraints: { rawHint: '2026-09-24' }, actor: ACTOR, sourceUtterance: 'Recuérdame revisar el techo', confidence: 1, ambiguities: [], source: 'deterministic' } },
+    core,
+  );
+  return {
+    status: fixturesPass && writeNeedsClarification && writePlan.writerCalled === false && isolationPass && oneReferentPass && continuityTurns.every((turn) => turn.result.kind !== 'core_error') ? 'pass' : 'fail',
+    fixtures: { status: fixturesPass ? 'pass' : 'fail', checks: toolChecks },
+    writeClarification: { status: writeNeedsClarification ? 'pass' : 'fail', semanticRoute: writeTrace?.route ?? null, resultKind: writeResult.kind },
+    writePlan: { ...writePlan, status: writePlan.writerCalled === false && writePlan.executed ? 'pass' : 'fail' },
+    isolation: { status: isolationPass ? 'pass' : 'fail', initialBFound: initialB !== null, stateAFound: stateA !== null, stateBFound: stateB !== null },
+    continuity: { status: oneReferentPass ? 'pass' : 'fail', turnSequence: continuityState?.lastTurnSequence ?? null, canonicalId, turns: continuityTurns },
+    writerCalls: 0,
+    persistentData: false,
   };
 }
 
@@ -580,13 +734,14 @@ function publicCoreTurn(result) {
 
 async function runRealCoreCase(item, core, fixtureAdapter) {
   fixtureAdapter.setCaseFixture();
-  const dialogueService = new core.dialogue.AgentDialogueStateService();
+  const dialogueService = createIsolatedDialogueService(core);
   const turns = item.mode === 'multi' ? item.turns : [item.utterance];
   const turnResults = [];
   const stateSnapshots = [];
   let writerCalls = 0;
   for (let index = 0; index < turns.length; index += 1) {
     const observed = createObservedSemanticOptions(core);
+    const semanticTraceStart = core.semanticTrace.length;
     try {
       const result = await core.turn.runAgentTurn({
         actorUserId: ACTOR,
@@ -604,19 +759,21 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
       // runAgentTurn only produces a plan; authorization/execution is not
       // called by this harness. Keep this invariant explicit in every record.
       if (result.kind === 'execution') writerCalls += 1;
-      turnResults.push({ turn: index + 1, result: publicCoreTurn(result), providerObservations: observed.captures.inputModel.observations });
+      const semanticDecision = core.semanticTrace.slice(semanticTraceStart).at(-1) ?? null;
+      turnResults.push({ turn: index + 1, result: publicCoreTurn(result), semanticRoute: semanticDecision?.route ?? null, providerObservations: observed.captures.inputModel.observations });
       const turnScope = core.dialogue.buildDialogueScopeKey({ conversationId: CONVERSATION, surface: 'mobile_voice' });
       const turnSnapshot = dialogueService.getSnapshot(ACTOR, turnScope);
       stateSnapshots.push(turnSnapshot ? {
         turn: index + 1,
         lifecycle: turnSnapshot.lifecycle,
-        referentIds: (turnSnapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalEntityId),
+        referentIds: (turnSnapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
         referentCount: turnSnapshot.lastReadContext?.commitmentReferents?.length ?? 0,
       } : { turn: index + 1, lifecycle: null, referentIds: [], referentCount: 0 });
     } catch (error) {
       turnResults.push({
         turn: index + 1,
         result: { kind: 'core_error' },
+        semanticRoute: core.semanticTrace.slice(semanticTraceStart).at(-1)?.route ?? null,
         error: safeError(error, 'agent_turn_core', item.id),
         providerObservations: observed.captures.inputModel.observations,
       });
@@ -627,8 +784,8 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
   const first = turnResults[0]?.result ?? { kind: null };
   const second = turnResults[1]?.result ?? null;
   const expectedRoute = item.expected.route ?? item.expected.firstRoute;
-  const observedFirstRoute = first.kind === 'plan' ? 'write' : 'read';
-  const observedSecondRoute = second ? (second.kind === 'plan' ? 'write' : 'read') : null;
+  const observedFirstRoute = turnResults[0]?.semanticRoute ?? null;
+  const observedSecondRoute = second ? (turnResults[1]?.semanticRoute ?? null) : null;
   const firstState = stateSnapshots[0] ?? null;
   const secondState = stateSnapshots[1] ?? null;
   const secondCitationIds = new Set(second?.citationIds ?? []);
@@ -657,7 +814,7 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
     stateSnapshots,
     dialogueState: snapshot ? {
       lifecycle: snapshot.lifecycle,
-      lastReadReferentIds: (snapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalEntityId),
+      lastReadReferentIds: (snapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
       lastReadReferentCount: snapshot.lastReadContext?.commitmentReferents?.length ?? 0,
       turnSequence: snapshot.lastTurnSequence ?? null,
     } : null,
@@ -732,7 +889,8 @@ async function main() {
   }
 
   const fixtureAdapter = createFixtureAdapter();
-  const core = loadCore(fixtureAdapter, { stubSynthesis: mode === 'core-smoke' });
+  const semanticTrace = [];
+  const core = loadCore(fixtureAdapter, { stubSynthesis: mode === 'core-smoke', semanticTrace });
   if (mode === 'core-smoke') {
     fixtureAdapter.setCaseFixture();
     const item = battery.cases.find((candidate) => candidate.id === 'W001') ?? battery.cases[0];
@@ -763,13 +921,16 @@ async function main() {
     };
     const readSmoke = await runCoreReadContinuitySmoke(core, fixtureAdapter);
     const writeSmoke = await runCoreDryRun(item, synthetic, core);
+    const harnessSmokes = await runCoreHarnessSmokes(core, fixtureAdapter);
     const coreSmoke = {
       status: contractSmoke.status === 'pass' && readSmoke.status === 'pass'
-        && writeSmoke.status !== 'core_error' && writeSmoke.writerCalled === false ? 'pass' : 'fail',
+        && writeSmoke.status !== 'core_error' && writeSmoke.writerCalled === false
+        && harnessSmokes.status === 'pass' ? 'pass' : 'fail',
       contract: contractSmoke,
       controlledRead: { status: 'pass', reachedPastRetrievalBoundary: true },
       controlledWrite: writeSmoke,
       continuity: readSmoke,
+      harness: harnessSmokes,
       writerCalls: (writeSmoke.writerCalled ? 1 : 0) + readSmoke.writerCalls,
     };
     if (coreSmoke.status !== 'pass') throw new Error(JSON.stringify(coreSmoke));
