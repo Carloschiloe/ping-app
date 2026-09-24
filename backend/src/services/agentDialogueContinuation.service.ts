@@ -26,6 +26,7 @@ import { parseDateFromText } from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { LlmObjectiveInterpreter, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
+export { reconcilePendingPlanModification } from './agentDialogueObjectiveMerge.service';
 
 // PING — M-7B: only these two objective types are in scope for continuation
 // in this phase (both share planCreateCommitment's exact missing-slot

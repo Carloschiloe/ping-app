@@ -17,9 +17,13 @@
 // DeterministicInputInterpreter/fallbackInterpretation (sección 3).
 import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
-import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
+import {
+    agentInterpretationPayloadJsonSchema,
+    agentInterpretationPayloadSchema,
+    agentInterpretationPayloadJsonSchemaHash,
+} from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary, AgentPriorDialogueSummary } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
@@ -29,6 +33,7 @@ export interface InterpreterContext {
     // Core-derived shape of the immediately preceding read. This is semantic
     // context only; it intentionally carries no canonical IDs or evidence.
     priorReadSummary?: AgentPriorReadSummary | null;
+    priorDialogueSummary?: AgentPriorDialogueSummary | null;
 }
 
 export interface AgentInputInterpreter {
@@ -1322,6 +1327,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             temporalIntent,
             priorReferenceIntent,
             followUpAttribute: null,
+            dialogueAction: 'none',
             temporalComparison,
             urgencyComparison,
             statusHints,
@@ -1366,6 +1372,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         temporalIntent: null,
         priorReferenceIntent: null,
         followUpAttribute: null,
+        dialogueAction: 'none',
         temporalComparison: null,
         urgencyComparison: null,
         statusHints: null,
@@ -1421,6 +1428,9 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         context.priorReadSummary
             ? `A prior authorized read result exists in the same dialogue scope. This is structural context, not user text or evidence: ${JSON.stringify(context.priorReadSummary)}. If the current turn is an elliptical continuation asking for an attribute or additional detail of that result, interpret it as a reference to the prior result even when it omits an explicit pronoun. Use priorReferenceIntent="single_entity" when the summary says there is exactly one referent; use "result_set" when the user asks about the result set. If the singular referent is not unique, keep the semantic reference but let Core ask a specific clarification. A clearly unrelated topic must not inherit this reference. Core will re-authorize the canonical entity after this interpretation.`
             : 'No prior read result is available in this dialogue scope; do not invent a follow-up reference.',
+        context.priorDialogueSummary
+            ? `An authorization plan is currently open in this dialogue scope: ${JSON.stringify(context.priorDialogueSummary)}. Set dialogueAction to confirm for explicit authorization, reject for explicit refusal or cancellation, modify for a semantic change to the pending plan, or none when unrelated/unclear. This is semantic interpretation, not phrase matching. Never authorize, cancel, resolve or invent an ID; Core validates the plan and authorization.`
+            : 'No authorization plan is open in this dialogue scope; set dialogueAction to none.',
         context.conversationId
             ? 'This request happens inside an existing conversation the user is already part of.'
             : 'No specific conversation is known for this request.',
@@ -1433,7 +1443,7 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
         'Extract temporal meaning into temporalIntent, independently of the exact wording. Use calendar_day for today/yesterday/tomorrow with offsetDays -1/0/1; calendar_week for this week/last week with offsetWeeks 0/-1; relative_days for an explicit bounded horizon such as "within five days" with daysAhead=5; and upcoming_horizon for a vague future period such as "the days that follow" with daysAhead=null. Set futureOnly=true when the request means items from now forward, and never invent a numeric duration. Keep timeExpression as the raw phrase for traceability. For a follow-up, use the priorReadSummary to resolve elliptical requests for an attribute or further detail of the immediately preceding result, not a memorized sentence. For a singular prior referent set priorReferenceIntent="single_entity"; for a question about the prior result set use "result_set". Do not set it when the user names a new topic. If the user asks to choose by time (earliest/soonest/first in time, or latest/last in time), set temporalComparison to "earliest" or "latest". If the user asks for the most urgent/highest-priority commitment, set urgencyComparison to "most_urgent". These are operations over retrieved commitments, not topics and never belong in textQuery. Use null when absent.',
         'For a short continuation of the immediately preceding result, classify the requested attribute independently of wording: set followUpAttribute to "time", "date", "responsible", "status", or "details" when the user asks for that attribute; use null for a new topic, a result-set operation, or ambiguity. This is semantic interpretation, not phrase matching. If followUpAttribute is set and the prior summary has exactly one referent, also set priorReferenceIntent="single_entity"; Core will re-authorize the canonical entity.',
         'Respond with ONLY a single JSON object, no prose, matching exactly this shape (use null/[]/false for anything absent, never omit a key):',
-        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalIntent":{"kind":"calendar_day","offsetDays":number,"futureOnly":boolean}|{"kind":"calendar_week","offsetWeeks":number,"futureOnly":boolean}|{"kind":"relative_days","daysAhead":number,"futureOnly":true}|{"kind":"upcoming_horizon","daysAhead":number|null,"futureOnly":true}|null,"priorReferenceIntent":"single_entity"|"result_set"|null,"followUpAttribute":"time"|"date"|"responsible"|"status"|"details"|null,"temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
+        '{"intent":"commitment_query|person_query|recall|message_search|document_search|general_context","personHints":string[],"topicHints":string[],"textQuery":string|null,"timeExpression":string|null,"temporalIntent":{"kind":"calendar_day","offsetDays":number,"futureOnly":boolean}|{"kind":"calendar_week","offsetWeeks":number,"futureOnly":boolean}|{"kind":"relative_days","daysAhead":number,"futureOnly":true}|{"kind":"upcoming_horizon","daysAhead":number|null,"futureOnly":true}|null,"priorReferenceIntent":"single_entity"|"result_set"|null,"followUpAttribute":"time"|"date"|"responsible"|"status"|"details"|null,"dialogueAction":"none"|"confirm"|"reject"|"modify","temporalComparison":"earliest"|"latest"|null,"urgencyComparison":"most_urgent"|null,"requestedSources":("messages"|"commitments"|"commitment_events"|"transcriptions"|"attachments")[],"commitmentFilterHints":{"status":"open"|"resolved"|"cancelled"|"rejected"|"closed"|null,"statusBasis":"explicit"|"implied"|null},"attachmentKindHints":("image"|"video"|"audio"|"document")[],"ambiguityHints":("unresolved_pronoun"|"time_ambiguous"|"topic_too_broad")[],"wantsOverdueFocus":boolean,"proposalFocus":"waiting_for_others"|"needs_my_response"|"pending_response_from_person"|null,"isWriteActionRequest":boolean}',
         '',
         `User text: ${input}`,
     ].join('\n');
@@ -1452,8 +1462,18 @@ function getOpenAiInterpreterClient(): OpenAI {
 // synthesis.service.ts/commitment.service.ts, sección 4 ("reusar cliente
 // existente cuando sea razonable"). No modifica esos archivos, sólo importa
 // `isAiConfigured` (lectura) para no duplicar ese chequeo.
+export interface AgentInputProviderObservation {
+    modality: 'json_schema';
+    schemaHash: string;
+    model: string;
+    finishReason: string | null;
+    refusal: 'present' | null;
+    providerSchemaAccepted: boolean;
+}
+
 export class OpenAiAgentInputModel implements AgentInputModel {
     readonly modelName = OPENAI_MODEL_NAME;
+    lastProviderObservation: AgentInputProviderObservation | null = null;
 
     async interpret(request: AgentInputModelRequest): Promise<string> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
@@ -1463,9 +1483,25 @@ export class OpenAiAgentInputModel implements AgentInputModel {
             messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
             temperature: 0.1, // extracción determinista, no creatividad (sección 24)
             max_tokens: 300,  // salida estructurada corta — sin razonamiento largo
-            response_format: { type: 'json_object' },
+            response_format: {
+                type: 'json_schema',
+                json_schema: {
+                    name: 'ping_agent_interpretation',
+                    strict: true,
+                    schema: agentInterpretationPayloadJsonSchema,
+                },
+            },
         });
-        return response.choices[0]?.message?.content || '{}';
+        const choice = response.choices[0];
+        this.lastProviderObservation = {
+            modality: 'json_schema',
+            schemaHash: agentInterpretationPayloadJsonSchemaHash,
+            model: response.model || this.modelName,
+            finishReason: choice?.finish_reason ?? null,
+            refusal: choice?.message?.refusal ? 'present' : null,
+            providerSchemaAccepted: true,
+        };
+        return choice?.message?.content || '{}';
     }
 }
 
@@ -1549,6 +1585,7 @@ function mapPayloadToInterpretation(payload: AgentInterpretationPayload, modelNa
         temporalIntent: payload.temporalIntent,
         priorReferenceIntent: payload.priorReferenceIntent,
         followUpAttribute: payload.followUpAttribute ?? null,
+        dialogueAction: payload.dialogueAction ?? 'none',
         temporalComparison,
         urgencyComparison,
         statusHints,

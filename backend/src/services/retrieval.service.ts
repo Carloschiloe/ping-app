@@ -453,6 +453,27 @@ export async function retrieveVisibleCommitmentById(actorUserId: string, commitm
     return data ? toRetrievalCommitment(data) : null;
 }
 
+// Re-authorizes a bounded result set from a prior read. The IDs came from
+// Core-owned citations, but visibility is still checked here on every turn.
+export async function retrieveVisibleCommitmentsByIds(actorUserId: string, commitmentIds: string[]): Promise<RetrievalCommitment[]> {
+    const ids = Array.from(new Set(commitmentIds.filter(Boolean)));
+    if (ids.length === 0) return [];
+    const participantProposalIds = await getParticipantProposalIds(actorUserId);
+    const visibilityFilter = buildCommitmentVisibilityFilter(actorUserId, participantProposalIds);
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .select(COMMITMENT_SELECT)
+        .in('id', ids)
+        .or(visibilityFilter)
+        .is('archived_at', null);
+    if (error) throw new AppError(error.message, 500);
+    const byId = new Map((data || []).map((row: any) => [row.id, toRetrievalCommitment(row)]));
+    return ids.flatMap((id) => {
+        const commitment = byId.get(id);
+        return commitment ? [commitment] : [];
+    });
+}
+
 // ─── M-1H — Commitment proposals (hallazgo real de staging, caso "Entrenar") ─
 // La UI real (InsightsScreen.tsx) siempre mezcló GET /commitments +
 // GET /commitment-proposals — el Agent sólo consultaba la primera. Esta
@@ -594,6 +615,8 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     // cursor ni transacción explícita.
     query = query.limit(fetchLimit);
 
+    if (input.proposalId) query = query.eq('id', input.proposalId);
+    else if (input.proposalIds && input.proposalIds.length > 0) query = query.in('id', Array.from(new Set(input.proposalIds)));
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
@@ -923,10 +946,41 @@ async function retrieveMessagesInternal(input: RetrieveContextInput, limit: numb
 // y rechaza ahí, nunca confiando en un conversationId que el caller pudiera
 // pasar junto al messageWindow.
 export async function retrieveMessages(input: RetrieveContextInput, limit: number): Promise<RetrievalMessage[]> {
+    if (input.messageId) {
+        const { data, error } = await supabaseAdmin
+            .from('messages')
+            .select(MESSAGE_SELECT)
+            .eq('id', input.messageId)
+            .is('deleted_at', null)
+            .maybeSingle();
+        if (error) throw new AppError(error.message, 500);
+        if (!data) return [];
+        await assertConversationParticipant(input.actorUserId, data.conversation_id);
+        return [toRetrievalMessage(data)];
+    }
     if (!input.messageWindow?.aroundMessageId && input.conversationId) {
         await assertConversationParticipant(input.actorUserId, input.conversationId);
     }
     return retrieveMessagesInternal(input, limit);
+}
+
+export async function retrieveVisibleMessagesByIds(actorUserId: string, messageIds: string[]): Promise<RetrievalMessage[]> {
+    const ids = Array.from(new Set(messageIds.filter(Boolean)));
+    if (ids.length === 0) return [];
+    const { data, error } = await supabaseAdmin
+        .from('messages')
+        .select(MESSAGE_SELECT)
+        .in('id', ids)
+        .is('deleted_at', null);
+    if (error) throw new AppError(error.message, 500);
+    const rows = data || [];
+    const conversationIds = Array.from(new Set(rows.map((row: any) => row.conversation_id).filter(Boolean)));
+    for (const conversationId of conversationIds) await assertConversationParticipant(actorUserId, conversationId);
+    const byId = new Map(rows.map((row: any) => [row.id, toRetrievalMessage(row)]));
+    return ids.flatMap((id) => {
+        const message = byId.get(id);
+        return message ? [message] : [];
+    });
 }
 
 // ─── Transcriptions (sección 11) ────────────────────────────────────────────

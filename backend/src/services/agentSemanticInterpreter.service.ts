@@ -13,8 +13,6 @@
 import {
     DeterministicInputInterpreter,
     fallbackInterpretation,
-    extractUrgencyComparison,
-    isTemporalComparisonQuery,
     LlmInputInterpreter,
     type AgentInputInterpreter,
     type InterpreterContext,
@@ -41,6 +39,19 @@ export interface AgentSemanticInterpreterOptions {
     objectiveInterpreter?: AgentObjectiveInterpreter;
 }
 
+/**
+ * A semantic topic/scope is an explicit context break. Attribute-only turns
+ * remain eligible for Core-owned read continuity; a new objective, topic,
+ * person or standalone temporal request must abandon stale pending dialogue.
+ */
+export function introducesIndependentSemanticScope(semantic: AgentSemanticInterpretation): boolean {
+    return semantic.objective !== null
+        || semantic.interpretation.textQuery !== null
+        || semantic.interpretation.topicHints.length > 0
+        || semantic.interpretation.personHints.length > 0
+        || (semantic.interpretation.timeExpression !== null && semantic.interpretation.followUpAttribute == null);
+}
+
 async function interpretInput(
     input: string,
     context: InterpreterContext,
@@ -64,7 +75,13 @@ async function interpretInput(
  */
 export async function interpretAgentSemanticTurn(
     input: string,
-    context: { actorUserId: string; conversationId?: string; channel?: string; priorReadSummary?: InterpreterContext['priorReadSummary'] },
+    context: {
+        actorUserId: string;
+        conversationId?: string;
+        channel?: string;
+        priorReadSummary?: InterpreterContext['priorReadSummary'];
+        priorDialogueSummary?: InterpreterContext['priorDialogueSummary'];
+    },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
@@ -72,31 +89,24 @@ export async function interpretAgentSemanticTurn(
         conversationId: context.conversationId,
         channel: context.channel,
         priorReadSummary: context.priorReadSummary,
+        priorDialogueSummary: context.priorDialogueSummary,
     }, inputInterpreter);
 
-    // Safety veto, never a semantic gate: an LLM write proposal cannot turn a
-    // clearly structured retrieval/comparison into a mutation. The
-    // deterministic interpreter is used here only for this narrow structural
-    // invariant; novel write wording still reaches the LLM and planner.
-    if (interpretation.isWriteActionRequest) {
-        const safeRead = await new DeterministicInputInterpreter().interpret(input);
-        const isRetrievalIntent = safeRead.intent === 'recall'
-            || safeRead.intent === 'message_search'
-            || safeRead.intent === 'document_search';
-        const isStructuredRead = isRetrievalIntent
-            || isTemporalComparisonQuery(input)
-            || !!extractUrgencyComparison(input);
-        if (isStructuredRead && !safeRead.isWriteActionRequest) {
-            return { route: 'read', interpretation: safeRead, objective: null };
-        }
-    }
-
-    // If the model says READ but the independent structural interpreter has
-    // a complete, low-risk write objective (personal capture or memory), use
-    // that only as an admission safety net. This prevents a provider wobble
-    // from silently turning an explicit state-changing request into “no
-    // evidence”, while lifecycle/entity/permission decisions remain in Core.
-    if (!interpretation.isWriteActionRequest) {
+    // A valid provider interpretation is authoritative for the semantic
+    // route.  Deterministic classifiers remain the fallback selected by the
+    // input interpreter when the provider is unavailable, but they must not
+    // overwrite a valid LLM decision merely because a surface verb resembles
+    // an action.  That old cross-check made negation, recall and corrections
+    // depend on regex vocabulary and could turn a read into a write (or the
+    // reverse) before Core validation.  Core still owns identity, permissions,
+    // confirmation and execution below.
+    // If the provider was unavailable or returned an invalid payload, the
+    // input interpreter explicitly marks the result as `llm_fallback`.  Only
+    // in that degraded mode may the deterministic objective safety net
+    // recover a write that the fallback surface classifier could not express.
+    // This keeps fallback behavior intact without allowing it to overwrite a
+    // valid LLM interpretation.
+    if (interpretation.source !== 'llm' && !interpretation.isWriteActionRequest) {
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, {
             actorUserId: context.actorUserId,
             conversationId: context.conversationId,

@@ -20,6 +20,8 @@ import {
     retrieveTranscriptions,
     retrieveAttachments,
     retrieveVisibleCommitmentById,
+    retrieveVisibleCommitmentsByIds,
+    retrieveVisibleMessagesByIds,
     dedupeProvenance,
 } from './retrieval.service';
 import { retrieveMemory } from './memory.service';
@@ -58,6 +60,7 @@ import type {
 } from '../types/agentContext';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 import type { AgentReadContext } from '../types/agentDialogueState';
+import { getUniqueReadEvidence } from './agentReadContext.service';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
@@ -601,23 +604,73 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // entity. Core-owned surface evidence wins this boundary: a substantive
     // topic/person in the current utterance is a new scope, while an
     // otherwise topic-free utterance may refer back to the prior result.
-    const currentTurnIntroducesScope = rawInterpretation.textQuery !== null
-        || rawInterpretation.topicHints.length > 0
-        || deterministicSignals.personHints.length > 0;
+    // A follow-up attribute is meaningful only when there is an authorized
+    // prior read in this same scope.  When that state exists, the LLM's
+    // structured attribute claim is allowed to describe the operation, while
+    // Core still decides whether the canonical referent is unique.  Do not
+    // let generic words emitted as `textQuery` (for example "hora") erase a
+    // valid continuation; only a real current-turn topic/person signal can
+    // establish a new retrieval scope here.  Conversely, a named topic still
+    // wins and correctly breaks continuity.
+    const priorUniqueEvidence = getUniqueReadEvidence(input.priorReadContext);
+    const priorReadKind = input.priorReadContext?.kind ?? null;
+    const priorCommitmentReferents = (input.priorReadContext?.evidence ?? [])
+        .filter((evidence) => evidence.entityType === 'commitment' || evidence.entityType === 'commitment_proposal')
+        .map((evidence) => ({
+            rawText: evidence.rawText ?? '',
+            entityType: evidence.entityType as 'commitment' | 'commitment_proposal',
+            canonicalId: evidence.canonicalId,
+        }));
+    const legacyCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
+    const effectiveCommitmentReferents = priorCommitmentReferents.length > 0 ? priorCommitmentReferents : legacyCommitmentReferents;
+    const priorReferenceCardinality = input.priorReadContext?.cardinality ?? (effectiveCommitmentReferents.length === 1 ? 'unique_entity' : effectiveCommitmentReferents.length > 1 ? 'result_set' : 'empty_scope');
+    const priorCommitmentIds = (input.priorReadContext?.evidence ?? [])
+        .filter((evidence) => evidence.entityType === 'commitment')
+        .map((evidence) => evidence.canonicalId);
+    const priorProposalIds = (input.priorReadContext?.evidence ?? [])
+        .filter((evidence) => evidence.entityType === 'commitment_proposal')
+        .map((evidence) => evidence.canonicalId);
+    const priorMessageIds = (input.priorReadContext?.evidence ?? [])
+        .filter((evidence) => evidence.entityType === 'message')
+        .map((evidence) => evidence.canonicalId);
+    const priorPersonIds = input.priorReadContext?.scope?.personIds ?? [];
+    const effectiveFollowUpAttribute = input.priorReadContext && priorReferenceCardinality !== 'empty_scope'
+        ? rawInterpretation.followUpAttribute ?? null
+        : null;
+    const semanticContinuationClaim = effectiveFollowUpAttribute !== null
+        || rawInterpretation.priorReferenceIntent !== null;
+    const currentTurnIntroducesScope = deterministicSignals.personHints.length > 0
+        || (!semanticContinuationClaim && (
+            rawInterpretation.textQuery !== null
+            || rawInterpretation.topicHints.length > 0
+            || deterministicSignals.textQuery !== null
+        ));
     const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
         ?? (currentTurnIntroducesScope ? null
-            : rawInterpretation.followUpAttribute != null
+            : priorReferenceCardinality === 'unique_entity'
                 ? 'single_entity'
-                : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
-    const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
-    const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
-        ? priorCommitmentReferents[0]
+                : priorReferenceCardinality === 'result_set'
+                    ? 'result_set'
+                    : effectiveFollowUpAttribute != null
+                        ? 'result_set'
+                        : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
+    const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorUniqueEvidence
+        && (priorUniqueEvidence.entityType === 'commitment' || priorUniqueEvidence.entityType === 'commitment_proposal')
+        ? {
+            rawText: priorUniqueEvidence.rawText ?? '',
+            entityType: priorUniqueEvidence.entityType as 'commitment' | 'commitment_proposal',
+            canonicalId: priorUniqueEvidence.canonicalId,
+        }
         : null;
     const priorCanonicalCommitmentId = priorSingleReferent?.entityType === 'commitment'
         ? priorSingleReferent.canonicalId
         : undefined;
     const priorProposalReferent = priorSingleReferent?.entityType === 'commitment_proposal';
-    const priorReferenceAmbiguous = priorReferenceIntent !== null && priorCommitmentReferents.length !== 1;
+    const priorReferenceAmbiguous = priorReferenceIntent === 'single_entity'
+        && priorReferenceCardinality !== 'unique_entity';
+    const priorReadFollowupKind = !currentTurnIntroducesScope && effectiveFollowUpAttribute !== null
+        ? priorReadKind
+        : null;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -629,7 +682,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         || temporalComparison !== null
         || urgencyComparison !== null
         || temporalIntent !== null
-        || priorSingleReferent !== null;
+        || priorSingleReferent !== null
+        || (priorReferenceIntent === 'result_set' && priorCommitmentIds.length > 0);
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -642,7 +696,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         timeExpression: deterministicSignals.timeExpression ?? rawInterpretation.timeExpression ?? null,
         temporalIntent,
-        intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
+        intent: priorReadFollowupKind ?? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent),
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
         // que produce el extractor determinístico sobre el MISMO input crudo
@@ -650,10 +704,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // language de confirmación/aceptación/aprobación, ver
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
-        textQuery: priorSingleReferent?.rawText
-            ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
+        textQuery: priorUniqueEvidence && priorReadFollowupKind
+            ? null
+            : (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
-        followUpAttribute: rawInterpretation.followUpAttribute ?? null,
+        followUpAttribute: effectiveFollowUpAttribute,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
@@ -725,7 +780,17 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
         // recuperación de commitments no puede quedar apagada.
-        wantsCommitments: commitmentSignalConfident ? true : rawInterpretation.wantsCommitments,
+        wantsCommitments: priorReadFollowupKind === 'message_search' || priorReadFollowupKind === 'person_query'
+            ? false
+            : priorReferenceIntent !== null && priorCommitmentIds.length === 0 && priorProposalIds.length === 0 && priorMessageIds.length > 0
+            ? false
+            : commitmentSignalConfident || priorCommitmentIds.length > 0 || priorProposalIds.length > 0
+                ? true
+                : rawInterpretation.wantsCommitments,
+        wantsMessages: priorReadFollowupKind === 'message_search'
+            || (priorReferenceIntent !== null && priorMessageIds.length > 0)
+            ? true
+            : rawInterpretation.wantsMessages,
     };
     const queryCardinality: QueryCardinality = classifyQueryCardinality(input.input, {
         intent: interpretation.intent,
@@ -743,7 +808,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const upcomingOnlyCommitmentRead = (interpretation.temporalIntent?.futureOnly === true || isUpcomingTimeExpression(interpretation.timeExpression))
         && interpretation.proposalFocus === null;
     const commitmentStatuses: CanonicalCommitmentStatus[] | null = priorSingleReferent
-        ? (input.priorReadContext?.statuses ?? null)
+        ? interpretation.statusHints
         : upcomingOnlyCommitmentRead
             ? ['accepted']
             : interpretation.statusHints;
@@ -808,6 +873,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // grounding-checked) are used NOWHERE in this loop or its guards — the
     // fix is structural non-participation, not a filter that could
     // theoretically be bypassed by a different LLM phrasing.
+    const priorAuthorizedPersonId = priorReferenceIntent === 'single_entity' && priorPersonIds.length === 1
+        ? priorPersonIds[0]
+        : undefined;
+    const effectiveAuthorizedPersonId = input.authorizedPersonReferentId ?? priorAuthorizedPersonId;
     const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
     let needsClarification = priorReferenceAmbiguous;
@@ -854,9 +923,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         }
     }
 
-    if (input.authorizedPersonReferentId && !resolvedPersonId) {
+    if (effectiveAuthorizedPersonId && !resolvedPersonId) {
         retrievalPlan.push({ step: 'resolvePerson', params: { hint: 'authorizedPersonReferentId' } });
-        const referentResolution = await resolvePerson(input.actorUserId, { userId: input.authorizedPersonReferentId });
+        const referentResolution = await resolvePerson(input.actorUserId, { userId: effectiveAuthorizedPersonId });
         sourcesConsulted.push('resolvePerson');
         people.push(referentResolution);
         if (referentResolution.resolved) {
@@ -937,7 +1006,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // interpretation.personHints (LLM-sourced, advisory-only from this point
     // on) — an LLM-only hint can never block a source it has no authority
     // over.
-    const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
+    const personScopeBlocked = (canonicalPersonScope.length > 0 || !!effectiveAuthorizedPersonId) && !resolvedPersonId;
     const readReferenceScopeBlocked = priorReferenceAmbiguous;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
@@ -968,7 +1037,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
+    const resultSetCommitmentScope = priorReferenceIntent === 'result_set';
+    const canReadCommitmentsFromPriorScope = !resultSetCommitmentScope || priorCommitmentIds.length > 0;
+    const canReadProposalsFromPriorScope = !resultSetCommitmentScope || priorProposalIds.length > 0;
+    const commitmentsPromise = interpretation.wantsCommitments && canReadCommitmentsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -991,6 +1063,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             if (authorizedReferentId) {
                 return retrieveVisibleCommitmentById(input.actorUserId, authorizedReferentId)
                     .then((commitment) => commitment ? [commitment] : []);
+            }
+            if (priorReferenceIntent === 'result_set' && priorCommitmentIds.length > 0) {
+                return retrieveVisibleCommitmentsByIds(input.actorUserId, priorCommitmentIds);
             }
             return retrieveCommitments({
                 actorUserId: input.actorUserId,
@@ -1025,11 +1100,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const proposalsPersonId = interpretation.proposalFocus === 'pending_response_from_person' ? undefined : resolvedPersonId;
     const baseProposalInput = {
         actorUserId: input.actorUserId,
+        proposalId: priorProposalReferent ? priorSingleReferent?.canonicalId : undefined,
+        proposalIds: priorReferenceIntent === 'result_set' ? priorProposalIds : undefined,
         conversationId,
         personId: proposalsPersonId,
         statuses: interpretation.statusHints ?? undefined,
         timeRange: timeRange ?? undefined,
-        query: interpretation.textQuery ?? undefined,
+        // An authorized referent is an entity lookup, not a second FTS
+        // search.  Reusing the prior title as text would make a legitimate
+        // edit/rename look like missing evidence on the follow-up.
+        query: priorSingleReferent ? undefined : (interpretation.textQuery ?? undefined),
         orderByOverdueFirst: interpretation.wantsOverdueFocus,
         now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
     };
@@ -1043,7 +1123,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && !priorCanonicalCommitmentId
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && canReadProposalsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && (!priorCanonicalCommitmentId || priorProposalReferent)
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
@@ -1066,13 +1146,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
+            if (priorMessageIds.length > 0 && (priorReferenceIntent === 'single_entity' || priorReferenceIntent === 'result_set')) {
+                return retrieveVisibleMessagesByIds(input.actorUserId, priorMessageIds);
+            }
             return retrieveMessages({
-                actorUserId: input.actorUserId,
-                conversationId,
-                personId: resolvedPersonId,
-                query: interpretation.textQuery ?? undefined,
-                timeRange: timeRange ?? undefined,
-            }, budget.messages);
+                    actorUserId: input.actorUserId,
+                    conversationId,
+                    personId: resolvedPersonId,
+                    query: interpretation.textQuery ?? undefined,
+                    timeRange: timeRange ?? undefined,
+                }, budget.messages);
         })()
         : Promise.resolve([]);
 
@@ -1155,7 +1238,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const filteredCommitments = filterByProposalFocus(semanticallyFilteredCommitments, interpretation.proposalFocus, resolvedPersonId);
     const focusedReferentMatches = priorSingleReferent
         ? filteredCommitments.filter((commitment) => commitment.entityType === priorSingleReferent.entityType
-            && commitment.title.trim().toLocaleLowerCase() === priorSingleReferent.rawText.trim().toLocaleLowerCase())
+            && commitment.id === priorSingleReferent.canonicalId)
         : filteredCommitments;
     const focusedReferentMissing = priorSingleReferent !== null && focusedReferentMatches.length === 0;
     if (focusedReferentMissing) {
