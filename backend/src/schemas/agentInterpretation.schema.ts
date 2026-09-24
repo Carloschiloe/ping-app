@@ -123,19 +123,94 @@ export type AgentInterpretationPayload = z.infer<typeof agentInterpretationPaylo
 // and malformed temporal variants).
 //
 // OpenAI's strict JSON-schema response format does not need Zod's local
-// defaults and does not accept the dialect marker emitted by Zod, so remove
-// only those metadata fields recursively.  Required fields remain required;
-// nullable fields express the absence state explicitly.  No semantic values
-// are widened here and the Zod parser remains the final Core boundary.
+// defaults and does not accept the dialect marker emitted by Zod.  It also
+// accepts `anyOf`, but rejects `oneOf`.  We therefore translate only the
+// discriminated temporal union emitted by Zod: every branch must be an object
+// with a singleton `kind` literal and all those literals must be unique.  A
+// structural `oneOf` that does not satisfy that proof is rejected rather than
+// being rewritten blindly.
+type JsonSchemaRecord = Record<string, unknown>;
+
+const TEMPORAL_INTENT_KINDS = [
+    'calendar_day',
+    'calendar_week',
+    'relative_days',
+    'upcoming_horizon',
+] as const;
+
+function singletonLiteral(value: unknown): string | boolean | number | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const record = value as JsonSchemaRecord;
+    if (Object.prototype.hasOwnProperty.call(record, 'const')) {
+        const literal = record.const;
+        return ['string', 'boolean', 'number'].includes(typeof literal)
+            ? literal as string | boolean | number
+            : undefined;
+    }
+    if (Array.isArray(record.enum) && record.enum.length === 1) {
+        const literal = record.enum[0];
+        return ['string', 'boolean', 'number'].includes(typeof literal)
+            ? literal as string | boolean | number
+            : undefined;
+    }
+    return undefined;
+}
+
+function discriminatedKindValues(branches: unknown[]): string[] | null {
+    const values: string[] = [];
+    for (const branch of branches) {
+        if (!branch || typeof branch !== 'object' || Array.isArray(branch)) return null;
+        const objectBranch = branch as JsonSchemaRecord;
+        if (objectBranch.type !== 'object' || !objectBranch.properties || typeof objectBranch.properties !== 'object') {
+            return null;
+        }
+        const kind = singletonLiteral((objectBranch.properties as JsonSchemaRecord).kind);
+        if (typeof kind !== 'string') return null;
+        values.push(kind);
+    }
+    return values.length > 0 && new Set(values).size === values.length ? values : null;
+}
+
 function toProviderJsonSchema(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(toProviderJsonSchema);
     if (!value || typeof value !== 'object') return value;
-    const source = value as Record<string, unknown>;
-    const result: Record<string, unknown> = {};
+
+    const source = value as JsonSchemaRecord;
+    const result: JsonSchemaRecord = {};
     for (const [key, child] of Object.entries(source)) {
         if (key === '$schema' || key === 'default') continue;
         result[key] = toProviderJsonSchema(child);
     }
+
+    // `const` is semantically equivalent to a singleton enum and enum is part
+    // of the strict provider subset used by Ping.
+    if (Object.prototype.hasOwnProperty.call(result, 'const')) {
+        result.enum = [result.const];
+        delete result.const;
+    }
+
+    if (Array.isArray(result.oneOf)) {
+        const kinds = discriminatedKindValues(result.oneOf);
+        if (!kinds) {
+            throw new Error('Unsupported provider schema oneOf: union is not uniquely discriminated by kind');
+        }
+        const expected = new Set<string>(TEMPORAL_INTENT_KINDS);
+        if (kinds.length !== expected.size || kinds.some((kind) => !expected.has(kind))) {
+            throw new Error(`Unexpected temporalIntent discriminator: ${kinds.join(',')}`);
+        }
+        result.anyOf = result.oneOf;
+        delete result.oneOf;
+    }
+
+    if (result.type === 'object') {
+        const properties = result.properties;
+        if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+            throw new Error('Provider schema object must declare properties');
+        }
+        result.required = Object.keys(properties as JsonSchemaRecord);
+        result.additionalProperties = false;
+    }
+
     return result;
 }
 
