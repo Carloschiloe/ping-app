@@ -19,7 +19,8 @@ import type {
     RetrievalTranscript,
 } from './retrieval';
 import type { MemoryFreshness, MemoryQueryCardinality, RetrievalMemory } from './memory';
-import type { AgentReadContext } from './agentDialogueState';
+import type { AgentReadContext, AgentReadContextEntityType, AgentReadContextKind } from './agentDialogueState';
+import type { RetrievalSourceType } from './retrieval';
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 // `channel` is contextual metadata only — it never changes authorization or
@@ -137,11 +138,13 @@ export type AgentFollowUpAttribute = 'time' | 'date' | 'responsible' | 'status' 
 // remains responsible for re-authorizing the actual referent after semantic
 // interpretation.
 export interface AgentPriorReadSummary {
-    kind: 'commitment_query';
+    kind: AgentReadContextKind;
+    cardinality?: 'unique_entity' | 'result_set' | 'empty_scope';
     referentCount: number;
     uniqueReferent: boolean;
-    entityTypes: Array<'commitment' | 'commitment_proposal'>;
+    entityTypes: AgentReadContextEntityType[];
     hasTimeRange: boolean;
+    sourceTypes?: RetrievalSourceType[];
 }
 
 // Semantic temporal constraint proposed by the interpreter and resolved by

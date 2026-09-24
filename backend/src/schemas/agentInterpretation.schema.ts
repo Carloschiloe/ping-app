@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 
 const TEMPORAL_INTENT_SCHEMA = z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('calendar_day'), offsetDays: z.number().int().min(-366).max(366), futureOnly: z.boolean() }),
@@ -217,3 +218,9 @@ function toProviderJsonSchema(value: unknown): unknown {
 export const agentInterpretationPayloadJsonSchema = toProviderJsonSchema(
     z.toJSONSchema(agentInterpretationPayloadSchema, { target: 'draft-7' }),
 ) as Record<string, unknown>;
+
+// Safe diagnostic identity for the exact provider contract. This is a hash
+// only; neither prompts, responses nor credentials are included.
+export const agentInterpretationPayloadJsonSchemaHash = createHash('sha256')
+    .update(JSON.stringify(agentInterpretationPayloadJsonSchema))
+    .digest('hex');

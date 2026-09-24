@@ -20,6 +20,7 @@ import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.
 import {
     agentInterpretationPayloadJsonSchema,
     agentInterpretationPayloadSchema,
+    agentInterpretationPayloadJsonSchemaHash,
 } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
 import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary } from '../types/agentContext';
@@ -1455,8 +1456,18 @@ function getOpenAiInterpreterClient(): OpenAI {
 // synthesis.service.ts/commitment.service.ts, sección 4 ("reusar cliente
 // existente cuando sea razonable"). No modifica esos archivos, sólo importa
 // `isAiConfigured` (lectura) para no duplicar ese chequeo.
+export interface AgentInputProviderObservation {
+    modality: 'json_schema';
+    schemaHash: string;
+    model: string;
+    finishReason: string | null;
+    refusal: 'present' | null;
+    providerSchemaAccepted: boolean;
+}
+
 export class OpenAiAgentInputModel implements AgentInputModel {
     readonly modelName = OPENAI_MODEL_NAME;
+    lastProviderObservation: AgentInputProviderObservation | null = null;
 
     async interpret(request: AgentInputModelRequest): Promise<string> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
@@ -1475,7 +1486,16 @@ export class OpenAiAgentInputModel implements AgentInputModel {
                 },
             },
         });
-        return response.choices[0]?.message?.content || '{}';
+        const choice = response.choices[0];
+        this.lastProviderObservation = {
+            modality: 'json_schema',
+            schemaHash: agentInterpretationPayloadJsonSchemaHash,
+            model: response.model || this.modelName,
+            finishReason: choice?.finish_reason ?? null,
+            refusal: choice?.message?.refusal ? 'present' : null,
+            providerSchemaAccepted: true,
+        };
+        return choice?.message?.content || '{}';
     }
 }
 

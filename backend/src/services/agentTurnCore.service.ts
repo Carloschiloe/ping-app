@@ -343,12 +343,20 @@ export async function runAgentTurn(
     // no longer decide that an unrecognised wording is a READ before the LLM
     // gets a chance to understand it.
     const priorReadContext = existingDialogueState?.lastReadContext ?? null;
+    const priorEvidence = priorReadContext?.evidence ?? [];
+    const priorCardinality = priorReadContext?.cardinality
+        ?? (priorEvidence.length === 1 || (priorReadContext?.commitmentReferents?.length ?? 0) === 1
+            ? 'unique_entity'
+            : (priorEvidence.length > 1 || (priorReadContext?.commitmentReferents?.length ?? 0) > 1 ? 'result_set' : 'empty_scope'));
+    const priorScope = priorReadContext?.scope;
     const priorReadSummary = priorReadContext ? {
         kind: priorReadContext.kind,
-        referentCount: priorReadContext.commitmentReferents?.length ?? 0,
-        uniqueReferent: (priorReadContext.commitmentReferents?.length ?? 0) === 1,
-        entityTypes: Array.from(new Set((priorReadContext.commitmentReferents ?? []).map((referent) => referent.entityType))),
-        hasTimeRange: priorReadContext.timeRange !== null,
+        cardinality: priorCardinality,
+        referentCount: priorEvidence.length || priorReadContext.commitmentReferents?.length || 0,
+        uniqueReferent: priorCardinality === 'unique_entity',
+        entityTypes: Array.from(new Set(priorEvidence.map((referent) => referent.entityType).concat((priorReadContext.commitmentReferents ?? []).map((referent) => referent.entityType)))),
+        hasTimeRange: (priorScope?.timeRange ?? priorReadContext.timeRange) !== null,
+        sourceTypes: priorScope?.sourceTypes ?? [],
     } : null;
     traceAgentDevice(traceId, 'AGENT_PRIOR_READ_SUMMARY', priorReadSummary ?? { present: false });
     const semantic = await interpretAgentSemanticTurn(content, {
