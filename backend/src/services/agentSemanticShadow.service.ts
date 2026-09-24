@@ -12,7 +12,7 @@ export function compareLegacySemanticToV4(legacy: AgentSemanticInterpretation, v
  const legacyObjective=legacy.objective?.objectiveType??null, v4Objective=v4.objectiveType??null;
  if(legacyObjective!==v4Objective) out.push({dimension:'objective',legacy:legacyObjective,v4:v4Objective});
  const v4Uncertain=v4.kind==='unknown'||v4.confidence<0.5||v4.ambiguityFields.length>0;
- const legacyUncertain=legacy.interpretation.fallbackUsed===true;
+ const legacyUncertain=legacy.interpretation.confidence < 0.5;
  if(v4Uncertain!==legacyUncertain) out.push({dimension:'uncertainty',legacy:legacyUncertain?'uncertain':'confident',v4:v4Uncertain?'uncertain':'confident'});
  return out;
 }
