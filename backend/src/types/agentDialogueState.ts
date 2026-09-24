@@ -72,6 +72,13 @@ export type AgentReadContextKind =
 
 export type AgentReadContextCardinality = 'unique_entity' | 'result_set' | 'empty_scope';
 
+export type AgentReadContextRelationship =
+    | { kind: 'current_state' }
+    | { kind: 'general_recall' }
+    | { kind: 'person_relationship' }
+    | { kind: 'message_relationship'; relationship: 'content' | 'conversation_context' | 'sender' | 'participant' }
+    | { kind: 'attachment_content' };
+
 export type AgentReadContextEntityType =
     | 'commitment'
     | 'commitment_proposal'
@@ -108,6 +115,7 @@ export interface AgentReadContextScope {
  */
 export interface AgentReadContext {
     kind: AgentReadContextKind;
+    relationship?: AgentReadContextRelationship;
     cardinality?: AgentReadContextCardinality;
     sourceTurnId: string;
     scope?: AgentReadContextScope;

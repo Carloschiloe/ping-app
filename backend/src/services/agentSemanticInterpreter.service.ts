@@ -39,6 +39,19 @@ export interface AgentSemanticInterpreterOptions {
     objectiveInterpreter?: AgentObjectiveInterpreter;
 }
 
+/**
+ * A semantic topic/scope is an explicit context break. Attribute-only turns
+ * remain eligible for Core-owned read continuity; a new objective, topic,
+ * person or standalone temporal request must abandon stale pending dialogue.
+ */
+export function introducesIndependentSemanticScope(semantic: AgentSemanticInterpretation): boolean {
+    return semantic.objective !== null
+        || semantic.interpretation.textQuery !== null
+        || semantic.interpretation.topicHints.length > 0
+        || semantic.interpretation.personHints.length > 0
+        || (semantic.interpretation.timeExpression !== null && semantic.interpretation.followUpAttribute == null);
+}
+
 async function interpretInput(
     input: string,
     context: InterpreterContext,
@@ -62,7 +75,13 @@ async function interpretInput(
  */
 export async function interpretAgentSemanticTurn(
     input: string,
-    context: { actorUserId: string; conversationId?: string; channel?: string; priorReadSummary?: InterpreterContext['priorReadSummary'] },
+    context: {
+        actorUserId: string;
+        conversationId?: string;
+        channel?: string;
+        priorReadSummary?: InterpreterContext['priorReadSummary'];
+        priorDialogueSummary?: InterpreterContext['priorDialogueSummary'];
+    },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
@@ -70,6 +89,7 @@ export async function interpretAgentSemanticTurn(
         conversationId: context.conversationId,
         channel: context.channel,
         priorReadSummary: context.priorReadSummary,
+        priorDialogueSummary: context.priorDialogueSummary,
     }, inputInterpreter);
 
     // A valid provider interpretation is authoritative for the semantic

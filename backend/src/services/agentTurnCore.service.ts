@@ -24,7 +24,8 @@
 // agentPlanOrchestrator.service.ts).
 import { runAgentPlanning } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
-import { interpretAgentSemanticTurn } from './agentSemanticInterpreter.service';
+import { interpretAgentSemanticTurn, introducesIndependentSemanticScope } from './agentSemanticInterpreter.service';
+import { reconcilePendingPlanModification } from './agentDialogueObjectiveMerge.service';
 import { synthesizeAgentResponse, realizeAgentClarification } from './agentResponseSynthesizer.service';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
@@ -358,18 +359,70 @@ export async function runAgentTurn(
         hasTimeRange: (priorScope?.timeRange ?? priorReadContext.timeRange) !== null,
         sourceTypes: priorScope?.sourceTypes ?? [],
     } : null;
+    const priorDialogueSummary = existingDialogueState?.lifecycle === 'plan_pending_authorization'
+        && existingDialogueState.openObjective
+        ? {
+            lifecycle: 'plan_pending_authorization' as const,
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            awaitingAuthorization: true as const,
+        }
+        : null;
     traceAgentDevice(traceId, 'AGENT_PRIOR_READ_SUMMARY', priorReadSummary ?? { present: false });
     const semantic = await interpretAgentSemanticTurn(content, {
         actorUserId: input.actorUserId,
         conversationId,
         channel,
         priorReadSummary,
+        priorDialogueSummary,
     }, { inputInterpreter: options.inputInterpreter });
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
         objectiveType: semantic.objective?.objectiveType ?? null,
+        dialogueAction: semantic.interpretation.dialogueAction ?? 'none',
     });
+
+    // A plan awaiting authorization is a Core-owned dialogue state. The model
+    // may classify the next speech act, but only this boundary can confirm,
+    // reject, or re-plan the existing objective. No canonical ID comes from
+    // the model and no writer runs here without the normal authorization path.
+    if (priorDialogueSummary && existingDialogueState?.openObjective) {
+        const dialogueAction = semantic.interpretation.dialogueAction ?? 'none';
+        if (dialogueAction === 'confirm') {
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'semantic_plan_confirmation', dialogueScopeKey });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: existingDialogueState.openObjective, confirmationRequested: true,
+            }), traceId);
+        }
+        if (dialogueAction === 'reject') {
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'semantic_plan_rejection', dialogueScopeKey });
+            const language = detectAgentLanguage(content, locale);
+            return finalizeAgentTurn({
+                kind: 'unsupported',
+                reason: language === 'es' ? 'De acuerdo, no ejecutaré ese plan.' : 'Understood. I will not execute that plan.',
+                supportedExamples: SUPPORTED_EXAMPLES,
+            }, traceId);
+        }
+        if (dialogueAction === 'modify') {
+            const proposedObjective = semantic.objective ?? await new LlmObjectiveInterpreter().interpret(content, {
+                actorUserId: input.actorUserId,
+                conversationId,
+            });
+            const modifiedObjective = reconcilePendingPlanModification(existingDialogueState.openObjective, proposedObjective);
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'semantic_plan_modification', dialogueScopeKey });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: modifiedObjective, pendingPlanModification: true,
+            }), traceId);
+        }
+        if (introducesIndependentSemanticScope(semantic)) {
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+        }
+    }
     // Single buildAgentContext call using the same semantic interpretation;
     // the read pipeline must not reinterpret the text through another policy.
     const context = await buildAgentContext({
@@ -597,6 +650,7 @@ async function runWriteActionTurn(params: {
     newTurnObjective: AgentObjective;
     preloadedCommitments?: AgentContext['commitments'];
     confirmationRequested?: boolean;
+    pendingPlanModification?: boolean;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
     const dialogueService = params.dialogueService;
@@ -610,13 +664,15 @@ async function runWriteActionTurn(params: {
     // commits first.
     const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
 
-    const classification = classifyContinuation(existingDialogueState, newTurnObjective);
+    const classification = params.pendingPlanModification
+        ? { isContinuation: true, reason: 'pending_plan_modification' }
+        : classifyContinuation(existingDialogueState, newTurnObjective);
     tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_CLASSIFIED', {
         isContinuation: classification.isContinuation, reason: classification.reason, dialogueScopeKey,
     });
 
     let objectiveForPlanning = newTurnObjective;
-    if (classification.isContinuation && existingDialogueState?.openObjective) {
+    if (classification.isContinuation && existingDialogueState?.openObjective && !params.pendingPlanModification) {
         const reconciled = reconcileContinuationObjective(existingDialogueState.openObjective, newTurnObjective);
         objectiveForPlanning = reconciled.objective;
         tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_MERGED', {

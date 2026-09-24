@@ -4,6 +4,7 @@ import type {
     AgentReadContext,
     AgentReadContextEntityType,
     AgentReadContextEvidence,
+    AgentReadContextRelationship,
 } from '../types/agentDialogueState';
 import type { RetrievalProvenance, RetrievalSourceType } from '../types/retrieval';
 
@@ -46,6 +47,18 @@ function scopeSourceTypes(context: AgentContext, evidence: AgentReadContextEvide
     return Array.from(types);
 }
 
+function relationshipForIntent(intent: AgentContext['intent']['type']): AgentReadContextRelationship {
+    switch (intent) {
+        case 'commitment_query': return { kind: 'current_state' };
+        case 'person_query': return { kind: 'person_relationship' };
+        case 'message_search': return { kind: 'message_relationship', relationship: 'content' };
+        case 'document_search': return { kind: 'attachment_content' };
+        case 'recall':
+        case 'general_context':
+        default: return { kind: 'general_recall' };
+    }
+}
+
 /**
  * Project only evidence exposed by the answer into bounded conversational
  * state. The retrieval window is never copied wholesale. Empty answers keep
@@ -82,10 +95,17 @@ export function buildReadContextFromAnswer(
             : 'result_set' as const;
     const commitmentEvidence = evidenceItems.filter((item) => item.entityType === 'commitment' || item.entityType === 'commitment_proposal');
     const commitmentByKey = new Map(context.commitments.map((item) => [key(item.provenance.sourceType, item.provenance.sourceId), item]));
-    const personIds = (context.entities?.people ?? []).flatMap((person) => person.resolved ? [person.resolved.id] : []);
+    // Only people actually exposed by a citation remain re-authorizable on a
+    // follow-up. The retrieval window may contain several authorized people;
+    // carrying all of them here would turn a one-person answer into a broad
+    // person scope on the next turn.
+    const personIds = evidenceItems
+        .filter((item) => item.entityType === 'person')
+        .map((item) => item.canonicalId);
 
     return {
         kind: context.intent.type,
+        relationship: relationshipForIntent(context.intent.type),
         cardinality,
         sourceTurnId,
         scope: {

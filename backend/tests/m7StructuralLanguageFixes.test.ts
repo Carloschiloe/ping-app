@@ -7,7 +7,9 @@ import { buildReadContextFromAnswer } from '../src/services/agentReadContext.ser
 import type { AgentContext } from '../src/types/agentContext';
 import type { AgentResponse } from '../src/types/agentResponse';
 import { fallbackInterpretation } from '../src/services/agentInputInterpreter.service';
-import { interpretAgentSemanticTurn } from '../src/services/agentSemanticInterpreter.service';
+import { interpretAgentSemanticTurn, introducesIndependentSemanticScope } from '../src/services/agentSemanticInterpreter.service';
+import { reconcilePendingPlanModification } from '../src/services/agentDialogueObjectiveMerge.service';
+import { AgentDialogueStateService, createInMemoryDialogueStateRepository } from '../src/services/agentDialogueState.service';
 
 const first = {
     id: '11111111-1111-4111-8111-111111111111',
@@ -113,6 +115,7 @@ describe('M-7 structural language boundaries', () => {
 
         expect(state).toMatchObject({
             kind: 'message_search', cardinality: 'unique_entity',
+            relationship: { kind: 'message_relationship', relationship: 'content' },
             evidence: [{ sourceType: 'message', canonicalId: message.id }],
         });
         expect(state.commitmentReferents).toEqual([]);
@@ -213,5 +216,167 @@ describe('M-7 structural language boundaries', () => {
 
         expect(result.route).toBe('write');
         expect(result.objective).toBe(objective);
+    });
+
+    it('keeps a single cited person as the only re-authorizable person scope', () => {
+        const otherPerson = { ...person, resolved: { ...person.resolved!, id: '88888888-8888-4888-8888-888888888888', displayName: 'Diego' } };
+        const state = buildReadContextFromAnswer(contextWithWindow({
+            commitments: [],
+            intent: { type: 'person_query' } as any,
+            entities: { people: [person, otherPerson], timeRange: null, topics: [], conversationId: null },
+        }), {
+            status: 'answered', answer: 'Camila aparece.', claims: [],
+            citations: [{ sourceType: 'person', sourceId: person.resolved!.id }],
+        }, 'turn-person-focused');
+
+        expect(state.cardinality).toBe('unique_entity');
+        expect(state.scope?.personIds).toEqual([person.resolved!.id]);
+    });
+
+    it('preserves the canonical message/person context contract for an attribute follow-up', async () => {
+        let receivedContext: any;
+        const modelRead = {
+            ...fallbackInterpretation('¿Qué decía ese mensaje?'),
+            intent: 'message_search' as const,
+            textQuery: null,
+            followUpAttribute: 'details' as const,
+            priorReferenceIntent: 'single_entity' as const,
+            isWriteActionRequest: false,
+            source: 'llm' as const,
+        };
+        const result = await interpretAgentSemanticTurn(
+            '¿Qué decía ese mensaje?',
+            {
+                actorUserId: first.id,
+                priorReadSummary: {
+                    kind: 'message_search', cardinality: 'unique_entity', referentCount: 1,
+                    uniqueReferent: true, entityTypes: ['message'], hasTimeRange: false,
+                },
+            },
+            { inputInterpreter: { interpret: async (_input, context) => { receivedContext = context; return modelRead; } } },
+        );
+
+        expect(result.route).toBe('read');
+        expect(result.interpretation.followUpAttribute).toBe('details');
+        expect(receivedContext.priorReadSummary.entityTypes).toEqual(['message']);
+    });
+
+    it('merges a pending plan modification without discarding the authorized objective target', () => {
+        const prior = {
+            objectiveType: 'create_personal_commitment',
+            targetEntities: { personHints: [], entityHints: ['revisar el informe'] },
+            constraints: { draftOnly: false },
+            desiredOutcome: 'Crear compromiso',
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            actor: first.id,
+            sourceUtterance: 'Recuérdame revisar el informe mañana a las 10',
+            confidence: 0.75,
+            ambiguities: [],
+            source: 'llm' as const,
+        };
+        const modification = {
+            ...prior,
+            targetEntities: { personHints: [], entityHints: [] },
+            desiredOutcome: '',
+            timeConstraints: { rawHint: 'el jueves a las 15' },
+            sourceUtterance: 'Mejor el jueves a las 15',
+            confidence: 0.8,
+        };
+
+        const merged = reconcilePendingPlanModification(prior, modification);
+        expect(merged.targetEntities.entityHints).toEqual(['revisar el informe']);
+        expect(merged.timeConstraints.rawHint).toBe('el jueves a las 15');
+        expect(merged.sourceUtterance).toBe('Mejor el jueves a las 15');
+    });
+
+    it('keeps independently scoped dialogue state isolated while preserving same-scope continuity', () => {
+        const now = new Date('2026-09-24T12:00:00.000Z');
+        const repository = createInMemoryDialogueStateRepository();
+        const service = new AgentDialogueStateService({ repository, now: () => now });
+        const firstContext = buildReadContextFromAnswer(contextWithWindow(), {
+            status: 'answered', answer: 'Revisar el audio.', claims: [], citations: [first.provenance],
+        }, 'scope-a');
+        const secondContext = buildReadContextFromAnswer(contextWithWindow({
+            commitments: [second],
+        }), {
+            status: 'answered', answer: 'Comprar pan.', claims: [], citations: [second.provenance],
+        }, 'scope-b');
+
+        service.setReadContext({ actorUserId: first.id, dialogueScopeKey: 'conversation-a', context: firstContext, turnId: 'a-1', turnSequence: 1 });
+        service.setReadContext({ actorUserId: first.id, dialogueScopeKey: 'conversation-b', context: secondContext, turnId: 'b-1', turnSequence: 1 });
+        expect(service.getSnapshot(first.id, 'conversation-a')?.lastReadContext?.evidence?.[0]?.canonicalId).toBe(first.id);
+        expect(service.getSnapshot(first.id, 'conversation-b')?.lastReadContext?.evidence?.[0]?.canonicalId).toBe(second.id);
+
+        service.setReadContext({ actorUserId: first.id, dialogueScopeKey: 'conversation-a', context: secondContext, turnId: 'a-2', turnSequence: 2 });
+        expect(service.getSnapshot(first.id, 'conversation-a')?.lastReadContext?.sourceTurnId).toBe('scope-b');
+        expect(service.getSnapshot(first.id, 'conversation-b')?.lastReadContext?.sourceTurnId).toBe('scope-b');
+    });
+
+    it('keeps negated and list/order requests on the READ route when the model says no write', async () => {
+        const modelRead = {
+            ...fallbackInterpretation('No me crees nada; ordéname lo que ya tengo por hora.'),
+            intent: 'commitment_query' as const,
+            temporalComparison: 'earliest' as const,
+            isWriteActionRequest: false,
+            source: 'llm' as const,
+        };
+        const result = await interpretAgentSemanticTurn(
+            'No me crees nada; ordéname lo que ya tengo por hora.',
+            { actorUserId: first.id },
+            { inputInterpreter: { interpret: async () => modelRead } },
+        );
+        expect(result.route).toBe('read');
+        expect(result.interpretation.isWriteActionRequest).toBe(false);
+        expect(result.interpretation.temporalComparison).toBe('earliest');
+    });
+
+    it('breaks stale pending scope only for a new semantic topic, not an attribute follow-up', () => {
+        const followUp = {
+            route: 'read' as const,
+            objective: null,
+            interpretation: {
+                ...fallbackInterpretation('¿A qué hora?'),
+                textQuery: null,
+                topicHints: [],
+                personHints: [],
+                timeExpression: null,
+                followUpAttribute: 'time' as const,
+            },
+        };
+        const newTopic = {
+            ...followUp,
+            interpretation: { ...followUp.interpretation, textQuery: 'la reunión del viernes', topicHints: ['la reunión del viernes'] },
+        };
+        expect(introducesIndependentSemanticScope(followUp)).toBe(false);
+        expect(introducesIndependentSemanticScope(newTopic)).toBe(true);
+    });
+
+    it('models confirmation, rejection and correction as distinct Core state transitions', () => {
+        const now = new Date('2026-09-24T12:00:00.000Z');
+        const repository = createInMemoryDialogueStateRepository();
+        const service = new AgentDialogueStateService({ repository, now: () => now });
+        const objective = {
+            objectiveType: 'create_personal_commitment' as const,
+            targetEntities: { personHints: [], entityHints: ['revisar el informe'] },
+            constraints: {}, desiredOutcome: 'Crear compromiso',
+            timeConstraints: { rawHint: 'mañana a las 10' }, actor: first.id,
+            sourceUtterance: 'Recuérdame revisar el informe mañana a las 10', confidence: 0.75,
+            ambiguities: [], source: 'llm' as const,
+        };
+        service.openObjective({ actorUserId: first.id, dialogueScopeKey: 'plan', objective, turnId: 'p-1', turnSequence: 1 });
+        const ready = service.markReadyForAuthorization({ actorUserId: first.id, dialogueScopeKey: 'plan', planDigest: 'digest-1', turnId: 'p-2', turnSequence: 2 });
+        expect(ready.lifecycle).toBe('plan_pending_authorization');
+        expect(ready.currentPlanDigestRef).toBe('digest-1');
+
+        const corrected = service.applyCorrection({
+            actorUserId: first.id, dialogueScopeKey: 'plan', slotName: 'timeConstraints.rawHint',
+            previousValue: 'mañana a las 10', newValue: 'el jueves a las 15', reason: 'user_correction',
+            turnId: 'p-3', turnSequence: 3,
+        });
+        expect(corrected.lifecycle).toBe('collecting');
+        expect(corrected.currentPlanDigestRef).toBeNull();
+        service.reset({ actorUserId: first.id, dialogueScopeKey: 'plan' });
+        expect(service.getSnapshot(first.id, 'plan')?.lifecycle).toBe('idle');
+        expect(service.getSnapshot(first.id, 'plan')?.openObjective).toBeNull();
     });
 });

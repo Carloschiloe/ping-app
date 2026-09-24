@@ -613,6 +613,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // establish a new retrieval scope here.  Conversely, a named topic still
     // wins and correctly breaks continuity.
     const priorUniqueEvidence = getUniqueReadEvidence(input.priorReadContext);
+    const priorReadKind = input.priorReadContext?.kind ?? null;
     const priorCommitmentReferents = (input.priorReadContext?.evidence ?? [])
         .filter((evidence) => evidence.entityType === 'commitment' || evidence.entityType === 'commitment_proposal')
         .map((evidence) => ({
@@ -667,6 +668,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const priorProposalReferent = priorSingleReferent?.entityType === 'commitment_proposal';
     const priorReferenceAmbiguous = priorReferenceIntent === 'single_entity'
         && priorReferenceCardinality !== 'unique_entity';
+    const priorReadFollowupKind = !currentTurnIntroducesScope && effectiveFollowUpAttribute !== null
+        ? priorReadKind
+        : null;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -692,7 +696,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         timeExpression: deterministicSignals.timeExpression ?? rawInterpretation.timeExpression ?? null,
         temporalIntent,
-        intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
+        intent: priorReadFollowupKind ?? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent),
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
         // que produce el extractor determinístico sobre el MISMO input crudo
@@ -700,7 +704,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // language de confirmación/aceptación/aprobación, ver
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
-        textQuery: priorSingleReferent
+        textQuery: priorUniqueEvidence && priorReadFollowupKind
             ? null
             : (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
@@ -776,12 +780,17 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
         // recuperación de commitments no puede quedar apagada.
-        wantsCommitments: priorReferenceIntent !== null && priorCommitmentIds.length === 0 && priorProposalIds.length === 0 && priorMessageIds.length > 0
+        wantsCommitments: priorReadFollowupKind === 'message_search' || priorReadFollowupKind === 'person_query'
+            ? false
+            : priorReferenceIntent !== null && priorCommitmentIds.length === 0 && priorProposalIds.length === 0 && priorMessageIds.length > 0
             ? false
             : commitmentSignalConfident || priorCommitmentIds.length > 0 || priorProposalIds.length > 0
                 ? true
                 : rawInterpretation.wantsCommitments,
-        wantsMessages: priorReferenceIntent !== null && priorMessageIds.length > 0 ? true : rawInterpretation.wantsMessages,
+        wantsMessages: priorReadFollowupKind === 'message_search'
+            || (priorReferenceIntent !== null && priorMessageIds.length > 0)
+            ? true
+            : rawInterpretation.wantsMessages,
     };
     const queryCardinality: QueryCardinality = classifyQueryCardinality(input.input, {
         intent: interpretation.intent,

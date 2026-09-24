@@ -131,6 +131,7 @@ export type UrgencyComparison = 'most_urgent';
 export type TemporalComparison = 'earliest' | 'latest';
 export type PriorReferenceIntent = 'single_entity' | 'result_set';
 export type AgentFollowUpAttribute = 'time' | 'date' | 'responsible' | 'status' | 'details';
+export type AgentDialogueAction = 'none' | 'confirm' | 'reject' | 'modify';
 
 // Structural, non-authoritative summary of the immediately preceding read.
 // It is safe to expose to the language interpreter because it contains no
@@ -145,6 +146,13 @@ export interface AgentPriorReadSummary {
     entityTypes: AgentReadContextEntityType[];
     hasTimeRange: boolean;
     sourceTypes?: RetrievalSourceType[];
+}
+
+/** Core-owned, bounded summary of a plan awaiting authorization. */
+export interface AgentPriorDialogueSummary {
+    lifecycle: 'plan_pending_authorization';
+    objectiveType: string;
+    awaitingAuthorization: true;
 }
 
 // Semantic temporal constraint proposed by the interpreter and resolved by
@@ -166,6 +174,7 @@ export interface Interpretation {
     temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
     priorReferenceIntent?: PriorReferenceIntent | null;
     followUpAttribute?: AgentFollowUpAttribute | null;
+    dialogueAction?: AgentDialogueAction | null;
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"
