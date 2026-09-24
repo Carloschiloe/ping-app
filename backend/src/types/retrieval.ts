@@ -187,6 +187,13 @@ export interface RetrievalLimits {
 // natural.
 export interface RetrieveContextInput {
     actorUserId: string;
+    // Exact canonical proposal scope used by a follow-up to an authorized
+    // proposal referent.  This is deliberately separate from `query`: a
+    // follow-up must re-authorize one entity, not perform a new topic search.
+    proposalId?: string;
+    commitmentIds?: string[];
+    proposalIds?: string[];
+    messageId?: string;
     // M-1H v5 — instante "ahora" real del caller (ISO), propagado para que
     // retrieveCommitmentProposals pueda calcular proposalDatePassed sin
     // depender de un new Date() propio no determinista. Opcional: si se

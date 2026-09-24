@@ -17,7 +17,7 @@
 //     only -- dialogue state never duplicates AgentPlan/AgentAuthorization
 //     state machines (ADR Q2, Q13, Q14).
 import type { AgentObjective, AgentObjectiveAmbiguity, ClarificationQuestion } from './agentPlan';
-import type { RetrievalTimeRange } from './retrieval';
+import type { RetrievalSourceType, RetrievalTimeRange } from './retrieval';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 // ADR Q5 — explicitly distinct from AgentPlanStatus ('draft' |
@@ -62,14 +62,64 @@ export interface DialogueReferentCandidate {
 // Bounded read continuity: only Core-derived scope is retained. Canonical
 // entity IDs are references, not evidence or permissions: every follow-up
 // must re-authorize them through the actor-scoped retrieval layer.
-export interface AgentReadContext {
-    kind: 'commitment_query';
+export type AgentReadContextKind =
+    | 'commitment_query'
+    | 'person_query'
+    | 'recall'
+    | 'message_search'
+    | 'document_search'
+    | 'general_context';
+
+export type AgentReadContextCardinality = 'unique_entity' | 'result_set' | 'empty_scope';
+
+export type AgentReadContextEntityType =
+    | 'commitment'
+    | 'commitment_proposal'
+    | 'message'
+    | 'person'
+    | 'transcription'
+    | 'attachment'
+    | 'commitment_event'
+    | 'memory';
+
+/**
+ * Evidence exposed by the previous answer and re-authorizable by Core.
+ * The ID is never supplied by the interpreter and never grants access by
+ * itself; retrieval must validate it again for the actor before reuse.
+ */
+export interface AgentReadContextEvidence {
+    sourceType: RetrievalSourceType;
+    sourceId: string;
+    entityType: AgentReadContextEntityType;
+    canonicalId: string;
+    rawText?: string | null;
+}
+
+export interface AgentReadContextScope {
     timeRange: RetrievalTimeRange | null;
+    personIds: string[];
+    sourceTypes: RetrievalSourceType[];
+}
+
+/**
+ * Bounded, typed continuity state. It can carry an authorized entity, a
+ * bounded result set, or an empty query scope; those states are deliberately
+ * not interchangeable.
+ */
+export interface AgentReadContext {
+    kind: AgentReadContextKind;
+    cardinality?: AgentReadContextCardinality;
     sourceTurnId: string;
+    scope?: AgentReadContextScope;
+    evidence?: AgentReadContextEvidence[];
+
+    // Compatibility projections for existing Core consumers. They are
+    // derived from `evidence` and must not be populated independently.
+    timeRange: RetrievalTimeRange | null;
     commitmentReferents?: Array<{
         rawText: string;
         entityType: 'commitment' | 'commitment_proposal';
-        canonicalId?: string;
+        canonicalId: string;
     }>;
     statuses?: CanonicalCommitmentStatus[] | null;
 }
