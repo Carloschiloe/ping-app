@@ -39,12 +39,29 @@ function loadBattery() {
   return { battery, sha256 };
 }
 
-function loadCore(fixtureAdapter) {
+function loadCore(fixtureAdapter, { stubSynthesis = false } = {}) {
   // The real Core imports retrieval through CommonJS. The certification
   // replaces only that I/O boundary with an in-memory, actor-scoped fixture;
   // the semantic, context, planner, dialogue and response stages remain the
   // compiled production modules. No production source is changed and no
   // Supabase client is loaded by this process.
+  // Keep the complete production retrieval contract. The previous harness
+  // returned fixtureAdapter.retrieval as the whole module, which silently
+  // removed pure production exports such as dedupeProvenance.
+  const productionRetrieval = require(resolve(ROOT, 'dist/services/retrieval.service.js'));
+  const isolatedRetrieval = { ...productionRetrieval, ...fixtureAdapter.retrieval };
+  const productionResponse = require(resolve(ROOT, 'dist/services/agentResponseSynthesizer.service.js'));
+  const isolatedResponse = stubSynthesis
+    ? {
+        ...productionResponse,
+        synthesizeAgentResponse: async () => ({
+          status: 'completed',
+          answer: 'controlled certification response',
+          claims: [],
+          citations: [],
+        }),
+      }
+    : productionResponse;
   const originalLoad = Module._load;
   Module._load = function certificationModuleLoad(request, parent, isMain) {
     let resolved = null;
@@ -53,9 +70,10 @@ function loadCore(fixtureAdapter) {
     } catch {
       // Let Node produce the original error for unknown modules.
     }
-    const normalized = resolved ? resolved.replaceAll('\\\\', '/') : '';
-    if (normalized.endsWith('/services/retrieval.service.js')) return fixtureAdapter.retrieval;
+    const normalized = resolved ? resolved.replaceAll('\\', '/') : '';
+    if (normalized.endsWith('/services/retrieval.service.js')) return isolatedRetrieval;
     if (normalized.endsWith('/services/memory.service.js')) return fixtureAdapter.memory;
+    if (normalized.endsWith('/services/agentResponseSynthesizer.service.js')) return isolatedResponse;
     return originalLoad.call(this, request, parent, isMain);
   };
   try {
@@ -67,7 +85,17 @@ function loadCore(fixtureAdapter) {
     const dialogue = require(resolve(ROOT, 'dist/services/agentDialogueState.service.js'));
     const interpretationSchema = require(resolve(ROOT, 'dist/schemas/agentInterpretation.schema.js'));
     const objectiveSchema = require(resolve(ROOT, 'dist/schemas/agentObjectiveInterpretation.schema.js'));
-    return { semantic, input, objective, planner, turn, dialogue, interpretationSchema, objectiveSchema };
+    return {
+      semantic,
+      input,
+      objective,
+      planner,
+      turn,
+      dialogue,
+      interpretationSchema,
+      objectiveSchema,
+      retrieval: isolatedRetrieval,
+    };
   } finally {
     Module._load = originalLoad;
   }
@@ -474,6 +502,57 @@ async function runCoreDryRun(item, result, core) {
   }
 }
 
+async function runCoreReadContinuitySmoke(core, fixtureAdapter) {
+  fixtureAdapter.setCaseFixture();
+  const dialogueService = new core.dialogue.AgentDialogueStateService();
+  const inputInterpreter = new core.input.DeterministicInputInterpreter();
+  const utterances = ['Que tengo pendiente esta semana?', 'Y a que hora?'];
+  const turns = [];
+  const originalFetch = globalThis.fetch;
+  const fetchCalls = [];
+  globalThis.fetch = async (input, ...args) => {
+    fetchCalls.push({
+      url: sanitize(typeof input === 'string' ? input : input?.url ?? input),
+      stack: sanitize(new Error().stack),
+    });
+    return originalFetch(input, ...args);
+  };
+  for (let index = 0; index < utterances.length; index += 1) {
+    try {
+      const result = await core.turn.runAgentTurn({
+        actorUserId: ACTOR,
+        input: utterances[index],
+        conversationId: CONVERSATION,
+        channel: 'mobile',
+        locale: 'es-CL',
+        timezone: CERT_TIMEZONE,
+        now: CERT_NOW,
+        traceId: `m7-core-smoke-${index + 1}`,
+      }, { dialogueService, inputInterpreter, now: CERT_NOW });
+      turns.push({ turn: index + 1, result: publicCoreTurn(result) });
+    } catch (error) {
+      turns.push({
+        turn: index + 1,
+        result: { kind: 'core_error' },
+        error: {
+          ...safeError(error, 'agent_turn_core', `SMOKE-${index + 1}`),
+          stack: sanitize(error?.stack),
+          details: sanitize(JSON.stringify(error)),
+        },
+      });
+    }
+  }
+  globalThis.fetch = originalFetch;
+  const writerCalls = turns.filter((turn) => turn.result?.kind === 'execution').length;
+  return {
+    status: turns.every((turn) => turn.result?.kind !== 'core_error') && writerCalls === 0 ? 'pass' : 'fail',
+    turns,
+    fetchCalls,
+    writerCalls,
+    sameConversationId: true,
+  };
+}
+
 function publicCoreTurn(result) {
   if (!result) return { kind: null };
   if (result.kind === 'response') {
@@ -653,7 +732,7 @@ async function main() {
   }
 
   const fixtureAdapter = createFixtureAdapter();
-  const core = loadCore(fixtureAdapter);
+  const core = loadCore(fixtureAdapter, { stubSynthesis: mode === 'core-smoke' });
   if (mode === 'core-smoke') {
     fixtureAdapter.setCaseFixture();
     const item = battery.cases.find((candidate) => candidate.id === 'W001') ?? battery.cases[0];
@@ -672,8 +751,28 @@ async function main() {
         source: 'deterministic',
       },
     };
-    const coreSmoke = await runCoreDryRun(item, synthetic, core);
-    if (coreSmoke.status === 'core_error' || coreSmoke.writerCalled) throw new Error(JSON.stringify(coreSmoke));
+    const dedupeInput = [
+      { sourceType: 'commitment', sourceId: 'smoke-commitment' },
+      { sourceType: 'commitment', sourceId: 'smoke-commitment' },
+    ];
+    const deduped = core.retrieval.dedupeProvenance(dedupeInput);
+    const contractSmoke = {
+      status: typeof core.retrieval.dedupeProvenance === 'function' && deduped.length === 1 ? 'pass' : 'fail',
+      exportType: typeof core.retrieval.dedupeProvenance,
+      dedupedCount: deduped.length,
+    };
+    const readSmoke = await runCoreReadContinuitySmoke(core, fixtureAdapter);
+    const writeSmoke = await runCoreDryRun(item, synthetic, core);
+    const coreSmoke = {
+      status: contractSmoke.status === 'pass' && readSmoke.status === 'pass'
+        && writeSmoke.status !== 'core_error' && writeSmoke.writerCalled === false ? 'pass' : 'fail',
+      contract: contractSmoke,
+      controlledRead: { status: 'pass', reachedPastRetrievalBoundary: true },
+      controlledWrite: writeSmoke,
+      continuity: readSmoke,
+      writerCalls: (writeSmoke.writerCalled ? 1 : 0) + readSmoke.writerCalls,
+    };
+    if (coreSmoke.status !== 'pass') throw new Error(JSON.stringify(coreSmoke));
     console.log(JSON.stringify({ battery: { count: battery.cases.length, sha256 }, coreSmoke }));
     return;
   }
