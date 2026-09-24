@@ -223,6 +223,11 @@ class RecordingModel {
         stage: this.stage,
         model: this.modelName,
         providerResponse: true,
+        modality: this.delegate.lastProviderObservation?.modality ?? null,
+        schemaHash: this.delegate.lastProviderObservation?.schemaHash ?? null,
+        finishReason: this.delegate.lastProviderObservation?.finishReason ?? null,
+        refusal: this.delegate.lastProviderObservation?.refusal ?? null,
+        providerSchemaAccepted: this.delegate.lastProviderObservation?.providerSchemaAccepted ?? null,
         schemaIssues: zodIssueSummary(this.schema, raw),
       });
       return raw;
@@ -232,6 +237,11 @@ class RecordingModel {
         stage: this.stage,
         model: this.modelName,
         providerResponse: false,
+        modality: this.delegate.lastProviderObservation?.modality ?? null,
+        schemaHash: this.delegate.lastProviderObservation?.schemaHash ?? null,
+        finishReason: this.delegate.lastProviderObservation?.finishReason ?? null,
+        refusal: this.delegate.lastProviderObservation?.refusal ?? null,
+        providerSchemaAccepted: this.delegate.lastProviderObservation?.providerSchemaAccepted ?? false,
         error: diagnostic,
         failureKind: classifyProviderError(error),
       });
@@ -595,7 +605,7 @@ async function runCoreReadContinuitySmoke(core, fixtureAdapter) {
     sameConversationId: true,
     initialStateFound: false,
     finalTurnSequence: snapshot?.lastTurnSequence ?? null,
-    finalReferentIds: (snapshot?.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
+    finalReferentIds: (snapshot?.lastReadContext?.evidence ?? snapshot?.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
   };
 }
 
@@ -766,8 +776,10 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
       stateSnapshots.push(turnSnapshot ? {
         turn: index + 1,
         lifecycle: turnSnapshot.lifecycle,
-        referentIds: (turnSnapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
-        referentCount: turnSnapshot.lastReadContext?.commitmentReferents?.length ?? 0,
+        cardinality: turnSnapshot.lastReadContext?.cardinality ?? null,
+        referentKeys: (turnSnapshot.lastReadContext?.evidence ?? []).map((evidence) => `${evidence.sourceType}:${evidence.canonicalId}`),
+        referentIds: (turnSnapshot.lastReadContext?.evidence ?? turnSnapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
+        referentCount: turnSnapshot.lastReadContext?.evidence?.length ?? turnSnapshot.lastReadContext?.commitmentReferents?.length ?? 0,
       } : { turn: index + 1, lifecycle: null, referentIds: [], referentCount: 0 });
     } catch (error) {
       turnResults.push({
@@ -789,8 +801,8 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
   const firstState = stateSnapshots[0] ?? null;
   const secondState = stateSnapshots[1] ?? null;
   const secondCitationIds = new Set(second?.citationIds ?? []);
-  const sameCanonicalReferent = firstState?.referentIds?.length === 1
-    ? secondCitationIds.has(`commitment:${firstState.referentIds[0]}`)
+  const sameCanonicalReferent = firstState?.cardinality === 'unique_entity' && firstState?.referentKeys?.length === 1
+    ? secondCitationIds.has(firstState.referentKeys[0])
     : null;
   const routePass = (expectedRoute ? observedFirstRoute === expectedRoute : true)
     && (item.expected.secondRoute ? observedSecondRoute === item.expected.secondRoute : true);
@@ -814,8 +826,10 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
     stateSnapshots,
     dialogueState: snapshot ? {
       lifecycle: snapshot.lifecycle,
-      lastReadReferentIds: (snapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
-      lastReadReferentCount: snapshot.lastReadContext?.commitmentReferents?.length ?? 0,
+      lastReadCardinality: snapshot.lastReadContext?.cardinality ?? null,
+      lastReadReferentKeys: (snapshot.lastReadContext?.evidence ?? []).map((evidence) => `${evidence.sourceType}:${evidence.canonicalId}`),
+      lastReadReferentIds: (snapshot.lastReadContext?.evidence ?? snapshot.lastReadContext?.commitmentReferents ?? []).map((referent) => referent.canonicalId),
+      lastReadReferentCount: snapshot.lastReadContext?.evidence?.length ?? snapshot.lastReadContext?.commitmentReferents?.length ?? 0,
       turnSequence: snapshot.lastTurnSequence ?? null,
     } : null,
     writerCalls,
@@ -843,7 +857,23 @@ async function providerProbe(core) {
   try {
     const raw = await model.interpret({ input: '¿Qué tengo pendiente esta semana?', context: {} });
     const parsed = JSON.parse(raw);
-    return { ok: true, provider: 'OpenAI', model: model.modelName, structuredJson: Boolean(parsed && typeof parsed === 'object') };
+    const runtime = core.interpretationSchema.agentInterpretationPayloadSchema.safeParse(parsed);
+    const observation = model.lastProviderObservation;
+    return {
+      ok: Boolean(observation?.providerSchemaAccepted && observation.modality === 'json_schema'),
+      provider: 'OpenAI',
+      model: observation?.model ?? model.modelName,
+      structuredJson: Boolean(parsed && typeof parsed === 'object'),
+      runtimeSchemaValid: runtime.success,
+      providerObservation: observation ? {
+        modality: observation.modality,
+        schemaHash: observation.schemaHash,
+        model: observation.model,
+        finishReason: observation.finishReason,
+        refusal: observation.refusal,
+        providerSchemaAccepted: observation.providerSchemaAccepted,
+      } : null,
+    };
   } catch (error) {
     return { ok: false, provider: 'OpenAI', model: model.modelName, error: safeError(error) };
   }
