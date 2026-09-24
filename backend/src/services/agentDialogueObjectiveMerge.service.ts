@@ -11,7 +11,18 @@ export function reconcilePendingPlanModification(
 ): AgentObjective {
     const hasProposedTarget = proposedObjective.targetEntities.entityHints.length > 0
         || proposedObjective.targetEntities.personHints.length > 0;
-    const sourceUtterance = proposedObjective.sourceUtterance.trim() || priorObjective.sourceUtterance;
+    const proposedSource = proposedObjective.sourceUtterance.trim();
+    const priorTime = priorObjective.timeConstraints.rawHint?.trim();
+    // Planning still owns date parsing from sourceUtterance.  A semantic
+    // modification often contains only the replacement detail/object and
+    // intentionally omits the already-authorized date.  Keep that canonical
+    // slot available without copying an old target or trusting free text as
+    // identity.
+    const sourceUtterance = proposedSource
+        ? (proposedObjective.timeConstraints.rawHint || !priorTime
+            ? proposedSource
+            : `${proposedSource} ${priorTime}`.trim())
+        : priorObjective.sourceUtterance;
     return {
         ...priorObjective,
         objectiveType: proposedObjective.objectiveType === 'unsupported'

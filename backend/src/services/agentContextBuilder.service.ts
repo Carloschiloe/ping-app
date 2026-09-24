@@ -634,11 +634,20 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         .filter((evidence) => evidence.entityType === 'message')
         .map((evidence) => evidence.canonicalId);
     const priorPersonIds = input.priorReadContext?.scope?.personIds ?? [];
+    // A follow-up claim belongs to the previous scope even when that scope
+    // was empty.  Empty scope is deliberately not an entity, but it is still
+    // useful conversational state (for example, "¿y en ese período?").
+    // The old code discarded the claim before deciding the retrieval route;
+    // the next turn then looked like a fresh broad search and contaminated
+    // the answer with unrelated rows.
+    const rawFollowUpAttribute = rawInterpretation.followUpAttribute ?? null;
+    const priorScopeContinuationClaim = rawFollowUpAttribute !== null
+        || rawInterpretation.priorReferenceIntent !== null
+        || inferPriorReferenceIntent(input.input) !== null;
     const effectiveFollowUpAttribute = input.priorReadContext && priorReferenceCardinality !== 'empty_scope'
-        ? rawInterpretation.followUpAttribute ?? null
+        ? rawFollowUpAttribute
         : null;
-    const semanticContinuationClaim = effectiveFollowUpAttribute !== null
-        || rawInterpretation.priorReferenceIntent !== null;
+    const semanticContinuationClaim = priorScopeContinuationClaim;
     const currentTurnIntroducesScope = deterministicSignals.personHints.length > 0
         || (!semanticContinuationClaim && (
             rawInterpretation.textQuery !== null
@@ -651,9 +660,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 ? 'single_entity'
                 : priorReferenceCardinality === 'result_set'
                     ? 'result_set'
-                    : effectiveFollowUpAttribute != null
-                        ? 'result_set'
-                        : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
+                    : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
+    const emptyScopeFollowUp = priorReferenceCardinality === 'empty_scope'
+        && !!input.priorReadContext
+        && !currentTurnIntroducesScope
+        && priorScopeContinuationClaim;
     const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorUniqueEvidence
         && (priorUniqueEvidence.entityType === 'commitment' || priorUniqueEvidence.entityType === 'commitment_proposal')
         ? {
@@ -780,9 +791,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
         // recuperación de commitments no puede quedar apagada.
-        wantsCommitments: priorReadFollowupKind === 'message_search' || priorReadFollowupKind === 'person_query'
+        // A prior person/message result constrains the next turn; it must not
+        // erase a source requested by the new semantic turn.  The previous
+        // guard treated "unique person" as "no commitments/messages" and
+        // forced the follow-up into an unrelated empty or global read.
+        wantsCommitments: priorReadFollowupKind === 'message_search'
             ? false
-            : priorReferenceIntent !== null && priorCommitmentIds.length === 0 && priorProposalIds.length === 0 && priorMessageIds.length > 0
+            : priorReferenceIntent !== null && priorMessageIds.length > 0 && priorCommitmentIds.length === 0 && priorProposalIds.length === 0
             ? false
             : commitmentSignalConfident || priorCommitmentIds.length > 0 || priorProposalIds.length > 0
                 ? true
@@ -799,9 +814,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     });
     const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone, interpretation.temporalIntent);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
-        ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
-            ? input.priorReadContext.timeRange
-            : null);
+        ?? ((!currentTurnIntroducesScope && input.priorReadContext?.timeRange)
+            || ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
+                ? input.priorReadContext.timeRange
+                : null));
     // A future-only horizon means the user is asking for confirmed upcoming
     // obligations, not the separate proposal/approval lifecycle. Keep the
     // proposal path available for explicit approval questions.
@@ -1040,7 +1056,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const resultSetCommitmentScope = priorReferenceIntent === 'result_set';
     const canReadCommitmentsFromPriorScope = !resultSetCommitmentScope || priorCommitmentIds.length > 0;
     const canReadProposalsFromPriorScope = !resultSetCommitmentScope || priorProposalIds.length > 0;
-    const commitmentsPromise = interpretation.wantsCommitments && canReadCommitmentsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
+    const commitmentsPromise = interpretation.wantsCommitments && !emptyScopeFollowUp && canReadCommitmentsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -1123,7 +1139,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && canReadProposalsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && (!priorCanonicalCommitmentId || priorProposalReferent)
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !emptyScopeFollowUp && canReadProposalsFromPriorScope && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && (!priorCanonicalCommitmentId || priorProposalReferent)
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
@@ -1142,7 +1158,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // own target/authorization separately. This also keeps READ retrieval
     // and WRITE planning as two consumers of the same interpretation rather
     // than making WRITE depend on unrelated read capability.
-    const messagesPromise = !interpretation.isWriteActionRequest
+    const messagesPromise = !emptyScopeFollowUp && !interpretation.isWriteActionRequest
         && interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
@@ -1189,7 +1205,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         });
     }
 
-    const transcriptionsPromise = !interpretation.isWriteActionRequest
+    const transcriptionsPromise = !emptyScopeFollowUp && !interpretation.isWriteActionRequest
         && interpretation.wantsTranscriptions && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveTranscriptions', params: { conversationId: true, hasTextQuery: !!interpretation.textQuery } });
@@ -1197,7 +1213,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const attachmentsPromise = !interpretation.isWriteActionRequest
+    const attachmentsPromise = !emptyScopeFollowUp && !interpretation.isWriteActionRequest
         && interpretation.wantsAttachments && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveAttachments', params: { conversationId: true, kind: 'document' } });
@@ -1210,7 +1226,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // siempre `.eq('owner_user_id', ...)`); memoryBlocked es sólo el mismo
     // principio de "nunca ampliar el scope semántico" ya aplicado a
     // commitments/messages, no una segunda barrera de autorización.
-    const memoryPromise: Promise<RetrievalMemory[]> = !interpretation.isWriteActionRequest
+    const memoryPromise: Promise<RetrievalMemory[]> = !emptyScopeFollowUp && !interpretation.isWriteActionRequest
         && memoryIntentSignal.wantsMemory && !memoryBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMemory', params: { subjectPersonId: !!memorySubjectPersonId, freshness: memoryIntentSignal.memoryFreshness, hasTopicQuery: !!memoryTopicQuery } });
