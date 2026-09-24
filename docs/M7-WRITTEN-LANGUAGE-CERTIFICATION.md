@@ -1,6 +1,6 @@
 # M-7 — Certificación real de lenguaje natural escrito
 
-Estado: preparado localmente; no certificado y M-8 permanece pausado.
+Estado: harness corregido localmente; segunda certificación todavía no ejecutada y M-8 permanece pausado.
 
 ## Artefactos congelados
 
@@ -29,14 +29,22 @@ El runner ejecuta la misma batería en recorridos separados:
 2. **Core con LLM (B):** usa la interpretación obtenida en A y ejecuta únicamente
    admisión/planificación seca. No llama writers ni persiste mensajes, compromisos,
    personas o memoria.
-3. **Multivuelta (D):** conserva el mismo `conversationId`, entrega el resumen de la
-   primera lectura y mide referencia, atributo, cambio de tema y aclaración.
+3. **Multivuelta (D):** atraviesa `agentTurnCore` con el mismo `conversationId`,
+   `AgentDialogueStateService`, contexto de lectura, recuperación en memoria y
+   planificación real. El adaptador de retrieval es sintético y actor-scoped; no
+   hay escritores ni persistencia. No se fabrica `priorReferenceIntent` para que
+   una prueba pase: se observa el estado y el resultado final del Core.
 4. **Fallback (C):** intérpretes deterministas sobre exactamente la misma batería,
    separado de A y B. Sus resultados no se mezclan con los del LLM.
 
-Los resultados distinguen `pass`, `semantic_fail`, `legitimate_ambiguity`,
-`provider_unavailable`, errores de infraestructura y casos no ejecutados por dependencia
-de datos. El informe no contiene claves ni respuestas completas del proveedor.
+Los resultados conservan los 150 casos completos y distinguen `pass`, `semantic_fail`,
+`legitimate_ambiguity`, `provider_unavailable`, `provider_http_error`, `timeout`,
+`invalid_json`, `schema_invalid`, `fallback_used`, `core_error` y casos no puntuados.
+Cada registro conserva expectativa, entrada, capa, ruta, objetivo, fuente/modelo,
+fallback y razón. Los errores estructurados sólo guardan tipo, código, etapa, mensaje
+sanitizado y causa; nunca claves ni respuestas crudas del proveedor. Los `schema_invalid`
+incluyen paths, códigos y expected/received obtenidos mediante una validación diagnóstica
+independiente, sin persistir el JSON original.
 
 ## Contención de seguridad
 
@@ -47,12 +55,23 @@ de datos. El informe no contiene claves ni respuestas completas del proveedor.
   dependencia de datos; las capacidades que requieren resolución real se reportan como
   `not_run_data_dependency`, no como PASS.
 - No se usa producción, Render, staging ni una base persistente.
+- La ejecución de Core usa un adaptador de retrieval en memoria que devuelve DTOs
+  canónicos sintéticos; los planes se generan, pero autorización/ejecución nunca se llama.
+  El informe verifica `writerCalls = 0` por caso y globalmente.
+
+## Adjudicación separada
+
+`docs/M7-WRITTEN-LANGUAGE-ADJUDICATION-PROPOSAL.md` contiene una propuesta de revisión
+para expectativas potencialmente ambiguas. No modifica la batería ni participa todavía
+en el scoring. Las salidas alternativas se mantienen como `requires_adjudication` hasta
+una decisión explícita.
 
 ## GitHub Actions
 
 Workflow dedicado: `.github/workflows/m7-written-language-certification.yml`.
 
-- Sólo `workflow_dispatch`, sin ejecución automática por push o pull request.
+- `workflow_dispatch` y push restringido exclusivamente a tags `m7-cert-*`; no se
+  ejecuta en commits, ramas ni pull requests normales.
 - Requiere el environment protegido `m7-llm-certification` y dentro de él el secret
   `OPENAI_API_KEY`. El valor nunca se imprime ni se escribe en un archivo.
 - Al iniciar se registra el SHA del checkout. La ejecución termina antes de la batería
@@ -69,11 +88,15 @@ que ya contenga el workflow, pero requiere permisos de Actions y no se asume aqu
 
 ## Estado de ejecución
 
-La validación local disponible sólo pudo ejecutar la batería en fallback, porque este
-entorno tiene bloqueado `api.openai.com:443`. Resultado local de control: 150 casos
-ejecutados, 31 PASS y 119 FAIL del fallback determinista; no es certificación LLM.
-La prueba real debe ejecutarse en Actions después de configurar el secret y publicar
-manualmente el workflow en una referencia revisada.
+La primera validación local histórica ejecutó el fallback sobre 150 casos y conservó
+31 PASS y 119 FAIL; ese resultado pertenece al runner anterior. El harness corregido
+mantiene los 150 registros, puntúa 120 turnos individuales del fallback y deja las 30
+conversaciones multivuelta como `not_scored_without_core` en esa capa separada. Ninguno
+de esos resultados es certificación LLM. La segunda prueba real debe ejecutarse en
+Actions después de revisar esta infraestructura.
 
+La primera ejecución y sus artefactos se preservan sin reescritura. El harness corregido
+se valida localmente con sintaxis, TypeScript, smoke tests y hash de batería, pero la
+segunda corrida completa contra OpenAI queda deliberadamente pendiente de autorización.
 El proyecto no se declara certificado hasta disponer de A, B, C y D reales, con el
-proveedor operativo y el informe conservado.
+proveedor operativo, todos los resultados conservados y cero writers.
