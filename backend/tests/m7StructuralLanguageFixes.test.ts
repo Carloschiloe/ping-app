@@ -106,6 +106,27 @@ describe('M-7 structural language boundaries', () => {
         });
     });
 
+    it('keeps an empty scope as a bounded follow-up context, never as an invitation to search globally', () => {
+        const state = buildReadContextFromAnswer(contextWithWindow({
+            input: '¿Qué quedó dentro de ese período?',
+            commitments: [],
+            messages: [],
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-25T03:00:00.000Z', to: '2026-09-29T03:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+        }), {
+            status: 'answered', answer: 'No encontré resultados en ese período.', claims: [], citations: [],
+        }, 'turn-empty-follow-up');
+
+        expect(state.cardinality).toBe('empty_scope');
+        expect(state.evidence).toEqual([]);
+        expect(state.timeRange).toEqual({ from: '2026-09-25T03:00:00.000Z', to: '2026-09-29T03:00:00.000Z' });
+        expect(state.commitmentReferents).toEqual([]);
+    });
+
     it('retains a unique message as the only authorized follow-up referent', () => {
         const state = buildReadContextFromAnswer(contextWithWindow({
             commitments: [], messages: [message], intent: { type: 'message_search' } as any,
@@ -261,6 +282,23 @@ describe('M-7 structural language boundaries', () => {
         expect(receivedContext.priorReadSummary.entityTypes).toEqual(['message']);
     });
 
+    it('keeps message and person evidence typed instead of collapsing them into commitment references', () => {
+        const state = buildReadContextFromAnswer(contextWithWindow({
+            commitments: [],
+            messages: [message],
+            intent: { type: 'person_query' } as any,
+            entities: { people: [person], timeRange: null, topics: [], conversationId: message.conversationId },
+        }), {
+            status: 'answered', answer: 'Camila envió ese mensaje.', claims: [],
+            citations: [message.provenance, { sourceType: 'person', sourceId: person.resolved!.id }],
+        }, 'turn-message-person');
+
+        expect(state.cardinality).toBe('result_set');
+        expect(state.evidence?.map((item) => item.entityType)).toEqual(['message', 'person']);
+        expect(state.commitmentReferents).toEqual([]);
+        expect(state.scope?.personIds).toEqual([person.resolved!.id]);
+    });
+
     it('merges a pending plan modification without discarding the authorized objective target', () => {
         const prior = {
             objectiveType: 'create_personal_commitment',
@@ -287,6 +325,29 @@ describe('M-7 structural language boundaries', () => {
         expect(merged.targetEntities.entityHints).toEqual(['revisar el informe']);
         expect(merged.timeConstraints.rawHint).toBe('el jueves a las 15');
         expect(merged.sourceUtterance).toBe('Mejor el jueves a las 15');
+    });
+
+    it('preserves an authorized temporal slot when a later semantic modification changes only the object', () => {
+        const prior = {
+            objectiveType: 'create_personal_commitment',
+            targetEntities: { personHints: [], entityHints: ['revisar el galpón'] },
+            constraints: {}, desiredOutcome: 'Crear compromiso',
+            timeConstraints: { rawHint: 'el jueves a las 15' }, actor: first.id,
+            sourceUtterance: 'Recuérdame revisar el galpón el jueves a las 15', confidence: 0.75,
+            ambiguities: [], source: 'llm' as const,
+        };
+        const modification = {
+            ...prior,
+            targetEntities: { personHints: [], entityHints: ['revisar la bodega'] },
+            timeConstraints: { rawHint: null },
+            sourceUtterance: 'Mejor revisar la bodega',
+            confidence: 0.8,
+        };
+
+        const merged = reconcilePendingPlanModification(prior as any, modification as any);
+        expect(merged.targetEntities.entityHints).toEqual(['revisar la bodega']);
+        expect(merged.timeConstraints.rawHint).toBe('el jueves a las 15');
+        expect(merged.sourceUtterance).toContain('el jueves a las 15');
     });
 
     it('keeps independently scoped dialogue state isolated while preserving same-scope continuity', () => {
