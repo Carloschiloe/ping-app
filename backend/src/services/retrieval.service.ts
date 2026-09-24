@@ -594,6 +594,7 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     // cursor ni transacción explícita.
     query = query.limit(fetchLimit);
 
+    if (input.proposalId) query = query.eq('id', input.proposalId);
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);

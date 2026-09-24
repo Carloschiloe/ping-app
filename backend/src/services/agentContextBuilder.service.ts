@@ -601,12 +601,28 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // entity. Core-owned surface evidence wins this boundary: a substantive
     // topic/person in the current utterance is a new scope, while an
     // otherwise topic-free utterance may refer back to the prior result.
-    const currentTurnIntroducesScope = rawInterpretation.textQuery !== null
-        || rawInterpretation.topicHints.length > 0
-        || deterministicSignals.personHints.length > 0;
+    // A follow-up attribute is meaningful only when there is an authorized
+    // prior read in this same scope.  When that state exists, the LLM's
+    // structured attribute claim is allowed to describe the operation, while
+    // Core still decides whether the canonical referent is unique.  Do not
+    // let generic words emitted as `textQuery` (for example "hora") erase a
+    // valid continuation; only a real current-turn topic/person signal can
+    // establish a new retrieval scope here.  Conversely, a named topic still
+    // wins and correctly breaks continuity.
+    const effectiveFollowUpAttribute = input.priorReadContext?.kind === 'commitment_query'
+        ? rawInterpretation.followUpAttribute ?? null
+        : null;
+    const semanticContinuationClaim = effectiveFollowUpAttribute !== null
+        || rawInterpretation.priorReferenceIntent !== null;
+    const currentTurnIntroducesScope = deterministicSignals.personHints.length > 0
+        || (!semanticContinuationClaim && (
+            rawInterpretation.textQuery !== null
+            || rawInterpretation.topicHints.length > 0
+            || deterministicSignals.textQuery !== null
+        ));
     const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
         ?? (currentTurnIntroducesScope ? null
-            : rawInterpretation.followUpAttribute != null
+            : effectiveFollowUpAttribute != null
                 ? 'single_entity'
                 : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
     const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
@@ -653,7 +669,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         textQuery: priorSingleReferent?.rawText
             ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
-        followUpAttribute: rawInterpretation.followUpAttribute ?? null,
+        followUpAttribute: effectiveFollowUpAttribute,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
@@ -743,7 +759,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const upcomingOnlyCommitmentRead = (interpretation.temporalIntent?.futureOnly === true || isUpcomingTimeExpression(interpretation.timeExpression))
         && interpretation.proposalFocus === null;
     const commitmentStatuses: CanonicalCommitmentStatus[] | null = priorSingleReferent
-        ? (input.priorReadContext?.statuses ?? null)
+        ? interpretation.statusHints
         : upcomingOnlyCommitmentRead
             ? ['accepted']
             : interpretation.statusHints;
@@ -1025,11 +1041,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const proposalsPersonId = interpretation.proposalFocus === 'pending_response_from_person' ? undefined : resolvedPersonId;
     const baseProposalInput = {
         actorUserId: input.actorUserId,
+        proposalId: priorProposalReferent ? priorSingleReferent?.canonicalId : undefined,
         conversationId,
         personId: proposalsPersonId,
         statuses: interpretation.statusHints ?? undefined,
         timeRange: timeRange ?? undefined,
-        query: interpretation.textQuery ?? undefined,
+        // An authorized referent is an entity lookup, not a second FTS
+        // search.  Reusing the prior title as text would make a legitimate
+        // edit/rename look like missing evidence on the follow-up.
+        query: priorSingleReferent ? undefined : (interpretation.textQuery ?? undefined),
         orderByOverdueFirst: interpretation.wantsOverdueFocus,
         now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
     };
@@ -1043,7 +1063,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && !priorCanonicalCommitmentId
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && (!priorCanonicalCommitmentId || priorProposalReferent)
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {

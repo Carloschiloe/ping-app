@@ -114,3 +114,31 @@ export const agentInterpretationPayloadSchema = z.object({
 });
 
 export type AgentInterpretationPayload = z.infer<typeof agentInterpretationPayloadSchema>;
+
+// The runtime validator and the provider contract must be generated from the
+// same schema.  `json_object` only asks the model for syntactically valid JSON;
+// it does not constrain enums, array shapes, or discriminated unions.  That
+// gap was the direct cause of certification fallbacks for otherwise usable
+// interpretations (`requestedSources` as a scalar, invented `intent` values,
+// and malformed temporal variants).
+//
+// OpenAI's strict JSON-schema response format does not need Zod's local
+// defaults and does not accept the dialect marker emitted by Zod, so remove
+// only those metadata fields recursively.  Required fields remain required;
+// nullable fields express the absence state explicitly.  No semantic values
+// are widened here and the Zod parser remains the final Core boundary.
+function toProviderJsonSchema(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(toProviderJsonSchema);
+    if (!value || typeof value !== 'object') return value;
+    const source = value as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(source)) {
+        if (key === '$schema' || key === 'default') continue;
+        result[key] = toProviderJsonSchema(child);
+    }
+    return result;
+}
+
+export const agentInterpretationPayloadJsonSchema = toProviderJsonSchema(
+    z.toJSONSchema(agentInterpretationPayloadSchema, { target: 'draft-7' }),
+) as Record<string, unknown>;

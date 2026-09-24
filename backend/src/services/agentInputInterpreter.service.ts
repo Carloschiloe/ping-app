@@ -17,7 +17,10 @@
 // DeterministicInputInterpreter/fallbackInterpretation (sección 3).
 import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
-import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
+import {
+    agentInterpretationPayloadJsonSchema,
+    agentInterpretationPayloadSchema,
+} from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
 import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
@@ -1463,7 +1466,14 @@ export class OpenAiAgentInputModel implements AgentInputModel {
             messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
             temperature: 0.1, // extracción determinista, no creatividad (sección 24)
             max_tokens: 300,  // salida estructurada corta — sin razonamiento largo
-            response_format: { type: 'json_object' },
+            response_format: {
+                type: 'json_schema',
+                json_schema: {
+                    name: 'ping_agent_interpretation',
+                    strict: true,
+                    schema: agentInterpretationPayloadJsonSchema,
+                },
+            },
         });
         return response.choices[0]?.message?.content || '{}';
     }
