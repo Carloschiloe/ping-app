@@ -18,6 +18,15 @@ const reportPath = process.env.M7_CERT_REPORT_PATH || resolve(ROOT, 'certificati
 const CERT_NOW = new Date('2026-09-23T12:00:00.000Z');
 const CERT_TIMEZONE = 'America/Santiago';
 
+class HarnessExternalDataAccessError extends Error {
+  constructor(url) {
+    super(`Unexpected external data access blocked by certification harness: ${url}`);
+    this.name = 'HarnessExternalDataAccessError';
+    this.code = 'harness_external_data_access';
+    this.url = url;
+  }
+}
+
 // The certification never connects to Supabase and never executes writers.
 // These non-secret placeholders allow the real Core modules to load while
 // making accidental use of a real database impossible in the harness.
@@ -182,6 +191,7 @@ function errorText(error) {
 
 function classifyProviderError(error) {
   const text = errorText(error);
+  if (/harness_external_data_access/.test(text)) return 'harness_external_data_access';
   if (/timeout|etimedout|timed out/.test(text)) return 'timeout';
   if (/enotfound|econn|fetch failed|network|dns|socket|api connection/.test(text)) return 'provider_unavailable';
   if (/401|403|429|4\d\d|5\d\d|rate.?limit|quota|api key|api_error|openai/.test(text)) return 'provider_http_error';
@@ -551,11 +561,9 @@ async function runCoreReadContinuitySmoke(core, fixtureAdapter) {
   const originalFetch = globalThis.fetch;
   const fetchCalls = [];
   globalThis.fetch = async (input, ...args) => {
-    fetchCalls.push({
-      url: sanitize(typeof input === 'string' ? input : input?.url ?? input),
-      stack: sanitize(new Error().stack),
-    });
-    return originalFetch(input, ...args);
+    const url = sanitize(typeof input === 'string' ? input : input?.url ?? input);
+    fetchCalls.push({ url, stack: sanitize(new Error().stack) });
+    throw new HarnessExternalDataAccessError(url);
   };
   for (let index = 0; index < utterances.length; index += 1) {
     try {
@@ -739,6 +747,14 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
   const turnResults = [];
   const stateSnapshots = [];
   let writerCalls = 0;
+  const originalFetch = globalThis.fetch;
+  const externalFetches = [];
+  globalThis.fetch = async (input) => {
+    const url = sanitize(typeof input === 'string' ? input : input?.url ?? input);
+    externalFetches.push({ url, stack: sanitize(new Error().stack) });
+    throw new HarnessExternalDataAccessError(url);
+  };
+  try {
   for (let index = 0; index < turns.length; index += 1) {
     const observed = createObservedSemanticOptions(core);
     const semanticTraceStart = core.semanticTrace.length;
@@ -770,14 +786,20 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
         referentCount: turnSnapshot.lastReadContext?.commitmentReferents?.length ?? 0,
       } : { turn: index + 1, lifecycle: null, referentIds: [], referentCount: 0 });
     } catch (error) {
+      const harnessBoundary = error?.code === 'harness_external_data_access'
+        || error?.name === 'HarnessExternalDataAccessError'
+        || /harness_external_data_access/i.test(String(error?.message ?? error));
       turnResults.push({
         turn: index + 1,
-        result: { kind: 'core_error' },
+        result: { kind: harnessBoundary ? 'harness_external_data_access' : 'core_error' },
         semanticRoute: core.semanticTrace.slice(semanticTraceStart).at(-1)?.route ?? null,
         error: safeError(error, 'agent_turn_core', item.id),
         providerObservations: observed.captures.inputModel.observations,
       });
     }
+  }
+  } finally {
+    globalThis.fetch = originalFetch;
   }
   const scopeKey = core.dialogue.buildDialogueScopeKey({ conversationId: CONVERSATION, surface: 'mobile_voice' });
   const snapshot = dialogueService.getSnapshot(ACTOR, scopeKey);
@@ -804,7 +826,11 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
     mode: item.mode,
     expected: item.expected,
     coverage: 'real_agent_turn_core_with_isolated_retrieval',
-    status: turnResults.some((turn) => turn.result.kind === 'core_error') ? 'core_error' : routePass && continuityPass !== false ? 'pass' : 'semantic_fail',
+    status: turnResults.some((turn) => turn.result.kind === 'harness_external_data_access')
+      ? 'harness_error'
+      : turnResults.some((turn) => turn.result.kind === 'core_error')
+        ? 'core_error'
+        : routePass && continuityPass !== false ? 'pass' : 'semantic_fail',
     firstRoute: observedFirstRoute,
     secondRoute: observedSecondRoute,
     firstRouteMatches: expectedRoute ? observedFirstRoute === expectedRoute : null,
@@ -819,6 +845,7 @@ async function runRealCoreCase(item, core, fixtureAdapter) {
       turnSequence: snapshot.lastTurnSequence ?? null,
     } : null,
     writerCalls,
+    externalFetches,
     writerInvariant: writerCalls === 0,
   };
 }
