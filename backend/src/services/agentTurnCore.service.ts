@@ -46,6 +46,8 @@ import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
 import { traceAgentDevice, hashForTrace, getAgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
 import { runSemanticV4Shadow } from './agentSemanticShadow.service';
+import { runSemanticV4CoreShadow } from './agentSemanticV4CoreShadow.service';
+import type { DispositionDialogueSnapshot } from '../types/agentTurnDisposition';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -448,6 +450,63 @@ export async function runAgentTurn(
         sourceRefCount: context.commitments.length + context.events.length + context.messages.length
             + context.transcriptions.length + context.attachments.length,
     });
+
+    // Semantic V4 -> Core is an opt-in, side-effect-free shadow boundary.
+    // The legacy semantic result still owns every branch below. Only bounded
+    // structured state is passed to the Core adapter; canonical identity,
+    // authorization, preparation and execution remain outside this shadow.
+    const coreShadowDialogue: DispositionDialogueSnapshot | null = existingDialogueState ? {
+        lifecycle: existingDialogueState.lifecycle,
+        activeDialogue: existingDialogueState.openObjective ? {
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            lifecycle: existingDialogueState.lifecycle,
+            pendingField: existingDialogueState.pendingClarification?.field ?? null,
+        } : null,
+        suspendedDialogue: null,
+        version: existingDialogueState.version,
+        lastAppliedTurnId: null,
+        lastAppliedTurnSequence: existingDialogueState.lastTurnSequence,
+    } : null;
+    const semanticV4CoreShadow = await runSemanticV4CoreShadow({
+        legacy: semantic,
+        request: {
+            text: content,
+            modality: input.voiceInputToken ? 'voice' : 'text',
+            locale,
+            timezone,
+            dialogue: shadowDialogue,
+        },
+        dialogue: coreShadowDialogue,
+        context: {
+            needsClarification: context.needsClarification,
+            sourceRefCount: context.commitments.length + context.events.length + context.messages.length
+                + context.transcriptions.length + context.attachments.length,
+            intentType: context.intent.type,
+        },
+    });
+    if (semanticV4CoreShadow.enabled) {
+        traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_CORE_SHADOW', {
+            model: semanticV4CoreShadow.model,
+            providerFailure: semanticV4CoreShadow.providerFailure,
+            timeout: semanticV4CoreShadow.timeout,
+            schemaValid: semanticV4CoreShadow.schemaValid,
+            fallbackReason: semanticV4CoreShadow.fallbackReason,
+            failure: semanticV4CoreShadow.failure,
+            v4Kind: semanticV4CoreShadow.v4.kind,
+            v4Objective: semanticV4CoreShadow.v4.objectiveType,
+            mappedKind: semanticV4CoreShadow.core.mappedKind,
+            disposition: semanticV4CoreShadow.core.disposition,
+            dispositionReason: semanticV4CoreShadow.core.dispositionReason,
+            resolutionStatus: semanticV4CoreShadow.core.resolution.status,
+            resolutionReferenceKind: semanticV4CoreShadow.core.resolution.referenceKind,
+            resolutionCandidateCount: semanticV4CoreShadow.core.resolution.candidateCount,
+            planRoute: semanticV4CoreShadow.core.planShape?.route ?? null,
+            planObjective: semanticV4CoreShadow.core.planShape?.objectiveType ?? null,
+            planSlotCount: semanticV4CoreShadow.core.planShape?.relevantSlotNames.length ?? null,
+            differenceClasses: semanticV4CoreShadow.differences.map((difference) => difference.class),
+            sideEffects: semanticV4CoreShadow.sideEffects,
+        });
+    }
 
     // 1) Ambiguity in the READ pipeline (unresolved person/time/topic) always
     // wins first — there is nothing a plan or a response could safely say

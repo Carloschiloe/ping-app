@@ -39,3 +39,16 @@ No se eliminaron componentes legacy, no se cambio el routing normal, no se hizo 
 
 - Implementacion, contrato, shadow, pruebas y mapa: `93f4f27` (`feat(m7): establish semantic v4 shadow boundary`).
 - Este cierre documental se prepara como commit local separado despues de validar este archivo.
+
+## IntegraciÃ³n V4 -> Core en shadow
+
+- [x] Adaptador estructural V4 -> V2/disposition creado sin reinterpretar texto ni crear identidad, autorizaciÃ³n o efectos.
+- [x] Frontera `V4_CORE_SHADOW` integrada en `agentTurnCore` despuÃ©s del contexto legacy; permanece apagada por defecto y bloqueada en producciÃ³n.
+- [x] ResoluciÃ³n Core representada como dependencia estructurada inyectable; el default shadow no consulta DB ni autoriza entidades.
+- [x] PreparaciÃ³n/plan representados como forma estructural sin llamar al planner, tools, writers ni persistencia.
+- [x] Comparador estructural sanitizado implementado para route, objective, disposition, target, slots, lifecycle y plan.
+- [x] Fallos de proveedor, schema y timeout quedan aislados del resultado legacy.
+- [x] Continuity gate conectado al puente: 10 casos / 16 turnos atraviesan la frontera nueva con fixtures offline.
+- [x] Suite especÃ­fica V4 -> Core shadow: 12/12 PASS; regresiones seleccionadas: 145/145 PASS.
+- [x] TypeScript directo y `git diff --check`: PASS.
+- [x] OpenAI calls, writers, persistencia y tools reales: 0.
