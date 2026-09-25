@@ -22,8 +22,8 @@ Run 9 permanece congelado y no se repite.
 - [x] Characterization tests. Se fijan los overrides legacy actuales sin presentarlos como arquitectura objetivo.
 - [x] V4/Core boundary auditada. V4 solo produce hechos; identidad canonica, permisos, autorizacion, planner y ejecucion siguen fuera del productor.
 - [x] Full CI final. Backend completo: 125 suites PASS, 7 suites FAIL, 4 suites de integracion no ejecutables con placeholder; 2200 tests PASS, 13 FAIL, 19 SKIP y 18 TODO. Los fallos son `fetch failed` contra `cert.invalid` y dos expectativas legacy; la comparacion contra `ba36e5c` reproduce los mismos fallos. No se atribuyen a V4.
-- [ ] Benchmark real. Pendiente `M7_FRONTIER_REAL_LLM=1` con proveedor/modelo autorizado. No se simula ni se declara resultado.
-- [x] API_BOUNDARY_REACHED. La frontera local queda preparada y validada sin proveedor real ni datos reales. Se detiene aqui porque el benchmark real requiere una ejecucion autorizada con `OPENAI_API_KEY`.
+- [x] Benchmark real GPT-5.6 Sol ejecutado una sola vez sobre 30 casos congelados. Resultado histórico: 28/30 strict PASS (93.33%), 2 casos pendientes de adjudicación independiente (F16/F25), 0 fallos de proveedor, 0 `schema_invalid`, 0 refusals, 0 writers, 0 persistencia y 0 herramientas. Evidencia detallada en `M7-SEMANTIC-V4-EVIDENCE.md`.
+- [x] API_BOUNDARY_REACHED. La frontera local queda preparada y validada; el benchmark real quedó ejecutado y congelado sin cambiar fixtures, prompt, schema ni scoring.
 
 ## Baseline diferencial no atribuido a V4
 

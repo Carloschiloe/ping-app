@@ -18,8 +18,11 @@ describe.skipIf(!REAL || !MODEL)('M-7 semantic frontier real-model benchmark', (
         const producer = new CanonicalSemanticProducer(new OpenAiSemanticModel(MODEL!));
         const cases = IDS ? M7_FRONTIER_CASES.filter(c => IDS.has(c.id)) : M7_FRONTIER_CASES;
         const failures: unknown[] = [];
+        const diagnostics: unknown[] = [];
         for (const c of cases) {
-            const got = await producer.produceV4({ text:c.utterance, modality:'text', locale:'es-CL', timezone:'America/Santiago', dialogue:c.dialogue ?? null });
+            const result = await producer.produceV4WithDiagnostics({ text:c.utterance, modality:'text', locale:'es-CL', timezone:'America/Santiago', dialogue:c.dialogue ?? null });
+            const got = result.semantic;
+            diagnostics.push({ id: c.id, ...result.diagnostics });
             const e = c.expected;
             const mismatch =
                 got.kind !== e.kind ||
@@ -28,8 +31,9 @@ describe.skipIf(!REAL || !MODEL)('M-7 semantic frontier real-model benchmark', (
                 (e.independentObjective !== undefined && got.independentObjective !== e.independentObjective) ||
                 (e.continuationLike !== undefined && got.continuationLike !== e.continuationLike) ||
                 (e.lifecycleCommand !== undefined && got.lifecycleCommand !== e.lifecycleCommand);
-            if (mismatch) failures.push({ id:c.id, utterance:c.utterance, expected:e, observed:got });
+            if (mismatch) failures.push({ id:c.id, utterance:c.utterance, expected:e, observed:got, diagnostics: result.diagnostics });
         }
+        console.log(`M7_FRONTIER_DIAGNOSTICS ${JSON.stringify(diagnostics)}`);
         expect({ failureCount: failures.length, failures }).toEqual({ failureCount:0, failures:[] });
     }, 900000);
 });

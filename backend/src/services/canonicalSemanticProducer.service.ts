@@ -39,6 +39,47 @@ export interface SemanticModel {
     interpret(request: SemanticModelRequest): Promise<unknown>;
 }
 
+export type SemanticV4ProviderErrorClass = 'http' | 'timeout' | 'network' | 'sdk' | 'configuration' | 'unknown';
+export type SemanticV4FallbackReason =
+    | 'provider_error'
+    | 'refusal'
+    | 'empty_content'
+    | 'invalid_json'
+    | 'schema_invalid'
+    | 'truncated_output'
+    | 'content_filter'
+    | 'normalization_error'
+    | null;
+
+export interface SemanticV4UsageDiagnostics {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+    reasoningTokens: number | null;
+}
+
+export type SemanticV4ProviderCallResult =
+    | {
+        kind: 'response';
+        content: string | null;
+        finishReason: string | null;
+        refusalPresent: boolean;
+        usage: SemanticV4UsageDiagnostics;
+        latencyMs: number;
+    }
+    | {
+        kind: 'error';
+        errorClass: SemanticV4ProviderErrorClass;
+        httpStatus: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        latencyMs: number;
+    };
+
+export interface SemanticModelWithDiagnostics extends SemanticModel {
+    interpretWithDiagnostics(request: SemanticModelRequest): Promise<SemanticV4ProviderCallResult>;
+}
+
 const semanticScalarSchema = z.union([z.string().max(500), z.number(), z.boolean(), z.null()]);
 
 const outputSchema = z.object({
@@ -190,6 +231,60 @@ const MODEL_NAME = 'gpt-4o-mini';
 let client: OpenAI | null = null;
 function openAi(): OpenAI { return client ?? (client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })); }
 
+function finiteNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function usageDiagnostics(usage: unknown): SemanticV4UsageDiagnostics {
+    const record = usage && typeof usage === 'object' ? usage as Record<string, unknown> : {};
+    const completionDetails = record.completion_tokens_details && typeof record.completion_tokens_details === 'object'
+        ? record.completion_tokens_details as Record<string, unknown>
+        : {};
+    return {
+        inputTokens: finiteNumber(record.prompt_tokens),
+        outputTokens: finiteNumber(record.completion_tokens),
+        totalTokens: finiteNumber(record.total_tokens),
+        reasoningTokens: finiteNumber(completionDetails.reasoning_tokens),
+    };
+}
+
+function sanitizeProviderErrorMessage(value: unknown): string | null {
+    if (typeof value !== 'string' || value.length === 0) return null;
+    return value
+        .slice(0, 1000)
+        .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+        .replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]')
+        .replace(/OPENAI_API_KEY\s*[:=]\s*\S+/gi, 'OPENAI_API_KEY=[redacted]')
+        .replace(/(authorization\s*[:=]\s*)\S+/gi, '$1[redacted]');
+}
+
+function providerErrorDetails(error: unknown): {
+    errorClass: SemanticV4ProviderErrorClass;
+    httpStatus: number | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+} {
+    const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+    const status = finiteNumber(record.status);
+    const name = typeof record.name === 'string' ? record.name : '';
+    const code = typeof record.code === 'string' ? record.code : '';
+    const type = typeof record.type === 'string' ? record.type : '';
+    const errorCode = code || type || null;
+    const errorMessage = sanitizeProviderErrorMessage(record.message);
+    if (name === 'APITimeoutError' || code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+        return { errorClass: 'timeout', httpStatus: status, errorCode, errorMessage };
+    }
+    if (status !== null) return { errorClass: 'http', httpStatus: status, errorCode, errorMessage };
+    if (['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(code)) {
+        return { errorClass: 'network', httpStatus: null, errorCode, errorMessage };
+    }
+    return { errorClass: 'sdk', httpStatus: null, errorCode, errorMessage };
+}
+
+function isSemanticModelWithDiagnostics(model: SemanticModel): model is SemanticModelWithDiagnostics {
+    return typeof (model as Partial<SemanticModelWithDiagnostics>).interpretWithDiagnostics === 'function';
+}
+
 export function buildSemanticV4Prompt(request: SemanticModelRequest): string {
     return [
         'Interpret one Ping turn into semantic facts only. Do not decide disposition, identity, authorization, execution, or mutation.',
@@ -204,20 +299,66 @@ export function buildSemanticV4Prompt(request: SemanticModelRequest): string {
     ].join('\n');
 }
 
+function reasoningModelOmitsTemperature(modelName: string): boolean {
+    // GPT-5.x reasoning models use their model default when reasoning_effort
+    // is omitted. OpenAI rejects sampling temperature alongside active
+    // reasoning, so the adapter must omit it for this family only.
+    return /^gpt-5(?:\.\d+)?(?:-|$)/i.test(modelName.trim());
+}
+
+export function buildSemanticChatCompletionParams(modelName: string, request: SemanticModelRequest): Record<string, unknown> {
+    const isV4 = request.semanticVersion === 4;
+    const params: Record<string, unknown> = {
+        model: modelName,
+        messages: [{ role: 'user', content: isV4 ? buildSemanticV4Prompt(request) : buildLegacySemanticPrompt(request) }],
+        response_format: isV4
+            ? { type: 'json_schema', json_schema: { name: SEMANTIC_V4_PROVIDER_SCHEMA_NAME, strict: true, schema: SEMANTIC_V4_PROVIDER_SCHEMA } }
+            : { type: 'json_object' },
+    };
+    if (reasoningModelOmitsTemperature(modelName)) {
+        params.max_completion_tokens = 450;
+    } else {
+        params.temperature = 0.1;
+        params.max_tokens = 450;
+    }
+    return params;
+}
+
 export class OpenAiSemanticModel implements SemanticModel {
     readonly modelName: string;
     public constructor(modelName = MODEL_NAME) { this.modelName = modelName; }
+
+    private async createCompletion(request: SemanticModelRequest): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+        return await openAi().chat.completions.create(buildSemanticChatCompletionParams(this.modelName, request) as any);
+    }
+
     async interpret(request: SemanticModelRequest): Promise<unknown> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
-        const isV4 = request.semanticVersion === 4;
-        const response = await openAi().chat.completions.create({
-            model: this.modelName, messages: [{ role: 'user', content: isV4 ? buildSemanticV4Prompt(request) : buildLegacySemanticPrompt(request) }],
-            temperature: 0.1, max_tokens: 450,
-            response_format: isV4
-                ? { type: 'json_schema', json_schema: { name: SEMANTIC_V4_PROVIDER_SCHEMA_NAME, strict: true, schema: SEMANTIC_V4_PROVIDER_SCHEMA } }
-                : { type: 'json_object' },
-        } as any);
+        const response = await this.createCompletion(request);
         return JSON.parse(response.choices[0]?.message?.content ?? '{}');
+    }
+
+    async interpretWithDiagnostics(request: SemanticModelRequest): Promise<SemanticV4ProviderCallResult> {
+        const startedAt = Date.now();
+        if (!isAiConfigured()) {
+            return { kind: 'error', errorClass: 'configuration', httpStatus: null, errorCode: null, errorMessage: null, latencyMs: Date.now() - startedAt };
+        }
+        try {
+            const response = await this.createCompletion(request);
+            const choice = response.choices[0];
+            const message = choice?.message;
+            return {
+                kind: 'response',
+                content: typeof message?.content === 'string' ? message.content : null,
+                finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+                refusalPresent: typeof message?.refusal === 'string' && message.refusal.length > 0,
+                usage: usageDiagnostics(response.usage),
+                latencyMs: Date.now() - startedAt,
+            };
+        } catch (error) {
+            const details = providerErrorDetails(error);
+            return { kind: 'error', ...details, latencyMs: Date.now() - startedAt };
+        }
     }
 }
 
@@ -235,6 +376,24 @@ export type SemanticV4ParseFailure = 'invalid_json' | 'schema_invalid';
 export interface SemanticV4ParseDiagnostics {
     schemaValid: boolean;
     failure: SemanticV4ParseFailure | null;
+}
+
+export interface SemanticV4Diagnostics extends SemanticV4ParseDiagnostics {
+    providerRequestSucceeded: boolean;
+    providerFailure: boolean;
+    providerErrorClass: SemanticV4ProviderErrorClass | null;
+    providerHttpStatus: number | null;
+    providerErrorCode: string | null;
+    providerErrorMessage: string | null;
+    finishReason: string | null;
+    refusalPresent: boolean;
+    contentPresent: boolean;
+    contentLength: number;
+    normalizationSuccess: boolean;
+    fallbackReason: SemanticV4FallbackReason;
+    model: string;
+    latencyMs: number;
+    usage: SemanticV4UsageDiagnostics;
 }
 
 function canonicalizeProviderPayload(value: unknown): unknown {
@@ -291,6 +450,64 @@ function unknownTurn(): NormalizedSemanticTurnV2 {
     };
 }
 
+function emptyUsageDiagnostics(): SemanticV4UsageDiagnostics {
+    return { inputTokens: null, outputTokens: null, totalTokens: null, reasoningTokens: null };
+}
+
+function diagnosticBase(model: string, latencyMs: number): SemanticV4Diagnostics {
+    return {
+        schemaValid: false,
+        failure: null,
+        providerRequestSucceeded: false,
+        providerFailure: false,
+        providerErrorClass: null,
+        providerHttpStatus: null,
+        providerErrorCode: null,
+        providerErrorMessage: null,
+        finishReason: null,
+        refusalPresent: false,
+        contentPresent: false,
+        contentLength: 0,
+        normalizationSuccess: false,
+        fallbackReason: null,
+        model,
+        latencyMs,
+        usage: emptyUsageDiagnostics(),
+    };
+}
+
+function fallbackReasonForResponse(
+    response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }>,
+    parsed: SemanticV4ParseDiagnostics,
+): SemanticV4FallbackReason {
+    if (response.refusalPresent) return 'refusal';
+    if (!response.content) return 'empty_content';
+    if (response.finishReason === 'length') return 'truncated_output';
+    if (response.finishReason === 'content_filter') return 'content_filter';
+    return parsed.failure;
+}
+
+function diagnosticsForParsedResponse(
+    model: string,
+    response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }>,
+    parsed: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4ParseDiagnostics },
+): SemanticV4Diagnostics {
+    const normalized = parsed.semantic.source === 'llm';
+    return {
+        ...diagnosticBase(model, response.latencyMs),
+        providerRequestSucceeded: true,
+        finishReason: response.finishReason,
+        refusalPresent: response.refusalPresent,
+        contentPresent: Boolean(response.content),
+        contentLength: response.content?.length ?? 0,
+        schemaValid: parsed.diagnostics.schemaValid,
+        failure: parsed.diagnostics.failure,
+        normalizationSuccess: normalized,
+        fallbackReason: normalized ? null : fallbackReasonForResponse(response, parsed.diagnostics),
+        usage: response.usage,
+    };
+}
+
 export class CanonicalSemanticProducer {
     public constructor(private readonly model: SemanticModel = new OpenAiSemanticModel()) {}
 
@@ -327,16 +544,70 @@ export class CanonicalSemanticProducer {
         return (await this.produceV4WithDiagnostics(input)).semantic;
     }
 
-    public async produceV4WithDiagnostics(input: CanonicalSemanticProducerInput): Promise<{ semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4ParseDiagnostics & { providerFailure: boolean } }> {
+    public async produceV4WithDiagnostics(input: CanonicalSemanticProducerInput): Promise<{ semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics }> {
         if (input.authoritativeSemanticV4) return {
             semantic: normalizeSemanticTurnV4({ version: 4, ...input.authoritativeSemanticV4 }),
-            diagnostics: { schemaValid: true, failure: null, providerFailure: false },
+            diagnostics: {
+                ...diagnosticBase(this.modelName, 0),
+                schemaValid: true,
+                normalizationSuccess: true,
+            },
         };
+        if (isSemanticModelWithDiagnostics(this.model)) {
+            const response = await this.model.interpretWithDiagnostics({ ...input, dialogue: input.dialogue ?? null, semanticVersion: 4 });
+            if (response.kind === 'error') {
+                return {
+                    semantic: unknownTurnV4(),
+                    diagnostics: {
+                        ...diagnosticBase(this.modelName, response.latencyMs),
+                        providerErrorClass: response.errorClass,
+                        providerHttpStatus: response.httpStatus,
+                        providerErrorCode: response.errorCode,
+                        providerErrorMessage: response.errorMessage,
+                        providerFailure: true,
+                        fallbackReason: 'provider_error',
+                    },
+                };
+            }
+            try {
+                const parsed = parseSemanticV4ModelOutput(response.content);
+                return { semantic: parsed.semantic, diagnostics: diagnosticsForParsedResponse(this.modelName, response, parsed) };
+            } catch {
+                return {
+                    semantic: unknownTurnV4(),
+                    diagnostics: {
+                        ...diagnosticBase(this.modelName, response.latencyMs),
+                        providerRequestSucceeded: true,
+                        finishReason: response.finishReason,
+                        refusalPresent: response.refusalPresent,
+                        contentPresent: Boolean(response.content),
+                        contentLength: response.content?.length ?? 0,
+                        fallbackReason: response.refusalPresent ? 'refusal' : 'normalization_error',
+                        usage: response.usage,
+                    },
+                };
+            }
+        }
+        const startedAt = Date.now();
         try {
             const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null, semanticVersion: 4 });
             const parsed = parseSemanticV4ModelOutput(raw);
-            return { ...parsed, diagnostics: { ...parsed.diagnostics, providerFailure: false } };
-        } catch { return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: null, providerFailure: true } }; }
+            const response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }> = {
+                kind: 'response', content: typeof raw === 'string' ? raw : JSON.stringify(raw), finishReason: null,
+                refusalPresent: false, usage: emptyUsageDiagnostics(), latencyMs: Date.now() - startedAt,
+            };
+            return { semantic: parsed.semantic, diagnostics: diagnosticsForParsedResponse(this.modelName, response, parsed) };
+        } catch {
+            return {
+                semantic: unknownTurnV4(),
+                diagnostics: {
+                    ...diagnosticBase(this.modelName, Date.now() - startedAt),
+                    providerFailure: true,
+                    providerErrorClass: 'unknown',
+                    fallbackReason: 'provider_error',
+                },
+            };
+        }
     }
 }
 
