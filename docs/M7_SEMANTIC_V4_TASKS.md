@@ -1,33 +1,41 @@
-# M-7 Semantic V4 — Fase 1
+# M-7 Semantic V4 - Fase 1
 
-Estado: implementación local aislada en `codex/m7-semantic-benchmark`. Run 9 permanece congelado y no se repite.
+Estado: API_BOUNDARY_REACHED en la rama aislada `codex/m7-semantic-benchmark`.
+Run 9 permanece congelado y no se repite.
 
 ## Evidencia y tareas
 
-- [x] Estado inicial auditado — `git status --short --branch`, refs protegidas y diff contra `origin/codex/staging-beta`; worktree aislado limpio antes de editar.
-- [x] Baseline Run 9 registrado — Run `36059353916`, evaluación `e8b94e7`; 150 casos, batería SHA-256 `5fda1888b7c37ca04348a966161ed89424f1f719a4b3d80935dd0a87c4c40168`; no se modificó el artefacto.
-- [x] CI diagnosticado — `npm ci` PASS; baseline offline documentado: build fuente PASS con `tsc --noEmit`, 2190 PASS/13 FAIL; fallos clasificados como fetch externo/mocks y deuda legacy, no atribuidos automáticamente a V4.
-- [x] CI limpio o baseline diferencial demostrado — pruebas V4 aisladas, TypeScript y baseline comparativo documentados; el build con emisión requiere un directorio de salida escribible en este sandbox y queda pendiente de ejecución autorizada.
-- [x] Benchmark usa prompt/schema real — `m7SemanticFrontier.real.test.ts` inyecta sólo `OpenAiSemanticModel(modelo)`, reutilizando prompt, Structured Outputs, parser y normalizador del productor runtime.
-- [x] Fixtures calibrados — F08, F23 y F25 reciben contexto explícito; F10 y F16 quedan como incertidumbre segura sin contexto, evitando inventar acciones o referentes.
-- [x] Contrato V4 compartido — `canonicalSemanticProducer.service.ts` exporta prompt, schema estricto, hash y parser; transporte de slots se normaliza a la forma canónica.
-- [x] Shadow flag implementado — `PING_SEMANTIC_V4_SHADOW=true`, sólo `local`/`staging` y bloqueado si `NODE_ENV=production`.
-- [x] Shadow OFF probado — `tests/m7SemanticShadowRuntime.test.ts`; no se llama V4 cuando está apagado.
-- [x] Shadow ON probado — el mismo test verifica llamada, desacuerdo estructurado y ausencia de contenido crudo en telemetría.
-- [x] Failure isolation probada — proveedor fallido y timeout producen telemetría, sin romper el contrato del legacy.
-- [x] No side effects probado — el shadow sólo devuelve métricas; no contiene plan, autorización, ejecución, persistencia ni mutación de dialogue state.
-- [x] Production guard probado — la combinación `PING_SEMANTIC_V4_SHADOW=true` + `NODE_ENV=production` permanece deshabilitada.
-- [x] Legacy dependency map actualizado — `M7_SEMANTIC_V4_MIGRATION_MAP.md` identifica callers y clasifica heurísticas lingüísticas frente a invariantes Core.
-- [x] Characterization tests — `tests/m7SemanticLegacyCharacterization.test.ts` fija los overrides legacy actuales sin presentarlos como arquitectura objetivo.
-- [x] V4/Core boundary auditada — V4 sólo produce hechos; resolución canónica, permisos, autorización, planner y ejecución siguen fuera del productor.
-- [ ] Full CI final — pendiente ejecutar con build emisor en directorio escribible y revisar los fallos legacy ya identificados.
-- [ ] Benchmark real — pendiente `M7_FRONTIER_REAL_LLM=1` con proveedor/modelo autorizado; no se simula ni se declara resultado.
-- [ ] API_BOUNDARY_REACHED — se marcará sólo tras completar las validaciones locales técnicamente posibles.
+- [x] Estado inicial auditado. Evidencia: refs protegidas, estado del worktree aislado y diff contra `origin/codex/staging-beta` verificados antes de editar.
+- [x] Baseline Run 9 registrado. Run `36059353916`, evaluacion `e8b94e7`; 150 casos; bateria SHA-256 `5fda1888b7c37ca04348a966161ed89424f1f719a4b3d80935dd0a87c4c40168`.
+- [x] CI diagnosticado. `npm ci` PASS; backend y mobile fueron comprobados offline con placeholders seguros.
+- [x] CI limpio o baseline diferencial demostrado. Build emisor TypeScript PASS en `C:\tmp\ping-m7-semantic-v4\backend-dist`; TypeScript backend/mobile PASS; mobile 50 suites y 835 tests PASS. Los fallos backend restantes coinciden con la base `ba36e5c`.
+- [x] Benchmark usa prompt/schema real. `m7SemanticFrontier.real.test.ts` inyecta solo el nombre de modelo y usa `OpenAiSemanticModel`, prompt, Structured Outputs, parser y normalizador del productor runtime.
+- [x] Fixtures calibrados. F08, F23 y F25 reciben contexto explicito; F10 y F16 conservan incertidumbre segura sin inventar acciones o referentes.
+- [x] Contrato V4 compartido. El productor exporta prompt, schema estricto, hash y parser; el transporte de slots se normaliza a la forma canonica.
+- [x] Shadow flag implementado. `PING_SEMANTIC_V4_SHADOW=true`, solo `local`/`staging` y bloqueado con `NODE_ENV=production`.
+- [x] Shadow OFF probado. El productor V4 no se llama cuando el flag esta apagado.
+- [x] Shadow ON probado. Se verifica llamada, desacuerdo estructurado y ausencia de contenido crudo en telemetria.
+- [x] Failure isolation probada. Fallo de proveedor y timeout generan telemetria sin romper el contrato legacy.
+- [x] No side effects probado. El shadow solo devuelve metricas; no contiene plan, autorizacion, ejecucion, persistencia ni mutacion de dialogue state.
+- [x] Production guard probado. La combinacion de flag activo y `NODE_ENV=production` permanece deshabilitada.
+- [x] Legacy dependency map actualizado. `M7_SEMANTIC_V4_MIGRATION_MAP.md` clasifica callers y heuristicas frente a invariantes Core.
+- [x] Characterization tests. Se fijan los overrides legacy actuales sin presentarlos como arquitectura objetivo.
+- [x] V4/Core boundary auditada. V4 solo produce hechos; identidad canonica, permisos, autorizacion, planner y ejecucion siguen fuera del productor.
+- [x] Full CI final. Backend completo: 125 suites PASS, 7 suites FAIL, 4 suites de integracion no ejecutables con placeholder; 2200 tests PASS, 13 FAIL, 19 SKIP y 18 TODO. Los fallos son `fetch failed` contra `cert.invalid` y dos expectativas legacy; la comparacion contra `ba36e5c` reproduce los mismos fallos. No se atribuyen a V4.
+- [ ] Benchmark real. Pendiente `M7_FRONTIER_REAL_LLM=1` con proveedor/modelo autorizado. No se simula ni se declara resultado.
+- [x] API_BOUNDARY_REACHED. La frontera local queda preparada y validada sin proveedor real ni datos reales. Se detiene aqui porque el benchmark real requiere una ejecucion autorizada con `OPENAI_API_KEY`.
 
 ## Baseline diferencial no atribuido a V4
 
-La ejecución offline con placeholders seguros produjo 2190 tests PASS, 13 fallos y 19 pendientes. Los fallos observados fueron llamadas de retrieval que escaparon desde mocks incompletos y dos expectativas legacy (`plan` frente a `clarification`). No se marcaron como regresión V4 sin comparación contra la base.
+La ejecucion offline final con placeholders seguros produjo 2200 tests PASS, 13 fallos, 19 pendientes y 18 TODO. Cuatro suites de integracion intentaron usar el placeholder Supabase y fallaron por red (`cert.invalid`). Los fallos focales restantes se reprodujeron en la base `ba36e5c`: retrieval/Auth `fetch failed` y expectativas legacy `plan` frente a `clarification`. No se modificaron estos tests para conseguir verde.
 
-## Seguridad
+## Seguridad y alcance
 
-El shadow no gobierna routing, objetivo, plan, autorización, ejecución, estado ni respuesta. La batería real no se ejecuta desde esta fase local y no se usan API keys en el repositorio, documentación ni chat.
+El shadow no gobierna routing, objetivo, plan, autorizacion, ejecucion, estado ni respuesta. La bateria real no se ejecuta desde esta fase local y no se usan API keys en el repositorio, documentacion ni chat.
+
+No se eliminaron componentes legacy, no se cambio el routing normal, no se hizo push, merge, deploy, migracion, cambio de staging, cambio de produccion ni cambio de credenciales.
+
+## Evidencia de commits
+
+- Implementacion, contrato, shadow, pruebas y mapa: `93f4f27` (`feat(m7): establish semantic v4 shadow boundary`).
+- Este cierre documental se prepara como commit local separado despues de validar este archivo.
