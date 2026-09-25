@@ -4,6 +4,9 @@ import type { AgentSemanticInterpretation } from '../src/services/agentSemanticI
 import type { DispositionDialogueSnapshot } from '../src/types/agentTurnDisposition';
 import { M7_SEMANTIC_V4_CONTINUITY_CASES } from './fixtures/m7SemanticV4ContinuityGateCases';
 import { runSemanticV4CoreShadow } from '../src/services/agentSemanticV4CoreShadow.service';
+import { AgentSemanticV4HighFidelityReadOnlyResolver, createHighFidelityReadOnlyRepositoryForTest } from '../src/services/agentSemanticV4HighFidelityReadOnly.service';
+
+const highFidelityResolver = new AgentSemanticV4HighFidelityReadOnlyResolver(createHighFidelityReadOnlyRepositoryForTest());
 
 const diagnostics = {
     schemaValid: true, failure: null, providerRequestSucceeded: true, providerFailure: false,
@@ -52,6 +55,10 @@ describe('Semantic V4 continuity gate through Core shadow', () => {
                     legacy: legacyFor(semantic),
                     request: { text: fixtureTurn.utterance, modality: 'text' },
                     dialogue: dialogueForTurn(index),
+                    actorUserId: '00000000-0000-4000-8000-000000000001',
+                    dialogueScopeKey: `continuity:${testCase.id}`,
+                    turnReferenceInstant: '2026-09-25T12:00:00.000Z',
+                    resolver: highFidelityResolver,
                     producer,
                 });
                 expect(telemetry.enabled, testCase.id).toBe(true);

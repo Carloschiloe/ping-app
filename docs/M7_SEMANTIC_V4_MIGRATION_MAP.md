@@ -44,7 +44,21 @@ The durable general-turn boundary does not switch semantics to V4. It admits the
 
 Semantic V4 is live only behind the bounded READ V4 exact-pending-count capability. That path calls `canonicalSemanticProducer.produceV4`, persists the V4 semantic checkpoint, and executes through the V4 read orchestration.
 
-Therefore V4 exists and is proven in a narrow vertical, but it is not yet the general conversational brain.
+Therefore V4 exists and is proven in a narrow vertical, but it is not yet the general conversational brain. The opt-in `V4_CORE_SHADOW` now reaches the high-fidelity read-only resolver and disposition path; it remains observational and does not replace the legacy result.
+
+## High-fidelity shadow boundary
+
+`agentSemanticV4HighFidelityReadOnly.service.ts` is the resolver boundary. It
+accepts a repository with read methods only and composes the canonical person
+resolver, read target resolver, temporal resolver, read planner and disposition
+service. The production repository adapter loads retrieval/authz lazily and is
+reachable only from local/staging shadow mode. Tests use an in-memory authorized
+fixture repository, never Supabase.
+
+The former no-resolution default remains only as a safe compatibility guard
+when a caller has no authenticated actor identity (for example, old unit
+tests). The real `/agent/turn` shadow call supplies actor and scope metadata,
+so its default is the high-fidelity read-only resolver.
 
 ## Legacy language dependencies to retire
 

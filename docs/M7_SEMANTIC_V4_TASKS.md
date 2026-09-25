@@ -52,3 +52,24 @@ No se eliminaron componentes legacy, no se cambio el routing normal, no se hizo 
 - [x] Suite especÃ­fica V4 -> Core shadow: 12/12 PASS; regresiones seleccionadas: 145/145 PASS.
 - [x] TypeScript directo y `git diff --check`: PASS.
 - [x] OpenAI calls, writers, persistencia y tools reales: 0.
+
+## High-Fidelity Core Shadow
+
+- [x] Dependencias del Core auditadas y clasificadas como read-only, mixtas,
+  write-capable o externas. Evidencia: `docs/M7-SEMANTIC-V4-HIGH-FIDELITY-SHADOW.md`.
+- [x] Reemplazado el resolver nulo del shadow por `HighFidelityReadOnlyRepository`
+  y `AgentSemanticV4HighFidelityReadOnlyResolver`; los IDs sólo provienen de
+  lecturas autorizadas.
+- [x] Reutilizados person resolution, read target resolution, temporal Core,
+  read query planner y disposition sin llamar writers ni estado durable.
+- [x] Aislada la carga del retrieval/authz para que fixtures in-memory no
+  requieran Supabase al importar módulos read-only.
+- [x] Barrera anti-escritura comprobada: no INSERT/UPDATE/DELETE/RPC mutante,
+  tool, writer, mensaje, memoria ni mutación de diálogo.
+- [x] Fixtures high-fidelity cubren A-T por grupos: personas, compromisos,
+  propuestas, mensajes, scope vacío, referente canónico, slots, ambigüedad,
+  cambio de tema y fallo de repositorio.
+- [x] Continuidad 10 casos / 16 turnos atraviesa el resolver high-fidelity,
+  disposition y preparación estructural.
+- [x] TypeScript y suite enfocada high-fidelity: PASS; OpenAI/persistencia
+  real: 0.

@@ -13,9 +13,14 @@ import { normalizeSemanticTurnV4 } from './agentTurnSemanticV4.service';
 import { mapSemanticTurnV2ToDisposition, normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 import { agentTurnDispositionService, type AgentTurnDispositionService } from './agentTurnDisposition.service';
 import { canonicalSemanticProducer } from './canonicalSemanticProducer.service';
+import { agentSemanticV4HighFidelityReadOnlyResolver } from './agentSemanticV4HighFidelityReadOnly.service';
 
 export type V4CoreShadowDifferenceClass =
     | 'SEMANTIC_DISAGREEMENT'
+    | 'ENTITY_RESOLUTION_DISAGREEMENT'
+    | 'REFERENCE_RESOLUTION_DISAGREEMENT'
+    | 'DISPOSITION_DISAGREEMENT'
+    | 'AUTHORIZATION_RELEVANT_DISAGREEMENT'
     | 'CORE_RESOLUTION_DISAGREEMENT'
     | 'PLAN_SHAPE_DISAGREEMENT'
     | 'LEGACY_ONLY'
@@ -33,12 +38,15 @@ export interface V4CoreShadowResolutionSummary {
     status: 'not_attempted' | 'not_applicable' | 'zero_match' | 'ambiguous' | 'resolved' | 'result_set';
     referenceKind: 'none' | 'person' | 'commitment' | 'proposal' | 'message' | 'result_set';
     candidateCount: number | null;
+    scopeKind: 'none' | 'scoped' | 'empty_scope';
 }
 
 export interface V4CoreShadowResolution {
     summary: V4CoreShadowResolutionSummary;
     pendingSlotResolution?: PendingSlotResolution;
     suspendedResumeCandidate?: AgentTurnDispositionInput['suspendedResumeCandidate'];
+    /** Internal-only canonical evidence. Never serialized into telemetry. */
+    details?: { canonicalId: string; targetKind: string };
 }
 
 /**
@@ -48,9 +56,15 @@ export interface V4CoreShadowResolution {
  */
 export interface V4CoreShadowResolver {
     resolve(input: {
+        actorUserId?: string;
+        dialogueScopeKey?: string;
         semanticV4: NormalizedSemanticTurnV4;
         semanticV2: NormalizedSemanticTurnV2;
         dialogue: DispositionDialogueSnapshot | null;
+        timezone?: string;
+        turnReferenceInstant?: string;
+        authorizedScope?: import('../types/agentReadQuery').CanonicalReadScope;
+        priorReferent?: { kind: 'commitment' | 'proposal' | 'message' | 'person'; id: string } | null;
     }): Promise<V4CoreShadowResolution>;
 }
 
@@ -70,6 +84,11 @@ export interface V4CoreShadowInput {
         dialogue?: SemanticDialogueContext | null;
     };
     dialogue: DispositionDialogueSnapshot | null;
+    actorUserId?: string;
+    dialogueScopeKey?: string;
+    turnReferenceInstant?: string;
+    authorizedScope?: import('../types/agentReadQuery').CanonicalReadScope;
+    priorReferent?: { kind: 'commitment' | 'proposal' | 'message' | 'person'; id: string } | null;
     context?: V4CoreShadowContextSummary;
     producer?: Pick<CanonicalSemanticProducer, 'produceV4WithDiagnostics'> & { modelName?: string };
     resolver?: V4CoreShadowResolver;
@@ -131,7 +150,7 @@ const DEFAULT_TIMEOUT_MS = 3000;
 
 const noResolution: V4CoreShadowResolver = {
     resolve: async () => ({
-        summary: { status: 'not_attempted', referenceKind: 'none', candidateCount: null },
+        summary: { status: 'not_attempted', referenceKind: 'none', candidateCount: null, scopeKind: 'none' },
     }),
 };
 
@@ -143,7 +162,7 @@ export function isSemanticV4CoreShadowEnabled(): boolean {
 }
 
 function emptyResolution(): V4CoreShadowResolutionSummary {
-    return { status: 'not_attempted', referenceKind: 'none', candidateCount: null };
+    return { status: 'not_attempted', referenceKind: 'none', candidateCount: null, scopeKind: 'none' };
 }
 
 function emptyTelemetry(): V4CoreShadowTelemetry {
@@ -223,6 +242,9 @@ function compareStructural(
         differences.push({ class: 'CORE_RESOLUTION_DISAGREEMENT', dimension: 'disposition', legacy: legacy.route, v4: decision.reason });
     }
     if (resolution.status === 'ambiguous') {
+        differences.push({ class: 'ENTITY_RESOLUTION_DISAGREEMENT', dimension: 'target', legacy: null, v4: 'ambiguous' });
+        // Preserve the original telemetry class for existing consumers while
+        // exposing the more precise V4 classification above.
         differences.push({ class: 'CORE_RESOLUTION_DISAGREEMENT', dimension: 'target', legacy: null, v4: 'ambiguous' });
     }
     return differences;
@@ -332,10 +354,17 @@ export async function runSemanticV4CoreShadow(input: V4CoreShadowInput): Promise
                 differences: [{ class: 'SHADOW_ERROR', dimension: 'route', legacy: input.legacy.route, v4: normalized.semanticV4.kind }],
             };
         }
-        const resolution = await (input.resolver ?? noResolution).resolve({
+        const resolver = input.resolver ?? (input.actorUserId ? agentSemanticV4HighFidelityReadOnlyResolver : noResolution);
+        const resolution = await resolver.resolve({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey: input.dialogueScopeKey,
             semanticV4: normalized.semanticV4,
             semanticV2: normalized.semanticV2,
             dialogue: input.dialogue ? JSON.parse(JSON.stringify(input.dialogue)) : null,
+            timezone: input.request.timezone,
+            turnReferenceInstant: input.turnReferenceInstant,
+            authorizedScope: input.authorizedScope,
+            priorReferent: input.priorReferent,
         });
         const decision = (input.disposition ?? agentTurnDispositionService).decide({
             semanticTurn: normalized.dispositionSemantic,

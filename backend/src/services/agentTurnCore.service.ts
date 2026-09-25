@@ -477,6 +477,19 @@ export async function runAgentTurn(
             dialogue: shadowDialogue,
         },
         dialogue: coreShadowDialogue,
+        actorUserId: input.actorUserId,
+        dialogueScopeKey,
+        turnReferenceInstant: now.toISOString(),
+        priorReferent: priorReadContext?.commitmentReferents?.length === 1 && priorReadContext.commitmentReferents[0].canonicalId
+            ? {
+                kind: priorReadContext.commitmentReferents[0].entityType === 'commitment_proposal' ? 'proposal' as const : 'commitment' as const,
+                id: priorReadContext.commitmentReferents[0].canonicalId,
+            }
+            : null,
+        authorizedScope: priorReadContext ? {
+            ...(priorReadContext.timeRange ? { timeRange: { ...priorReadContext.timeRange } } : {}),
+            ...(priorReadContext.statuses ? { statuses: [...priorReadContext.statuses] } : {}),
+        } : undefined,
         context: {
             needsClarification: context.needsClarification,
             sourceRefCount: context.commitments.length + context.events.length + context.messages.length
@@ -500,6 +513,7 @@ export async function runAgentTurn(
             resolutionStatus: semanticV4CoreShadow.core.resolution.status,
             resolutionReferenceKind: semanticV4CoreShadow.core.resolution.referenceKind,
             resolutionCandidateCount: semanticV4CoreShadow.core.resolution.candidateCount,
+            resolutionScopeKind: semanticV4CoreShadow.core.resolution.scopeKind,
             planRoute: semanticV4CoreShadow.core.planShape?.route ?? null,
             planObjective: semanticV4CoreShadow.core.planShape?.objectiveType ?? null,
             planSlotCount: semanticV4CoreShadow.core.planShape?.relevantSlotNames.length ?? null,
