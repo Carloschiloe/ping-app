@@ -45,6 +45,7 @@ import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
 import { traceAgentDevice, hashForTrace, getAgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
+import { runSemanticV4Shadow } from './agentSemanticShadow.service';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -361,6 +362,50 @@ export async function runAgentTurn(
         inputSource: semantic.interpretation.source,
         objectiveType: semantic.objective?.objectiveType ?? null,
     });
+    // Semantic V4 is observational in Phase 1. It receives only bounded
+    // dialogue metadata and the already-produced legacy interpretation. Its
+    // result is deliberately not passed to context, routing, planning,
+    // authorization, dialogue state, or execution.
+    const shadowDialogue = existingDialogueState ? {
+        lifecycle: existingDialogueState.lifecycle === 'collecting'
+            || existingDialogueState.lifecycle === 'clarifying'
+            || existingDialogueState.lifecycle === 'ready_to_plan'
+            || existingDialogueState.lifecycle === 'plan_pending_authorization'
+            ? 'active' as const : 'none' as const,
+        activeObjectiveType: existingDialogueState.openObjective?.objectiveType ?? null,
+        missingSlotType: existingDialogueState.pendingClarification?.field ?? null,
+        suspendedObjectiveType: null,
+        referentHints: existingDialogueState.lastReadContext?.commitmentReferents?.slice(0, 3).map((referent) => referent.rawText) ?? [],
+    } : null;
+    const semanticShadow = await runSemanticV4Shadow({
+        legacy: semantic,
+        request: {
+            text: content,
+            modality: input.voiceInputToken ? 'voice' : 'text',
+            locale,
+            timezone,
+            dialogue: shadowDialogue,
+        },
+    });
+    if (semanticShadow.enabled) {
+        traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_SHADOW', {
+            model: semanticShadow.model,
+            legacyRoute: semanticShadow.legacyRoute,
+            v4Kind: semanticShadow.v4Kind,
+            legacyObjective: semanticShadow.legacyObjective,
+            v4Objective: semanticShadow.v4Objective,
+            routeAgreement: semanticShadow.routeAgreement,
+            objectiveAgreement: semanticShadow.objectiveAgreement,
+            v4Confidence: semanticShadow.v4Confidence,
+            ambiguityCount: semanticShadow.ambiguityCount,
+            schemaValid: semanticShadow.schemaValid,
+            providerFailure: semanticShadow.providerFailure,
+            timeout: semanticShadow.timeout,
+            failure: semanticShadow.failure,
+            latencyMs: semanticShadow.latencyMs,
+            differenceCount: semanticShadow.differences.length,
+        });
+    }
     // Single buildAgentContext call using the same semantic interpretation;
     // the read pipeline must not reinterpret the text through another policy.
     const context = await buildAgentContext({

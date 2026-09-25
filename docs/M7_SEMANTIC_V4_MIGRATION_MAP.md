@@ -2,6 +2,32 @@
 
 Status: architecture inventory only. No runtime behavior changed by this document.
 
+## Fase 1 implementation boundary
+
+`canonicalSemanticProducer.service.ts` is now the shared V4 boundary for
+prompt construction, provider schema, provider-schema hash, parsing and
+runtime normalization. The frontier benchmark injects only the model name and
+uses that same boundary. `agentSemanticShadow.service.ts` is observational and
+is disabled unless `PING_SEMANTIC_V4_SHADOW=true` in local/staging; production
+always remains disabled.
+
+## Caller inventory (current branch)
+
+| Component | Direct callers / use | Classification | Phase 1 treatment |
+|---|---|---|---|
+| `agentSemanticInterpreter.service.ts` | `agentTurnCore.service.ts` general-turn route | LINGUISTIC_SEMANTICS plus Core admission safety | Characterized; not removed |
+| `agentInputInterpreter.service.ts` | `agentSemanticInterpreter`, `agentContextBuilder`, tests | LINGUISTIC_SEMANTICS; also output validation/fallback | Characterized; retained |
+| `agentObjectiveInterpreter.service.ts` | `agentSemanticInterpreter`, planner/dialogue continuation | LINGUISTIC_SEMANTICS plus objective validation boundary | Characterized; retained |
+| `agentDialogueContinuation.service.ts` | `agentTurnCore.service.ts` dialogue-first and plan correction paths | CORE_INVARIANT with linguistic detection mixed in | Mapped; no deletion |
+| `agentReadFollowupReferent.service.ts` | `agentTurn.service.ts` read follow-up adapter | CORE_INVARIANT: reauthorization and scoped referent | Mapped; no deletion |
+| `TARGETED_FIRST_READ` | `agentTurn.service.ts` single legacy referent-capture gate | LINGUISTIC_SEMANTICS | Characterized in map; no removal |
+| `TIME_HINT_PATTERN` | `agentObjectiveInterpreter.service.ts`, dialogue correction | LINGUISTIC_SEMANTICS after extraction; Core validates result | Characterized in map; no removal |
+| explicit confirmation phrase set | `agentDialogueContinuation.service.ts` | SAFETY_POLICY with linguistic admission | Preserved; V4 cannot authorize |
+| person/entity regexes and date parsers | input/objective interpreters | TECHNICAL_VALIDATION or Core resolution depending caller | Preserved; candidate for later cutover only |
+
+No legacy component is deleted in Phase 1. The normal `/agent/turn` response
+remains legacy-governed; V4 is added only as an opt-in observation path.
+
 ## Target
 
 One language-understanding boundary:
