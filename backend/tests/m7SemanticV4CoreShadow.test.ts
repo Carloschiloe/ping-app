@@ -220,4 +220,20 @@ describe('Semantic V4 -> Core shadow boundary', () => {
         expect(Object.keys(telemetry)).not.toContain('prompt');
         expect(Object.keys(telemetry)).not.toContain('text');
     });
+
+    it('reuses an adjacent V4 result instead of invoking the provider a second time', async () => {
+        const semantic = readTurn();
+        const producer = producerFor(semantic);
+        process.env.PING_SEMANTIC_V4_CORE_SHADOW = 'true';
+        const telemetry = await runSemanticV4CoreShadow({
+            legacy,
+            request: { text: 'reutilización estructurada', modality: 'text' },
+            dialogue: null,
+            producer,
+            semanticResult: { semantic, diagnostics: diagnostics() },
+        });
+        expect(telemetry.failure).toBeNull();
+        expect(telemetry.core.disposition).toBe('ordinary_read');
+        expect(producer.produceV4WithDiagnostics).not.toHaveBeenCalled();
+    });
 });

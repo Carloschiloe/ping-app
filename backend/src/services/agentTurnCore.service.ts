@@ -496,6 +496,7 @@ export async function runAgentTurn(
                 + context.transcriptions.length + context.attachments.length,
             intentType: context.intent.type,
         },
+        semanticResult: semanticShadow.coreInput,
     });
     if (semanticV4CoreShadow.enabled) {
         traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_CORE_SHADOW', {

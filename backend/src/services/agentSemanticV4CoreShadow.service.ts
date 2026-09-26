@@ -1,6 +1,6 @@
 import { getEnvConfig } from '../config/env';
 import type { AgentSemanticInterpretation } from './agentSemanticInterpreter.service';
-import type { CanonicalSemanticProducer, SemanticDialogueContext } from './canonicalSemanticProducer.service';
+import type { CanonicalSemanticProducer, SemanticDialogueContext, SemanticV4Diagnostics } from './canonicalSemanticProducer.service';
 import type { NormalizedSemanticTurnV2, NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
 import type {
     AgentTurnDispositionDecision,
@@ -91,6 +91,8 @@ export interface V4CoreShadowInput {
     priorReferent?: { kind: 'commitment' | 'proposal' | 'message' | 'person'; id: string } | null;
     context?: V4CoreShadowContextSummary;
     producer?: Pick<CanonicalSemanticProducer, 'produceV4WithDiagnostics'> & { modelName?: string };
+    /** Reuses the V4 result already produced by the adjacent semantic shadow. */
+    semanticResult?: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics };
     resolver?: V4CoreShadowResolver;
     disposition?: Pick<AgentTurnDispositionService, 'decide'>;
     timeoutMs?: number;
@@ -311,7 +313,7 @@ export async function runSemanticV4CoreShadow(input: V4CoreShadowInput): Promise
     const producer = input.producer ?? canonicalSemanticProducer;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-        const result = await Promise.race([
+        const result = input.semanticResult ?? await Promise.race([
             producer.produceV4WithDiagnostics(input.request),
             new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('semantic_v4_core_shadow_timeout')), input.timeoutMs ?? DEFAULT_TIMEOUT_MS); }),
         ]);

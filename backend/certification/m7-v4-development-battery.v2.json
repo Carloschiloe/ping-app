@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "description": "Independent development-only Semantic V4 evaluation. This is not the frozen blind certification.",
+  "cases": [
+    { "id": "V2-01", "family": "read_collection_sort", "text": "Ordéname por cercanía los asuntos que todavía no cierro." },
+    { "id": "V2-02", "family": "write_personal_commitment", "text": "Déjame anotado que el jueves debo revisar las válvulas." },
+    { "id": "V2-03", "family": "read_pending_response", "text": "No guardes nada; sólo dime si me falta responderle a Sofía." },
+    { "id": "V2-04", "family": "write_message", "text": "Avísale a Sofía que llegaré después de las seis." },
+    { "id": "V2-05", "family": "write_temporal_correction", "text": "Lo del inventario puede pasar al lunes próximo.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "reschedule_existing_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "V2-06", "family": "read_followup_attribute", "text": "¿A qué hora era eso?", "dialogue": { "lifecycle": "active", "activeObjectiveType": "lookup_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "V2-07", "family": "write_negated_correction", "text": "No lo canceles; déjalo para el martes.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "reschedule_existing_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "V2-08", "family": "write_confirmation", "text": "Sí, confirma ese plan.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "V2-09", "family": "write_rejection", "text": "No acepto esa propuesta.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "V2-10", "family": "read_messages", "text": "¿Qué mensajes recientes mencionan la cotización?" },
+    { "id": "V2-11", "family": "read_person_scope", "text": "Tengo dos temas con Matías; muéstrame sólo los que siguen abiertos." },
+    { "id": "V2-12", "family": "read_message_attribute", "text": "¿Qué decía la nota que me dejó Camila?" },
+    { "id": "V2-13", "family": "read_temporal_collection", "text": "¿Qué se me viene durante esta semana?" },
+    { "id": "V2-14", "family": "read_implicit_reference", "text": "¿Y el anterior, cuándo quedaba?", "dialogue": { "lifecycle": "active", "activeObjectiveType": "lookup_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar la bodega"] } },
+    { "id": "V2-15", "family": "write_incomplete", "text": "Anótame lo de mañana", "dialogue": { "lifecycle": "none", "activeObjectiveType": null, "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": [] } },
+    { "id": "V2-16", "family": "write_reject_proposal", "text": "Esa invitación no la tomo; déjala rechazada." },
+    { "id": "V2-17", "family": "write_message_wait", "text": "Pregúntale a Diego si ya salió y avísame cuando conteste." },
+    { "id": "V2-18", "family": "read_person_change", "text": "Ahora muéstrame lo pendiente con Daniela, no lo de Diego." },
+    { "id": "V2-19", "family": "read_result_set_detail", "text": "De esa lista, ¿cuál tiene fecha más cercana?", "dialogue": { "lifecycle": "active", "activeObjectiveType": "lookup_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["pendientes de la semana"] } },
+    { "id": "V2-20", "family": "write_negation", "text": "No quiero que se mande ese mensaje todavía.", "dialogue": { "lifecycle": "plan_pending_authorization", "activeObjectiveType": "communicate_message", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["mensaje a Diego"] } },
+    { "id": "V2-21", "family": "slot_answer_time", "text": "A las nueve y cuarto, en la mañana.", "dialogue": { "lifecycle": "clarifying", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["llevar documentos"] } },
+    { "id": "V2-22", "family": "read_empty_scope", "text": "¿Qué tengo que hacer con ese cliente esta semana?", "dialogue": { "lifecycle": "active", "activeObjectiveType": "lookup_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["cliente sin registros"] } },
+    { "id": "V2-23", "family": "read_comparison", "text": "¿Cuál vence primero entre lo de la parcela y la capacitación?" },
+    { "id": "V2-24", "family": "write_topic_change", "text": "Deja eso; mejor recuérdame comprar filtros el viernes.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "reschedule_existing_commitment", "missingSlotType": "date", "suspendedObjectiveType": null, "referentHints": ["revisar informe"] } }
+  ]
+}

@@ -1,4 +1,5 @@
 import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
+import type { SemanticV4Diagnostics } from './canonicalSemanticProducer.service';
 import type { AgentSemanticInterpretation } from './agentSemanticInterpreter.service';
 import { getEnvConfig } from '../config/env';
 import { canonicalSemanticProducer, type CanonicalSemanticProducer, type SemanticDialogueContext } from './canonicalSemanticProducer.service';
@@ -23,6 +24,8 @@ export interface SemanticShadowTelemetry {
     failure: string | null;
     latencyMs: number | null;
     differences: SemanticShadowDifference[];
+    /** Internal hand-off to the Core shadow; deliberately non-enumerable. */
+    coreInput?: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics };
 }
 
 export interface SemanticShadowInput {
@@ -74,7 +77,7 @@ export async function runSemanticV4Shadow(input: SemanticShadowInput): Promise<S
             new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('semantic_v4_shadow_timeout')), timeoutMs); }),
         ]);
         const differences = compareLegacySemanticToV4(input.legacy, result.semantic);
-        return {
+        const telemetry: SemanticShadowTelemetry = {
             enabled: true,
             model: producer.modelName ?? null,
             legacyRoute: input.legacy.route,
@@ -92,6 +95,12 @@ export async function runSemanticV4Shadow(input: SemanticShadowInput): Promise<S
             latencyMs: Date.now() - started,
             differences,
         };
+        Object.defineProperty(telemetry, 'coreInput', {
+            value: { semantic: result.semantic, diagnostics: result.diagnostics },
+            enumerable: false,
+            writable: false,
+        });
+        return telemetry;
     } catch (error) {
         const timeout = error instanceof Error && error.message === 'semantic_v4_shadow_timeout';
         return {
