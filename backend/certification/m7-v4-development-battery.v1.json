@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "Development-only Semantic V4 evaluation. Never used as the frozen blind certification.",
+  "cases": [
+    { "id": "D01", "family": "read_collection", "text": "Ordéname por cercanía los asuntos que todavía no cierro." },
+    { "id": "D02", "family": "write_commitment", "text": "Déjame anotado que el jueves debo revisar las válvulas." },
+    { "id": "D03", "family": "read_pending_response", "text": "No guardes nada; sólo dime si me falta responderle a Sofía." },
+    { "id": "D04", "family": "write_message", "text": "Avísale a Sofía que llegaré después de las seis." },
+    { "id": "D05", "family": "write_temporal_correction", "text": "Lo del inventario puede pasar al lunes próximo.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "reschedule_existing_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "D06", "family": "read_followup_attribute", "text": "¿A qué hora era eso?", "dialogue": { "lifecycle": "active", "activeObjectiveType": "lookup_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "D07", "family": "write_negated_correction", "text": "No lo canceles; déjalo para el martes.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "reschedule_existing_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "D08", "family": "write_confirmation", "text": "Sí, confirma ese plan.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "D09", "family": "write_rejection", "text": "No acepto esa propuesta.", "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["revisar inventario"] } },
+    { "id": "D10", "family": "read_messages", "text": "¿Qué mensajes recientes mencionan la cotización?" },
+    { "id": "D11", "family": "read_person_scope", "text": "Tengo dos temas con Matías; muéstrame sólo los que siguen abiertos." },
+    { "id": "D12", "family": "read_message_attribute", "text": "¿Qué decía la nota que me dejó Camila?" }
+  ]
+}
