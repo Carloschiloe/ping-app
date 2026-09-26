@@ -41,3 +41,37 @@ Run the existing smoke from a session with confirmed outbound access to the
 provider. Only after that smoke completes successfully should the planned
 new matrix be considered for execution. Do not treat this blocked attempt as
 semantic certification.
+
+## Network-valid execution
+
+The same runner was executed once from the elevated local environment after
+DNS, TCP/443, and HTTPS preflight passed.
+
+- Smoke + matrix provider calls: `53`.
+- Conversations: `13` total (`1` smoke plus `12` matrix).
+- Human turns: `53`.
+- Provider errors: `0`.
+- `finish_reason=stop`: `53/53`.
+- Schema-invalid outputs: `0`.
+- V4 normalized outputs: `51/53`.
+- Runtime normalization fallbacks: `2/53`, both caused by the same safe
+  contract mismatch: `read_request` with `readMeaning=null`, rejected by the
+  existing runtime invariant `Semantic V4 read meaning is required`.
+- All `53` outputs were persisted in the provider-raw artifact before parse;
+  the full V4 artifact contains `53` records.
+- Core/shadow first pass: `53/53` reached Core without `shadow_failure`;
+  writers, tools, persistence mutations, memory writes, and dialogue mutation
+  side effects remained `0`.
+- The first run exposed a harness defect: Core first-pass results were held
+  only in memory. The harness now persists them separately from the raw V4
+  artifact before replay.
+- Offline replay of the same `53` persisted outputs was executed twice after
+  the run and produced identical structural results, with `0` OpenAI calls and
+  `0` side effects. Because the first-pass result file was not present in the
+  original run, this is a deterministic offline recomputation/replay check,
+  not a byte-for-byte comparison against the lost in-memory snapshot.
+
+The two normalization fallbacks are provider/model semantic failures, not
+invented meanings and not Core failures. The runner records the exact raw
+provider response and a sanitized normalization error so a future run can be
+audited without reissuing this run's calls.

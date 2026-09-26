@@ -18,6 +18,7 @@ const NOW = new Date('2026-09-26T15:00:00.000Z');
 const ROOT = path.resolve(process.env.PING_SMOKE_ARTIFACT_ROOT || path.join(process.cwd(), '.m7-smoke-artifacts', 'real-llm-multiturn-20260926'));
 const RAW_PATH = path.join(ROOT, 'm7-real-llm-multiturn.raw.ndjson');
 const PROVIDER_RAW_PATH = path.join(ROOT, 'm7-real-llm-multiturn.provider.ndjson');
+const RESULT_PATH = path.join(ROOT, 'm7-real-llm-multiturn.core-results.ndjson');
 const MANIFEST_PATH = path.join(ROOT, 'm7-real-llm-multiturn.manifest.json');
 const ERROR_PATH = path.join(ROOT, 'm7-real-llm-multiturn.error.json');
 
@@ -173,10 +174,12 @@ describe('M-7 real LLM multi-turn local boundary', () => {
 
         assert(process.env.OPENAI_API_KEY, 'OPENAI_API_KEY is not available through the configured local env file');
         assert(!fs.existsSync(RAW_PATH), `raw artifact already exists: ${RAW_PATH}`);
+        assert(!fs.existsSync(RESULT_PATH), `result artifact already exists: ${RESULT_PATH}`);
         assert(!fs.existsSync(MANIFEST_PATH), `manifest already exists: ${MANIFEST_PATH}`);
         fs.mkdirSync(ROOT, { recursive: true });
         const rawFd = fs.openSync(RAW_PATH, 'wx');
         const providerRawFd = fs.openSync(PROVIDER_RAW_PATH, 'wx');
+        const resultFd = fs.openSync(RESULT_PATH, 'wx');
         const model = new OpenAiSemanticModel(MODEL);
         const inputInterpreter = new DeterministicInputInterpreter();
         const objectiveInterpreter = new DeterministicObjectiveInterpreter();
@@ -258,6 +261,12 @@ describe('M-7 real LLM multi-turn local boundary', () => {
                 if (shadow.sideEffects.toolsExecuted || shadow.sideEffects.persistenceWrites !== 0 || shadow.sideEffects.dialogueStateMutated) sideEffects += 1;
                 const state = dialogueService.getSnapshot(ACTOR, id);
                 const record = { ...persisted, firstPass: stableResult(result, shadow, state) };
+                const resultArtifact = JSON.stringify({
+                    conversationId: id, conversationLabel: conversation.id, turnIndex: turnIndex + 1,
+                    firstPass: record.firstPass,
+                }) + '\n';
+                fs.writeSync(resultFd, resultArtifact, undefined, 'utf8');
+                fs.fsyncSync(resultFd);
                 conversationRecords.push(record);
                 records.push(record);
             }
@@ -271,8 +280,12 @@ describe('M-7 real LLM multi-turn local boundary', () => {
 
             fs.closeSync(rawFd);
             fs.closeSync(providerRawFd);
+            fs.closeSync(resultFd);
             const rawReadback = fs.readFileSync(RAW_PATH, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+            const resultReadback = fs.readFileSync(RESULT_PATH, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
             assert(rawReadback.length === records.length && rawReadback.length === 53, `expected 53 persisted outputs, got ${rawReadback.length}`);
+            assert(resultReadback.length === records.length && resultReadback.length === 53, `expected 53 persisted Core results, got ${resultReadback.length}`);
+            const firstPassByKey = new Map(resultReadback.map(record => [`${record.conversationId}:${record.turnIndex}`, record.firstPass]));
             const replayResults: any[] = [];
             let replayOpenAiCalls = 0;
             clearAgentDialogueStateForTests();
@@ -295,7 +308,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
                     const state = dialogueService.getSnapshot(ACTOR, id);
                     const replay = stableResult(result, telemetry.at(-1), state);
                     replayResults.push(replay);
-                    expect(replay).toEqual(record.firstPass);
+                    expect(replay).toEqual(firstPassByKey.get(`${record.conversationId}:${record.turnIndex}`));
                 }
             }
             const manifest = {
@@ -303,6 +316,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
                 conversations: allConversations.length, turns: records.length, smokeTurns: smoke.turns.length,
                 matrixConversations: matrix.length, rawArtifact: RAW_PATH, rawArtifactHash: hash(fs.readFileSync(RAW_PATH, 'utf8')),
                 providerRawArtifact: PROVIDER_RAW_PATH, providerRawArtifactHash: hash(fs.readFileSync(PROVIDER_RAW_PATH, 'utf8')),
+                resultArtifact: RESULT_PATH, resultArtifactHash: hash(fs.readFileSync(RESULT_PATH, 'utf8')),
                 replayTurns: replayResults.length, replayOpenAiCalls, sideEffects: { writers: 0, persistenceMutations: 0, tools: 0, messages: 0, memoryWrites: 0, dialogueMutations: sideEffects },
                 providerCalls, realModelCalls: providerCalls,
             };
@@ -314,6 +328,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
         } catch (error) {
             try { fs.closeSync(rawFd); } catch { /* already closed */ }
             try { fs.closeSync(providerRawFd); } catch { /* already closed */ }
+            try { fs.closeSync(resultFd); } catch { /* already closed */ }
             fs.writeFileSync(ERROR_PATH, JSON.stringify({ model: MODEL, providerCalls, error: sanitizeError(error) }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
             throw error;
         }
