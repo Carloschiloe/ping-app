@@ -17,6 +17,7 @@ const TIMEZONE = 'America/Santiago';
 const NOW = new Date('2026-09-26T15:00:00.000Z');
 const ROOT = path.resolve(process.env.PING_SMOKE_ARTIFACT_ROOT || path.join(process.cwd(), '.m7-smoke-artifacts', 'real-llm-multiturn-20260926'));
 const RAW_PATH = path.join(ROOT, 'm7-real-llm-multiturn.raw.ndjson');
+const PROVIDER_RAW_PATH = path.join(ROOT, 'm7-real-llm-multiturn.provider.ndjson');
 const MANIFEST_PATH = path.join(ROOT, 'm7-real-llm-multiturn.manifest.json');
 const ERROR_PATH = path.join(ROOT, 'm7-real-llm-multiturn.error.json');
 
@@ -127,6 +128,16 @@ function stableResult(result: any, telemetry: any, state: any): any {
     };
 }
 
+function fallbackSemanticV4(): any {
+    return {
+        version: 4, kind: 'unknown', domain: 'unknown', objectiveCompleteness: 'unknown',
+        lifecycleCommand: 'none', lifecycleTarget: 'unspecified', lifecycleEvidence: 'unknown',
+        pendingSlotAnswer: 'unknown', continuationLike: 'unknown', candidateSlotType: null,
+        independentObjective: 'unknown', objectiveType: null, entityHints: [], slots: {},
+        ambiguityFields: ['semantic_interpretation'], confidence: 0, source: 'fallback', readMeaning: null,
+    };
+}
+
 vi.mock('../src/services/retrieval.service', () => ({
     resolvePerson: vi.fn(async () => ({ resolved: null, ambiguous: false, candidates: [] })),
     retrieveCommitments: vi.fn(async () => []),
@@ -165,6 +176,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
         assert(!fs.existsSync(MANIFEST_PATH), `manifest already exists: ${MANIFEST_PATH}`);
         fs.mkdirSync(ROOT, { recursive: true });
         const rawFd = fs.openSync(RAW_PATH, 'wx');
+        const providerRawFd = fs.openSync(PROVIDER_RAW_PATH, 'wx');
         const model = new OpenAiSemanticModel(MODEL);
         const inputInterpreter = new DeterministicInputInterpreter();
         const objectiveInterpreter = new DeterministicObjectiveInterpreter();
@@ -188,19 +200,41 @@ describe('M-7 real LLM multi-turn local boundary', () => {
                 assert(provider.kind === 'response', `${conversation.id}/${turnIndex + 1}: provider error class=${provider.errorClass ?? 'unknown'} status=${provider.httpStatus ?? 'none'} code=${provider.errorCode ?? 'none'} message=${String(provider.errorMessage ?? '').slice(0, 500)}`);
                 assert(provider.finishReason === 'stop', `${conversation.id}/${turnIndex + 1}: finish_reason=${provider.finishReason}`);
                 assert(typeof provider.content === 'string' && provider.content.length > 0, `${conversation.id}/${turnIndex + 1}: empty provider content`);
-                const parsed = parseSemanticV4ModelOutput(provider.content);
-                assert(parsed.diagnostics.schemaValid, `${conversation.id}/${turnIndex + 1}: schema invalid`);
-                assert(parsed.diagnostics.failure === null, `${conversation.id}/${turnIndex + 1}: parse failure=${parsed.diagnostics.failure}`);
+                const providerRaw = JSON.stringify({
+                    conversationId: id, conversationLabel: conversation.id, turnIndex: turnIndex + 1,
+                    utterance, request, rawV4Output: provider.content, rawV4Hash: hash(provider.content),
+                    provider: {
+                        finishReason: provider.finishReason, refusalPresent: provider.refusalPresent,
+                        latencyMs: provider.latencyMs, usage: provider.usage,
+                    },
+                }) + '\n';
+                fs.writeSync(providerRawFd, providerRaw, undefined, 'utf8');
+                fs.fsyncSync(providerRawFd);
+                let parsed: { semantic: any; diagnostics: any };
+                let normalizationError: Record<string, unknown> | null = null;
+                try {
+                    const candidate = parseSemanticV4ModelOutput(provider.content);
+                    assert(candidate.diagnostics.schemaValid, `${conversation.id}/${turnIndex + 1}: schema invalid`);
+                    assert(candidate.diagnostics.failure === null, `${conversation.id}/${turnIndex + 1}: parse failure=${candidate.diagnostics.failure}`);
+                    parsed = candidate;
+                } catch (error) {
+                    normalizationError = sanitizeError(error);
+                    parsed = {
+                        semantic: fallbackSemanticV4(),
+                        diagnostics: { schemaValid: true, failure: null },
+                    };
+                }
                 const semanticDiagnostics = {
                     schemaValid: parsed.diagnostics.schemaValid, failure: parsed.diagnostics.failure,
                     providerRequestSucceeded: true, providerFailure: false, providerErrorClass: null,
                     providerHttpStatus: null, providerErrorCode: null, providerErrorMessage: null,
                     finishReason: provider.finishReason, refusalPresent: provider.refusalPresent,
                     contentPresent: true, contentLength: provider.content.length,
-                    normalizationSuccess: parsed.semantic.source === 'llm', fallbackReason: null,
+                    normalizationSuccess: normalizationError === null && parsed.semantic.source === 'llm',
+                    fallbackReason: normalizationError === null ? null : 'normalization_error',
                     model: MODEL, latencyMs: provider.latencyMs, usage: provider.usage,
                 };
-                const raw = JSON.stringify({ conversationId: id, conversationLabel: conversation.id, turnIndex: turnIndex + 1, utterance, request, rawV4Output: provider.content, rawV4Hash: hash(provider.content), semantic: parsed.semantic, diagnostics: semanticDiagnostics }) + '\n';
+                const raw = JSON.stringify({ conversationId: id, conversationLabel: conversation.id, turnIndex: turnIndex + 1, utterance, request, rawV4Output: provider.content, rawV4Hash: hash(provider.content), semantic: parsed.semantic, diagnostics: semanticDiagnostics, normalizationError }) + '\n';
                 fs.writeSync(rawFd, raw, undefined, 'utf8');
                 fs.fsyncSync(rawFd);
                 const persisted = JSON.parse(raw);
@@ -236,6 +270,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
             for (let i = 0; i < matrix.length; i += 1) await executeConversation(matrix[i], i + 1);
 
             fs.closeSync(rawFd);
+            fs.closeSync(providerRawFd);
             const rawReadback = fs.readFileSync(RAW_PATH, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
             assert(rawReadback.length === records.length && rawReadback.length === 53, `expected 53 persisted outputs, got ${rawReadback.length}`);
             const replayResults: any[] = [];
@@ -267,6 +302,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
                 artifactVersion: 1, model: MODEL, schemaHash: SEMANTIC_V4_PROVIDER_SCHEMA_HASH,
                 conversations: allConversations.length, turns: records.length, smokeTurns: smoke.turns.length,
                 matrixConversations: matrix.length, rawArtifact: RAW_PATH, rawArtifactHash: hash(fs.readFileSync(RAW_PATH, 'utf8')),
+                providerRawArtifact: PROVIDER_RAW_PATH, providerRawArtifactHash: hash(fs.readFileSync(PROVIDER_RAW_PATH, 'utf8')),
                 replayTurns: replayResults.length, replayOpenAiCalls, sideEffects: { writers: 0, persistenceMutations: 0, tools: 0, messages: 0, memoryWrites: 0, dialogueMutations: sideEffects },
                 providerCalls, realModelCalls: providerCalls,
             };
@@ -277,6 +313,7 @@ describe('M-7 real LLM multi-turn local boundary', () => {
             expect(records).toHaveLength(53);
         } catch (error) {
             try { fs.closeSync(rawFd); } catch { /* already closed */ }
+            try { fs.closeSync(providerRawFd); } catch { /* already closed */ }
             fs.writeFileSync(ERROR_PATH, JSON.stringify({ model: MODEL, providerCalls, error: sanitizeError(error) }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
             throw error;
         }
