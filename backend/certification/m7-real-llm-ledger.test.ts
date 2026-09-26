@@ -44,6 +44,7 @@ function commitment(commitmentId: string, title: string, conversationId: string)
 function repository(create: (rows: any) => any): any { return create({ commitments: [commitment('00000000-0000-4000-8000-000000000040', 'revisar el informe del cliente', id(0)), commitment('00000000-0000-4000-8000-000000000041', 'llamar por el despacho', id(1))], people: [{ actorUserId: ACTOR, person: { kind: 'contact', id: '00000000-0000-4000-8000-000000000042', displayName: 'Paula' } }, { actorUserId: ACTOR, person: { kind: 'user', id: '00000000-0000-4000-8000-000000000043', displayName: 'Pedro' } }] }); }
 function context(service: any, conversationId: string): any { const state = service.getSnapshot(ACTOR, conversationId); return { lifecycle: state?.lifecycle === 'idle' || !state ? 'none' : 'active', activeObjectiveType: state?.openObjective?.objectiveType ?? null, missingSlotType: state?.pendingClarification?.field ?? null, suspendedObjectiveType: null, referentHints: state?.referents?.map((item: any) => item.rawText).slice(-5) ?? [] }; }
 function stable(result: any, telemetry: any, state: any): any { return { resultKind: result?.kind ?? null, planStatus: result?.kind === 'plan' ? result.plan?.status ?? null : null, disposition: telemetry?.core?.disposition ?? null, resolution: telemetry?.core?.resolution ?? null, planShape: telemetry?.core?.planShape ?? null, lifecycle: state?.lifecycle ?? null, turnSequence: state?.lastTurnSequence ?? 0, openObjectiveType: state?.openObjective?.objectiveType ?? null }; }
+function stateSnapshot(state: any): any { return { lifecycle: state?.lifecycle ?? null, turnSequence: state?.lastTurnSequence ?? 0, openObjective: state?.openObjective ?? null, pendingClarification: state?.pendingClarification ?? null, referents: state?.referents ?? [] }; }
 
 describe('M-7 real LLM ledger deep validation', () => {
     it('validates two correction/return/confirmation sequences with no writers', async () => {
@@ -84,9 +85,13 @@ describe('M-7 real LLM ledger deep validation', () => {
                     const result = await runAgentTurn({ actorUserId: ACTOR, conversationId, channel: 'mobile_text', locale: 'es-CL', timezone: TIMEZONE, now: NOW, input: utterance }, { dialogueService, inputInterpreter, objectiveInterpreter, precomputedSemanticV4: { semantic: parsed.semantic, diagnostics }, semanticV4CoreShadowResolver: resolver, semanticV4CoreShadowObserver: value => telemetry.push(value) });
                     const shadow = telemetry.at(-1);
                     expect(shadow?.failure ?? null).toBeNull();
-                    if (shadow?.sideEffects?.toolsExecuted || shadow?.sideEffects?.persistenceWrites !== 0 || shadow?.sideEffects?.dialogueStateMutated) sideEffects += 1;
-                    const resultSnapshot = stable(result, shadow, dialogueService.getSnapshot(ACTOR, conversationId));
-                    const record = { conversationId, turnIndex: turnIndex + 1, utterance, rawV4Hash: hash(provider.content), semantic: parsed.semantic, diagnostics, normalizationError, resultSnapshot };
+                    // Dialogue-state mutation is the required in-memory continuity
+                    // mechanism for this test. It is not an external side effect.
+                    // Only writers/tools/persistence are forbidden in the ledger run.
+                    if (shadow?.sideEffects?.toolsExecuted || shadow?.sideEffects?.persistenceWrites !== 0) sideEffects += 1;
+                    const currentState = dialogueService.getSnapshot(ACTOR, conversationId);
+                    const resultSnapshot = stable(result, shadow, currentState);
+                    const record = { conversationId, turnIndex: turnIndex + 1, utterance, rawV4Hash: hash(provider.content), semantic: parsed.semantic, diagnostics, normalizationError, resultSnapshot, stateSnapshot: stateSnapshot(currentState) };
                     fs.writeSync(resultFd, JSON.stringify(record) + '\n', undefined, 'utf8'); fs.fsyncSync(resultFd);
                     firstPass.push(record);
                 }
@@ -98,6 +103,34 @@ describe('M-7 real LLM ledger deep validation', () => {
         expect(calls).toBe(10);
         expect(firstPass).toHaveLength(10);
         expect(sideEffects).toBe(0);
-        fs.writeFileSync(MANIFEST_PATH, JSON.stringify({ artifactVersion: 1, model: MODEL, schemaHash: SEMANTIC_V4_PROVIDER_SCHEMA_HASH, conversations: 2, turns: 10, providerCalls: calls, sideEffects: { writers: 0, persistenceMutations: 0, tools: 0, memoryWrites: 0, dialogueMutations: sideEffects } }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
+        async function replayPass() {
+            const { runAgentTurn } = await import('../src/services/agentTurn.service');
+            const { DeterministicInputInterpreter } = await import('../src/services/agentInputInterpreter.service');
+            const { DeterministicObjectiveInterpreter } = await import('../src/services/agentObjectiveInterpreter.service');
+            const { AgentDialogueStateService } = await import('../src/services/agentDialogueState.service');
+            const { AgentSemanticV4HighFidelityReadOnlyResolver } = await import('../src/services/agentSemanticV4HighFidelityReadOnly.service');
+            const inputInterpreter = new DeterministicInputInterpreter();
+            const objectiveInterpreter = new DeterministicObjectiveInterpreter();
+            const replay: any[] = [];
+            for (const conversation of conversations) {
+                const conversationId = id(conversations.indexOf(conversation));
+                const dialogueService = new AgentDialogueStateService();
+                const resolver = new AgentSemanticV4HighFidelityReadOnlyResolver(repo);
+                for (const record of firstPass.filter(item => item.conversationId === conversationId)) {
+                    const telemetry: any[] = [];
+                    const result = await runAgentTurn({ actorUserId: ACTOR, conversationId, channel: 'mobile_text', locale: 'es-CL', timezone: TIMEZONE, now: NOW, input: record.utterance }, { dialogueService, inputInterpreter, objectiveInterpreter, precomputedSemanticV4: { semantic: record.semantic, diagnostics: record.diagnostics }, semanticV4CoreShadowResolver: resolver, semanticV4CoreShadowObserver: value => telemetry.push(value) });
+                    const shadow = telemetry.at(-1);
+                    expect(shadow?.failure ?? null).toBeNull();
+                    replay.push({ conversationId, turnIndex: record.turnIndex, resultSnapshot: stable(result, shadow, dialogueService.getSnapshot(ACTOR, conversationId)), stateSnapshot: stateSnapshot(dialogueService.getSnapshot(ACTOR, conversationId)) });
+                }
+            }
+            return replay;
+        }
+        const replayOne = await replayPass();
+        const replayTwo = await replayPass();
+        const expectedReplay = firstPass.map(record => ({ conversationId: record.conversationId, turnIndex: record.turnIndex, resultSnapshot: record.resultSnapshot, stateSnapshot: record.stateSnapshot }));
+        expect(replayOne).toEqual(expectedReplay);
+        expect(replayTwo).toEqual(replayOne);
+        fs.writeFileSync(MANIFEST_PATH, JSON.stringify({ artifactVersion: 1, model: MODEL, schemaHash: SEMANTIC_V4_PROVIDER_SCHEMA_HASH, conversations: 2, turns: 10, providerCalls: calls, replayOpenAiCalls: 0, replayIdentical: true, sideEffects: { writers: 0, persistenceMutations: 0, tools: 0, memoryWrites: 0, dialogueStateMutations: 'expected_internal_continuity' } }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
     }, 900000);
 });

@@ -76,12 +76,42 @@ invented meanings and not Core failures. The runner records the exact raw
 provider response and a sanitized normalization error so a future run can be
 audited without reissuing this run's calls.
 
-## Ledger deep validation
+### Normalization adjudication
 
-A separate two-conversation, ten-turn ledger sequence was started with the
-same read-only Core boundary. It stopped after three provider turns because
-the provider returned `finish_reason=length`; no retry was made. Three raw
-outputs and three Core result records were persisted, with no side effects.
-The requested full ledger sequence therefore remains **not certified**. This
-is a provider truncation/budget observation, not evidence of a Core or ledger
-mutation defect.
+The two rejected outputs were both `kind=read_request` with
+`readMeaning=null`: a reference clarification (`¿Te refieres a eso?`) and an
+incomplete message question (`Tengo otra pregunta sobre un mensaje.`). The
+runtime invariant in `agentTurnSemanticV4.service.ts` and the read planner's
+required dereference make `readMeaning` mandatory for every `read_request`.
+The safe classification is therefore a provider/model semantic error exposed
+by a contract gap: the flat provider schema permits the invalid cross-field
+combination. The normalizer was not relaxed and no meaning was invented.
+
+## Directed ledger validation
+
+A separate two-conversation, ten-turn sequence was executed once with the
+same read-only Core boundary. The initial attempt used
+`max_completion_tokens=1024` and stopped on turn four with
+`finish_reason=length`; the available usage evidence and the absence of a
+provider response establish completion-budget exhaustion. The truncated
+provider record was not available from that first runner version, so its exact
+token usage is not claimed.
+
+The directed run was then executed once with only the completion budget
+changed to `2048`. It completed `2` conversations and `10` provider turns,
+with `10` raw provider records and `10` Core-result records persisted. The
+run used `gpt-5.6-sol`, retained the same prompt/schema/Core boundary, and
+had no writers, tools, persistence mutations, memory writes, or external
+messages. Dialogue-state mutation is an expected internal continuity effect
+and is not counted as an external side effect.
+
+The persisted ledger records were replayed twice offline with `0` OpenAI
+calls. Both replay passes were deterministic and reached the read-only Core
+resolver/disposition/plan boundary with `0` external side effects. A strict
+byte-for-byte comparison against the original persisted state snapshots did
+not pass: some snapshots from the original v2 run contain turn-sequence and
+clarification-state transitions that the current replay does not reproduce.
+This is recorded as an evidence/harness comparability limitation, not
+silently converted to a ledger PASS. The ledger deep gate therefore remains
+open until the original-run source/runtime fingerprint and state-transition
+contract are captured consistently.
