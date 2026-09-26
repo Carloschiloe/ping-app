@@ -38,6 +38,9 @@ export interface SemanticShadowInput {
         dialogue?: SemanticDialogueContext | null;
     };
     producer?: Pick<CanonicalSemanticProducer, 'produceV4WithDiagnostics'> & { modelName?: string };
+    /** Internal replay seam. It bypasses only provider I/O; all V4 validation
+     * and the downstream Core shadow remain the same. Never populated by HTTP. */
+    precomputedResult?: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics };
     timeoutMs?: number;
 }
 
@@ -72,7 +75,7 @@ export async function runSemanticV4Shadow(input: SemanticShadowInput): Promise<S
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-        const result = await Promise.race([
+        const result = input.precomputedResult ?? await Promise.race([
             producer.produceV4WithDiagnostics(input.request),
             new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('semantic_v4_shadow_timeout')), timeoutMs); }),
         ]);

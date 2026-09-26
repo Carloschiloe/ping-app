@@ -48,6 +48,10 @@ import { traceAgentDevice, hashForTrace, getAgentDeviceDebugMetadata } from '../
 import { runSemanticV4Shadow } from './agentSemanticShadow.service';
 import { runSemanticV4CoreShadow } from './agentSemanticV4CoreShadow.service';
 import type { DispositionDialogueSnapshot } from '../types/agentTurnDisposition';
+import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
+import type { SemanticV4Diagnostics } from './canonicalSemanticProducer.service';
+import type { V4CoreShadowResolver, V4CoreShadowTelemetry } from './agentSemanticV4CoreShadow.service';
+import type { AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -79,6 +83,13 @@ export interface RunAgentTurnOptions {
     // Test/integration seam for the semantic boundary. Production uses the
     // configured interpreter; callers cannot provide this through HTTP.
     inputInterpreter?: AgentInputInterpreter;
+    // Internal certification seam only. The public HTTP boundary cannot
+    // provide this value; it allows a persisted V4 turn to traverse the
+    // real Agent Turn path without another provider call.
+    precomputedSemanticV4?: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics };
+    semanticV4CoreShadowResolver?: V4CoreShadowResolver;
+    semanticV4CoreShadowObserver?: (telemetry: V4CoreShadowTelemetry) => void;
+    objectiveInterpreter?: AgentObjectiveInterpreter;
 }
 
 // Sección 20/34 del ticket — ejemplos honestos de lo que SÍ existe hoy,
@@ -358,7 +369,7 @@ export async function runAgentTurn(
         conversationId,
         channel,
         priorReadSummary,
-    }, { inputInterpreter: options.inputInterpreter });
+    }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
@@ -388,6 +399,7 @@ export async function runAgentTurn(
             timezone,
             dialogue: shadowDialogue,
         },
+        precomputedResult: options.precomputedSemanticV4,
     });
     if (semanticShadow.enabled) {
         traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_SHADOW', {
@@ -497,7 +509,9 @@ export async function runAgentTurn(
             intentType: context.intent.type,
         },
         semanticResult: semanticShadow.coreInput,
+        resolver: options.semanticV4CoreShadowResolver,
     });
+    options.semanticV4CoreShadowObserver?.(semanticV4CoreShadow);
     if (semanticV4CoreShadow.enabled) {
         traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_CORE_SHADOW', {
             model: semanticV4CoreShadow.model,

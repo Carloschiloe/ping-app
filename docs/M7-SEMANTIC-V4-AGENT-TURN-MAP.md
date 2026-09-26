@@ -52,6 +52,27 @@ fuente semántica única, que todos los tipos de mensajes/personas/propuestas
 sean comparables con datos reales autorizados, y que retirar Legacy no cambie
 respuestas, confirmaciones, idempotencia o trazabilidad.
 
+## Evidencia adicional: frontera real aislada
+
+La prueba `m7SemanticV4RealAgentTurnPath.test.ts` invoca el servicio real
+`runAgentTurn` con un `SemanticTurnV4` precomputado. El valor sólo puede llegar
+por un seam interno de certificación; no está expuesto al body HTTP. Así se
+evita una segunda llamada al proveedor sin cambiar la autoridad Legacy.
+
+Pasaron las rutas aisladas: READ de compromiso único, result-set, empty scope,
+ambigüedad, persona y mensaje (6/6); WRITE hasta
+`ready_for_authorization` (1/1); y continuidad de dos turnos con el mismo
+`AgentDialogueStateService` (1/1). Todos terminaron sin `shadow_failure`, con
+tools 0, persistence 0 y sin autorización/ejecución.
+
+El test usa retrieval/memory y repositorio high-fidelity sintéticos. El mock
+de Supabase es exclusivo del proceso de test para impedir que la importación
+de sesiones/auth cargue credenciales ausentes; no sustituye código productivo.
+
+Esto no certifica todavía el HTTP autenticado con V4 como fuente única, datos
+Supabase reales autorizados, WRITE multivuelta completo ni un cutover. Legacy
+sigue gobernando routing, contexto, planning, respuesta y ejecución.
+
 ## Secuencia segura de cutover posterior
 
 1. mantener shadow y comparar semántica, continuidad, ambigüedad, resolución,
