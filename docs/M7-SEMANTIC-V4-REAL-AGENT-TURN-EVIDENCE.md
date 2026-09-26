@@ -32,6 +32,24 @@ autorización ni ejecución.
 Los datos de retrieval y el repositorio del resolver son sintéticos y están
 autorizados sólo para el test. Las credenciales Supabase no se cargan.
 
+## Evidencia adicional: matriz multivuelta local
+
+`backend/tests/m7SemanticV4MultiTurnReal.test.ts` define una bateria nueva de
+20 conversaciones, cuatro turnos cada una (80 turnos), sin reutilizar la
+bateria blind. Cada turno pasa por `runAgentTurn`, conserva el mismo
+`AgentDialogueStateService` dentro de su conversacion y entrega un
+`SemanticTurnV4` precomputado por el seam interno de certificacion.
+
+Resultado: 80/80 sombras V4 sin fallo, 46 turnos READ, 34 turnos WRITE,
+25 hechos temporales procesados por `resolveTemporal`, estado con secuencia
+monotonica entre turnos y 0 side effects. La matriz contiene persona/pronombre,
+referencias implicitas, elipsis, correcciones de fecha/hora, fechas relativas,
+abandono/reanudacion, ambiguedad, cambio de tema y retorno al tema anterior.
+
+La evidencia es local y sintetica: no llama OpenAI, no usa Supabase real, no
+crea compromisos y no autoriza planes. Por eso no demuestra todavia el endpoint
+HTTP autenticado ni un cutover; esos siguen siendo huecos explicitos.
+
 ## Alcance pendiente
 
 - La ruta HTTP autenticada completa todavía no recibe V4 desde el cliente; el

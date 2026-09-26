@@ -73,6 +73,22 @@ Esto no certifica todavía el HTTP autenticado con V4 como fuente única, datos
 Supabase reales autorizados, WRITE multivuelta completo ni un cutover. Legacy
 sigue gobernando routing, contexto, planning, respuesta y ejecución.
 
+## Evidencia adicional: matriz multivuelta local
+
+La prueba `m7SemanticV4MultiTurnReal.test.ts` ejercita 20 conversaciones nuevas
+y 80 turnos sobre `runAgentTurn`, manteniendo un `AgentDialogueStateService`
+por conversacion. Cada turno atraviesa el contexto Legacy, la frontera V4
+precomputada, el adapter V2, el resolver high-fidelity read-only, disposition
+y plan-shape. El resultado fue 80/80 sin `shadow_failure`, 46 READ, 34 WRITE,
+25 hechos temporales y cero tools, persistencia, autorizaciones o ejecuciones.
+
+La bateria cubre objetivos incompletos, persona/pronombre, referencias
+implicitas, anterior/otro, confirmacion y rechazo diferidos, correcciones,
+manana/pasado manana, viernes/proximo viernes, cancelacion, reanudacion,
+ambiguedad, negacion, errores coloquiales, cambios de tema y retorno. Las
+respuestas publicas y el routing siguen siendo Legacy; la evidencia V4 es
+shadow estructural y no autoriza cutover.
+
 ## Secuencia segura de cutover posterior
 
 1. mantener shadow y comparar semántica, continuidad, ambigüedad, resolución,
