@@ -75,3 +75,13 @@ The two normalization fallbacks are provider/model semantic failures, not
 invented meanings and not Core failures. The runner records the exact raw
 provider response and a sanitized normalization error so a future run can be
 audited without reissuing this run's calls.
+
+## Ledger deep validation
+
+A separate two-conversation, ten-turn ledger sequence was started with the
+same read-only Core boundary. It stopped after three provider turns because
+the provider returned `finish_reason=length`; no retry was made. Three raw
+outputs and three Core result records were persisted, with no side effects.
+The requested full ledger sequence therefore remains **not certified**. This
+is a provider truncation/budget observation, not evidence of a Core or ledger
+mutation defect.
