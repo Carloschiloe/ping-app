@@ -1,0 +1,74 @@
+[
+  {
+    "id": "H01",
+    "utterance": "El asunto será coordinar la inspección.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "title", "suspendedObjectiveType": null, "referentHints": [], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "", "knownSlots": {}, "targetHints": [] } },
+    "expected": ["answers_pending_slot"]
+  },
+  {
+    "id": "H02",
+    "utterance": "Cambia la fecha al martes temprano.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": { "time": "lunes por la tarde" }, "targetHints": ["inspección"] } },
+    "expected": ["corrects"]
+  },
+  {
+    "id": "H03",
+    "utterance": "Que lo gestione Nicolás, pero mantenemos el mismo encargo.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["corrects"]
+  },
+  {
+    "id": "H04",
+    "utterance": "Ahora el pendiente será cotizar el seguro.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "title", "suspendedObjectiveType": null, "referentHints": [], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["replaces"]
+  },
+  {
+    "id": "H05",
+    "utterance": "También quiero acordarme de comprar arena.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["independent"]
+  },
+  {
+    "id": "H06",
+    "utterance": "Sigamos con el encargo tal como quedó.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["continues"]
+  },
+  {
+    "id": "H07",
+    "utterance": "Todavía no tengo claro qué hacer con eso.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "title", "suspendedObjectiveType": null, "referentHints": [], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "", "knownSlots": {}, "targetHints": [] } },
+    "expected": ["ambiguous"]
+  },
+  {
+    "id": "H08",
+    "utterance": "Enséñame los mensajes del grupo de la oficina.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["independent", "unrelated"]
+  },
+  {
+    "id": "H09",
+    "utterance": "A las ocho y media.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["answers_pending_slot"]
+  },
+  {
+    "id": "H10",
+    "utterance": "La hora definitiva será a las diez.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "time", "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": { "time": "a las ocho y media" }, "targetHints": ["inspección"] } },
+    "expected": ["corrects"]
+  },
+  {
+    "id": "H11",
+    "utterance": "Deja la revisión; necesito llamar al técnico.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["replaces"]
+  },
+  {
+    "id": "H12",
+    "utterance": "La inspección sigue siendo lo principal y la hacemos mañana.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar la inspección"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar la inspección", "knownSlots": {}, "targetHints": ["inspección"] } },
+    "expected": ["corrects", "continues"]
+  }
+]
