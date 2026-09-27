@@ -166,3 +166,28 @@ on the basis of this non-comparable replay.
 Offline replay remains deterministic across two passes with zero OpenAI calls
 and zero external side effects. Strict equivalence to the original snapshots
 remains blocked by the missing legacy output/fingerprint capture.
+
+## Ledger reproducibility gate preparation from `35e4388`
+
+The reproducibility work is separated from the frozen historical evidence.
+`backend/certification/M7-LEDGER-NONDETERMINISM-MAP.md` classifies provider
+outputs, clocks, timezone, repository seed, dialogue state, resolver results,
+fallbacks and external side effects. A new envelope contract requires every
+field explicitly, including `NOT_USED` when a layer does not participate.
+
+The synthetic capture/replay test passed through the high-fidelity V4 Core
+shadow path. It writes the completed envelope before replay, reads the same
+artifact, and obtains identical projections on two offline replays. The
+fixture covers correction, objective change, return, confirmation and an
+ambiguous reference. It recorded zero tools, zero persistence writes and no
+secrets.
+
+The required network preflight did not pass in this environment:
+
+- DNS for `api.openai.com`: PASS;
+- TCP 443: FAIL;
+- HTTPS probe: FAIL before an HTTP response.
+
+Therefore no new ledger conversations were started and no OpenAI call was
+made in this phase. The three-conversation real-ledger gate remains blocked by
+network availability, not adjudicated as a product result.
