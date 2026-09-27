@@ -1,0 +1,62 @@
+import { describe, expect, it, vi } from 'vitest';
+import { interpretAgentSemanticTurn } from '../src/services/agentSemanticInterpreter.service';
+import type { Interpretation } from '../src/types/agentContext';
+import type { AgentObjective } from '../src/types/agentPlan';
+
+const ACTOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+function llmWriteInterpretation(): Interpretation {
+    return {
+        intent: 'commitment_query',
+        intentConfidence: 0.9,
+        personHints: [],
+        topicHints: [],
+        textQuery: null,
+        timeExpression: null,
+        statusHints: null,
+        requestedTransition: null,
+        wantsCommitments: true,
+        wantsMessages: false,
+        wantsTranscriptions: false,
+        wantsAttachments: false,
+        wantsOverdueFocus: false,
+        proposalFocus: null,
+        isWriteActionRequest: true,
+        ambiguityHints: [],
+        source: 'llm',
+        modelUsed: 'test-fake',
+    };
+}
+
+function rememberFactObjective(): AgentObjective {
+    return {
+        objectiveType: 'remember_fact',
+        targetEntities: { personHints: [], entityHints: ['revisi\u00f3n del inventario'] },
+        constraints: {},
+        desiredOutcome: 'revisi\u00f3n del inventario',
+        timeConstraints: { rawHint: null },
+        actor: ACTOR,
+        sourceUtterance: 'Volvamos a la revisi\u00f3n del inventario; \u00bfqu\u00e9 fecha tiene?',
+        confidence: 0.8,
+        ambiguities: [],
+        source: 'llm',
+    };
+}
+
+describe('semantic boundary read/write regression', () => {
+    it('keeps a novel attribute question on the READ route', async () => {
+        const objectiveInterpreter = { interpret: vi.fn(async () => rememberFactObjective()) };
+        const result = await interpretAgentSemanticTurn(
+            'Volvamos a la revisi\u00f3n del inventario; \u00bfqu\u00e9 fecha tiene?',
+            { actorUserId: ACTOR, conversationId: 'conversation-regression' },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('read');
+        expect(result.objective).toBeNull();
+        expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
+    });
+});

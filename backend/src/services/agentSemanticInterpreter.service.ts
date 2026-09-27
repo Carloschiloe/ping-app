@@ -83,9 +83,19 @@ export async function interpretAgentSemanticTurn(
         const isRetrievalIntent = safeRead.intent === 'recall'
             || safeRead.intent === 'message_search'
             || safeRead.intent === 'document_search';
-        const isStructuredRead = isRetrievalIntent
+        const hasReadDomainSignal = safeRead.wantsCommitments
+            || safeRead.wantsMessages
+            || safeRead.wantsTranscriptions
+            || safeRead.wantsAttachments;
+        // A question-shaped turn with a read-domain signal is a structural
+        // retrieval request even when the provider overstates
+        // isWriteActionRequest. This does not enumerate user phrases and
+        // does not override a deterministic write signal for an action.
+        const isInterrogativeRead = /[?\u061f]\s*$/u.test(input.trim()) && hasReadDomainSignal;
+        const isStructuredRead = (isRetrievalIntent && isInterrogativeRead)
             || isTemporalComparisonQuery(input)
-            || !!extractUrgencyComparison(input);
+            || !!extractUrgencyComparison(input)
+            || isInterrogativeRead;
         if (isStructuredRead && !safeRead.isWriteActionRequest) {
             return { route: 'read', interpretation: safeRead, objective: null };
         }

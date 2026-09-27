@@ -24,7 +24,7 @@
 // agentPlanOrchestrator.service.ts).
 import { runAgentPlanning } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
-import { interpretAgentSemanticTurn } from './agentSemanticInterpreter.service';
+import { interpretAgentSemanticTurn, type AgentSemanticInterpretation } from './agentSemanticInterpreter.service';
 import { synthesizeAgentResponse, realizeAgentClarification } from './agentResponseSynthesizer.service';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
@@ -353,6 +353,8 @@ export async function runAgentTurn(
         }
     }
 
+    let precomputedSemantic: AgentSemanticInterpretation | null = null;
+
     // M-7: reconcile a pending plan through the structured objective
     // interpreter before treating a short follow-up as an isolated READ.
     // The Core owns the existing plan identity and authorization boundary;
@@ -360,10 +362,12 @@ export async function runAgentTurn(
     if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
         && existingDialogueState.openObjective
         && existingDialogueState.currentPlanDigestRef) {
-        const pendingPlanCandidate = await new LlmObjectiveInterpreter().interpret(content, {
+        precomputedSemantic = await interpretAgentSemanticTurn(content, {
             actorUserId: input.actorUserId,
             conversationId,
         });
+        if (precomputedSemantic.route === 'write' && precomputedSemantic.objective) {
+        const pendingPlanCandidate = precomputedSemantic.objective;
         const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
         if (pendingDecision === 'approve') {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
@@ -404,6 +408,7 @@ export async function runAgentTurn(
                 newTurnObjective: pendingPlanCandidate,
             }), traceId);
         }
+        }
     }
 
     // M-7: one semantic interpretation owns the route. Deterministic
@@ -419,7 +424,7 @@ export async function runAgentTurn(
         hasTimeRange: priorReadContext.timeRange !== null,
     } : null;
     traceAgentDevice(traceId, 'AGENT_PRIOR_READ_SUMMARY', priorReadSummary ?? { present: false });
-    const semantic = await interpretAgentSemanticTurn(content, {
+    const semantic = precomputedSemantic ?? await interpretAgentSemanticTurn(content, {
         actorUserId: input.actorUserId,
         conversationId,
         channel,
