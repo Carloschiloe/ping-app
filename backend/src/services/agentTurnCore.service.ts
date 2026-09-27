@@ -389,6 +389,22 @@ export async function runAgentTurn(
         missingSlotType: existingDialogueState.pendingClarification?.field ?? null,
         suspendedObjectiveType: null,
         referentHints: existingDialogueState.lastReadContext?.commitmentReferents?.slice(0, 3).map((referent) => referent.rawText) ?? [],
+        activeObjective: existingDialogueState.openObjective ? {
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            desiredOutcome: existingDialogueState.openObjective.desiredOutcome.slice(0, 300),
+            knownSlots: {
+                ...(existingDialogueState.openObjective.timeConstraints.rawHint
+                    ? { time: existingDialogueState.openObjective.timeConstraints.rawHint.slice(0, 120) }
+                    : {}),
+                ...(existingDialogueState.openObjective.constraints.responsibleHint
+                    ? { responsible: existingDialogueState.openObjective.constraints.responsibleHint.slice(0, 120) }
+                    : {}),
+            },
+            targetHints: [
+                ...existingDialogueState.openObjective.targetEntities.entityHints,
+                ...existingDialogueState.openObjective.targetEntities.personHints,
+            ].filter(Boolean).slice(0, 6).map((hint) => hint.slice(0, 120)),
+        } : null,
     } : null;
     const semanticShadow = await runSemanticV4Shadow({
         legacy: semantic,

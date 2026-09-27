@@ -123,6 +123,28 @@ describe('Semantic V4 open-objective relation contract', () => {
         });
         expect(prompt).toContain('pending slot is context, not authority');
         expect(prompt).toContain('openObjectiveRelation');
+        expect(prompt).toContain('identity and desired outcome');
+        expect(prompt).toContain('explicit revision of a condition takes precedence');
+    });
+
+    it('provides objective identity and raw slots as bounded semantic context', () => {
+        const prompt = buildSemanticV4Prompt({
+            text: 'Ajusta la fecha del encargo.', modality: 'text', locale: 'es-CL', timezone: 'America/Santiago',
+            dialogue: {
+                lifecycle: 'active', activeObjectiveType: 'create_personal_commitment', missingSlotType: 'time',
+                suspendedObjectiveType: null, referentHints: [],
+                activeObjective: {
+                    objectiveType: 'create_personal_commitment',
+                    desiredOutcome: 'revisar el inventario',
+                    knownSlots: { time: 'esta semana' },
+                    targetHints: ['inventario'],
+                },
+            },
+            semanticVersion: 4,
+        });
+        expect(prompt).toContain('revisar el inventario');
+        expect(prompt).toContain('esta semana');
+        expect(prompt).toContain('inventario');
     });
 
     it('routes a model-declared replacement through Core disposition and clears stale scope', () => {
