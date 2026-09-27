@@ -125,6 +125,8 @@ describe('Semantic V4 open-objective relation contract', () => {
         expect(prompt).toContain('openObjectiveRelation');
         expect(prompt).toContain('identity and desired outcome');
         expect(prompt).toContain('explicit revision of a condition takes precedence');
+        expect(prompt).toContain('Changing a property of the same desired outcome');
+        expect(prompt).toContain('objectiveType label alone must never turn');
     });
 
     it('provides objective identity and raw slots as bounded semantic context', () => {

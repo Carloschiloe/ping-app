@@ -40,7 +40,8 @@ export const HOLDOUT_CASES_PATH = path.resolve(
     process.env.M7_SEMANTIC_RELATION_HOLDOUT_CASES
         ?? path.join(process.cwd(), 'certification', 'm7-semantic-objective-relation-holdout.v1.json'),
 );
-export const HOLDOUT_CASES_SHA256 = '1258eb01aa9f2c945570a864e79912f845c08ff39e1c71f34fab9cae9ef363ac';
+export const HOLDOUT_CASES_SHA256 = process.env.M7_SEMANTIC_RELATION_HOLDOUT_SHA256
+    ?? '1258eb01aa9f2c945570a864e79912f845c08ff39e1c71f34fab9cae9ef363ac';
 const artifactRoot = path.resolve(
     process.env.M7_SEMANTIC_RELATION_HOLDOUT_ARTIFACT_ROOT
         ?? path.join(process.cwd(), '.m7-smoke-artifacts', 'semantic-objective-relation-holdout-20260927-v1'),

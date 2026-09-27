@@ -1,0 +1,50 @@
+[
+  {
+    "id": "V2H01",
+    "utterance": "La actividad será inspeccionar la caldera.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "title", "suspendedObjectiveType": null, "referentHints": [], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "", "knownSlots": {}, "targetHints": [] } },
+    "expected": ["answers_pending_slot"]
+  },
+  {
+    "id": "V2H02",
+    "utterance": "Que lo haga Valentina, pero seguimos buscando el mismo resultado.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["ordenar repuestos"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "ordenar repuestos", "knownSlots": { "time": "martes" }, "targetHints": ["repuestos"] } },
+    "expected": ["corrects"]
+  },
+  {
+    "id": "V2H03",
+    "utterance": "Pasémoslo al sábado en la mañana.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["retirar documentos"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "retirar documentos", "knownSlots": { "time": "jueves" }, "targetHints": ["documentos"] } },
+    "expected": ["corrects"]
+  },
+  {
+    "id": "V2H04",
+    "utterance": "En vez de eso, reserva una hora para llamar al contador.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["preparar informe"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "preparar informe", "knownSlots": {}, "targetHints": ["informe"] } },
+    "expected": ["replaces"]
+  },
+  {
+    "id": "V2H05",
+    "utterance": "Aparte, acuérdame comprar alimento para el gato.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["preparar informe"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "preparar informe", "knownSlots": {}, "targetHints": ["informe"] } },
+    "expected": ["independent"]
+  },
+  {
+    "id": "V2H06",
+    "utterance": "Está bien, seguimos con la gestión pendiente.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar despacho"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar despacho", "knownSlots": {}, "targetHints": ["despacho"] } },
+    "expected": ["continues"]
+  },
+  {
+    "id": "V2H07",
+    "utterance": "No puedo decidir todavía cuál debería ser el siguiente paso.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": "title", "suspendedObjectiveType": null, "referentHints": [], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "", "knownSlots": {}, "targetHints": [] } },
+    "expected": ["ambiguous"]
+  },
+  {
+    "id": "V2H08",
+    "utterance": "Muéstrame las conversaciones del equipo de soporte.",
+    "dialogue": { "lifecycle": "active", "activeObjectiveType": "create_personal_commitment", "missingSlotType": null, "suspendedObjectiveType": null, "referentHints": ["coordinar despacho"], "activeObjective": { "objectiveType": "create_personal_commitment", "desiredOutcome": "coordinar despacho", "knownSlots": {}, "targetHints": ["despacho"] } },
+    "expected": ["independent", "unrelated"]
+  }
+]
