@@ -172,7 +172,7 @@ const providerReadMeaningSchema = z.object({
 }).strict();
 
 const providerSlotSchema = z.object({ key: z.string().max(80), value: semanticScalarSchema }).strict();
-const providerOutputCommonSchemaV4 = z.object({
+const providerOutputBaseSchemaV4 = z.object({
     domain: z.enum(['commitment', 'messaging', 'people', 'historical_read', 'generic', 'unknown']),
     objectiveCompleteness: z.enum(['complete', 'incomplete', 'unknown']),
     lifecycleCommand: z.enum(['none', 'abandon', 'resume']),
@@ -188,6 +188,12 @@ const providerOutputCommonSchemaV4 = z.object({
     ambiguityFields: z.array(z.string().max(80)).max(10),
     confidence: z.number().min(0).max(1),
     temporalFact: providerTemporalFactSchema.nullable(),
+}).strict();
+
+// The legacy flat parser keeps the complete enum for historical artifacts.
+// The provider contract below narrows the enum per semantic kind so that
+// impossible combinations are rejected before they reach normalization.
+const providerOutputCommonSchemaV4 = providerOutputBaseSchemaV4.extend({
     openObjectiveRelation: objectiveRelationSchema,
 }).strict();
 
@@ -198,22 +204,27 @@ const providerOutputCommonSchemaV4 = z.object({
 // line of defence for historical/legacy payloads and internal callers.
 const providerReadOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
     kind: z.literal('read_request'),
+    openObjectiveRelation: z.enum(['continues', 'independent', 'ambiguous', 'unrelated']),
     readMeaning: providerReadMeaningSchema,
 }).strict();
-const providerWriteOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+const providerWriteOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
     kind: z.literal('write_request'),
+    openObjectiveRelation: z.enum(['continues', 'corrects', 'replaces', 'independent', 'ambiguous']),
     readMeaning: z.null(),
 }).strict();
-const providerSlotAnswerOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+const providerSlotAnswerOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
     kind: z.literal('slot_answer'),
+    openObjectiveRelation: z.enum(['answers_pending_slot', 'continues', 'corrects', 'ambiguous']),
     readMeaning: z.null(),
 }).strict();
-const providerLifecycleOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+const providerLifecycleOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
     kind: z.literal('lifecycle_command'),
+    openObjectiveRelation: z.enum(['continues', 'corrects', 'ambiguous', 'unrelated']),
     readMeaning: z.null(),
 }).strict();
-const providerUnknownOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+const providerUnknownOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
     kind: z.literal('unknown'),
+    openObjectiveRelation: z.enum(['ambiguous', 'unrelated']),
     readMeaning: z.null(),
 }).strict();
 
@@ -434,7 +445,7 @@ function buildLegacySemanticPrompt(request: SemanticModelRequest): string {
     ].join('\n');
 }
 
-export type SemanticV4ParseFailure = 'invalid_json' | 'schema_invalid';
+export type SemanticV4ParseFailure = 'invalid_json' | 'schema_invalid' | 'normalization_error';
 export interface SemanticV4ParseDiagnostics {
     schemaValid: boolean;
     failure: SemanticV4ParseFailure | null;
@@ -501,10 +512,14 @@ export function parseSemanticV4ModelOutput(raw: unknown): { semantic: Normalized
         return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'schema_invalid' } };
     }
     const { temporalFact: _rawTemporal, readMeaning, ...baseData } = canonical.data;
-    return {
-        semantic: normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) }),
-        diagnostics: { schemaValid: provider.success || legacyProvider.success, failure: provider.success || legacyProvider.success ? null : 'schema_invalid' },
-    };
+    try {
+        return {
+            semantic: normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) }),
+            diagnostics: { schemaValid: provider.success || legacyProvider.success, failure: provider.success || legacyProvider.success ? null : 'schema_invalid' },
+        };
+    } catch {
+        return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'normalization_error' } };
+    }
 }
 
 /** Offline contract probe used by M-7 structural tests; no provider call. */

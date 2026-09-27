@@ -37,7 +37,7 @@ const common = {
     openObjectiveRelation: 'replaces' as const,
 };
 
-function provider(kind: 'read_request' | 'write_request' | 'slot_answer', relation: NormalizedSemanticTurnV4['openObjectiveRelation']) {
+function provider(kind: 'read_request' | 'write_request' | 'slot_answer' | 'lifecycle_command' | 'unknown', relation: NormalizedSemanticTurnV4['openObjectiveRelation']) {
     return {
         turn: {
             ...common,
@@ -71,6 +71,23 @@ function v4(overrides: Partial<NormalizedSemanticTurnV4> = {}): NormalizedSemant
 }
 
 describe('Semantic V4 open-objective relation contract', () => {
+    it('enforces the semantic kind/relation compatibility matrix at the provider boundary', () => {
+        const matrix: Record<string, string[]> = {
+            read_request: ['continues', 'independent', 'ambiguous', 'unrelated'],
+            write_request: ['continues', 'corrects', 'replaces', 'independent', 'ambiguous'],
+            slot_answer: ['answers_pending_slot', 'continues', 'corrects', 'ambiguous'],
+            lifecycle_command: ['continues', 'corrects', 'ambiguous', 'unrelated'],
+            unknown: ['ambiguous', 'unrelated'],
+        };
+        const relations = ['answers_pending_slot', 'continues', 'corrects', 'replaces', 'independent', 'ambiguous', 'unrelated'] as const;
+        for (const [kind, allowed] of Object.entries(matrix)) {
+            for (const relation of relations) {
+                const valid = isSemanticV4ProviderPayloadValid(provider(kind as Parameters<typeof provider>[0], relation));
+                expect(valid, `${kind}+${relation}`).toBe(allowed.includes(relation));
+            }
+        }
+    });
+
     it('represents slot answer, replacement, correction and ambiguity without phrase rules', () => {
         for (const [kind, relation] of [
             ['slot_answer', 'answers_pending_slot'],
@@ -90,6 +107,12 @@ describe('Semantic V4 open-objective relation contract', () => {
         expect(() => v4({ kind: 'slot_answer', openObjectiveRelation: 'replaces' })).toThrow(/Contradictory/);
         expect(() => v4({ kind: 'read_request', readMeaning, openObjectiveRelation: 'answers_pending_slot' })).toThrow(/Contradictory/);
         expect(() => v4({ openObjectiveRelation: 'not-a-relation' as any })).toThrow(/Unsupported/);
+    });
+
+    it('reports a provider-invalid contradiction without throwing from the parser', () => {
+        const parsed = parseSemanticV4ModelOutput(provider('read_request', 'replaces'));
+        expect(parsed.diagnostics).toEqual({ schemaValid: false, failure: 'normalization_error' });
+        expect(parsed.semantic.source).toBe('fallback');
     });
 
     it('does not let a pending slot force a replacement into slot_answer', () => {

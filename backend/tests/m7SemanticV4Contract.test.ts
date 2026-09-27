@@ -27,8 +27,15 @@ const readMeaning = {
     relationship: { kind: 'general_recall' }, temporalRole: 'none', commitmentStatus: null,
 };
 
-function providerPayload(kind: string, meaning: unknown = null): Record<string, unknown> {
-    return { turn: { ...common, kind, readMeaning: meaning } };
+function providerPayload(kind: string, meaning: unknown = null, relation?: string): Record<string, unknown> {
+    const relationByKind: Record<string, string> = {
+        read_request: 'independent',
+        write_request: 'independent',
+        slot_answer: 'answers_pending_slot',
+        lifecycle_command: 'continues',
+        unknown: 'ambiguous',
+    };
+    return { turn: { ...common, kind, openObjectiveRelation: relation ?? relationByKind[kind], readMeaning: meaning } };
 }
 
 describe('Semantic V4 provider contract', () => {
@@ -78,6 +85,7 @@ describe('Semantic V4 provider contract', () => {
 
     it('requires readMeaning only for read_request and rejects invalid cross-field pairs', () => {
         expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', readMeaning))).toBe(true);
+        expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', readMeaning, 'replaces'))).toBe(false);
         expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', null))).toBe(false);
         expect(isSemanticV4ProviderPayloadValid({ turn: { ...common, kind: 'read_request' } })).toBe(false);
         expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', { ...readMeaning, relationship: { kind: 'not-a-real-kind' } }))).toBe(false);

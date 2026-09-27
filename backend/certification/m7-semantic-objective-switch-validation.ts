@@ -13,7 +13,7 @@ import {
 
 type ExpectedRelation = NonNullable<import('../src/types/agentTurnCommit').NormalizedSemanticTurnV4['openObjectiveRelation']>;
 
-interface CaseDefinition {
+export interface CaseDefinition {
     id: string;
     utterance: string;
     dialogue: SemanticDialogueContext | null;
@@ -36,8 +36,10 @@ const cases: CaseDefinition[] = [
     { id: 'OR12', utterance: 'También necesito coordinar una visita con Diego.', dialogue: { lifecycle: 'active', activeObjectiveType: 'create_personal_commitment', missingSlotType: null, suspendedObjectiveType: null, referentHints: ['revisar informe'] }, expected: ['independent', 'replaces'], purpose: 'objetivo adicional con persona' },
 ];
 
-const artifactRoot = path.resolve(process.cwd(), '.m7-smoke-artifacts', 'semantic-objective-switch-20260927');
-fs.mkdirSync(artifactRoot, { recursive: true });
+const artifactRoot = path.resolve(
+    process.env.M7_SEMANTIC_VALIDATION_ARTIFACT_ROOT
+        ?? path.join(process.cwd(), '.m7-smoke-artifacts', 'semantic-objective-switch-20260927'),
+);
 
 function sha256(value: string): string {
     return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -59,15 +61,42 @@ function summary(semantic: ReturnType<typeof parseSemanticV4ModelOutput>['semant
     };
 }
 
+export function evaluateSemanticObjectiveCase(testCase: CaseDefinition, raw: string): {
+    observed: ReturnType<typeof summary> | null;
+    pass: boolean;
+    schemaInvalid: boolean;
+    normalizationError: boolean;
+    failure: string | null;
+} {
+    try {
+        const parsed = parseSemanticV4ModelOutput(raw);
+        const observed = summary(parsed.semantic);
+        const pass = parsed.diagnostics.schemaValid
+            && parsed.diagnostics.failure === null
+            && testCase.expected.includes(observed.openObjectiveRelation as ExpectedRelation);
+        return {
+            observed,
+            pass,
+            schemaInvalid: !parsed.diagnostics.schemaValid,
+            normalizationError: parsed.diagnostics.failure === 'normalization_error',
+            failure: parsed.diagnostics.failure,
+        };
+    } catch {
+        return { observed: null, pass: false, schemaInvalid: true, normalizationError: true, failure: 'normalization_error' };
+    }
+}
+
 async function main(): Promise<void> {
     if (!process.env.OPENAI_API_KEY?.trim()) {
         console.log(JSON.stringify({ status: 'blocked', reason: 'OPENAI_API_KEY_NOT_CONFIGURED', cases: cases.length }));
         return;
     }
+    fs.mkdirSync(artifactRoot, { recursive: true });
     const model = new OpenAiSemanticModel('gpt-5.6-sol');
     const results: Array<Record<string, unknown>> = [];
     let providerErrors = 0;
     let schemaInvalid = 0;
+    let normalizationErrors = 0;
     let accepted = 0;
     let calls = 0;
 
@@ -90,26 +119,23 @@ async function main(): Promise<void> {
         const rawPath = path.join(artifactRoot, `${testCase.id}.raw.json`);
         // The exact provider content is persisted before parsing or judging.
         fs.writeFileSync(rawPath, raw, { encoding: 'utf8', flag: 'wx' });
-        const parsed = parseSemanticV4ModelOutput(raw);
-        if (!parsed.diagnostics.schemaValid || parsed.diagnostics.failure) schemaInvalid += 1;
-        const observed = summary(parsed.semantic);
-        const pass = parsed.diagnostics.schemaValid
-            && parsed.diagnostics.failure === null
-            && testCase.expected.includes(observed.openObjectiveRelation as ExpectedRelation);
-        if (pass) accepted += 1;
+        const evaluated = evaluateSemanticObjectiveCase(testCase, raw);
+        if (evaluated.schemaInvalid) schemaInvalid += 1;
+        if (evaluated.normalizationError) normalizationErrors += 1;
+        if (evaluated.pass) accepted += 1;
         results.push({
             id: testCase.id,
             purpose: testCase.purpose,
             expected: testCase.expected,
-            observed,
+            observed: evaluated.observed,
             diagnostics: {
                 finishReason: response.finishReason,
-                schemaValid: parsed.diagnostics.schemaValid,
-                parseFailure: parsed.diagnostics.failure,
+                schemaValid: !evaluated.schemaInvalid,
+                parseFailure: evaluated.failure,
                 rawSha256: sha256(raw),
                 latencyMs: response.latencyMs,
             },
-            pass,
+            pass: evaluated.pass,
         });
     }
 
@@ -120,6 +146,7 @@ async function main(): Promise<void> {
         cases: cases.length,
         accepted,
         schemaInvalid,
+        normalizationErrors,
         providerErrors,
         results,
         sideEffects: { writers: 0, persistence: 0, tools: 0, messages: 0, memoryWrites: 0, dialogueMutations: 0 },
@@ -132,7 +159,9 @@ async function main(): Promise<void> {
     }));
 }
 
-void main().catch(error => {
-    console.error(JSON.stringify({ status: 'runner_error', name: error instanceof Error ? error.name : 'unknown', message: error instanceof Error ? error.message : 'unknown' }));
-    process.exitCode = 1;
-});
+if (require.main === module) {
+    void main().catch(error => {
+        console.error(JSON.stringify({ status: 'runner_error', name: error instanceof Error ? error.name : 'unknown', message: error instanceof Error ? error.message : 'unknown' }));
+        process.exitCode = 1;
+    });
+}
