@@ -32,10 +32,21 @@ describe('Semantic V4 model compatibility policy', () => {
     });
 
     it('B: omits temperature for gpt-5.6-sol reasoning defaults', () => {
+        delete process.env.M7_BLIND_MAX_COMPLETION_TOKENS;
         const params = buildSemanticChatCompletionParams('gpt-5.6-sol', request);
         expect(Object.prototype.hasOwnProperty.call(params, 'temperature')).toBe(false);
         expect(Object.prototype.hasOwnProperty.call(params, 'max_tokens')).toBe(false);
         expect(params.max_completion_tokens).toBe(450);
+    });
+
+    it('B2: blind evaluation can raise only the GPT-5 completion budget', () => {
+        process.env.M7_BLIND_MAX_COMPLETION_TOKENS = '1024';
+        const sol = buildSemanticChatCompletionParams('gpt-5.6-sol', request);
+        const mini = buildSemanticChatCompletionParams('gpt-4o-mini', request);
+        expect(sol.max_completion_tokens).toBe(1024);
+        expect(mini.max_tokens).toBe(450);
+        expect(Object.prototype.hasOwnProperty.call(mini, 'max_completion_tokens')).toBe(false);
+        delete process.env.M7_BLIND_MAX_COMPLETION_TOKENS;
     });
 
     it('C-G: model selection changes only the compatibility parameter', () => {
@@ -48,7 +59,7 @@ describe('Semantic V4 model compatibility policy', () => {
         expect((sol.response_format as any).json_schema.strict).toBe(true);
         expect(Object.prototype.hasOwnProperty.call(mini, 'tools')).toBe(false);
         expect(Object.prototype.hasOwnProperty.call(sol, 'tools')).toBe(false);
-        expect(SEMANTIC_V4_PROVIDER_SCHEMA_HASH).toBe('46798b4549448ae061062ce0c1b7f0580cba26fe899de746efe49745f23fc643');
+        expect(SEMANTIC_V4_PROVIDER_SCHEMA_HASH).toBe('eb4b1943a694e7ede930b3739f03cd671c1ae4a7000fd31999577077a1fccaed');
         expect(M7_FRONTIER_CASES).toHaveLength(30);
     });
 });

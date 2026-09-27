@@ -3,6 +3,9 @@ node_modules/
 dist/
 coverage/
 
+# Ephemeral local Semantic V4 smoke artifacts
+backend/.m7-smoke-artifacts/
+
 # Environment variables - NEVER commit these
 .env
 .env.local

@@ -1,0 +1,17 @@
+{
+  "battery": "m7-blind-shadow-v1.json",
+  "cases": 60,
+  "utterances": 100,
+  "fixtureSha256": "f833097c09eb2860c42a38e8cdecc7b6b6b54c8f1c48106293b684e16604560f",
+  "schemaSha256": "46798b4549448ae061062ce0c1b7f0580cba26fe899de746efe49745f23fc643",
+  "commitEvaluated": "eb117a2c0e36ab959f9278d5fb01750ca6a2fe16",
+  "model": "gpt-5.6-sol",
+  "compatibility": {
+    "temperature": "omitted",
+    "maxTokens": "omitted",
+    "maxCompletionTokens": 1024,
+    "structuredOutputs": "json_schema_strict",
+    "tools": false
+  },
+  "frozenBeforeProvider": true
+}

@@ -115,3 +115,54 @@ This is recorded as an evidence/harness comparability limitation, not
 silently converted to a ledger PASS. The ledger deep gate therefore remains
 open until the original-run source/runtime fingerprint and state-transition
 contract are captured consistently.
+
+## Offline structural follow-up from `46a840a`
+
+### Provider contract
+
+The provider boundary was corrected without changing the canonical runtime
+normalizer. The exported Structured Outputs schema is now an object envelope
+with a discriminated `turn` union:
+
+- `read_request` requires a non-null, complete `readMeaning` object;
+- `write_request`, `slot_answer`, `lifecycle_command`, and `unknown` require
+  `readMeaning: null`;
+- every branch remains strict, has all properties required, and keeps the
+  existing temporal discriminators.
+
+The new provider schema hash is
+`eb4b1943a694e7ede930b3739f03cd671c1ae4a7000fd31999577077a1fccaed`.
+Historical flat artifacts remain parser-compatible through a private
+parser-only legacy schema; they are not accepted as the provider contract.
+Offline contract tests pass for valid/invalid `readMeaning` combinations and
+all temporal variants. The 53 historical outputs were not rewritten.
+
+### First ledger divergence
+
+The forensic replay located the first mismatch at conversation
+`00000000-0000-4000-8000-000000000040`, turn `3`, `Que sea con Paula.`.
+Both original and replay entered the turn with an idle ledger at sequence 2.
+The persisted snapshot records a clarification state at sequence 4 with an
+open `create_commitment_or_proposal` objective and `person_ambiguous` pending.
+The current replay reaches the Core shadow `reclarify` disposition but leaves
+the legacy dialogue ledger idle at sequence 2 with no open objective.
+
+The divergence is a replay comparability defect, not evidence of a V4/Core
+semantic defect. The original runner loads `backend/.env`; the offline replay
+does not. On this path `agentTurnCore` may instantiate
+`LlmObjectiveInterpreter` while reconciling a person clarification. The
+original persisted records contain the V4 output but do not contain the
+legacy objective output or the original runtime fingerprint. Therefore the
+replay cannot reconstruct the original state transition without either an
+external provider call or inventing a missing legacy result. Neither is safe
+or permitted for this frozen evidence.
+
+The runtime fingerprint and raw V4 hashes are preserved alongside the ledger
+artifacts in `m7-real-llm-ledger.runtime-fingerprint.json`. It records the
+source hashes, schema, flags, repository seed, clock, timezone, model, budget,
+and the comparability gap without secrets. No product ledger fix was applied
+on the basis of this non-comparable replay.
+
+Offline replay remains deterministic across two passes with zero OpenAI calls
+and zero external side effects. Strict equivalence to the original snapshots
+remains blocked by the missing legacy output/fingerprint capture.

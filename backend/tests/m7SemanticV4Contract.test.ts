@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    isSemanticV4ProviderPayloadValid,
     parseSemanticV4ModelOutput,
     SEMANTIC_V4_PROVIDER_SCHEMA,
     SEMANTIC_V4_PROVIDER_SCHEMA_HASH,
@@ -13,14 +14,22 @@ function walk(value: unknown, visit: (node: Record<string, any>) => void): void 
     Object.values(record).forEach((child) => walk(child, visit));
 }
 
-const base = {
-    kind: 'read_request', domain: 'commitment', objectiveCompleteness: 'complete',
+const common = {
+    domain: 'commitment', objectiveCompleteness: 'complete',
     lifecycleCommand: 'none', lifecycleTarget: 'unspecified', lifecycleEvidence: 'unknown',
     pendingSlotAnswer: 'not_a_slot_answer', continuationLike: 'no', candidateSlotType: null,
     independentObjective: 'yes', objectiveType: 'lookup', entityHints: [], slots: [],
     ambiguityFields: [], confidence: 0.8, temporalFact: null,
-    readMeaning: { queryShape: 'focused', explicitCollection: false, targetShape: 'commitment', relationship: { kind: 'general_recall' }, temporalRole: 'none', commitmentStatus: null },
 };
+
+const readMeaning = {
+    queryShape: 'focused', explicitCollection: false, targetShape: 'commitment',
+    relationship: { kind: 'general_recall' }, temporalRole: 'none', commitmentStatus: null,
+};
+
+function providerPayload(kind: string, meaning: unknown = null): Record<string, unknown> {
+    return { turn: { ...common, kind, readMeaning: meaning } };
+}
 
 describe('Semantic V4 provider contract', () => {
     it('is strict structured-output JSON Schema with no oneOf', () => {
@@ -37,7 +46,11 @@ describe('Semantic V4 provider contract', () => {
     });
 
     it('keeps temporal discriminators distinct and parses every variant through runtime Zod', () => {
-        const temporal = SEMANTIC_V4_PROVIDER_SCHEMA.properties.temporalFact;
+        const turnSchema = SEMANTIC_V4_PROVIDER_SCHEMA.properties.turn;
+        const branches = (turnSchema.anyOf ?? turnSchema.oneOf) as Array<Record<string, any>>;
+        const readBranch = branches.find((branch) => branch.properties?.kind?.const === 'read_request');
+        expect(readBranch).toBeDefined();
+        const temporal = readBranch?.properties?.temporalFact;
         const kinds: string[] = [];
         walk(temporal, (node) => {
             if (node.properties?.kind?.const) kinds.push(node.properties.kind.const);
@@ -57,9 +70,21 @@ describe('Semantic V4 provider contract', () => {
             { kind: 'time_only', precision: 'minute', hour: 11, minute: 0, second: null, meridiem: '24h', ambiguity: 'none' },
         ];
         for (const temporalFact of variants) {
-            const result = parseSemanticV4ModelOutput({ ...base, temporalFact });
+            const result = parseSemanticV4ModelOutput({ turn: { ...common, kind: 'read_request', readMeaning, temporalFact } });
             expect(result.diagnostics.schemaValid, temporalFact.kind).toBe(true);
             expect(result.semantic.temporalFact?.kind).toBe(temporalFact.kind);
+        }
+    });
+
+    it('requires readMeaning only for read_request and rejects invalid cross-field pairs', () => {
+        expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', readMeaning))).toBe(true);
+        expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', null))).toBe(false);
+        expect(isSemanticV4ProviderPayloadValid({ turn: { ...common, kind: 'read_request' } })).toBe(false);
+        expect(isSemanticV4ProviderPayloadValid(providerPayload('read_request', { ...readMeaning, relationship: { kind: 'not-a-real-kind' } }))).toBe(false);
+
+        for (const kind of ['write_request', 'slot_answer', 'lifecycle_command', 'unknown']) {
+            expect(isSemanticV4ProviderPayloadValid(providerPayload(kind)), kind).toBe(true);
+            expect(isSemanticV4ProviderPayloadValid(providerPayload(kind, readMeaning)), `${kind} must not carry readMeaning`).toBe(false);
         }
     });
 });

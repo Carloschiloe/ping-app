@@ -165,8 +165,7 @@ const providerReadMeaningSchema = z.object({
 }).strict();
 
 const providerSlotSchema = z.object({ key: z.string().max(80), value: semanticScalarSchema }).strict();
-const providerOutputSchemaV4 = z.object({
-    kind: z.enum(['read_request', 'write_request', 'slot_answer', 'lifecycle_command', 'unknown']),
+const providerOutputCommonSchemaV4 = z.object({
     domain: z.enum(['commitment', 'messaging', 'people', 'historical_read', 'generic', 'unknown']),
     objectiveCompleteness: z.enum(['complete', 'incomplete', 'unknown']),
     lifecycleCommand: z.enum(['none', 'abandon', 'resume']),
@@ -182,13 +181,58 @@ const providerOutputSchemaV4 = z.object({
     ambiguityFields: z.array(z.string().max(80)).max(10),
     confidence: z.number().min(0).max(1),
     temporalFact: providerTemporalFactSchema.nullable(),
+}).strict();
+
+// The provider contract is a tagged union. Keeping the tag and its dependent
+// fields in the same branch makes an invalid pair such as
+// { kind: 'read_request', readMeaning: null } unrepresentable at the
+// Structured Outputs boundary. The runtime normalizer remains the second
+// line of defence for historical/legacy payloads and internal callers.
+const providerReadOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('read_request'),
+    readMeaning: providerReadMeaningSchema,
+}).strict();
+const providerWriteOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('write_request'),
+    readMeaning: z.null(),
+}).strict();
+const providerSlotAnswerOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('slot_answer'),
+    readMeaning: z.null(),
+}).strict();
+const providerLifecycleOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('lifecycle_command'),
+    readMeaning: z.null(),
+}).strict();
+const providerUnknownOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('unknown'),
+    readMeaning: z.null(),
+}).strict();
+
+const providerTurnSchemaV4 = z.discriminatedUnion('kind', [
+    providerReadOutputSchemaV4,
+    providerWriteOutputSchemaV4,
+    providerSlotAnswerOutputSchemaV4,
+    providerLifecycleOutputSchemaV4,
+    providerUnknownOutputSchemaV4,
+]);
+
+// OpenAI Structured Outputs requires an object root, so the semantic union
+// lives under one required property rather than making the root itself anyOf.
+const providerEnvelopeSchemaV4 = z.object({ turn: providerTurnSchemaV4 }).strict();
+
+// Historical M-7 artifacts used the former flat transport. This schema is
+// parser-only compatibility; it is never exported as the provider schema and
+// is never sent to OpenAI.
+const legacyProviderOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.enum(['read_request', 'write_request', 'slot_answer', 'lifecycle_command', 'unknown']),
     readMeaning: providerReadMeaningSchema.nullable(),
 }).strict();
 
 type JsonSchema = Record<string, any>;
 
 function providerJsonSchema(): JsonSchema {
-    const generated = z.toJSONSchema(providerOutputSchemaV4, { target: 'draft-7' }) as JsonSchema;
+    const generated = z.toJSONSchema(providerEnvelopeSchemaV4, { target: 'draft-7' }) as JsonSchema;
     const rewrite = (value: unknown, path: string): JsonSchema | unknown => {
         if (Array.isArray(value)) return value.map((item, index) => rewrite(item, `${path}[${index}]`));
         if (!value || typeof value !== 'object') return value;
@@ -288,10 +332,10 @@ function isSemanticModelWithDiagnostics(model: SemanticModel): model is Semantic
 export function buildSemanticV4Prompt(request: SemanticModelRequest): string {
     return [
         'Interpret one Ping turn into semantic facts only. Do not decide disposition, identity, authorization, execution, or mutation.',
-        'Return exactly the JSON fields in the supplied contract. Preserve unknown and ambiguity; never guess.',
+        'Return one top-level turn object with exactly the fields in the selected contract branch. Preserve unknown and ambiguity; never guess.',
         'A complete independent objective must not be represented as a slot answer. A bare value may be a slot answer only when dialogue context supports it.',
         'Lifecycle command means conversational abandon/resume only when the language and context support that reading; ambiguous cancel language must remain lifecycleEvidence=unknown.',
-        'The provider transport uses slots as an array of {key,value}; the runtime parser converts it to the canonical slots map. temporalFact and readMeaning are always present and use null when absent.',
+        'The turn is discriminated by kind: read_request requires a complete non-null readMeaning object; every other kind requires readMeaning=null. The provider transport uses slots as an array of {key,value}; the runtime parser converts it to the canonical slots map. temporalFact is always present and may be null.',
         `Provider schema hash: ${SEMANTIC_V4_PROVIDER_SCHEMA_HASH}`,
         `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
         `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,
@@ -306,6 +350,14 @@ function reasoningModelOmitsTemperature(modelName: string): boolean {
     return /^gpt-5(?:\.\d+)?(?:-|$)/i.test(modelName.trim());
 }
 
+function reasoningCompletionBudget(modelName: string): number {
+    if (!reasoningModelOmitsTemperature(modelName)) return 450;
+    const configured = Number.parseInt(process.env.M7_BLIND_MAX_COMPLETION_TOKENS ?? '', 10);
+    // Evaluation-only robustness knob. It changes transport budget only and
+    // is ignored for non-reasoning models; invalid values preserve baseline.
+    return Number.isInteger(configured) && configured > 0 && configured <= 4096 ? configured : 450;
+}
+
 export function buildSemanticChatCompletionParams(modelName: string, request: SemanticModelRequest): Record<string, unknown> {
     const isV4 = request.semanticVersion === 4;
     const params: Record<string, unknown> = {
@@ -316,7 +368,7 @@ export function buildSemanticChatCompletionParams(modelName: string, request: Se
             : { type: 'json_object' },
     };
     if (reasoningModelOmitsTemperature(modelName)) {
-        params.max_completion_tokens = 450;
+        params.max_completion_tokens = reasoningCompletionBudget(modelName);
     } else {
         params.temperature = 0.1;
         params.max_tokens = 450;
@@ -398,7 +450,11 @@ export interface SemanticV4Diagnostics extends SemanticV4ParseDiagnostics {
 
 function canonicalizeProviderPayload(value: unknown): unknown {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const record = { ...(value as Record<string, unknown>) };
+    const root = value as Record<string, unknown>;
+    const turn = root.turn && typeof root.turn === 'object' && !Array.isArray(root.turn)
+        ? root.turn as Record<string, unknown>
+        : root;
+    const record = { ...turn };
     if (Array.isArray(record.slots)) {
         const slots: Record<string, string | number | boolean | null> = {};
         for (const entry of record.slots) {
@@ -427,7 +483,8 @@ export function parseSemanticV4ModelOutput(raw: unknown): { semantic: Normalized
     try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
     catch { return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'invalid_json' } }; }
     const canonical = outputSchemaV4.safeParse(canonicalizeProviderPayload(parsed));
-    const provider = providerOutputSchemaV4.safeParse(parsed);
+    const provider = providerEnvelopeSchemaV4.safeParse(parsed);
+    const legacyProvider = legacyProviderOutputSchemaV4.safeParse(parsed);
     if (!canonical.success) return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'schema_invalid' } };
     const temporal = temporalFactSchema.safeParse((canonical.data as Record<string, unknown>).temporalFact);
     if ((canonical.data as Record<string, unknown>).temporalFact !== undefined && !temporal.success) {
@@ -436,8 +493,13 @@ export function parseSemanticV4ModelOutput(raw: unknown): { semantic: Normalized
     const { temporalFact: _rawTemporal, readMeaning, ...baseData } = canonical.data;
     return {
         semantic: normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) }),
-        diagnostics: { schemaValid: provider.success, failure: provider.success ? null : 'schema_invalid' },
+        diagnostics: { schemaValid: provider.success || legacyProvider.success, failure: provider.success || legacyProvider.success ? null : 'schema_invalid' },
     };
+}
+
+/** Offline contract probe used by M-7 structural tests; no provider call. */
+export function isSemanticV4ProviderPayloadValid(raw: unknown): boolean {
+    return providerEnvelopeSchemaV4.safeParse(raw).success;
 }
 
 function unknownTurn(): NormalizedSemanticTurnV2 {
