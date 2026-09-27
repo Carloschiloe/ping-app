@@ -55,7 +55,9 @@ export function loadHoldoutCases(): HoldoutCase[] {
     const raw = fs.readFileSync(HOLDOUT_CASES_PATH, 'utf8');
     if (sha256(raw) !== HOLDOUT_CASES_SHA256) throw new Error('HOLDOUT_CASES_HASH_MISMATCH');
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || parsed.length !== 12) throw new Error('HOLDOUT_CASE_COUNT_MISMATCH');
+    const expectedCaseCount = Number.parseInt(process.env.M7_SEMANTIC_RELATION_HOLDOUT_CASES_COUNT ?? '12', 10);
+    if (!Number.isInteger(expectedCaseCount) || expectedCaseCount <= 0) throw new Error('HOLDOUT_CASE_COUNT_CONFIG_INVALID');
+    if (!Array.isArray(parsed) || parsed.length !== expectedCaseCount) throw new Error('HOLDOUT_CASE_COUNT_MISMATCH');
     return parsed as HoldoutCase[];
 }
 
