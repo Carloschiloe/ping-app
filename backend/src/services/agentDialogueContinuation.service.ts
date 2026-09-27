@@ -135,6 +135,37 @@ export function isExplicitPlanConfirmation(rawTurn: string): boolean {
     return EXPLICIT_PLAN_CONFIRMATION_PHRASES.has(normalized);
 }
 
+/**
+ * Interprets a pending-plan decision from the structured objective proposed
+ * by the existing objective interpreter. Core uses this only while a plan is
+ * pending and only when the proposal does not name a new target. This keeps
+ * confirmation/rejection semantic rather than dependent on a phrase list.
+ */
+export function classifyPendingPlanDecision(
+    objective: AgentObjective | null | undefined,
+): 'approve' | 'reject' | null {
+    if (!objective || objective.objectiveType === 'unsupported') return null;
+    const decisionHint = objective.constraints.decisionHint;
+    if (decisionHint !== 'approve' && decisionHint !== 'reject') return null;
+    const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
+        || objective.targetEntities.personHints.length > 0;
+    return hasExplicitTarget ? null : decisionHint;
+}
+
+/**
+ * A structured objective with its own entity/person/time data is an
+ * independent request. It may replace a pending plan, but it must never be
+ * treated as an implicit confirmation of that plan.
+ */
+export function isIndependentWriteObjective(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    if (!objective || objective.objectiveType === 'unsupported') return false;
+    return objective.targetEntities.entityHints.length > 0
+        || objective.targetEntities.personHints.length > 0
+        || Boolean(objective.timeConstraints.rawHint);
+}
+
 export interface ContinuationClassification {
     // true only when Core has validated (not merely the LLM proposing) that
     // the new turn should be merged into the open dialogue objective.

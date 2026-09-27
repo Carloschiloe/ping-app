@@ -69,6 +69,8 @@ import {
     classifyPlanCorrection,
     buildPlanDateCorrection,
     isExplicitPlanConfirmation,
+    classifyPendingPlanDecision,
+    isIndependentWriteObjective,
 } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
@@ -347,6 +349,59 @@ export async function runAgentTurn(
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: correctedObjective,
+            }), traceId);
+        }
+    }
+
+    // M-7: reconcile a pending plan through the structured objective
+    // interpreter before treating a short follow-up as an isolated READ.
+    // The Core owns the existing plan identity and authorization boundary;
+    // the interpreter only proposes the user's decision or a new objective.
+    if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
+        && existingDialogueState.openObjective
+        && existingDialogueState.currentPlanDigestRef) {
+        const pendingPlanCandidate = await new LlmObjectiveInterpreter().interpret(content, {
+            actorUserId: input.actorUserId,
+            conversationId,
+        });
+        const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
+        if (pendingDecision === 'approve') {
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'semantic_plan_confirmation', dialogueScopeKey,
+            });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: existingDialogueState.openObjective,
+                confirmationRequested: true,
+            }), traceId);
+        }
+        if (pendingDecision === 'reject') {
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'semantic_plan_rejection', dialogueScopeKey,
+            });
+            const language = detectAgentLanguage(content, locale);
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: language === 'es'
+                        ? 'Entendido; no ejecutaré el plan pendiente.'
+                        : 'Understood; I will not execute the pending plan.',
+                    citations: [],
+                },
+            }, traceId);
+        }
+        if (isIndependentWriteObjective(pendingPlanCandidate)) {
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
+            });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: pendingPlanCandidate,
             }), traceId);
         }
     }

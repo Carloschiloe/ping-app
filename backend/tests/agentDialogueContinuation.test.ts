@@ -28,6 +28,8 @@ import {
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
     isExplicitPlanConfirmation,
+    classifyPendingPlanDecision,
+    isIndependentWriteObjective,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -91,6 +93,40 @@ describe('isExplicitPlanConfirmation', () => {
 
     it.each(['No lo crees', 'mejor mañana a las 12', '¿Qué compromisos tengo hoy?', 'créalo y avisa a Pedro'])('no convierte una instrucción nueva o negativa en confirmación: %s', (input) => {
         expect(isExplicitPlanConfirmation(input)).toBe(false);
+    });
+});
+
+describe('semantic pending-plan reconciliation', () => {
+    it('accepts a structured approval without requiring a confirmation phrase', () => {
+        expect(classifyPendingPlanDecision(objective({
+            constraints: { decisionHint: 'approve' },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('approve');
+    });
+
+    it('accepts a structured rejection without requiring a negation phrase', () => {
+        expect(classifyPendingPlanDecision(objective({
+            constraints: { decisionHint: 'reject' },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('reject');
+    });
+
+    it('does not infer a pending-plan decision when the proposal names an entity', () => {
+        expect(classifyPendingPlanDecision(objective({
+            constraints: { decisionHint: 'approve' },
+            targetEntities: { personHints: [], entityHints: ['otro objetivo'] },
+        }))).toBeNull();
+    });
+
+    it('recognizes a structured independent write candidate for replacement', () => {
+        expect(isIndependentWriteObjective(objective({
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'el viernes' },
+        }))).toBe(true);
+    });
+
+    it('does not replace a pending plan with an unsupported candidate', () => {
+        expect(isIndependentWriteObjective(objective({ objectiveType: 'unsupported' }))).toBe(false);
     });
 });
 
@@ -432,6 +468,76 @@ describe('Live wiring: no dialogue contamination (test areas 13 continued, 14, 1
         const turn2 = await runAgentTurn({ actorUserId: ACTOR_A, input: 'mañana a las 9', conversationId: CONV_1 });
 
         expect(turn2.kind).not.toBe('plan');
+    });
+});
+
+describe('Live wiring: semantic pending-plan reconciliation', () => {
+    it('reuses the pending objective for a structured approval and does not fall into READ', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        expect(first.kind).toBe('plan');
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Confirma el plan vigente',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'approve' },
+        }));
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Confirma el plan vigente' });
+        expect(second.kind).toBe('plan');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('resets the pending plan for a structured rejection without executing anything', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        expect(first.kind).toBe('plan');
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Prefiero dejarlo pendiente',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'reject' },
+        }));
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Prefiero dejarlo pendiente' });
+        expect(second.kind).toBe('response');
+        if (second.kind === 'response') expect(second.response.status).toBe('answered');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('replaces a pending plan with a structured independent write objective', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        expect(first.kind).toBe('plan');
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'En realidad prepara la llamada al proveedor el viernes',
+            targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
+            timeConstraints: { rawHint: 'el viernes' },
+        }));
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'En realidad prepara la llamada al proveedor el viernes' });
+        expect(second.kind).toBe('plan');
+        if (second.kind === 'plan') {
+            expect(JSON.stringify(second.plan.steps)).toContain('llamada al proveedor');
+            expect(JSON.stringify(second.plan.steps)).not.toContain('revisar inventario');
+        }
     });
 });
 
