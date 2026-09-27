@@ -126,6 +126,7 @@ export interface V4CoreShadowTelemetry {
         ambiguityCount: number | null;
         continuationLike: string | null;
         independentObjective: string | null;
+        openObjectiveRelation: string | null;
         pendingSlotAnswer: string | null;
         lifecycleCommand: string | null;
         slotNames: string[];
@@ -175,6 +176,7 @@ function emptyTelemetry(): V4CoreShadowTelemetry {
         v4: {
             kind: null, domain: null, objectiveType: null, confidence: null,
             ambiguityCount: null, continuationLike: null, independentObjective: null,
+            openObjectiveRelation: null,
             pendingSlotAnswer: null, lifecycleCommand: null, slotNames: [],
             readMeaning: null, temporalFact: null,
         },
@@ -289,7 +291,10 @@ export function adaptSemanticV4ToCore(input: NormalizedSemanticTurnV4): {
     return {
         semanticV4,
         semanticV2,
-        dispositionSemantic: mapSemanticTurnV2ToDisposition(semanticV2),
+        dispositionSemantic: {
+            ...mapSemanticTurnV2ToDisposition(semanticV2),
+            openObjectiveRelation: semanticV4.openObjectiveRelation,
+        },
     };
 }
 
@@ -330,6 +335,7 @@ export async function runSemanticV4CoreShadow(input: V4CoreShadowInput): Promise
                 ambiguityCount: normalized.semanticV4.ambiguityFields.length,
                 continuationLike: normalized.semanticV4.continuationLike,
                 independentObjective: normalized.semanticV4.independentObjective,
+                openObjectiveRelation: normalized.semanticV4.openObjectiveRelation ?? null,
                 pendingSlotAnswer: normalized.semanticV4.pendingSlotAnswer,
                 lifecycleCommand: normalized.semanticV4.lifecycleCommand,
                 slotNames: Object.keys(normalized.semanticV4.slots).sort(),

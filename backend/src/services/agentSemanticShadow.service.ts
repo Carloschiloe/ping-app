@@ -18,6 +18,7 @@ export interface SemanticShadowTelemetry {
     objectiveAgreement: boolean | null;
     v4Confidence: number | null;
     ambiguityCount: number | null;
+    openObjectiveRelation: string | null;
     schemaValid: boolean | null;
     providerFailure: boolean;
     timeout: boolean;
@@ -59,6 +60,7 @@ function disabledTelemetry(): SemanticShadowTelemetry {
         enabled: false, model: null, legacyRoute: null, v4Kind: null,
         legacyObjective: null, v4Objective: null, routeAgreement: null,
         objectiveAgreement: null, v4Confidence: null, ambiguityCount: null,
+        openObjectiveRelation: null,
         schemaValid: null, providerFailure: false, timeout: false, failure: null,
         latencyMs: null, differences: [],
     };
@@ -91,6 +93,7 @@ export async function runSemanticV4Shadow(input: SemanticShadowInput): Promise<S
             objectiveAgreement: !differences.some((d) => d.dimension === 'objective'),
             v4Confidence: result.semantic.confidence,
             ambiguityCount: result.semantic.ambiguityFields.length,
+            openObjectiveRelation: result.semantic.openObjectiveRelation ?? null,
             schemaValid: result.diagnostics.schemaValid,
             providerFailure: result.diagnostics.providerFailure,
             timeout: false,

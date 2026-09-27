@@ -25,6 +25,7 @@ const validProviderPayload = {
     ambiguityFields: [],
     confidence: 0.9,
     temporalFact: null,
+    openObjectiveRelation: 'independent',
     readMeaning: {
         queryShape: 'focused',
         explicitCollection: false,

@@ -129,7 +129,14 @@ const readMeaningSchema = z.object({
     commitmentStatus: z.enum(['pending']).nullable().optional(),
 }).strict();
 
-const outputSchemaV4 = outputSchema.extend({ readMeaning: readMeaningSchema.nullable() }).strict();
+const objectiveRelationValues = ['answers_pending_slot', 'continues', 'corrects', 'replaces', 'independent', 'ambiguous', 'unrelated'] as const;
+const objectiveRelationSchema = z.enum(objectiveRelationValues);
+const outputSchemaV4 = outputSchema.extend({
+    readMeaning: readMeaningSchema.nullable(),
+    // Historical internal callers may omit this until normalization; the
+    // provider contract below remains strict and requires it.
+    openObjectiveRelation: objectiveRelationSchema.default('ambiguous'),
+}).strict();
 
 // The canonical runtime shape remains the source of truth. OpenAI's strict
 // structured-output subset cannot represent arbitrary object maps reliably,
@@ -181,6 +188,7 @@ const providerOutputCommonSchemaV4 = z.object({
     ambiguityFields: z.array(z.string().max(80)).max(10),
     confidence: z.number().min(0).max(1),
     temporalFact: providerTemporalFactSchema.nullable(),
+    openObjectiveRelation: objectiveRelationSchema,
 }).strict();
 
 // The provider contract is a tagged union. Keeping the tag and its dependent
@@ -227,6 +235,7 @@ const providerEnvelopeSchemaV4 = z.object({ turn: providerTurnSchemaV4 }).strict
 const legacyProviderOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
     kind: z.enum(['read_request', 'write_request', 'slot_answer', 'lifecycle_command', 'unknown']),
     readMeaning: providerReadMeaningSchema.nullable(),
+    openObjectiveRelation: objectiveRelationSchema.optional(),
 }).strict();
 
 type JsonSchema = Record<string, any>;
@@ -333,9 +342,10 @@ export function buildSemanticV4Prompt(request: SemanticModelRequest): string {
     return [
         'Interpret one Ping turn into semantic facts only. Do not decide disposition, identity, authorization, execution, or mutation.',
         'Return one top-level turn object with exactly the fields in the selected contract branch. Preserve unknown and ambiguity; never guess.',
-        'A complete independent objective must not be represented as a slot answer. A bare value may be a slot answer only when dialogue context supports it.',
+        'Classify openObjectiveRelation explicitly: answers_pending_slot only when the current meaning answers the pending field; continues for the same objective; corrects for a correction; replaces when the current objective supersedes the open one; independent for a separate objective; unrelated for a different non-objective turn; ambiguous when the evidence supports more than one reading.',
+        'A pending slot is context, not authority: a turn that does not semantically answer that field must not be represented as answers_pending_slot. A complete or explicit replacement objective must not be represented as a slot answer. Preserve unknown and ambiguity; never guess.',
         'Lifecycle command means conversational abandon/resume only when the language and context support that reading; ambiguous cancel language must remain lifecycleEvidence=unknown.',
-        'The turn is discriminated by kind: read_request requires a complete non-null readMeaning object; every other kind requires readMeaning=null. The provider transport uses slots as an array of {key,value}; the runtime parser converts it to the canonical slots map. temporalFact is always present and may be null.',
+        'The turn is discriminated by kind: read_request requires a complete non-null readMeaning object; every other kind requires readMeaning=null. The provider transport uses slots as an array of {key,value}; the runtime parser converts it to the canonical slots map. temporalFact and openObjectiveRelation are always present; temporalFact may be null.',
         `Provider schema hash: ${SEMANTIC_V4_PROVIDER_SCHEMA_HASH}`,
         `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
         `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,

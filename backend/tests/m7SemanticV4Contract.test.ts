@@ -19,7 +19,7 @@ const common = {
     lifecycleCommand: 'none', lifecycleTarget: 'unspecified', lifecycleEvidence: 'unknown',
     pendingSlotAnswer: 'not_a_slot_answer', continuationLike: 'no', candidateSlotType: null,
     independentObjective: 'yes', objectiveType: 'lookup', entityHints: [], slots: [],
-    ambiguityFields: [], confidence: 0.8, temporalFact: null,
+    ambiguityFields: [], confidence: 0.8, temporalFact: null, openObjectiveRelation: 'independent',
 };
 
 const readMeaning = {

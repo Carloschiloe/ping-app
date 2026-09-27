@@ -59,7 +59,7 @@ describe('Semantic V4 model compatibility policy', () => {
         expect((sol.response_format as any).json_schema.strict).toBe(true);
         expect(Object.prototype.hasOwnProperty.call(mini, 'tools')).toBe(false);
         expect(Object.prototype.hasOwnProperty.call(sol, 'tools')).toBe(false);
-        expect(SEMANTIC_V4_PROVIDER_SCHEMA_HASH).toBe('eb4b1943a694e7ede930b3739f03cd671c1ae4a7000fd31999577077a1fccaed');
+        expect(SEMANTIC_V4_PROVIDER_SCHEMA_HASH).toBe('1a48ea5c2ae78af6022208009105e0a398e7c84e4890b3e6e12769476d0b7440');
         expect(M7_FRONTIER_CASES).toHaveLength(30);
     });
 });

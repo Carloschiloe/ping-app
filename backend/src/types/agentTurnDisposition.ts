@@ -10,6 +10,7 @@ export type AgentTurnDisposition =
 
 export type SemanticTurnKind = 'read' | 'write' | 'lifecycle' | 'slot_answer' | 'unknown';
 export type LifecycleCommand = 'abandon' | 'resume';
+export type OpenObjectiveRelation = 'answers_pending_slot' | 'continues' | 'corrects' | 'replaces' | 'independent' | 'ambiguous' | 'unrelated';
 
 export interface NormalizedDispositionObjective {
     objectiveType: string;
@@ -26,6 +27,8 @@ export interface NormalizedDispositionSemanticTurn {
     lifecycleTarget: 'active' | 'suspended' | 'ambiguous' | null;
     explicitLifecycleCommand: boolean;
     structurallyUnambiguousResume: boolean;
+    /** V4 semantic relation; absent on legacy V2 projections. */
+    openObjectiveRelation?: OpenObjectiveRelation;
 }
 
 export interface DispositionDialogueSnapshot {

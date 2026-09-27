@@ -18,6 +18,7 @@ export class AgentTurnDispositionService {
     public decide(input: AgentTurnDispositionInput): AgentTurnDispositionDecision {
         const { semanticTurn: turn, dialogue, pendingSlotResolution: slot, suspendedResumeCandidate } = input;
         const unchanged = noTransition(dialogue);
+        const objective = turn.objective;
 
         // 1. Validated lifecycle commands always win. Validation is supplied
         // by Core normalization; this service never parses raw language.
@@ -46,8 +47,21 @@ export class AgentTurnDispositionService {
             });
         }
 
+        // V4 has already interpreted an explicit replacement relation. Core
+        // owns the state transition and clears the old active scope; it does
+        // not inspect the user's words or infer the relation itself.
+        if (turn.openObjectiveRelation === 'replaces' && objective && dialogue?.activeDialogue) {
+            if (dialogue.suspendedDialogue) {
+                return decision('reclarify', 'dialogue_capacity_exhausted', { ...unchanged, kind: 'reclarify' });
+            }
+            return decision('new_objective', 'explicit_objective_replacement', {
+                kind: 'replace_active',
+                activeDialogue: { objective, source: 'normalized_semantic_turn' },
+                suspendedDialogue: null,
+            });
+        }
+
         // 2. A complete independent objective beats a possible slot answer.
-        const objective = turn.objective;
         if (objective?.complete) {
             if (dialogue?.activeDialogue && dialogue.suspendedDialogue) {
                 return decision('reclarify', 'dialogue_capacity_exhausted', { ...unchanged, kind: 'reclarify' });

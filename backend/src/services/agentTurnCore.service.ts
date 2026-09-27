@@ -408,6 +408,7 @@ export async function runAgentTurn(
             v4Kind: semanticShadow.v4Kind,
             legacyObjective: semanticShadow.legacyObjective,
             v4Objective: semanticShadow.v4Objective,
+            openObjectiveRelation: semanticShadow.openObjectiveRelation,
             routeAgreement: semanticShadow.routeAgreement,
             objectiveAgreement: semanticShadow.objectiveAgreement,
             v4Confidence: semanticShadow.v4Confidence,
