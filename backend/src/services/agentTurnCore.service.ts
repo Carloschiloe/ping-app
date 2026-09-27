@@ -366,8 +366,13 @@ export async function runAgentTurn(
             actorUserId: input.actorUserId,
             conversationId,
         });
-        if (precomputedSemantic.route === 'write' && precomputedSemantic.objective) {
-        const pendingPlanCandidate = precomputedSemantic.objective;
+        const pendingPlanCandidate = precomputedSemantic.route === 'write' && precomputedSemantic.objective
+            ? precomputedSemantic.objective
+            : await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
+                actorUserId: input.actorUserId,
+                conversationId,
+            });
+        if (pendingPlanCandidate) {
         const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
         if (pendingDecision === 'approve') {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
@@ -397,7 +402,7 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
-        if (isIndependentWriteObjective(pendingPlanCandidate)) {
+        if (precomputedSemantic.route === 'write' && isIndependentWriteObjective(pendingPlanCandidate)) {
             dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,

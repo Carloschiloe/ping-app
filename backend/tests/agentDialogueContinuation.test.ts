@@ -539,6 +539,30 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
             expect(JSON.stringify(second.plan.steps)).not.toContain('revisar inventario');
         }
     });
+
+    it('reconciles a lifecycle rejection even when the route proposal is read-shaped', async () => {
+        llmInputInterpretMock.mockResolvedValueOnce(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recu\u00e9rdame revisar inventario ma\u00f1ana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'ma\u00f1ana' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recu\u00e9rdame revisar inventario ma\u00f1ana' });
+        expect(first.kind).toBe('plan');
+
+        llmInputInterpretMock.mockResolvedValueOnce(readOnlyInterpretation({ wantsCommitments: true }));
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'No lo ejecutes por ahora',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'reject' },
+        }));
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'No lo ejecutes por ahora' });
+        expect(second.kind).toBe('response');
+        if (second.kind === 'response') expect(second.response.status).toBe('answered');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
 });
 
 describe('Live wiring: structural safety (test areas 19, 20, 21, 22, 23)', () => {
