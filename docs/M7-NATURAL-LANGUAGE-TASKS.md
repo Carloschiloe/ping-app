@@ -166,6 +166,19 @@ Este inventario no atribuye a M-7 todos los cambios del árbol: el repositorio y
 - [x] Ejecutar regresiones relacionadas: `agentInputInterpreter.test.ts`, `agentReadFollowup.regression.test.ts` y `agentContextBuilder.test.ts`, 493/493 PASS. TypeScript `tsc --noEmit` y `npm run build` en la copia aislada: PASS.
 - [ ] Ejecutar la prueba física en iPhone contra el backend corregido y verificar la respuesta visible con la hora real del usuario. No se marca PASS con mocks ni con la compilación.
 
+## 13. ValidaciÃ³n durable local del boundary V4 â†’ Core (2026-09-27)
+
+- [x] Identificar el boundary de estado sin sustituir la lÃ³gica de Core. Evidencia: `AgentTurnDispositionService`, `AgentSemanticV4HighFidelityReadOnlyResolver` y `runSemanticV4CoreShadow` se reutilizan directamente; el adapter nuevo sÃ³lo reemplaza persistencia y side effects.
+- [x] Implementar un store local in-memory con CAS, snapshots versionados y recarga entre instancias. Evidencia: `backend/certification/m7-local-durable-core-adapter.ts`; una escritura con versiÃ³n antigua es rechazada.
+- [x] Bloquear side effects externos durante la certificaciÃ³n. Evidencia: la validaciÃ³n local no importa Supabase ni writers; `externalWriterAttempts=0`, `externalToolAttempts=0`, `networkSideEffectAttempts=0`.
+- [x] Validar conversaciÃ³n durable A â†’ B â†’ A y correcciÃ³n de slot. Evidencia: dos ejecuciones locales, 8 snapshots por ejecuciÃ³n; el objetivo A se suspende, B se activa, B se corrige, A se reanuda y conserva su campo pendiente.
+- [x] Validar confirmaciÃ³n ligada al objetivo y versiÃ³n actuales. Evidencia: confirmaciÃ³n de digest equivocado, versiÃ³n obsoleta y objetivo incorrecto son rechazados; la confirmaciÃ³n vigente resuelve sÃ³lo A.
+- [x] Validar ambigÃ¼edad sin asumir switch/correction/confirmation. Evidencia: una relaciÃ³n `ambiguous` llega a `reclarify` y conserva el objetivo activo.
+- [x] Validar aislamiento, reload, captura/replay y hash de estado final. Evidencia: `captureVsReplay=true`, `replay1VsReplay2=true`, hash final `b2580a16d4cceb271719bb0f80edfc9bb0b86d199ce49dbb21ebc7174f923078`.
+- [x] Ejecutar TypeScript y regresiones enfocadas. Evidencia: `tsc --noEmit` PASS; 37/37 pruebas focalizadas PASS. Tres suites durables adicionales no pudieron cargar por ausencia deliberada de variables Supabase locales; se clasifican como bloqueo de entorno, no como PASS.
+
+Esta validaciÃ³n demuestra el boundary durable local y no equivale a una prueba de Supabase, staging, producciÃ³n ni a una nueva corrida del proveedor LLM. No se hicieron llamadas OpenAI, escrituras, tools, mensajes ni mutaciones persistentes externas. El estado global de M-7 permanece abierto hasta resolver las verificaciones externas que sigan dentro del alcance aprobado.
+
 ### Suite completa en este corte
 
 La suite completa no se declara PASS. Se ejecutó en la copia aislada con valores Supabase no operativos para impedir escrituras o uso accidental de producción: falló por `fetch failed` en integraciones que requieren Supabase, además de fallos basales de pruebas que requieren secretos de voz o una aserción de política de adjuntos. Los fallos no pertenecen a esta corrección; las suites M-7 enfocadas sí pasan. No se ocultaron ni se transformaron en PASS.
