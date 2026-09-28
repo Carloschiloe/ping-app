@@ -121,6 +121,26 @@ async function loginWithMagicLink(email) {
   return verified.data.session.access_token;
 }
 
+async function deleteTemporaryIdentity(identityId) {
+  // Auth deletion is intentionally last. Agent admission/checkpoint tables
+  // reference auth.users without cascade because they are durable audit data;
+  // this cleanup removes only rows created by this temporary E2E identity.
+  const scopedTables = [
+    'agent_executions',
+    'agent_authorizations',
+    'agent_turn_semantic_checkpoints',
+    'agent_turn_admissions',
+    'agent_turn_sequence_allocators',
+    'agent_dialogue_checkpoints',
+  ];
+  for (const table of scopedTables) {
+    const { error } = await admin.from(table).delete().eq('actor_user_id', identityId);
+    if (error) throw error;
+  }
+  const deleted = await admin.auth.admin.deleteUser(identityId);
+  if (deleted.error) throw deleted.error;
+}
+
 async function checkpoint(actorUserId, conversationId) {
   const { data, error } = await admin.from('agent_dialogue_checkpoints')
     .select('lifecycle,version,last_applied_turn_sequence,expires_at,active_dialogue')
@@ -211,8 +231,7 @@ async function run() {
     }
     if (identity.temporary) {
       try {
-        const deleted = await admin.auth.admin.deleteUser(identity.id);
-        if (deleted.error) throw deleted.error;
+        await deleteTemporaryIdentity(identity.id);
         report.identityDeleted = 1;
       } catch (error) {
         report.success = false;
