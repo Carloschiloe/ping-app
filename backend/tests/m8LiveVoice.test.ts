@@ -5,6 +5,7 @@ import {
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
+import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
 
 const actorUserId = '11111111-1111-4111-8111-111111111111';
 const voiceSessionId = '22222222-2222-4222-8222-222222222222';
@@ -83,5 +84,13 @@ describe('M8 live voice staging boundary', () => {
             actorUserId,
             request: { sdp: 'v=0\\r\\n' + 'a'.repeat(120), voiceSessionId, deviceSessionId },
         })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('serves a staging client with browser media and barge-in controls', () => {
+        const html = getM8LiveVoiceClientHtml();
+        expect(html).toContain('navigator.mediaDevices?.getUserMedia');
+        expect(html).toContain('RTCPeerConnection');
+        expect(html).toContain('response.cancel');
+        expect(html).not.toContain('OPENAI_API_KEY');
     });
 });

@@ -5,6 +5,16 @@ import {
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../services/m8LiveVoice.service';
+import { getM8LiveVoiceClientHtml } from '../services/m8LiveVoiceClient.service';
+
+export function client(_req: Request, res: Response): void {
+    try {
+        res.status(200).type('html').set('Cache-Control', 'no-store').send(getM8LiveVoiceClientHtml());
+    } catch (error) {
+        const status = error instanceof AppError ? error.statusCode : 404;
+        res.status(status).send('Not found');
+    }
+}
 
 export async function createSession(req: Request, res: Response): Promise<void> {
     try {

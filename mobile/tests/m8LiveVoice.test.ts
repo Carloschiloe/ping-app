@@ -13,6 +13,9 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("sideEffects:0");
         expect(source).toContain("response.cancel");
         expect(source).toContain("remote.onplaying");
+        expect(source).toContain("/agent/voice/live/client");
+        expect(source).toContain("originWhitelist={['https://*']}");
+        expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");
         expect(source).not.toContain("/agent/authorize");
     });

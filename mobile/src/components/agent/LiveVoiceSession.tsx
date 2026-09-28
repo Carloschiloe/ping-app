@@ -125,7 +125,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         <View style={styles.container}>
             <View style={styles.topbar}><Text style={styles.title}>Ping Voz</Text><TouchableOpacity onPress={onClose}><Text style={styles.close}>Cerrar</Text></TouchableOpacity></View>
             {error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={() => { setError(null); setSessionKey((value) => value + 1); }}><Text style={styles.retry}>Reintentar</Text></TouchableOpacity></View>
-                : config ? <WebView key={sessionKey} source={{ html: LIVE_VOICE_HTML }} injectedJavaScriptBeforeContentLoaded={injected} onMessage={handleMessage} javaScriptEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback originWhitelist={['*']} />
+                    : config ? <WebView key={sessionKey} source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }} injectedJavaScriptBeforeContentLoaded={injected} onMessage={handleMessage} javaScriptEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback originWhitelist={['https://*']} />
                     : <ActivityIndicator style={styles.loading} />}
         </View>
     </Modal>;

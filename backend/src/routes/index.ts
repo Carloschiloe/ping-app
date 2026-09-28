@@ -341,6 +341,10 @@ router.post(
     validateRequest(m8LiveVoiceSessionSchema),
     m8LiveVoiceController.createSession,
 );
+router.get(
+    '/agent/voice/live/client',
+    m8LiveVoiceController.client,
+);
 router.post(
     '/agent/voice/live/telemetry',
     requireAuth,
