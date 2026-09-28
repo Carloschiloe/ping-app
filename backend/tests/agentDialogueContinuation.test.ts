@@ -560,6 +560,9 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
         const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'No lo ejecutes por ahora' });
         expect(second.kind).toBe('response');
         if (second.kind === 'response') expect(second.response.status).toBe('answered');
+        expect(llmObjectiveInterpretMock.mock.calls[1][1]).toMatchObject({
+            pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
         expect(authorizePlanSpy).not.toHaveBeenCalled();
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });

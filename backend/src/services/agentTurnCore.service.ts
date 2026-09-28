@@ -366,11 +366,17 @@ export async function runAgentTurn(
             actorUserId: input.actorUserId,
             conversationId,
         });
-        const pendingPlanCandidate = precomputedSemantic.route === 'write' && precomputedSemantic.objective
+        const pendingPlanContext = {
+            actorUserId: input.actorUserId,
+            conversationId,
+            pendingPlan: { objectiveType: existingDialogueState.openObjective.objectiveType },
+        };
+        const pendingPlanCandidate = precomputedSemantic.route === 'write'
+            && precomputedSemantic.objective
+            && precomputedSemantic.objective.objectiveType !== 'unsupported'
             ? precomputedSemantic.objective
             : await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
-                actorUserId: input.actorUserId,
-                conversationId,
+                ...pendingPlanContext,
             });
         if (pendingPlanCandidate) {
         const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
