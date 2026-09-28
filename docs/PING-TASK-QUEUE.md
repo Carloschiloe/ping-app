@@ -5,7 +5,7 @@ evidence; a green unit test alone does not close a milestone.
 
 | Priority | Type | Task | State | Evidence / exit condition |
 |---|---|---|---|---|
-| P0 | SECURITY / INFRASTRUCTURE | Create protected GitHub environment `ping-staging-certification`, staging-only Render deploy hook, and staging Supabase E2E secrets | HUMAN_GATE_REQUIRED | Owner configures values without exposing them; workflow can read them only in the deploy job |
+| P0 | SECURITY / INFRASTRUCTURE | Create the staging-only Render deploy hook and store it in `ping-staging-certification` | HUMAN_GATE_REQUIRED | GitHub environment branch policy and three Supabase staging secrets are configured; only the hook remains |
 | P1 | CERTIFICATION | Run the permanent staging gate for the current M7 candidate | BLOCKED_BY_P0 | Quality PASS, exact health SHA, authenticated `/agent/turn`, sanitized artifact |
 | P1 | CERTIFICATION | Verify M7 health, auth, persistence, reload, conversation and safety invariants in staging | PENDING | Evidence from the exact deployed SHA; no production writes |
 | P1 | BUG | If staging E2E exposes a real M7 defect, reproduce, fix structurally, regress, and publish only staging | READY_AFTER_P1 | Root cause plus holdout regression; no phrase/keyword/case patch |
@@ -20,4 +20,3 @@ evidence; a green unit test alone does not close a milestone.
   PERSISTENCE, AUTHORIZATION, SECURITY, HARNESS, FIXTURE, INFRASTRUCTURE,
   NONDETERMINISM or REGRESSION.
 - The next task is selected from this queue after each verified result.
-
