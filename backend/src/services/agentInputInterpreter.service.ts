@@ -22,6 +22,7 @@ import { isAiConfigured } from './synthesis.service';
 import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
+import type { AgentObjective } from '../types/agentPlan';
 
 export interface InterpreterContext {
     conversationId?: string;
@@ -91,6 +92,25 @@ const THIRD_PERSON_PRONOUN_PATTERN = wordBounded(
 );
 export function containsThirdPersonPronoun(rawInput: string): boolean {
     return THIRD_PERSON_PRONOUN_PATTERN.test(rawInput);
+}
+
+/**
+ * Core safety predicate for person references in write turns. A grammatical
+ * third-person reference is not an identity. It is safe to plan only when
+ * the semantic proposal also carries a concrete person/responsible hint that
+ * Core can resolve and authorize. This deliberately does not resolve names
+ * or infer an antecedent; the planner remains the canonical resolver.
+ */
+export function hasUnresolvedPersonReference(
+    rawInput: string,
+    objective: Pick<AgentObjective, 'targetEntities' | 'constraints'>,
+): boolean {
+    if (!containsThirdPersonPronoun(rawInput)) return false;
+    const hints = [
+        ...objective.targetEntities.personHints,
+        objective.constraints.responsibleHint ?? '',
+    ].map((hint) => hint.trim()).filter(Boolean);
+    return !hints.some((hint) => !containsThirdPersonPronoun(hint));
 }
 
 // Natural-language fallback signals. The LLM remains the primary semantic

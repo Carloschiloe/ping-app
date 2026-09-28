@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
 import { isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
-import { containsThirdPersonPronoun } from '../src/services/agentInputInterpreter.service';
+import { containsThirdPersonPronoun, hasUnresolvedPersonReference } from '../src/services/agentInputInterpreter.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
     return {
@@ -42,5 +42,12 @@ describe('M7 pending-plan candidate routing', () => {
     it('treats demonstrative person references as unresolved until Core authorizes an antecedent', () => {
         expect(containsThirdPersonPronoun('Hazlo con esa persona.')).toBe(true);
         expect(containsThirdPersonPronoun('Hazlo con esa tarea.')).toBe(false);
+    });
+
+    it('blocks an unresolved person reference without blocking a concrete canonical hint', () => {
+        expect(hasUnresolvedPersonReference('Hazlo con esa persona.', candidate())).toBe(true);
+        expect(hasUnresolvedPersonReference('Hazlo con Ana.', candidate({
+            targetEntities: { personHints: ['Ana'], entityHints: [] },
+        }))).toBe(false);
     });
 });

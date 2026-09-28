@@ -494,6 +494,48 @@ export class AgentDialogueStateService {
         return this.persist(next, existing.version);
     }
 
+    /**
+     * Invalidates a pending authorization plan while preserving the current
+     * objective as the subject of clarification. This is used when Core sees
+     * a new unresolved reference that may affect the plan (for example a
+     * person demonstrative). The plan digest is discarded; no entity or
+     * authorization is inferred from the wording.
+     */
+    setPendingClarificationPreservingObjective(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        clarification: ClarificationQuestion;
+        ambiguity?: AgentObjectiveAmbiguity;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing?.openObjective) throw new AppError('No open dialogue state to clarify', 404);
+        this.assertFreshTurn(existing, input.turnSequence);
+
+        const afterCollecting = existing.lifecycle === 'plan_pending_authorization'
+            ? transitionDialogueState(existing.lifecycle, 'collecting')
+            : existing.lifecycle;
+        const nextLifecycle = afterCollecting === 'clarifying'
+            ? afterCollecting
+            : transitionDialogueState(afterCollecting, 'clarifying');
+        const next: AgentDialogueState = {
+            ...existing,
+            lifecycle: nextLifecycle,
+            ambiguities: input.ambiguity
+                ? [...existing.ambiguities, input.ambiguity]
+                : existing.ambiguities,
+            pendingClarification: input.clarification,
+            currentPlanDigestRef: null,
+            currentAuthorizationIdRef: null,
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry(nextLifecycle, now),
+        };
+        return this.persist(next, existing.version);
+    }
+
     // ADR §3.2/Q13 — records that a real AgentPlan reached
     // ready_for_authorization. Stores ONLY the digest reference, never a
     // copy of the plan.

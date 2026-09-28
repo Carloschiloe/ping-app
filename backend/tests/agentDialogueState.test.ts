@@ -175,6 +175,27 @@ describe('lifecycle transitions (test areas 8-9)', () => {
         expect(transitionDialogueState('plan_pending_authorization', 'collecting')).toBe('collecting');
     });
 
+    it('8c. unresolved person clarification preserves the objective and clears a stale plan digest', () => {
+        const service = new AgentDialogueStateService();
+        const open = service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'digest-stale', turnId: 't2', turnSequence: 2 });
+
+        const clarified = service.setPendingClarificationPreservingObjective({
+            actorUserId: ACTOR_A,
+            dialogueScopeKey: CONV_1,
+            clarification: { field: 'person_reference', question: '¿A qué persona te refieres?' },
+            ambiguity: { field: 'person_reference', kind: 'blocking', reason: 'La persona requiere resolución canónica.' },
+            turnId: 't3',
+            turnSequence: 3,
+        });
+
+        expect(clarified.openObjective).toEqual(open.openObjective);
+        expect(clarified.lifecycle).toBe('clarifying');
+        expect(clarified.currentPlanDigestRef).toBeNull();
+        expect(clarified.pendingClarification?.field).toBe('person_reference');
+        expect(clarified.lastTurnSequence).toBe(3);
+    });
+
     it('9. invalid lifecycle transitions are rejected -- e.g. idle -> plan_pending_authorization, resolved -> collecting, expired -> anything', () => {
         expect(() => transitionDialogueState('idle', 'plan_pending_authorization')).toThrow(/invalid dialogue state transition/i);
         expect(() => transitionDialogueState('resolved', 'collecting')).toThrow(/invalid dialogue state transition/i);

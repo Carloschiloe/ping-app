@@ -40,7 +40,7 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
-import type { AgentInputInterpreter } from './agentInputInterpreter.service';
+import { hasUnresolvedPersonReference, type AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
@@ -895,6 +895,57 @@ async function runWriteActionTurn(params: {
         tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_MERGED', {
             filledField: reconciled.filledField, dialogueScopeKey,
         });
+    }
+
+    // Core identity boundary: a grammatical person reference is not an
+    // authorized person. Do not let the planner interpret a missing
+    // antecedent as a self-owned action or choose an arbitrary person. If
+    // there is an open dialogue objective, preserve it while invalidating any
+    // stale plan digest; otherwise create a clarification state for this
+    // turn. The actual identity resolution remains in the canonical planner.
+    if (hasUnresolvedPersonReference(params.content, objectiveForPlanning)) {
+        const clarification = {
+            field: 'person_reference',
+            question: '¿A qué persona te refieres?',
+        } as const;
+        const ambiguity = {
+            field: 'person_reference',
+            kind: 'blocking' as const,
+            reason: 'La referencia a la persona debe resolverse y autorizarse antes de planificar.',
+        };
+        if (existingDialogueState?.openObjective) {
+            dialogueService.setPendingClarificationPreservingObjective({
+                actorUserId,
+                dialogueScopeKey,
+                clarification,
+                ambiguity,
+                turnId,
+                turnSequence,
+            });
+        } else {
+            dialogueService.openObjective({
+                actorUserId,
+                dialogueScopeKey,
+                objective: objectiveForPlanning,
+                ambiguities: [ambiguity],
+                turnId,
+                turnSequence,
+            });
+            dialogueService.setPendingClarification({
+                actorUserId,
+                dialogueScopeKey,
+                clarification,
+                turnId,
+                turnSequence: turnSequence + 1,
+            });
+        }
+        traceAgentDevice(params.traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'write_person_reference_clarification', dialogueScopeKey,
+        });
+        return {
+            kind: 'clarification',
+            questions: [clarification],
+        };
     }
 
     const plan = await runAgentPlanning({
