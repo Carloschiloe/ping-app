@@ -33,6 +33,7 @@ export const DIALOGUE_STATE_LIMITS = {
     inactivityTtlMs: 10 * 60 * 1000, // ADR Q8: ~10 min, shorter than AGENT_SESSION_TTL_MS (15 min)
     resolvedRetentionMs: 2 * 60 * 1000, // ADR Q8: ~2 min post-resolution, for an immediate undo-adjacent reference
     maxCorrectionsPerSlot: 3, // ADR Q6: bounded, supports one-level revert with headroom
+    maxSuspendedObjectives: 3,
     maxDialogueStates: 500, // mirrors MAX_AGENT_SESSIONS's own bound, same reasoning
 } as const;
 
@@ -174,6 +175,7 @@ function emptyState(actorUserId: string, dialogueScopeKey: string, now: Date): A
         dialogueScopeKey,
         lifecycle: 'idle',
         openObjective: null,
+        suspendedObjectives: [],
         ambiguities: [],
         pendingClarification: null,
         corrections: {},
@@ -237,10 +239,22 @@ export class AgentDialogueStateService {
         // objective's slots must never silently resurface into a new one).
         const readyForNewObjective = base.lifecycle === 'resolved' ? transitionDialogueState(base.lifecycle, 'idle') : base.lifecycle;
         const nextLifecycle = transitionDialogueState(readyForNewObjective, 'collecting');
+        const prior = existing?.openObjective ?? null;
+        const sameObjective = prior ? objectivesRepresentSameWork(prior, input.objective) : true;
+        const suspendedObjectives = prior && !sameObjective
+            ? [...(existing?.suspendedObjectives ?? []), {
+                objective: prior,
+                lifecycle: existing!.lifecycle,
+                planDigestRef: existing!.currentPlanDigestRef,
+                ambiguities: existing!.ambiguities,
+                pendingClarification: existing!.pendingClarification,
+            }].slice(-DIALOGUE_STATE_LIMITS.maxSuspendedObjectives)
+            : (existing?.suspendedObjectives ?? []);
         const next: AgentDialogueState = {
             ...base,
             lifecycle: nextLifecycle,
             openObjective: input.objective,
+            suspendedObjectives,
             ambiguities: input.ambiguities ?? [],
             pendingClarification: null,
             lastReadContext: null,
@@ -254,6 +268,48 @@ export class AgentDialogueStateService {
             expiresAt: computeExpiry(nextLifecycle, now),
         };
         return this.persist(next, existing ? existing.version : null);
+    }
+
+    resumeObjective(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        suspendedIndex: number;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing) throw new AppError('No dialogue state to resume', 404);
+        this.assertFreshTurn(existing, input.turnSequence);
+        const suspended = existing.suspendedObjectives ?? [];
+        const selected = suspended[input.suspendedIndex];
+        if (!selected) throw new AppError('Suspended dialogue objective not found', 404);
+        const remaining = suspended.filter((_entry, index) => index !== input.suspendedIndex);
+        const nextSuspended = existing.openObjective
+            ? [...remaining, {
+                objective: existing.openObjective,
+                lifecycle: existing.lifecycle,
+                planDigestRef: existing.currentPlanDigestRef,
+                ambiguities: existing.ambiguities,
+                pendingClarification: existing.pendingClarification,
+            }].slice(-DIALOGUE_STATE_LIMITS.maxSuspendedObjectives)
+            : remaining;
+        const nextLifecycle = selected.planDigestRef ? 'plan_pending_authorization' : 'collecting';
+        const next: AgentDialogueState = {
+            ...existing,
+            lifecycle: nextLifecycle,
+            openObjective: selected.objective,
+            suspendedObjectives: nextSuspended,
+            ambiguities: selected.ambiguities,
+            pendingClarification: selected.pendingClarification,
+            currentPlanDigestRef: selected.planDigestRef,
+            currentAuthorizationIdRef: null,
+            lastReadContext: null,
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry(nextLifecycle, now),
+        };
+        return this.persist(next, existing.version);
     }
 
     // Stores only Core-derived read scope so a bounded comparative follow-up
@@ -558,4 +614,14 @@ export class AgentDialogueStateService {
 
 export function createAgentDialogueStateService(deps?: DialogueStateServiceDeps): AgentDialogueStateService {
     return new AgentDialogueStateService(deps);
+}
+
+function objectiveHintKey(values: string[]): string {
+    return values.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean).sort().join('|');
+}
+
+function objectivesRepresentSameWork(left: AgentObjective, right: AgentObjective): boolean {
+    return left.objectiveType === right.objectiveType
+        && objectiveHintKey(left.targetEntities.entityHints) === objectiveHintKey(right.targetEntities.entityHints)
+        && objectiveHintKey(left.targetEntities.personHints) === objectiveHintKey(right.targetEntities.personHints);
 }

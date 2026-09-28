@@ -98,6 +98,15 @@ export interface AgentDialogueState {
     // concurrent dialogue states per actor (one per conversation-or-global
     // bucket), not N objectives inside one row.
     openObjective: AgentObjective | null;
+    // Bounded suspended objectives. These are dialogue proposals plus plan
+    // references only; they never contain canonical evidence or authority.
+    suspendedObjectives: Array<{
+        objective: AgentObjective;
+        lifecycle: DialogueLifecycleState;
+        planDigestRef: string | null;
+        ambiguities: AgentObjectiveAmbiguity[];
+        pendingClarification: ClarificationQuestion | null;
+    }>;
     ambiguities: AgentObjectiveAmbiguity[];
     pendingClarification: ClarificationQuestion | null;
 

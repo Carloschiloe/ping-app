@@ -182,7 +182,8 @@ export async function runAgentTurn(
     // deterministic intent classifier (see looksLikeExplicitEscape), never a
     // new regex family for names.
     const dialogueService = options.dialogueService ?? new AgentDialogueStateService();
-    const existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
+    let existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
+    let resumedSuspendedObjective = false;
     traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_BEFORE', {
         stateFound: !!existingDialogueState,
         lifecycle: existingDialogueState?.lifecycle ?? null,
@@ -409,7 +410,6 @@ export async function runAgentTurn(
             }, traceId);
         }
         if (precomputedSemantic.route === 'write' && isIndependentWriteObjective(pendingPlanCandidate)) {
-            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
             });
@@ -441,6 +441,37 @@ export async function runAgentTurn(
         channel,
         priorReadSummary,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
+
+    // A read-shaped turn can explicitly name a previously suspended objective
+    // (for example, returning to an earlier task after changing topics). The
+    // match is structural over interpreter-provided topic hints and requires a
+    // unique candidate; Core never guesses among equally plausible objectives.
+    if (semantic.route === 'read' && existingDialogueState?.suspendedObjectives?.length) {
+        const topicHints = [
+            ...semantic.interpretation.topicHints,
+            ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
+        ];
+        const candidates = existingDialogueState.suspendedObjectives
+            .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
+            .filter((candidate) => candidate.score > 0)
+            .sort((left, right) => right.score - left.score);
+        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
+            const selected = candidates[0];
+            existingDialogueState = dialogueService.resumeObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                turnId: traceId,
+                turnSequence: (existingDialogueState.lastTurnSequence ?? 0) + 1,
+            });
+            resumedSuspendedObjective = true;
+            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                matchScore: selected.score,
+            });
+        }
+    }
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
@@ -755,7 +786,7 @@ export async function runAgentTurn(
         kind: 'response', sourceRefCount: response.citations?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-    dialogueService.setReadContext({
+    if (!resumedSuspendedObjective) dialogueService.setReadContext({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
         context: context.intent.type === 'commitment_query'
@@ -1175,4 +1206,13 @@ function buildRiskLabel(riskLevel: 'low' | 'medium' | 'high'): string {
         case 'medium': return 'Requiere confirmación explícita';
         case 'high': return 'Acción de alto impacto — confirma con atención';
     }
+}
+
+function suspendedObjectiveMatchScore(objective: AgentObjective, topicHints: string[]): number {
+    const candidates = [
+        ...objective.targetEntities.entityHints,
+        ...objective.targetEntities.personHints,
+    ].map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
+    const hints = topicHints.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
+    return candidates.reduce((score, candidate) => score + (hints.some((hint) => hint.includes(candidate) || candidate.includes(hint)) ? 1 : 0), 0);
 }

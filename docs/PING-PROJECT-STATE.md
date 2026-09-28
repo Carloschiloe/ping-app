@@ -6,17 +6,17 @@ not a conversation log. Update values only after reproducible evidence.
 ```yaml
 PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shared Ping Core: text, voice, memory, context, initiative and tools."
 CURRENT_MILESTONE: M7
-CURRENT_STATE: STAGING_AUTOMATED_CERTIFICATION_PASS_PRIVATE_DB_EVIDENCE_PENDING
-ACTIVE_TASK: "Obtain the non-secret Render startup-log evidence for PING_M7_PRIVATE_DB_CHECK=PASS; keep M7 open until that gate is verified."
-LAST_CERTIFIED_SHA: "08ada9417944364e0082a794fbe5d16dbd487d8e (staging run 36442340938: quality, exact deploy, health and authenticated E2E PASS)"
-STAGING_REMOTE_SHA: 08ada9417944364e0082a794fbe5d16dbd487d8e
-STAGING_DEPLOYED_SHA: "08ada9417944364e0082a794fbe5d16dbd487d8e (run 36442340938; exact SHA health gate PASS)"
-KNOWN_FAILURES: "The automated staging circuit now passes. Earlier failures were harness defects (missing E2E dependencies, banned reusable identity, and durable identity cleanup) and were corrected. Private startup-log evidence remains unverified; the full repository suite still has pre-existing external/environment failures."
-TECHNICAL_DEBT: "The full repository test command contains pre-existing environment/external-suite failures and is not currently a reliable staging gate. Legacy remains. The staging E2E smoke still needs stronger semantic assertions before a final M7 completion candidate."
-SECURITY_DEBT: "Private staging DB startup evidence has not been independently observed from Render logs. GitHub environment branch policy, staging Supabase secrets and the staging-only Render hook are configured; production secrets are not used."
+CURRENT_STATE: STAGING_SEMANTIC_CERTIFICATION_IN_PROGRESS
+ACTIVE_TASK: "Correct the real staging dialogue defect where returning to a suspended objective does not restore its canonical semantic scope; rerun the strong M7 staging assertions on the exact deployed SHA."
+LAST_CERTIFIED_SHA: "07437bb378d6a0abac3e56a495adcc796d9560c6 (quality and exact staging deploy/health PASS; strong semantic E2E exposed a real objective-return defect)"
+STAGING_REMOTE_SHA: 07437bb378d6a0abac3e56a495adcc796d9560c6
+STAGING_DEPLOYED_SHA: "07437bb378d6a0abac3e56a495adcc796d9560c6 (run 36445934701; health/SHA gate PASS, semantic E2E FAIL at objective return)"
+KNOWN_FAILURES: "Strong staging assertions now expose a real product defect: an independent objective replaces the active objective without retaining a bounded suspended objective that a later read turn can restore. Turn 4 remained on the provider objective instead of restoring inventory. Turn 5 correction therefore targeted the wrong objective. The private staging diagnostic PING_M7_PRIVATE_DB_CHECK=PASS was confirmed by the owner."
+TECHNICAL_DEBT: "The full repository test command still has pre-existing local environment failures before test execution (missing Supabase URL/service-role configuration and an unavailable test cleanup export); focused M7 tests and build pass. Legacy remains."
+SECURITY_DEBT: "The owner-confirmed private staging diagnostic is recorded without secrets. Staging-only GitHub/Render controls remain in use; production secrets and data are not used."
 ARCHITECTURAL_DECISIONS: "LLM proposes; Ping Core validates and decides. One Core serves all surfaces. Staging requires quality, exact SHA health, then authenticated E2E."
-BLOCKERS: "HUMAN_GATE_REQUIRED: Render dashboard/log access is needed to verify the non-secret startup line PING_M7_PRIVATE_DB_CHECK=PASS; no Render API/log credential is available to this agent."
-NEXT_ACTION: "In Render, open ping-backend-staging, inspect the latest deployment logs after startup, and verify the exact line PING_M7_PRIVATE_DB_CHECK=PASS without copying any secret."
+BLOCKERS: "No human gate currently. M7 remains open because the strong staging semantic E2E fails on objective return; the fix must pass quality, exact SHA health and the real staging assertions."
+NEXT_ACTION: "Run focused regressions and build, commit the bounded suspended-objective/resume correction, publish only codex/staging-beta, and let the staging certification workflow redeploy and retest."
 PRODUCTION_STATE: "main remote 6825339d062b1233e4d2958c4e80d516d38d375d; production untouched; no production secrets or data used."
 M7_COMPLETE: NO
 ```
