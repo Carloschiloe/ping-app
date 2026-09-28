@@ -49,7 +49,8 @@ jobs:
             tests/agentSemanticInterpreter.regression.test.ts \
             tests/agentObjectiveInterpreter.test.ts \
             tests/agentDialogueContinuation.test.ts \
-            tests/e2eM7StagingIdentity.test.ts
+            tests/e2eM7StagingIdentity.test.ts \
+            tests/e2eM7AgentAssertions.test.ts
         env:
           SUPABASE_URL: https://supabase-ci.invalid
           SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret

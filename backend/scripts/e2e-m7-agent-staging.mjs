@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { selectReusableIdentity } from './e2e-m7-staging-identity.mjs';
+import { assertStrongM7Sequence } from './e2e-m7-agent-assertions.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
@@ -74,6 +75,22 @@ function summarizePayload(payload) {
       : [],
     hasPlan: Boolean(plan || payload.planForConfirmation),
     confirmationRequired: Boolean(payload.requiresConfirmation || payload.planForConfirmation),
+  };
+}
+
+function summarizeObjective(state) {
+  const objective = state?.openObjective;
+  if (!objective || typeof objective !== 'object') return null;
+  return {
+    objectiveType: objective.objectiveType ?? null,
+    entityHints: Array.isArray(objective.targetEntities?.entityHints)
+      ? objective.targetEntities.entityHints : [],
+    personHints: Array.isArray(objective.targetEntities?.personHints)
+      ? objective.targetEntities.personHints : [],
+    timeHint: objective.timeConstraints?.rawHint ?? null,
+    desiredOutcome: objective.desiredOutcome ?? null,
+    decisionHint: objective.constraints?.decisionHint ?? null,
+    source: objective.source ?? null,
   };
 }
 
@@ -158,6 +175,7 @@ async function checkpoint(actorUserId, conversationId) {
     turnSequence: Number(data.last_applied_turn_sequence),
     expiresAt: data.expires_at,
     activeLifecycle: data.active_dialogue?.state?.lifecycle ?? null,
+    activeObjective: summarizeObjective(data.active_dialogue?.state),
     hasObjective: Boolean(data.active_dialogue?.state?.openObjective),
     hasPendingPlan: Boolean(data.active_dialogue?.state?.currentPlanDigestRef),
     referentCount: Array.isArray(data.active_dialogue?.state?.referents)
@@ -207,6 +225,7 @@ async function run() {
       });
       if (response.status !== 200) throw new Error(`Agent turn ${index + 1} failed (${response.status})`);
     }
+    assertStrongM7Sequence(report.turns);
     const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
     if (deleted.status !== 200) throw new Error(`Fixture conversation tombstone failed (${deleted.status})`);
     cleanupDone = true;
