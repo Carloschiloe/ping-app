@@ -143,10 +143,10 @@ export function isExplicitPlanConfirmation(rawTurn: string): boolean {
  */
 export function classifyPendingPlanDecision(
     objective: AgentObjective | null | undefined,
-): 'approve' | 'reject' | null {
+): 'approve' | 'reject' | 'defer' | null {
     if (!objective || objective.objectiveType === 'unsupported') return null;
     const decisionHint = objective.constraints.decisionHint;
-    if (decisionHint !== 'approve' && decisionHint !== 'reject') return null;
+    if (decisionHint !== 'approve' && decisionHint !== 'reject' && decisionHint !== 'defer') return null;
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
     return hasExplicitTarget ? null : decisionHint;

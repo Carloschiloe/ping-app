@@ -26,6 +26,12 @@ describe('M7 pending-plan candidate routing', () => {
         }))).toBe(true);
     });
 
+    it('keeps deferral structurally distinct from rejection', () => {
+        expect(isSelfContainedPendingPlanCandidate(candidate({
+            constraints: { decisionHint: 'defer', draftOnly: false, responsibleHint: null },
+        }))).toBe(true);
+    });
+
     it('accepts a genuinely independent candidate with its own target or time', () => {
         expect(isSelfContainedPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },

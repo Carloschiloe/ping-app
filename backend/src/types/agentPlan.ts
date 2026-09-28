@@ -137,7 +137,7 @@ export interface AgentObjective {
         entityHints: string[];   // raw text naming a commitment/proposal (e.g. "Entrenar"), never an ID
     };
     constraints: {
-        decisionHint?: 'approve' | 'reject' | 'counter_propose' | null; // for respond_to_existing_proposal
+        decisionHint?: 'approve' | 'reject' | 'defer' | 'counter_propose' | null; // pending-plan lifecycle / respond_to_existing_proposal
         draftOnly?: boolean; // true only when the user explicitly asked for a preview, never inferred silently
         responsibleHint?: string | null; // raw text naming who should be responsible for a new commitment
     };

@@ -553,6 +553,29 @@ export class AgentDialogueStateService {
         return this.persist(next, existing.version);
     }
 
+    // Records a conversational turn without changing the active objective,
+    // plan digest, lifecycle, or authorization references. This is used for
+    // semantic deferral: the user postponed a pending plan, so the plan stays
+    // pending while the dialogue sequence remains monotonic.
+    recordTurn(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing) throw new AppError('No dialogue state to record turn', 404);
+        this.assertFreshTurn(existing, input.turnSequence);
+        const next: AgentDialogueState = {
+            ...existing,
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry(existing.lifecycle, now),
+        };
+        return this.persist(next, existing.version);
+    }
+
     // ADR Q5/Q8 — execution completed, or the user abandoned/cancelled, or
     // "olvida eso". Short post-resolution retention applies (ADR Q8), then
     // hard expiry.

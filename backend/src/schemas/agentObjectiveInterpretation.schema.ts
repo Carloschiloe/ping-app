@@ -16,7 +16,7 @@ export const agentObjectiveInterpretationPayloadSchema = z.object({
     personHints: z.array(HINT_STRING).max(5).default([]),
     entityHints: z.array(HINT_STRING).max(5).default([]),
     timeHint: z.string().trim().max(60).nullable().default(null),
-    decisionHint: z.enum(['approve', 'reject', 'counter_propose']).nullable().default(null),
+    decisionHint: z.enum(['approve', 'reject', 'defer', 'counter_propose']).nullable().default(null),
     draftOnly: z.boolean().default(false),
     responsibleHint: z.string().trim().max(80).nullable().default(null),
     // Segundo objetivo condicional (sección 17/18: "pregúntale a X si Y, y

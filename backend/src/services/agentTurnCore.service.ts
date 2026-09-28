@@ -413,6 +413,28 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
+        if (pendingDecision === 'defer') {
+            const turnSequence = (existingDialogueState.lastTurnSequence ?? 0) + 1;
+            dialogueService.recordTurn({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: traceId,
+                turnSequence,
+            });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'semantic_plan_deferral', dialogueScopeKey,
+            });
+            const language = detectAgentLanguage(content, locale);
+            return finalizeAgentTurn({
+                kind: 'clarification',
+                questions: [{
+                    field: 'pending_plan',
+                    question: language === 'es'
+                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
+                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
+                }],
+            }, traceId);
+        }
         if (precomputedSemantic.route === 'write' && isIndependentWriteObjective(pendingPlanCandidate)) {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
