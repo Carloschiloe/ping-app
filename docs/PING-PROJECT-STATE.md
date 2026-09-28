@@ -6,17 +6,17 @@ not a conversation log. Update values only after reproducible evidence.
 ```yaml
 PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shared Ping Core: text, voice, memory, context, initiative and tools."
 CURRENT_MILESTONE: M7
-CURRENT_STATE: GITHUB_SUPABASE_READY_RENDER_HOOK_REQUIRED
-ACTIVE_TASK: "Create the staging-only Render deploy hook, store it in the protected GitHub environment, then run the autonomous staging certification."
-LAST_CERTIFIED_SHA: "6a564b293d51865f7c5fb300a4d1d30e9b3880bb (local M7 candidate; not staging-certified)"
-STAGING_REMOTE_SHA: 3aef08e56f15f8c1cab09b2d46ab4499e90e5ce1
-STAGING_DEPLOYED_SHA: "8304ea0 (last externally confirmed; edb0389 has not been deployed)"
-KNOWN_FAILURES: "The permanent workflow passes quality and stops before deploy because the Render deploy-hook secret is absent. Staging health and E2E gates remain unverified."
-TECHNICAL_DEBT: "The full repository test command contains pre-existing environment/external-suite failures and is not currently a reliable staging gate. Legacy remains."
-SECURITY_DEBT: "The staging-only Render deploy hook is not configured. GitHub environment branch policy and Supabase staging secrets are configured; production secrets are not used."
+CURRENT_STATE: STAGING_AUTOMATED_CERTIFICATION_PASS_PRIVATE_DB_EVIDENCE_PENDING
+ACTIVE_TASK: "Obtain the non-secret Render startup-log evidence for PING_M7_PRIVATE_DB_CHECK=PASS; keep M7 open until that gate is verified."
+LAST_CERTIFIED_SHA: "08ada9417944364e0082a794fbe5d16dbd487d8e (staging run 36442340938: quality, exact deploy, health and authenticated E2E PASS)"
+STAGING_REMOTE_SHA: 08ada9417944364e0082a794fbe5d16dbd487d8e
+STAGING_DEPLOYED_SHA: "08ada9417944364e0082a794fbe5d16dbd487d8e (run 36442340938; exact SHA health gate PASS)"
+KNOWN_FAILURES: "The automated staging circuit now passes. Earlier failures were harness defects (missing E2E dependencies, banned reusable identity, and durable identity cleanup) and were corrected. Private startup-log evidence remains unverified; the full repository suite still has pre-existing external/environment failures."
+TECHNICAL_DEBT: "The full repository test command contains pre-existing environment/external-suite failures and is not currently a reliable staging gate. Legacy remains. The staging E2E smoke still needs stronger semantic assertions before a final M7 completion candidate."
+SECURITY_DEBT: "Private staging DB startup evidence has not been independently observed from Render logs. GitHub environment branch policy, staging Supabase secrets and the staging-only Render hook are configured; production secrets are not used."
 ARCHITECTURAL_DECISIONS: "LLM proposes; Ping Core validates and decides. One Core serves all surfaces. Staging requires quality, exact SHA health, then authenticated E2E."
-BLOCKERS: "HUMAN_GATE_REQUIRED: create the staging-only Render deploy hook and save it as RENDER_STAGING_DEPLOY_HOOK_URL in ping-staging-certification."
-NEXT_ACTION: "Owner performs the single Render action below; then rerun the workflow for codex/staging-beta and inspect evidence."
+BLOCKERS: "HUMAN_GATE_REQUIRED: Render dashboard/log access is needed to verify the non-secret startup line PING_M7_PRIVATE_DB_CHECK=PASS; no Render API/log credential is available to this agent."
+NEXT_ACTION: "In Render, open ping-backend-staging, inspect the latest deployment logs after startup, and verify the exact line PING_M7_PRIVATE_DB_CHECK=PASS without copying any secret."
 PRODUCTION_STATE: "main remote 6825339d062b1233e4d2958c4e80d516d38d375d; production untouched; no production secrets or data used."
 M7_COMPLETE: NO
 ```
@@ -25,8 +25,8 @@ M7_COMPLETE: NO
 
 ```yaml
 HUMAN_GATE_REQUIRED: YES
-REASON: "GitHub Actions has the staging Supabase secrets and branch restriction, but cannot call Render until the owner creates the deploy hook in the authenticated Render interface."
-EVIDENCE: "Runs 36432675368, 36435186799 and 36436391049: quality PASS; deploy step stopped at an empty hook secret; no Render request, health check or E2E occurred."
-OPTIONS: "Create the hook or leave M7 paused. Do not paste the hook URL or any secret into chat."
-RECOMMENDED_NEXT_TECHNICAL_ACTION: "After configuration, rerun the workflow for codex/staging-beta; it will deploy only ping-backend-staging and stop before E2E on any SHA/health mismatch."
+REASON: "The deploy hook is now configured and the permanent circuit is operational, but this session has no authorized Render log/API access to observe the private DB startup diagnostic."
+EVIDENCE: "Run 36442340938: quality PASS, exact staging deploy/health PASS, authenticated /agent/turn E2E PASS, temporary identity cleanup PASS, conversation tombstone PASS, activeMessages=0, agentWriters=0, commitmentMutations=0, messagesCreated=0."
+OPTIONS: "Open the latest ping-backend-staging deployment logs and verify only PING_M7_PRIVATE_DB_CHECK=PASS. Do not paste the URL, database URL or any secret into chat."
+RECOMMENDED_NEXT_TECHNICAL_ACTION: "After the exact log line is verified, update this state and the queue; if it is absent, keep M7 open and diagnose only the private staging configuration."
 ```
