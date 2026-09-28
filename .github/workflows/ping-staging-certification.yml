@@ -1,4 +1,4 @@
-name: M7 staging certification
+name: Ping staging certification
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m7-staging-certification
+  group: ping-staging-certification
   cancel-in-progress: true
 
 env:
@@ -42,7 +42,7 @@ jobs:
         run: npm ci
       - name: TypeScript build
         run: npm run build
-      - name: M7 focused offline regression tests
+      - name: Current milestone focused offline regression tests
         run: |
           export ENCRYPTION_KEY="$(openssl rand -hex 32)"
           npm exec -- vitest run \
@@ -54,12 +54,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
 
   deploy-and-certify:
-    name: Deploy and certify staging
+    name: Deploy and certify Ping staging
     needs: quality
     if: ${{ needs.quality.result == 'success' && github.ref == 'refs/heads/codex/staging-beta' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    environment: m7-staging-certification
+    environment: ping-staging-certification
     steps:
       - name: Checkout workflow commit
         uses: actions/checkout@v4
@@ -108,20 +108,20 @@ jobs:
           done
           echo "Staging did not converge to the exact workflow SHA or health contract." >&2
           exit 1
-      - name: Run authenticated M7 E2E
+      - name: Run current milestone authenticated E2E
         working-directory: backend
         env:
-          M7_STAGING_BASE_URL: ${{ env.STAGING_BASE_URL }}
-          M7_EXPECTED_SHA: ${{ github.sha }}
-          SUPABASE_URL: ${{ secrets.M7_STAGING_SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.M7_STAGING_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.M7_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          PING_STAGING_BASE_URL: ${{ env.STAGING_BASE_URL }}
+          PING_EXPECTED_SHA: ${{ github.sha }}
+          SUPABASE_URL: ${{ secrets.PING_STAGING_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.PING_STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PING_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/e2e-m7-agent-staging.mjs
       - name: Upload M7 evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: m7-staging-evidence-${{ github.sha }}
+          name: ping-staging-evidence-${{ github.sha }}
           path: backend/.m7-smoke-artifacts/staging-agent/*.json
           if-no-files-found: warn
           retention-days: 14

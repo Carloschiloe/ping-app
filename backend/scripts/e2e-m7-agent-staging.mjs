@@ -6,10 +6,10 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
-const BASE_URL = process.env.M7_STAGING_BASE_URL || 'https://ping-backend-staging.onrender.com/api';
+const BASE_URL = process.env.PING_STAGING_BASE_URL || 'https://ping-backend-staging.onrender.com/api';
 const PROJECT_REF = 'oonijgmddgyymhrlnvuu';
 const E2E_EMAIL_PATTERN = 'ping-beta-e2e-%@example.invalid';
-const EXPECTED_SHA = process.env.M7_EXPECTED_SHA || null;
+const EXPECTED_SHA = process.env.PING_EXPECTED_SHA || null;
 const runId = randomUUID();
 const artifactDir = path.resolve(process.cwd(), '.m7-smoke-artifacts', 'staging-agent');
 const artifactPath = path.join(artifactDir, `${runId}.json`);

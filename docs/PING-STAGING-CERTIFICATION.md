@@ -1,6 +1,7 @@
-# M7 staging certification CI
+# Ping staging certification CI
 
-This workflow is the controlled path for `codex/staging-beta` only:
+This workflow is the permanent controlled path for `codex/staging-beta` only.
+M7 is its first current-milestone suite:
 
 `push -> quality gate -> Render deploy hook -> exact health SHA gate -> authenticated /agent/turn E2E -> evidence artifact`
 
@@ -12,8 +13,10 @@ quality job succeeds.
 ## Exact gates
 
 1. GitHub checks out the pushed commit and runs the backend build plus the
-   focused M7 semantic/dialogue regression suite. The normal repository CI
-   remains a separate quality signal for pull requests and `main`.
+   focused current-milestone semantic/dialogue regression suite. M7 currently
+   supplies that suite; future milestones extend the same gate. The normal
+   repository CI remains a separate quality signal for pull requests and
+   `main`.
 2. The deploy job verifies that `codex/staging-beta` still points to the
    workflow SHA before calling the staging-only Render deploy hook.
 3. `/api/health` must report `ok: true`, `db_status: connected`,
@@ -29,15 +32,15 @@ copy secrets into artifacts. `backend/.m7-smoke-artifacts/` is ignored by Git.
 
 ## Required one-time owner configuration
 
-Create the GitHub environment `m7-staging-certification` and add these
+Create the GitHub environment `ping-staging-certification` and add these
 environment secrets. Values must belong only to Supabase project
 `oonijgmddgyymhrlnvuu`:
 
 - `RENDER_STAGING_DEPLOY_HOOK_URL`: a deploy hook created on Render service
   `ping-backend-staging`.
-- `M7_STAGING_SUPABASE_URL`
-- `M7_STAGING_SUPABASE_ANON_KEY`
-- `M7_STAGING_SUPABASE_SERVICE_ROLE_KEY`
+- `PING_STAGING_SUPABASE_URL`
+- `PING_STAGING_SUPABASE_ANON_KEY`
+- `PING_STAGING_SUPABASE_SERVICE_ROLE_KEY`
 
 The service-role key is used only by the isolated E2E to select the existing
 reusable test identity and verify/tombstone its temporary conversation. It is
