@@ -6,12 +6,12 @@ not a conversation log. Update values only after reproducible evidence.
 ```yaml
 PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shared Ping Core: text, voice, memory, context, initiative and tools."
 CURRENT_MILESTONE: M7
-CURRENT_STATE: QUALITY_GATE_PASS_EXTERNAL_CONFIG_REQUIRED
+CURRENT_STATE: GENERALIZED_GATE_PUBLISHED_EXTERNAL_CONFIG_REQUIRED
 ACTIVE_TASK: "Complete the one-time GitHub/Render staging gate configuration, then run the autonomous staging certification."
 LAST_CERTIFIED_SHA: "6a564b293d51865f7c5fb300a4d1d30e9b3880bb (local M7 candidate; not staging-certified)"
-STAGING_REMOTE_SHA: edb03895e7abbda5b4e5e5bb7d5b704abed74f0c
+STAGING_REMOTE_SHA: c94a1c2228f5f9ecbbfcd0b9ab2ac24d96c39f38
 STAGING_DEPLOYED_SHA: "8304ea0 (last externally confirmed; edb0389 has not been deployed)"
-KNOWN_FAILURES: "The first permanent workflow run passed quality and stopped before deploy because the Render deploy-hook secret was absent. Last staging E2E evidence still has unclosed M7 conversational gates."
+KNOWN_FAILURES: "The permanent workflow's first run passed quality and stopped before deploy because the Render deploy-hook secret was absent. The generalized workflow is now published; staging E2E gates remain unverified."
 TECHNICAL_DEBT: "The full repository test command contains pre-existing environment/external-suite failures and is not currently a reliable staging gate. Legacy remains."
 SECURITY_DEBT: "The permanent GitHub environment and staging-only E2E credentials are not configured. Production secrets are not used."
 ARCHITECTURAL_DECISIONS: "LLM proposes; Ping Core validates and decides. One Core serves all surfaces. Staging requires quality, exact SHA health, then authenticated E2E."
@@ -30,4 +30,3 @@ EVIDENCE: "Run 36432675368: quality PASS; deploy step stopped at an empty RENDER
 OPTIONS: "Configure the protected environment, or leave M7 paused. Do not paste secret values into chat."
 RECOMMENDED_NEXT_TECHNICAL_ACTION: "After configuration, rerun the workflow for codex/staging-beta; it will deploy only ping-backend-staging and stop before E2E on any SHA/health mismatch."
 ```
-
