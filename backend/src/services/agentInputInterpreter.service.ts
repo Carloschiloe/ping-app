@@ -85,7 +85,10 @@ function wordBounded(alternatives: string): RegExp {
 // tilde, artículo -- ya en STOPWORDS) -- una clase de caracteres [eé] aquí
 // habría matcheado también el artículo desacentuado, un falso positivo real
 // encontrado durante el testing (ej. "el héroe llegó").
-const THIRD_PERSON_PRONOUN_PATTERN = wordBounded('él|ella|ellos|ellas|he|she|they|him|her|them');
+const THIRD_PERSON_PRONOUN_PATTERN = wordBounded(
+    'él|ella|ellos|ellas|he|she|they|him|her|them'
+    + '|(?:esa|ese|aquella|aquel)\\s+person(?:a|as)',
+);
 export function containsThirdPersonPronoun(rawInput: string): boolean {
     return THIRD_PERSON_PRONOUN_PATTERN.test(rawInput);
 }

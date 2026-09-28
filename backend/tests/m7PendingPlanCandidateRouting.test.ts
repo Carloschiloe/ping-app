@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
 import { isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
+import { containsThirdPersonPronoun } from '../src/services/agentInputInterpreter.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
     return {
@@ -36,5 +37,10 @@ describe('M7 pending-plan candidate routing', () => {
         expect(isSelfContainedPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
         }))).toBe(true);
+    });
+
+    it('treats demonstrative person references as unresolved until Core authorizes an antecedent', () => {
+        expect(containsThirdPersonPronoun('Hazlo con esa persona.')).toBe(true);
+        expect(containsThirdPersonPronoun('Hazlo con esa tarea.')).toBe(false);
     });
 });
