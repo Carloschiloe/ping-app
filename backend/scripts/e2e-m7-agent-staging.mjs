@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { selectReusableIdentity } from './e2e-m7-staging-identity.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
@@ -75,10 +76,13 @@ function summarizePayload(payload) {
 
 async function findIdentity() {
   const { data, error } = await admin.from('profiles').select('id,email')
-    .like('email', E2E_EMAIL_PATTERN).order('created_at', { ascending: true }).limit(1);
+    .like('email', E2E_EMAIL_PATTERN).order('created_at', { ascending: true }).limit(100);
   if (error) throw error;
-  if (!data?.[0]?.email) throw new Error('A reusable staging E2E identity is required');
-  return data[0];
+  const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (listed.error) throw listed.error;
+  const identity = selectReusableIdentity(data, listed.data?.users);
+  if (!identity) throw new Error('An eligible reusable staging E2E identity is required');
+  return identity;
 }
 
 async function loginWithMagicLink(email) {
