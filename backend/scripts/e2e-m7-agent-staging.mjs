@@ -84,7 +84,13 @@ async function findIdentity() {
   const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (listed.error) throw listed.error;
   const identity = selectReusableIdentity(data, listed.data?.users);
-  if (identity) return { ...identity, temporary: false };
+  if (identity) {
+    const authUser = listed.data?.users?.find((user) => user.id === identity.id);
+    return {
+      ...identity,
+      temporary: Boolean(authUser?.user_metadata?.e2e_run),
+    };
+  }
 
   const email = `ping-beta-e2e-${runId}@example.invalid`;
   const created = await admin.auth.admin.createUser({

@@ -45,10 +45,11 @@ jobs:
       - name: Current milestone focused offline regression tests
         run: |
           export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-          npm exec -- vitest run \
+            npm exec -- vitest run \
             tests/agentSemanticInterpreter.regression.test.ts \
             tests/agentObjectiveInterpreter.test.ts \
-            tests/agentDialogueContinuation.test.ts
+            tests/agentDialogueContinuation.test.ts \
+            tests/e2eM7StagingIdentity.test.ts
         env:
           SUPABASE_URL: https://supabase-ci.invalid
           SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
