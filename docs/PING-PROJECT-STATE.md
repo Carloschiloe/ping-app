@@ -27,8 +27,8 @@ M8_SPIKE_EVIDENCE: "Run 36460732619; artifact ping-staging-evidence-c62c94aa5bda
 
 ```yaml
 HUMAN_GATE_REQUIRED: YES
-REASON: "M7 was accepted externally. A new architecture/product gate is required before implementing M8 Voice and Natural Conversation."
-EVIDENCE: "M7_ACCEPTED by external architect/product review. Run 36455165934 / artifact ping-staging-evidence-8bbd6b58a293865cfb12c5c7afaaa8da003e3525 (id 10985332620): exact deployed SHA 8bbd6b5, health gate PASS, eight-turn strong semantic E2E PASS, safe ambiguity clarification, active objective preserved, pending plan invalidated, agentWriters=0, commitmentMutations=0, messagesCreated=0, temporary identity cleanup PASS. Owner confirmation: PING_M7_PRIVATE_DB_CHECK=PASS. Prior run 36442340938 supplies authenticated persistence/reload/conversation/tombstone safety evidence."
-OPTIONS: "Accept the proposed M8 scope, revise its product/architecture boundaries, or defer M8."
-RECOMMENDED_NEXT_TECHNICAL_ACTION: "Review docs/M8-ARCHITECTURE-PRODUCT-PROPOSAL.md; do not implement M8, merge to main or deploy production before acceptance."
+REASON: "M8 direction is accepted, but real bidirectional voice measurement requires an iPhone-capable live-voice build and an authorized staging provider session. Expo Go cannot prove spoken output or barge-in."
+EVIDENCE: "M8 provider-neutral contract and four offline invariants pass; staging quality/deploy/health/SHA/authenticated E2E pass on run 36460732619 for c62c94a, artifact ping-staging-evidence-c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8 (id 10987356720). Current runtime remains batch capture/transcription with visual response; no provider has been selected."
+OPTIONS: "Open the staging voice-capable iPhone build for the controlled measurement, or explicitly defer the real-voice spike."
+RECOMMENDED_NEXT_TECHNICAL_ACTION: "Open the staging voice-capable iPhone build and perform one controlled session: speak a read-only question, ask a follow-up, interrupt Ping while speaking, then propose an action and verify confirmation is required. Record the requested latency, quality, privacy, cost and fallback evidence."
 ```
