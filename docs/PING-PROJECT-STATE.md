@@ -6,29 +6,29 @@ not a conversation log. Update values only after reproducible evidence.
 ```yaml
 PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shared Ping Core: text, voice, memory, context, initiative and tools."
 CURRENT_MILESTONE: M8
-CURRENT_STATE: M8_STAGING_LIVE_CANDIDATE_PUBLISHED_IOS_BUILD_BLOCKED
-ACTIVE_TASK: "Obtain the missing iOS internal-distribution credentials for the staging bundle, then create the staging iPhone build and collect the first real provider/device measurement without selecting a winner from documentation alone."
-LAST_CERTIFIED_SHA: "b512ab7abe2d1c14ea4be8f97d0bffc0786bf644 (run 36468278881: quality PASS, exact staging deploy/health PASS, authenticated staging E2E PASS)"
-STAGING_REMOTE_SHA: b512ab7abe2d1c14ea4be8f97d0bffc0786bf644
-STAGING_DEPLOYED_SHA: "b512ab7abe2d1c14ea4be8f97d0bffc0786bf644 (run 36468278881; /api/health ok/db connected/commit b512ab7/deployment_marker ping-backend-staging; artifact ping-staging-evidence-b512ab7abe2d1c14ea4be8f97d0bffc0786bf644, id 10990102488)"
-KNOWN_FAILURES: "No failure in the current strong staging sequence. Prior write-path demonstrative-person ambiguity defect is corrected and the exact E2E now returns safe clarification while preserving the active objective and clearing the stale plan digest. Broad repository test execution still has pre-existing local Supabase/test-environment failures before test execution; this does not invalidate the focused gate."
+CURRENT_STATE: M8_EXPO_GO_CANDIDATE_DEPLOYED_STAGING_GATE_BLOCKED
+ACTIVE_TASK: "Make the staging live-voice gate observable, verify the HTTPS WebView client route, then run the first concrete Expo Go iPhone measurement of user-to-Ping voice, Core continuity and barge-in."
+LAST_CERTIFIED_SHA: "eb82cefb31466f5d1f3d15e349451c012cf62c70 (run 36473614241: quality PASS, exact staging deploy/health PASS, authenticated staging E2E PASS)"
+STAGING_REMOTE_SHA: eb82cefb31466f5d1f3d15e349451c012cf62c70
+STAGING_DEPLOYED_SHA: "eb82cefb31466f5d1f3d15e349451c012cf62c70 (run 36473614241; /api/health ok/db connected/commit eb82cef/deployment_marker ping-backend-staging; live client route probe returned HTTP 404)"
+KNOWN_FAILURES: "The public staging probe for /api/agent/voice/live/client returns HTTP 404 while /api/health is healthy. The route is deliberately gated by the staging runtime and M8_LIVE_VOICE_ENABLED; the public response proves the live-voice gate is not observably active, but does not expose which private environment value is absent. No physical Expo Go voice measurement has occurred."
 TECHNICAL_DEBT: "The full repository test command still has pre-existing local environment failures before test execution (missing Supabase URL/service-role configuration and an unavailable test cleanup export); focused M7 tests and build pass. Legacy remains."
 SECURITY_DEBT: "The owner-confirmed private staging diagnostic is recorded without secrets. Staging-only GitHub/Render controls remain in use; production secrets and data are not used."
 ARCHITECTURAL_DECISIONS: "LLM proposes; Ping Core validates and decides. One Core serves all surfaces. Staging requires quality, exact SHA health, then authenticated E2E."
-BLOCKERS: "HUMAN_GATE_REQUIRED: EAS authenticated as carloschiloe, but no iOS distribution credentials are available for internal bundle com.carloschiloe.ping.staging. The candidate is deployed and healthy in staging; the cloud build cannot start until those Apple/EAS credentials exist. M7 is closed; production remains outside the loop."
-NEXT_ACTION: "Create/attach the iOS distribution certificate and provisioning profile for com.carloschiloe.ping.staging in EAS, rerun the staging-ios build, then collect automatic latency/quality/interruption/privacy/cost/fallback evidence before selecting the adapter."
+BLOCKERS: "HUMAN_GATE_REQUIRED: staging live-voice gate is not observably active: GET /api/agent/voice/live/client returns HTTP 404 on deployed eb82cef. Render authenticated access is unavailable in this session, so the private runtime gate cannot be verified or changed safely. This is not an Apple credential blocker: the candidate is designed to run in Expo Go through the included HTTPS WebView path."
+NEXT_ACTION: "In the Render service ping-backend-staging, verify the staging runtime gate required by the deployed client route is active (M8_LIVE_VOICE_ENABLED=true with PING_ENVIRONMENT=staging), save/redeploy only staging, then confirm the client route returns 200 before the iPhone Expo Go test."
 PRODUCTION_STATE: "main remote 6825339d062b1233e4d2958c4e80d516d38d375d; production untouched; no production secrets or data used."
 M7_COMPLETE: YES
-M8_SPIKE_STATUS: "provider-neutral contract/offline invariants implemented; staging-only realtime_webrtc_core_bridge candidate and sanitized telemetry added; provider winner remains unselected pending physical evidence"
-M8_SPIKE_EVIDENCE: "Run 36468278881; quality/deploy/health/authenticated E2E PASS for b512ab7abe2d1c14ea4be8f97d0bffc0786bf644; artifact ping-staging-evidence-b512ab7abe2d1c14ea4be8f97d0bffc0786bf644 (id 10990102488)."
+M8_SPIKE_STATUS: "provider-neutral contract/offline invariants implemented; user-to-Ping realtime_webrtc_core_bridge candidate deployed to staging; Expo Go path is technically available in the candidate but the staging live-voice gate is not yet observable; provider winner remains unselected"
+M8_SPIKE_EVIDENCE: "Run 36473614241; quality/deploy/health/authenticated E2E PASS for eb82cefb31466f5d1f3d15e349451c012cf62c70; /api/health reported ok/db connected/commit eb82cef/deployment_marker ping-backend-staging; public /api/agent/voice/live/client probe returned HTTP 404; no Apple build or physical voice result claimed."
 ```
 
 ## Current human gate
 
 ```yaml
 HUMAN_GATE_REQUIRED: YES
-REASON: "EAS build staging-ios reached remote credential resolution but stopped because no iOS distribution credentials suitable for internal distribution were available for com.carloschiloe.ping.staging. Spoken output and barge-in still require the resulting iPhone build; Expo Go cannot prove those properties."
-EVIDENCE: "Run 36468278881 passed quality, exact staging deploy/health and authenticated E2E for b512ab7; artifact 10990102488. Offline M8 contract/live-voice tests and backend/mobile TypeScript pass. EAS account carloschiloe is authenticated; no credentials were created or changed by the agent."
-OPTIONS: "In EAS, create/attach the iOS distribution certificate and provisioning profile for com.carloschiloe.ping.staging, then rerun the authorized staging-ios build; or defer the live-voice spike."
-RECOMMENDED_NEXT_TECHNICAL_ACTION: "Open EAS iOS credentials for project mobile and create/attach internal-distribution credentials for com.carloschiloe.ping.staging; then the agent can rerun the staging-ios build and the user only needs to open the generated app and speak."
+REASON: "The deployed staging client route returns HTTP 404, indicating the private staging live-voice gate is not observably active. Render authenticated access is unavailable in this session; changing the runtime gate without that access would be unsafe."
+EVIDENCE: "Run 36473614241 passed quality, exact staging deploy/health and authenticated E2E for eb82cef; /api/health returned ok=true, db_status=connected, commit=eb82cef, deployment_marker=ping-backend-staging at 2026-09-28T20:09:03Z. GET /api/agent/voice/live/client returned HTTP 404 at 2026-09-28T20:09:04Z. The code gate requires PING_ENVIRONMENT=staging and M8_LIVE_VOICE_ENABLED=true."
+OPTIONS: "In Render, open ping-backend-staging → Environment and verify M8_LIVE_VOICE_ENABLED=true and PING_ENVIRONMENT=staging, save/redeploy only that service, then provide the resulting healthy deployment for route verification. No Apple credential action is requested at this stage."
+RECOMMENDED_NEXT_TECHNICAL_ACTION: "Verify the two private staging gate values in ping-backend-staging and redeploy only staging; once the client route returns 200, run the single short Expo Go measurement."
 ```

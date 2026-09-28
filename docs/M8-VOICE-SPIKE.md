@@ -1,6 +1,6 @@
 # Ping M8 — Technical Voice Spike
 
-Status: `STAGING_CANDIDATE_READY_FOR_MEASURED_PROVIDER_COMPARISON`
+Status: `STAGING_CANDIDATE_DEPLOYED_EXPO_GO_GATE_BLOCKED`
 
 The product/architecture gate accepted the following direction: M8 must reach
 natural, bidirectional, real-time and interruptible voice over the existing
@@ -29,6 +29,20 @@ Sanitized session, Core disposition, confirmation, interruption, fallback and
 side-effect counters are sent to the staging-only in-memory telemetry route.
 This is a measurement candidate, not a provider selection or production
 cutover.
+
+## Current staging evidence
+
+Commit `eb82cefb31466f5d1f3d15e349451c012cf62c70` passed the permanent
+staging quality/deploy/authenticated E2E workflow (`36473614241`). Health
+reported `ok=true`, connected database, exact commit `eb82cef` and marker
+`ping-backend-staging`. The public client route
+`/api/agent/voice/live/client` returned HTTP 404, so no Expo Go or provider
+measurement is claimed yet. The code path is not Agora: its only Core turn
+boundary is authenticated `/agent/turn`; Agora remains a separate legacy
+user-to-user call surface. The candidate uses the existing Expo Go-compatible
+`react-native-webview` package and browser WebRTC APIs from an HTTPS staging
+origin, but the physical iPhone test remains pending until the private
+staging gate is observable.
 
 ## Spike boundary
 

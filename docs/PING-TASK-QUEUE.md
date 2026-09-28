@@ -12,8 +12,8 @@ evidence; a green unit test alone does not close a milestone.
 | P1 | BUG | Correct the real staging objective-switch/return defect structurally and recertify only staging | DONE | Commit bdcf94e; run 36453502120 Turn 8 returns safe clarification, preserves the active objective, clears the pending plan digest and records turn 8; no side effects |
 | P2 | QUALITY / TECHNICAL_DEBT | Separate or repair pre-existing full-suite environment failures without weakening the staging gate | DEFERRED | Baseline comparison and reproducible CI result |
 | P2 | QUALITY | Strengthen the staging smoke's semantic assertions for objective switch, return, correction, slot isolation, confirmation binding and ambiguity | DONE | Commit 07437bb added strong assertions; the exact staging run executed them and correctly rejected the real objective-return defect |
-| P3 | PRODUCT / ARCHITECTURE | Execute the M8 voice transport spike and select architecture from evidence | BLOCKED_BY_HUMAN_GATE | Candidate b512ab7 published and certified on staging by run 36468278881; iOS build stopped because EAS has no internal-distribution credentials for `com.carloschiloe.ping.staging`; provider winner remains unselected |
-| P4 | QUALITY / CERTIFICATION | Certify the selected live voice adapter on staging and iPhone | BLOCKED_BY_P3 | Requires measured provider choice, staging-only adapter and physical spoken-response evidence |
+| P3 | PRODUCT / ARCHITECTURE | Execute the M8 voice transport spike and select architecture from evidence | BLOCKED_BY_STAGING_GATE | Candidate eb82cef published and certified on staging by run 36473614241; health/SHA/authenticated E2E pass, but `/api/agent/voice/live/client` returns HTTP 404 because the private live-voice gate is not observably active; Expo Go remains the intended test surface and no provider winner is selected |
+| P4 | QUALITY / CERTIFICATION | Certify the selected live voice adapter on staging and iPhone | BLOCKED_BY_P3 | Requires the staging client route to return 200, then physical user↔Ping spoken output, continuity, interruption and zero-side-effect evidence |
 
 ## Queue rules
 
