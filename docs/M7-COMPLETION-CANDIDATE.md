@@ -3,12 +3,12 @@
 ```yaml
 MILESTONE: M7
 STATUS: PROPOSED_NOT_ACCEPTED
-SHA: 83c722c9049706b367ebfb1b498947aa9f61ca98
+SHA: 8bbd6b58a293865cfb12c5c7afaaa8da003e3525
 SCOPE_CERTIFIED: "Natural written-language interpretation and guarded multi-turn objective state on the shared Ping Core; objective switch, return, date correction, confirmation binding, deferral, unresolved person ambiguity, canonical state preservation and side-effect safety."
 UNIT_AND_REGRESSION_EVIDENCE: "Focused M7 tests 46/46 PASS; TypeScript build PASS; prior focused regressions 33/33 PASS."
-STAGING_DEPLOYED_SHA: 83c722c9049706b367ebfb1b498947aa9f61ca98
-STAGING_HEALTH: "PASS in workflow 36454609904: ok=true, db connected, staging marker and exact workflow SHA verified before E2E."
-STAGING_E2E: "PASS in workflow 36454609904, artifact 42e0cfaf-a369-4196-ac48-57c3fa9cb422. Eight authenticated turns passed: switch, safe return, correction, confirmation, deferral and unresolved demonstrative-person clarification."
+STAGING_DEPLOYED_SHA: 8bbd6b58a293865cfb12c5c7afaaa8da003e3525
+STAGING_HEALTH: "PASS in workflow 36455165934: ok=true, db connected, staging marker and exact workflow SHA verified before E2E."
+STAGING_E2E: "PASS in workflow 36455165934, artifact ping-staging-evidence-8bbd6b58a293865cfb12c5c7afaaa8da003e3525 (id 10985332620). Eight authenticated turns passed: switch, safe return, correction, confirmation, deferral and unresolved demonstrative-person clarification."
 PERSISTENCE_AND_RELOAD: "PASS from prior authenticated staging run 36442340938: checkpoint/reload, conversation tombstone and cleanup verified."
 SECURITY_INVARIANTS: "PASS: owner confirmed PING_M7_PRIVATE_DB_CHECK=PASS; current artifact agentWriters=0, commitmentMutations=0, messagesCreated=0; temporary identity created=1/deleted=1, userGrowth=0, identitiesRetained=0, identitiesModified=0."
 KNOWN_FAILURES: "No failure in the current certified sequence."
