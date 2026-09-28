@@ -8,9 +8,9 @@ PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shar
 CURRENT_MILESTONE: M8
 CURRENT_STATE: M8_VOICE_SPIKE_IN_PROGRESS
 ACTIVE_TASK: "Measure live voice transport candidates against the provider-neutral Core/session contract; do not select a provider or enable runtime until evidence exists."
-LAST_CERTIFIED_SHA: "8bbd6b58a293865cfb12c5c7afaaa8da003e3525 (run 36455165934: quality PASS, exact staging deploy/health PASS, authenticated semantic E2E PASS)"
-STAGING_REMOTE_SHA: 8bbd6b58a293865cfb12c5c7afaaa8da003e3525
-STAGING_DEPLOYED_SHA: "8bbd6b58a293865cfb12c5c7afaaa8da003e3525 (run 36455165934; health/SHA gate PASS, artifact ping-staging-evidence-8bbd6b58a293865cfb12c5c7afaaa8da003e3525, id 10985332620; docs-only wrapper over runtime candidate bdcf94e)"
+LAST_CERTIFIED_SHA: "c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8 (run 36460732619: quality PASS, exact staging deploy/health PASS, authenticated staging E2E PASS)"
+STAGING_REMOTE_SHA: c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8
+STAGING_DEPLOYED_SHA: "c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8 (run 36460732619; health/SHA gate PASS, artifact ping-staging-evidence-c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8, id 10987356720; M8 spike-only change, no runtime provider enabled)"
 KNOWN_FAILURES: "No failure in the current strong staging sequence. Prior write-path demonstrative-person ambiguity defect is corrected and the exact E2E now returns safe clarification while preserving the active objective and clearing the stale plan digest. Broad repository test execution still has pre-existing local Supabase/test-environment failures before test execution; this does not invalidate the focused gate."
 TECHNICAL_DEBT: "The full repository test command still has pre-existing local environment failures before test execution (missing Supabase URL/service-role configuration and an unavailable test cleanup export); focused M7 tests and build pass. Legacy remains."
 SECURITY_DEBT: "The owner-confirmed private staging diagnostic is recorded without secrets. Staging-only GitHub/Render controls remain in use; production secrets and data are not used."
@@ -19,7 +19,8 @@ BLOCKERS: "No human gate currently open. Provider selection, live transport impl
 NEXT_ACTION: "Run the controlled provider spike defined in docs/M8-VOICE-SPIKE.md, record real versus synthetic evidence, then choose the smallest staging-only adapter that preserves the existing Ping Core."
 PRODUCTION_STATE: "main remote 6825339d062b1233e4d2958c4e80d516d38d375d; production untouched; no production secrets or data used."
 M7_COMPLETE: YES
-M8_SPIKE_STATUS: "provider-neutral contract and offline invariants implemented; no live provider selected; no runtime voice path changed"
+M8_SPIKE_STATUS: "provider-neutral contract and offline invariants implemented; staging CI/deploy/E2E passed on c62c94a; no live provider selected; no runtime voice path changed"
+M8_SPIKE_EVIDENCE: "Run 36460732619; artifact ping-staging-evidence-c62c94aa5bdab601e8e2d8c2bc720c023f22dbe8 (id 10987356720)."
 ```
 
 ## Current human gate
