@@ -12,7 +12,8 @@ evidence; a green unit test alone does not close a milestone.
 | P1 | BUG | Correct the real staging objective-switch/return defect structurally and recertify only staging | DONE | Commit bdcf94e; run 36453502120 Turn 8 returns safe clarification, preserves the active objective, clears the pending plan digest and records turn 8; no side effects |
 | P2 | QUALITY / TECHNICAL_DEBT | Separate or repair pre-existing full-suite environment failures without weakening the staging gate | DEFERRED | Baseline comparison and reproducible CI result |
 | P2 | QUALITY | Strengthen the staging smoke's semantic assertions for objective switch, return, correction, slot isolation, confirmation binding and ambiguity | DONE | Commit 07437bb added strong assertions; the exact staging run executed them and correctly rejected the real objective-return defect |
-| P3 | PRODUCT / ARCHITECTURE | Review the M8 Voice and Natural Conversation proposal after M7 acceptance | READY_FOR_GATE | M7 accepted externally; review `docs/M8-ARCHITECTURE-PRODUCT-PROPOSAL.md` before any implementation |
+| P3 | PRODUCT / ARCHITECTURE | Execute the M8 voice transport spike and select architecture from evidence | IN_PROGRESS | Product gate accepted; provider-neutral contract/tests in `docs/M8-VOICE-SPIKE.md`, real provider measurements still pending |
+| P4 | QUALITY / CERTIFICATION | Certify the selected live voice adapter on staging and iPhone | BLOCKED_BY_P3 | Requires measured provider choice, staging-only adapter and physical spoken-response evidence |
 
 ## Queue rules
 

@@ -2,9 +2,9 @@
 
 ```yaml
 MILESTONE: M8
-STATUS: PROPOSAL_REQUIRES_ARCHITECTURE_PRODUCT_GATE
+STATUS: GATE_ACCEPTED_SPIKE_IN_PROGRESS
 PREVIOUS_MILESTONE: "M7 accepted and complete"
-IMPLEMENTATION_STARTED: NO
+IMPLEMENTATION_STARTED: SPIKE_ONLY_NO_RUNTIME_PROVIDER
 NORTH_STAR_ALIGNMENT: "Natural horizontal assistance over one Ping Core, with context, references, corrections, useful memory, controlled initiative and safe actions."
 ```
 
@@ -40,15 +40,9 @@ state and authorization model.
 
 ## Decisions required at the gate
 
-1. Transport and session model: push-to-talk first, streaming session, or a
-   staged combination.
-2. Speech architecture: separate transcription/synthesis services versus a
-   realtime provider path, including provider failure behavior.
-3. Interruption and turn ownership: how barge-in, cancellation and duplicate
-   audio are represented in the existing conversation lifecycle.
-4. Privacy and retention: microphone consent, audio/transcript retention,
-   deletion and observability boundaries.
-5. Rollout: local/iPhone staging criteria, feature flag and rollback plan.
+The gate accepted the objective and boundaries. The technical choices remain
+open until the measured spike in `docs/M8-VOICE-SPIKE.md` provides evidence for
+transport, speech architecture, interruption, privacy, cost and rollout.
 
 ## Proposed exit evidence
 
@@ -71,4 +65,6 @@ state and authorization model.
 3. Implement behind a staging-only feature boundary.
 4. Certify on iPhone, then decide whether a later device milestone is ready.
 
-Until step 1 is accepted, M8 remains a proposal only.
+The product/architecture gate is accepted. M8 remains in spike mode until a
+provider is selected from measured evidence and a staging-only implementation
+passes the safety and real-iPhone criteria above.
