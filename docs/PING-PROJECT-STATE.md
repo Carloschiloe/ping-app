@@ -9,7 +9,7 @@ CURRENT_MILESTONE: M7
 CURRENT_STATE: GITHUB_SUPABASE_READY_RENDER_HOOK_REQUIRED
 ACTIVE_TASK: "Create the staging-only Render deploy hook, store it in the protected GitHub environment, then run the autonomous staging certification."
 LAST_CERTIFIED_SHA: "6a564b293d51865f7c5fb300a4d1d30e9b3880bb (local M7 candidate; not staging-certified)"
-STAGING_REMOTE_SHA: c94a1c2228f5f9ecbbfcd0b9ab2ac24d96c39f38
+STAGING_REMOTE_SHA: 3aef08e56f15f8c1cab09b2d46ab4499e90e5ce1
 STAGING_DEPLOYED_SHA: "8304ea0 (last externally confirmed; edb0389 has not been deployed)"
 KNOWN_FAILURES: "The permanent workflow passes quality and stops before deploy because the Render deploy-hook secret is absent. Staging health and E2E gates remain unverified."
 TECHNICAL_DEBT: "The full repository test command contains pre-existing environment/external-suite failures and is not currently a reliable staging gate. Legacy remains."
@@ -26,7 +26,7 @@ M7_COMPLETE: NO
 ```yaml
 HUMAN_GATE_REQUIRED: YES
 REASON: "GitHub Actions has the staging Supabase secrets and branch restriction, but cannot call Render until the owner creates the deploy hook in the authenticated Render interface."
-EVIDENCE: "Runs 36432675368 and 36435186799: quality PASS; deploy step stopped at an empty hook secret; no Render request, health check or E2E occurred."
+EVIDENCE: "Runs 36432675368, 36435186799 and 36436391049: quality PASS; deploy step stopped at an empty hook secret; no Render request, health check or E2E occurred."
 OPTIONS: "Create the hook or leave M7 paused. Do not paste the hook URL or any secret into chat."
 RECOMMENDED_NEXT_TECHNICAL_ACTION: "After configuration, rerun the workflow for codex/staging-beta; it will deploy only ping-backend-staging and stop before E2E on any SHA/health mismatch."
 ```
