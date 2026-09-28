@@ -38,6 +38,10 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: M8_LIVE_VOICE_ENABLED
+        value: "true"
+      - key: M8_LIVE_VOICE_MODEL
+        value: "gpt-realtime-2.1"
       - key: AGORA_APP_ID
         sync: false
       - key: AGORA_APP_CERTIFICATE

@@ -21,6 +21,7 @@ import * as agentTurnController from '../controllers/agentTurn.controller';
 import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
+import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import * as agentDeviceTraceDebugController from '../controllers/agentDeviceTraceDebug.controller';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -31,6 +32,7 @@ import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
 import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
 import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
+import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import * as groupSchema from '../schemas/group.schema';
@@ -327,6 +329,29 @@ router.post(
     agentVoiceController.agentVoiceRawBodyError,
     validateRequest(agentVoiceTranscriptionRequestSchema),
     agentVoiceController.transcribe,
+);
+
+// M-8 measured candidate: provider-backed WebRTC session broker. It is
+// staging-only, keeps the provider credential on the backend, and routes
+// every semantic turn back through the existing /agent/turn Core boundary.
+router.post(
+    '/agent/voice/live/session',
+    requireAuth,
+    agentVoiceRateLimiter,
+    validateRequest(m8LiveVoiceSessionSchema),
+    m8LiveVoiceController.createSession,
+);
+router.post(
+    '/agent/voice/live/telemetry',
+    requireAuth,
+    agentVoiceRateLimiter,
+    validateRequest(m8LiveVoiceTelemetrySchema),
+    m8LiveVoiceController.telemetry,
+);
+router.get(
+    '/agent/voice/live/telemetry/:voiceSessionId',
+    requireAuth,
+    m8LiveVoiceController.readTelemetry,
 );
 
 router.post(

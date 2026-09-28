@@ -7,6 +7,7 @@
  */
 export type M8VoiceTransport =
     | 'gpt_live_webrtc'
+    | 'realtime_webrtc_core_bridge'
     | 'realtime_webrtc_sideband'
     | 'gpt_live_websocket'
     | 'chained_batch';

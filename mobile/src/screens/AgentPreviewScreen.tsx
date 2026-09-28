@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
@@ -34,6 +35,7 @@ import {
 } from '../utils/agentTurnState';
 import { AgentPlanCard } from '../components/agent/AgentPlanCard';
 import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
+import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
 
 // Sección 17 del ticket: staging puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
@@ -52,6 +54,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const [citationsSheetFor, setCitationsSheetFor] = useState<AgentChatMessage | null>(null);
     const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
     const [voiceError, setVoiceError] = useState<string | null>(null);
+    const [liveVoiceVisible, setLiveVoiceVisible] = useState(false);
     const [turnState, dispatchTurn] = useReducer(reduceAgentTurnUi, initialAgentTurnUiState);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
@@ -71,6 +74,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
     const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
+    const liveVoiceEnabled = Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
         setInputText(result.transcript.text);
@@ -343,7 +347,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         <Text style={styles.title}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
                     <Text style={styles.subtitle}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
                 </View>
-                <View style={styles.headerBtn} />
+                {liveVoiceEnabled ? (
+                    <TouchableOpacity onPress={() => setLiveVoiceVisible(true)} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Abrir conversación de voz en vivo">
+                        <Ionicons name="radio" size={22} color={theme.colors.white} />
+                    </TouchableOpacity>
+                ) : <View style={styles.headerBtn} />}
             </View>
 
             <KeyboardAvoidingView
@@ -506,6 +514,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     </View>
                 </Pressable>
             </Modal>
+            <LiveVoiceSession visible={liveVoiceVisible} conversationId={conversationId} onClose={() => setLiveVoiceVisible(false)} />
         </SafeAreaView>
     );
 }

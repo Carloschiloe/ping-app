@@ -1,6 +1,6 @@
 # Ping M8 — Technical Voice Spike
 
-Status: `SPIKE_READY_FOR_MEASURED_PROVIDER_COMPARISON`
+Status: `STAGING_CANDIDATE_READY_FOR_MEASURED_PROVIDER_COMPARISON`
 
 The product/architecture gate accepted the following direction: M8 must reach
 natural, bidirectional, real-time and interruptible voice over the existing
@@ -19,6 +19,16 @@ existing Core boundary already accepts the canonical agent turn and preserves
 identity, conversation, authorization, confirmation and provenance. The
 existing `speechRef` field and speech synthesis abstraction are not a live
 provider implementation.
+
+The staging-only candidate now adds a guarded `realtime_webrtc_core_bridge`
+surface. It negotiates the WebRTC session through the backend, keeps the
+provider credential server-side, and exposes one function tool whose only
+implementation is the authenticated existing `/agent/turn` boundary. The
+mobile client never calls `/agent/execute` or `/agent/authorize` from audio.
+Sanitized session, Core disposition, confirmation, interruption, fallback and
+side-effect counters are sent to the staging-only in-memory telemetry route.
+This is a measurement candidate, not a provider selection or production
+cutover.
 
 ## Spike boundary
 
@@ -43,6 +53,7 @@ does not grant audio receipt permission to execute a domain action.
 | Candidate | Media | Interruption | Core boundary | Current status |
 |---|---|---|---|---|
 | `gpt_live_webrtc` | full duplex | provider/native | backend delegation to existing Core | pending real probe |
+| `realtime_webrtc_core_bridge` | full duplex | provider/native | authenticated `/agent/turn` bridge | staging candidate, pending physical probe |
 | `realtime_webrtc_sideband` | full duplex | provider/native plus server control | sideband/backend bridge | pending real probe |
 | `gpt_live_websocket` | full duplex, server-owned media | provider/native | backend bridge | pending real probe |
 | `chained_batch` | turn-based | application-only | existing transcription + `/agent/turn` | baseline only |
@@ -95,11 +106,10 @@ Required evidence per run:
 
 ## Real-provider status
 
-No provider has been selected yet. The repository currently has no live voice
-transport implementation and the isolated worktree has no copied credentials.
-The next provider probe must be run only through an approved staging/local
-environment, with a short-lived or existing authorized session, and must not
-write secrets to this repository.
+No provider has been selected as the M8 winner. The staging candidate uses the
+OpenAI Realtime WebRTC unified negotiation only as the first measured option;
+the result must be compared against the remaining candidates before any
+architectural decision. The repository contains no copied credentials.
 
 ## Reference material
 
@@ -114,4 +124,3 @@ sideband/server control and chained pipelines:
 - https://developers.openai.com/api/docs/guides/voice-latency-cost
 
 These references do not constitute a provider decision or product acceptance.
-

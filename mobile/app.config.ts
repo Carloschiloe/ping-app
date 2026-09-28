@@ -65,7 +65,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: isStaging ? 4 : 1,
+            versionCode: isStaging ? 5 : 1,
             permissions: [],
             blockedPermissions: blockedBetaPermissions,
         },
@@ -73,13 +73,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             ...base.ios,
             ...(isStaging ? {
                 bundleIdentifier: 'com.carloschiloe.ping.staging',
-                buildNumber: '4',
+                buildNumber: '5',
             } : {}),
         },
         extra: {
             ...base.extra,
             appVariant: variant,
-            buildLabel: isStaging ? 'STAGING 1.0.3 (4) · AUTH UI V1' : undefined,
+            buildLabel: isStaging ? 'STAGING 1.0.4 (5) · M8 LIVE VOICE SPIKE' : undefined,
+            m8LiveVoiceEnabled: isStaging && process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true',
             expectedSupabaseProjectRef: isStaging ? STAGING_PROJECT_REF : undefined,
         },
     };
