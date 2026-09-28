@@ -166,6 +166,21 @@ export function isIndependentWriteObjective(
         || Boolean(objective.timeConstraints.rawHint);
 }
 
+/**
+ * A pending-plan turn may be represented by two interpreters: the route
+ * interpreter and the context-aware objective interpreter. The route result
+ * is safe to use directly only when it is self-contained (an explicit
+ * approve/reject decision or an independently specified objective). An empty
+ * write-shaped proposal must be reinterpreted with the pending-plan context;
+ * otherwise a deferral/correction can accidentally open a new objective.
+ */
+export function isSelfContainedPendingPlanCandidate(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    return classifyPendingPlanDecision(objective) !== null
+        || isIndependentWriteObjective(objective);
+}
+
 export interface ContinuationClassification {
     // true only when Core has validated (not merely the LLM proposing) that
     // the new turn should be merged into the open dialogue objective.

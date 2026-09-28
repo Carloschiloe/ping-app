@@ -11,12 +11,12 @@ ACTIVE_TASK: "Correct the real staging dialogue defect where returning to a susp
 LAST_CERTIFIED_SHA: "07437bb378d6a0abac3e56a495adcc796d9560c6 (quality and exact staging deploy/health PASS; strong semantic E2E exposed a real objective-return defect)"
 STAGING_REMOTE_SHA: 07437bb378d6a0abac3e56a495adcc796d9560c6
 STAGING_DEPLOYED_SHA: "07437bb378d6a0abac3e56a495adcc796d9560c6 (run 36445934701; health/SHA gate PASS, semantic E2E FAIL at objective return)"
-KNOWN_FAILURES: "Strong staging assertions now expose a real product defect: an independent objective replaces the active objective without retaining a bounded suspended objective that a later read turn can restore. Turn 4 remained on the provider objective instead of restoring inventory. Turn 5 correction therefore targeted the wrong objective. The private staging diagnostic PING_M7_PRIVATE_DB_CHECK=PASS was confirmed by the owner."
+KNOWN_FAILURES: "Run 36448682245 confirms the suspended-objective correction restores inventory and its Monday correction, but exposes a second real dialogue defect at Turn 7: an empty write-shaped route candidate bypasses the pending-plan-aware interpreter, becomes an incomplete personal objective, and replaces the plan instead of preserving the pending plan on deferral. The private staging diagnostic PING_M7_PRIVATE_DB_CHECK=PASS was confirmed by the owner."
 TECHNICAL_DEBT: "The full repository test command still has pre-existing local environment failures before test execution (missing Supabase URL/service-role configuration and an unavailable test cleanup export); focused M7 tests and build pass. Legacy remains."
 SECURITY_DEBT: "The owner-confirmed private staging diagnostic is recorded without secrets. Staging-only GitHub/Render controls remain in use; production secrets and data are not used."
 ARCHITECTURAL_DECISIONS: "LLM proposes; Ping Core validates and decides. One Core serves all surfaces. Staging requires quality, exact SHA health, then authenticated E2E."
 BLOCKERS: "No human gate currently. M7 remains open because the strong staging semantic E2E fails on objective return; the fix must pass quality, exact SHA health and the real staging assertions."
-NEXT_ACTION: "Run focused regressions and build, commit the bounded suspended-objective/resume correction, publish only codex/staging-beta, and let the staging certification workflow redeploy and retest."
+NEXT_ACTION: "Commit and publish the pending-plan candidate routing correction only to codex/staging-beta, then let the certification workflow redeploy and retest the full semantic sequence."
 PRODUCTION_STATE: "main remote 6825339d062b1233e4d2958c4e80d516d38d375d; production untouched; no production secrets or data used."
 M7_COMPLETE: NO
 ```
