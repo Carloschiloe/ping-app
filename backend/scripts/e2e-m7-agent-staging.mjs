@@ -34,7 +34,10 @@ const report = {
   runId,
   baseUrl: BASE_URL,
   expectedSha: EXPECTED_SHA ? EXPECTED_SHA.slice(0, 7) : null,
-  strategy: 'authenticated_staging_e2e_reusable_identity_magic_link_group_tombstone',
+  strategy: 'authenticated_staging_e2e_identity_magic_link_group_tombstone',
+  identityMode: null,
+  identityCreated: 0,
+  identityDeleted: 0,
   userGrowth: 0,
   turns: [],
   sideEffects: { agentWriters: 0, commitmentMutations: 0, messagesCreated: 0 },
@@ -81,8 +84,27 @@ async function findIdentity() {
   const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (listed.error) throw listed.error;
   const identity = selectReusableIdentity(data, listed.data?.users);
-  if (!identity) throw new Error('An eligible reusable staging E2E identity is required');
-  return identity;
+  if (identity) return { ...identity, temporary: false };
+
+  const email = `ping-beta-e2e-${runId}@example.invalid`;
+  const created = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: { e2e_run: runId },
+  });
+  if (created.error || !created.data?.user?.id) {
+    throw created.error || new Error('Temporary staging E2E identity was not created');
+  }
+  const { error: profileError } = await admin.from('profiles').upsert({
+    id: created.data.user.id,
+    email,
+    full_name: 'Ping staging E2E',
+  });
+  if (profileError) {
+    await admin.auth.admin.deleteUser(created.data.user.id);
+    throw profileError;
+  }
+  return { id: created.data.user.id, email, temporary: true };
 }
 
 async function loginWithMagicLink(email) {
@@ -119,15 +141,10 @@ async function checkpoint(actorUserId, conversationId) {
 
 async function run() {
   const identity = await findIdentity();
-  let token = await loginWithMagicLink(identity.email);
-  const group = await http('/groups', {
-    token, method: 'POST',
-    body: { name: `M7 staging ${runId.slice(0, 8)}`, participantIds: [] },
-  });
-  if (group.status !== 201 || !group.payload?.conversationId) {
-    throw new Error(`Staging fixture group creation failed (${group.status})`);
-  }
-  const conversationId = group.payload.conversationId;
+  report.identityMode = identity.temporary ? 'temporary_cleanup' : 'reusable';
+  report.identityCreated = identity.temporary ? 1 : 0;
+  let token;
+  let conversationId = null;
   let cleanupDone = false;
   const inputs = [
     '\u004eecesito coordinar la revisi\u00f3n del inventario para el jueves.',
@@ -140,6 +157,15 @@ async function run() {
     'Hazlo con esa persona.',
   ];
   try {
+    token = await loginWithMagicLink(identity.email);
+    const group = await http('/groups', {
+      token, method: 'POST',
+      body: { name: `M7 staging ${runId.slice(0, 8)}`, participantIds: [] },
+    });
+    if (group.status !== 201 || !group.payload?.conversationId) {
+      throw new Error(`Staging fixture group creation failed (${group.status})`);
+    }
+    conversationId = group.payload.conversationId;
     for (let index = 0; index < inputs.length; index += 1) {
       if (index === 3) token = await loginWithMagicLink(identity.email);
       const response = await http('/agent/turn', {
@@ -170,17 +196,31 @@ async function run() {
     report.cleanup = {
       conversationTombstoned: Boolean(conversation?.deleted_at),
       activeMessages: activeMessages ?? 0,
-      identitiesRetained: 1,
+      identitiesRetained: identity.temporary ? 0 : 1,
       identitiesModified: 0,
     };
     report.success = true;
   } finally {
-    if (!cleanupDone) {
+    if (!cleanupDone && conversationId) {
       try {
         const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
         report.cleanup = { conversationTombstoned: deleted.status === 200, cleanupAfterFailure: true };
       } catch (error) {
         report.cleanup = { conversationTombstoned: false, cleanupError: error?.message ?? String(error) };
+      }
+    }
+    if (identity.temporary) {
+      try {
+        const deleted = await admin.auth.admin.deleteUser(identity.id);
+        if (deleted.error) throw deleted.error;
+        report.identityDeleted = 1;
+      } catch (error) {
+        report.success = false;
+        report.cleanup = {
+          ...(report.cleanup ?? {}),
+          identityDeleted: false,
+          identityCleanupError: error?.message ?? String(error),
+        };
       }
     }
   }
