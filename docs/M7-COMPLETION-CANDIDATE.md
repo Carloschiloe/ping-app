@@ -2,7 +2,8 @@
 
 ```yaml
 MILESTONE: M7
-STATUS: PROPOSED_NOT_ACCEPTED
+STATUS: ACCEPTED
+ACCEPTANCE: "M7_ACCEPTED / M7_COMPLETE=YES by external architect/product review"
 SHA: 8bbd6b58a293865cfb12c5c7afaaa8da003e3525
 SCOPE_CERTIFIED: "Natural written-language interpretation and guarded multi-turn objective state on the shared Ping Core; objective switch, return, date correction, confirmation binding, deferral, unresolved person ambiguity, canonical state preservation and side-effect safety."
 UNIT_AND_REGRESSION_EVIDENCE: "Focused M7 tests 46/46 PASS; TypeScript build PASS; prior focused regressions 33/33 PASS."
@@ -17,9 +18,12 @@ LEGACY_REMAINING: "Legacy paths remain and were not removed or certified for rem
 NOT_DEMONSTRATED: "This candidate does not certify tablet/device mode, wake word, M8 voice conversation, broad product-wide language coverage, or production behavior."
 RISKS: "The completion candidate depends on the bounded staging E2E and existing authenticated persistence/reload evidence; broader suite environment debt remains."
 RECOMMENDED_NEXT_MILESTONE: "After external acceptance only: define M8 Voice and Natural Conversation without creating a second Ping Core."
-HUMAN_REVIEW_REQUIRED: YES
+HUMAN_REVIEW_REQUIRED: NO
+NEXT_GATE: "M8 architecture/product scope review is required before implementation."
 ```
 
-M7 remains open until this candidate is accepted by the architect/product
-owner. No merge to `main`, production deploy or M8 work is authorized by this
-document.
+M7 is formally closed by the external acceptance gate. This document records
+the bounded staging evidence only; it does not certify tablet/device mode,
+wake word, M8 voice conversation, broad product-wide language coverage or
+production behavior. No merge to `main`, production deploy or M8
+implementation is authorized by this document.
