@@ -108,6 +108,15 @@ jobs:
           done
           echo "Staging did not converge to the exact workflow SHA or health contract." >&2
           exit 1
+      - name: Setup Node for staging E2E
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies for staging E2E
+        working-directory: backend
+        run: npm ci
       - name: Run current milestone authenticated E2E
         working-directory: backend
         env:
