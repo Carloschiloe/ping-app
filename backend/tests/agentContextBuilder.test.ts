@@ -1877,6 +1877,44 @@ describe('CORE-OWNED PERSON SCOPE: canonicalPersonScope is the only authority th
         mockRetrieveMessages.mockResolvedValue([]);
     });
 
+    it('accepts a grounded semantic multi-token person mention on a write turn and resolves it canonically', async () => {
+        mockResolvePerson.mockResolvedValue({
+            resolved: { kind: 'user', id: 'edgardo-id', displayName: 'Edgardo Borquez', email: null, avatarUrl: null },
+            ambiguous: false,
+            candidates: [],
+        });
+        const interpreter = mockInterpreter(interpretationFixture({
+            isWriteActionRequest: true,
+            intent: 'general_context',
+            personHints: ['Edgardo Borquez'],
+        }));
+
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: 'agenda mañana a las 14 ir a visitar a Edgardo Borquez',
+        }, { interpreter });
+
+        expect(mockResolvePerson).toHaveBeenCalledWith('u1', { name: 'Edgardo Borquez', conversationId: undefined });
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.canonicalFacts).toContainEqual({ type: 'person_resolved', personId: 'edgardo-id', displayName: 'Edgardo Borquez' });
+    });
+
+    it('distinguishes an explicit unknown name from an unresolved pronoun', async () => {
+        mockResolvePerson.mockResolvedValue({ resolved: null, ambiguous: false, candidates: [] });
+        const interpreter = mockInterpreter(interpretationFixture({
+            isWriteActionRequest: true,
+            personHints: ['Persona Inexistente'],
+        }));
+
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: 'agenda mañana una visita con Persona Inexistente',
+        }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification).toMatchObject({ reason: 'person_not_found', requestedNames: ['Persona Inexistente'] });
+    });
+
     it('CASE 1 — reproducción física exacta: LLM personHints=["Spiderman"] (topical, sin cue determinístico) nunca llama resolvePerson ni bloquea nada', async () => {
         mockRetrieveCommitments.mockResolvedValue([{
             id: 'spiderman-id', entityType: 'commitment', title: 'ver Spiderman', status: 'resolved',

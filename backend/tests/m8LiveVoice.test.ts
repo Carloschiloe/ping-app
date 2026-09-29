@@ -92,6 +92,26 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain('navigator.mediaDevices?.getUserMedia');
         expect(html).toContain('RTCPeerConnection');
         expect(html).toContain('response.cancel');
+        expect(html).toContain('voice_stage');
+        expect(html).toContain('microphone_permission_timeout');
+        expect(html).toContain('session_request_started');
+        expect(html).toContain('remote_description_set');
         expect(html).not.toContain('OPENAI_API_KEY');
+    });
+
+    it('accepts sanitized stage diagnostics without side effects', () => {
+        recordM8LiveVoiceTelemetry(actorUserId, {
+            voiceSessionId,
+            deviceSessionId,
+            event: 'voice_stage',
+            stage: 'session_response_received',
+            httpStatus: 201,
+            atMs: 420,
+            sideEffects: 0,
+        });
+
+        expect(getM8LiveVoiceTelemetry(actorUserId, voiceSessionId).events).toContainEqual(expect.objectContaining({
+            event: 'voice_stage', stage: 'session_response_received', httpStatus: 201, sideEffects: 0,
+        }));
     });
 });

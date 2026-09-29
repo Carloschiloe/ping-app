@@ -524,30 +524,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
-    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE (root architectural fix,
-    // replaces the two prior patch attempts at this exact spot — M-1H's
-    // isPersonHintGroundedInInput and M-2's isPersonHintTopicalNotPersonal).
-    // Both of those still funneled the LLM's personHints (filtered, but
-    // still LLM-sourced) into the SAME array that drives resolvePerson,
-    // personAttributionUnresolved and personScopeBlocked below — a heuristic
-    // stacked on a heuristic, never a real authority boundary. Real
-    // architecture: "LLM SUGGESTS, PING CORE DECIDES" (sección 0/3) means
-    // the LLM's personHints output must have ZERO authority to establish
-    // BLOCKING person scope, full stop — no filter, threshold, or repeated
-    // sampling makes an advisory signal authoritative. `advisoryPersonHints`
-    // (kept for diagnostics/trace only, NEVER passed to resolvePerson) is
-    // whatever the primary interpreter (LLM or deterministic fallback)
-    // suggested. `canonicalPersonScope` (defined further below, right before
-    // the resolution loop) is the ONLY thing allowed to call resolvePerson
-    // or set personAttributionUnresolved/personScopeBlocked — it is built
-    // exclusively from (A) the deterministic interpreter's own structural
-    // cue extraction (con X/a X/X dijo/falta que acepte X/etc. — a REAL Core
-    // signal, not a filtered LLM one) and (B) an already-authorized explicit
-    // referent supplied by the caller in the input envelope
-    // (`input.authorizedPersonReferentId`), never derived from parsed text.
-    // This is not "trust the LLM unless X" with more X — it's "the LLM
-    // literally cannot reach resolvePerson", so correctness never depends on
-    // how the model samples.
+    // LLM suggestions do not grant identity or authorization. They can,
+    // however, preserve the complete human-readable mention that the model
+    // extracted from a write request (for example a multi-token name that a
+    // capitalization heuristic truncated). Core still grounds the mention in
+    // the raw utterance and resolves it through the actor-scoped resolver
+    // before it can affect planning. Read-only topical mentions remain
+    // deterministic-only here, preventing a model from turning an entity
+    // title into a person scope.
     const advisoryPersonHints = rawInterpretation.personHints.filter((hint) => isPersonHintGroundedInInput(hint, input.input));
     // Sección 3: cuando el determinístico detecta proposalFocus (waiting_for_
     // others/needs_my_response/pending_response_from_person), el LLM no
@@ -790,25 +774,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const sourceCounts: Record<string, number> = {};
 
     // ─── Entity resolution (sección 11) — nunca se elige arbitrariamente. ────
-    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: canonicalPersonScope is
-    // the ONLY input this loop (and everything that blocks on it below —
-    // personAttributionUnresolved, personScopeBlocked, person_ambiguous)
-    // ever consumes. Built from exactly two sources, both Core-owned:
-    //   A) deterministicSignals.personHints — the deterministic
-    //      interpreter's OWN structural cue extraction (con X/a X/X dijo/
-    //      falta que acepte X/etc.), run unconditionally above regardless of
-    //      which interpreter is primary. This is real evidence the input
-    //      text itself contains a person-introducing construction — never a
-    //      filtered/derived version of what the LLM said.
-    //   B) input.authorizedPersonReferentId — an id the CALLER already
-    //      authorized before this input reached any interpreter (see its
-    //      doc comment in types/agentContext.ts). Never derived from parsed
-    //      text, never from personHints of any kind.
-    // rawInterpretation.personHints / advisoryPersonHints (LLM-sourced, only
-    // grounding-checked) are used NOWHERE in this loop or its guards — the
-    // fix is structural non-participation, not a filter that could
-    // theoretically be bypassed by a different LLM phrasing.
-    const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
+    const semanticActionPersonHints = rawInterpretation.isWriteActionRequest === true
+        ? advisoryPersonHints
+        : [];
+    const canonicalPersonScope: string[] = Array.from(new Set([
+        ...deterministicSignals.personHints,
+        ...semanticActionPersonHints,
+    ]));
     const people: PersonResolutionResult[] = [];
     let needsClarification = priorReferenceAmbiguous;
     let clarification: AgentClarification | undefined = priorReferenceAmbiguous ? { reason: 'topic_too_broad' } : undefined;
@@ -880,7 +852,18 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
         needsClarification = true;
-        clarification = { reason: 'person_ambiguous', candidates: [] };
+        clarification = {
+            // A write-shaped turn has an explicit action boundary: if its
+            // named target does not resolve, tell the user that the named
+            // person was not found. Read-side unresolved references retain
+            // the historical person_ambiguous contract, which also covers
+            // pronouns and keeps existing ambiguity handling intact.
+            reason: rawInterpretation.isWriteActionRequest === true ? 'person_not_found' : 'person_ambiguous',
+            candidates: [],
+            ...(rawInterpretation.isWriteActionRequest === true
+                ? { requestedNames: canonicalPersonScope.slice(0, 5) }
+                : {}),
+        };
     }
 
     // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,

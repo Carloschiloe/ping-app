@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as Localization from 'expo-localization';
@@ -92,6 +92,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [sessionKey, setSessionKey] = useState(0);
+    const webViewRef = useRef<WebView>(null);
     const config = useMemo<LiveConfig | null>(() => authorization ? {
         apiUrl: API_URL.replace(/\/$/, ''),
         authorization,
@@ -113,6 +114,9 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     }, [visible]);
 
     const injected = config ? `window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};true;` : '';
+    const injectConfig = () => {
+        if (injected) webViewRef.current?.injectJavaScript(injected);
+    };
     const handleMessage = (event: WebViewMessageEvent) => {
         try {
             const message = JSON.parse(event.nativeEvent.data) as { type?: string };
@@ -125,7 +129,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         <View style={styles.container}>
             <View style={styles.topbar}><Text style={styles.title}>Ping Voz</Text><TouchableOpacity onPress={onClose}><Text style={styles.close}>Cerrar</Text></TouchableOpacity></View>
             {error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={() => { setError(null); setSessionKey((value) => value + 1); }}><Text style={styles.retry}>Reintentar</Text></TouchableOpacity></View>
-                    : config ? <WebView key={sessionKey} source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }} injectedJavaScriptBeforeContentLoaded={injected} onMessage={handleMessage} javaScriptEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback originWhitelist={['https://*']} />
+                    : config ? <WebView key={sessionKey} ref={webViewRef} source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }} injectedJavaScriptBeforeContentLoaded={injected} onLoadEnd={injectConfig} onMessage={handleMessage} javaScriptEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback originWhitelist={['https://*']} />
                     : <ActivityIndicator style={styles.loading} />}
         </View>
     </Modal>;

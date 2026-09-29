@@ -454,6 +454,23 @@ describe('M-1E: F) persona ambigua -> needs_clarification, sin llamar al modelo'
     });
 });
 
+describe('M8: explicit person not found remains truthful', () => {
+    it('does not say that the user omitted a name', async () => {
+        const ctx = baseContext({
+            needsClarification: true,
+            clarification: { reason: 'person_not_found', requestedNames: ['Persona Inexistente'], candidates: [] },
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: 'agenda con Persona Inexistente', context: ctx, locale: 'es-CL' });
+
+        expect(response.status).toBe('needs_clarification');
+        expect(response.answer).toContain('Persona Inexistente');
+        expect(response.answer).not.toContain('No tengo suficiente contexto');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+});
+
 describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
     it('mensaje neutral, sin especular', async () => {
         const ctx = baseContext({ evidenceFound: false, capabilityGaps: [] });

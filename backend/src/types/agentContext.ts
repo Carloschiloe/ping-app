@@ -240,7 +240,7 @@ export interface RetrievalPlanStep {
 // (a completely different pipeline, gated by write-turn authorization) while
 // this one lives in the read-only AgentContext/response-synthesis pipeline,
 // which has no dialogue-state/authorization involvement at all.
-export type ClarificationReason = 'person_ambiguous' | 'time_ambiguous' | 'topic_too_broad' | 'entity_ambiguous';
+export type ClarificationReason = 'person_ambiguous' | 'person_not_found' | 'time_ambiguous' | 'topic_too_broad' | 'entity_ambiguous';
 
 export interface EntityAmbiguityCandidate {
     id: string;
@@ -250,6 +250,10 @@ export interface EntityAmbiguityCandidate {
 export interface AgentClarification {
     reason: ClarificationReason;
     candidates?: PersonResolutionResult['candidates'];
+    // The user supplied an explicit person mention, but Core found no
+    // authorized match. This is deliberately distinct from an unresolved
+    // pronoun: the response must not claim that no name was provided.
+    requestedNames?: string[];
     // Only ever present when reason === 'entity_ambiguous'. Kept as its own
     // field (never overloading `candidates` above, which is strictly typed
     // to PersonResolutionResult's own person-shaped candidates) so a caller

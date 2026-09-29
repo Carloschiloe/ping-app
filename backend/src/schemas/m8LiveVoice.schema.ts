@@ -29,6 +29,7 @@ export const m8LiveVoiceTelemetrySchema = z.object({
             'fallback',
             'session_closed',
             'error',
+            'voice_stage',
         ]),
         atMs: z.number().int().min(0).max(86_400_000),
         sessionId: z.string().trim().min(1).max(160).optional(),
@@ -36,6 +37,11 @@ export const m8LiveVoiceTelemetrySchema = z.object({
         confirmationRequired: z.boolean().optional(),
         sideEffects: z.number().int().min(0).max(0).optional(),
         detailCode: z.string().trim().max(80).optional(),
+        stage: z.string().trim().max(80).optional(),
+        httpStatus: z.number().int().min(100).max(599).optional(),
+        errorName: z.string().trim().max(60).optional(),
+        errorCode: z.string().trim().max(60).optional(),
+        errorMessage: z.string().trim().max(120).optional(),
     }).strict(),
 });
 
