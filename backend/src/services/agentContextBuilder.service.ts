@@ -1343,7 +1343,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // canonicalPersonScope, never interpretation.personHints — an LLM-only
     // hallucinated hint (advisory, no authority) must never count as "real
     // signal exists" any more than it may block a source.
-    if (!needsClarification && !evidenceFound && interpretation.intent === 'general_context'
+    if (!needsClarification && interpretation.interactionMode !== 'conversation'
+        && !evidenceFound && interpretation.intent === 'general_context'
         && canonicalPersonScope.length === 0 && !input.authorizedPersonReferentId && !interpretation.textQuery && !interpretation.timeExpression) {
         needsClarification = true;
         clarification = { reason: 'topic_too_broad' };
@@ -1362,7 +1363,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         if (ambiguityHints.includes('time_ambiguous')) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
-        } else if (ambiguityHints.includes('topic_too_broad')) {
+        } else if (interpretation.interactionMode !== 'conversation' && ambiguityHints.includes('topic_too_broad')) {
             needsClarification = true;
             clarification = { reason: 'topic_too_broad' };
         }
@@ -1406,6 +1407,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
+        interactionMode: interpretation.interactionMode ?? 'task',
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,

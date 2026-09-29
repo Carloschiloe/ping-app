@@ -340,6 +340,33 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(ctx.clarification?.reason).toBe('topic_too_broad');
     });
 
+    it('una conversación social semánticamente identificada no cae en topic_too_broad ni consulta datos', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({
+            interactionMode: 'conversation',
+            wantsCommitments: false,
+            wantsMessages: false,
+        }));
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: 'Qué gusto conversar contigo, ¿cómo va tu día?' },
+            { interpreter },
+        );
+
+        expect(ctx.interactionMode).toBe('conversation');
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.evidenceFound).toBe(false);
+        expect(mockRetrieveCommitments).not.toHaveBeenCalled();
+        expect(mockRetrieveMessages).not.toHaveBeenCalled();
+
+        const response = await synthesizeAgentResponse({
+            input: 'Qué gusto conversar contigo, ¿cómo va tu día?',
+            context: ctx,
+        });
+        expect(response.status).toBe('answered');
+        expect(response.answer).not.toContain('más detalle');
+        expect(response.citations).toEqual([]);
+    });
+
     it('una consulta de compromisos conserva autoridad aunque el LLM la etiquete como general_context', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-earliest', title: 'probar la voz de Ping', dueAt: '2026-09-22T10:00:00Z' })] as any);
         const interpreter = mockInterpreter(interpretationFixture({
@@ -571,7 +598,7 @@ describe('M-1D: buildAgentContext — self-chat es una fuente autorizada normal 
 
 function interpretationFixture(overrides: Partial<Record<string, any>> = {}) {
     return {
-        intent: 'general_context', intentConfidence: 0.75, personHints: [], topicHints: [], textQuery: null,
+        interactionMode: 'task', intent: 'general_context', intentConfidence: 0.75, personHints: [], topicHints: [], textQuery: null,
         timeExpression: null, statusHints: null, wantsCommitments: true, wantsMessages: true,
         wantsTranscriptions: false, wantsAttachments: false, wantsOverdueFocus: false, isWriteActionRequest: false, ambiguityHints: [], source: 'llm',
         ...overrides,

@@ -75,6 +75,8 @@ export type AgentIntentType =
     | 'document_search'    // adjuntos/documentos ("me mandaron", "contrato")
     | 'general_context';   // fallback conservador — no se identificó una intención más específica
 
+export type AgentInteractionMode = 'task' | 'conversation';
+
 export interface AgentIntent {
     type: AgentIntentType;
     confidence: number; // 0..1 — heurístico o reportado por el intérprete, nunca inventado como 1.0 salvo certeza estructural
@@ -154,6 +156,7 @@ export type TemporalIntent =
     | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true };
 
 export interface Interpretation {
+    interactionMode?: AgentInteractionMode;
     intent: AgentIntentType;
     intentConfidence: number;
     personHints: string[];       // nombres tal como aparecen en el texto — nunca IDs
@@ -315,6 +318,7 @@ export interface AgentContext {
     // propagada para que "vencido" se calcule comparando el día calendario
     // en la zona del actor, nunca en la del servidor. Siempre presente.
     timezone: string;
+    interactionMode?: AgentInteractionMode;
     intent: AgentIntent;
     // M-1G.1: ver Interpretation.wantsOverdueFocus.
     wantsOverdueFocus: boolean;

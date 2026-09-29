@@ -60,6 +60,20 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
         expect(result.schemaValid).toBe(true);
     });
 
+    it('preserva la distinción semántica de conversación social sin convertirla en tarea', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'general_context',
+            interactionMode: 'conversation',
+            wantsCommitments: false,
+            wantsMessages: false,
+        }));
+        const result = await new LlmInputInterpreter({ model }).interpret('Qué gusto conversar contigo, ¿cómo va tu día?', {});
+
+        expect(result.source).toBe('llm');
+        expect(result.interactionMode).toBe('conversation');
+        expect(result.isWriteActionRequest).toBe(false);
+    });
+
     it('conserva el operador temporal estructurado entregado por el LLM', async () => {
         const model = fakeModel(validPayload({ intent: 'general_context', temporalComparison: 'latest' }));
         const interpreter = new LlmInputInterpreter({ model });

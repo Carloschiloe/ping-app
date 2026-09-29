@@ -28,6 +28,12 @@ export const AGENT_INTENT_VALUES = [
     'commitment_query', 'person_query', 'recall', 'message_search', 'document_search', 'general_context',
 ] as const;
 
+// Speech-act boundary: a conversational turn is not a retrieval query and
+// must not be converted into topic clarification merely because it has no
+// domain evidence. The model decides this semantic distinction; Core still
+// owns the resulting safe response and never treats it as an action.
+const INTERACTION_MODE_VALUES = ['task', 'conversation'] as const;
+
 const RETRIEVAL_SOURCE_VALUES = ['messages', 'commitments', 'commitment_events', 'transcriptions', 'attachments'] as const;
 const ATTACHMENT_KIND_VALUES = ['image', 'video', 'audio', 'document'] as const;
 const AMBIGUITY_HINT_VALUES = ['unresolved_pronoun', 'time_ambiguous', 'topic_too_broad'] as const;
@@ -36,6 +42,7 @@ const URGENCY_COMPARISON_VALUES = ['most_urgent'] as const;
 const FOLLOW_UP_ATTRIBUTE_VALUES = ['time', 'date', 'responsible', 'status', 'details'] as const;
 
 export const agentInterpretationPayloadSchema = z.object({
+    interactionMode: z.enum(INTERACTION_MODE_VALUES).default('task'),
     intent: z.enum(AGENT_INTENT_VALUES),
     personHints: z.array(HINT_STRING).max(5).default([]),
     topicHints: z.array(HINT_STRING).max(5).default([]),

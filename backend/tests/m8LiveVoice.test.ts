@@ -87,6 +87,7 @@ describe('M8 live voice staging boundary', () => {
     });
 
     it('serves a staging client with browser media and barge-in controls', () => {
+        delete process.env.M8_LIVE_VOICE_ENABLED;
         const html = getM8LiveVoiceClientHtml();
         expect(html).toContain('navigator.mediaDevices?.getUserMedia');
         expect(html).toContain('RTCPeerConnection');

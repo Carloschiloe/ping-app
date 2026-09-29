@@ -53,6 +53,7 @@ import { detectAgentLanguage as detectTemplateLanguage } from '../utils/agentLan
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
     if (context.needsClarification) return 'needs_clarification';
     if (!context.evidenceFound && context.capabilityGaps.length > 0) return 'capability_gap';
+    if (context.interactionMode === 'conversation') return 'answered';
     // M-1H (ticket "DETERMINISTIC QUERY SEMANTICS", sección 10) — un conteo
     // de 0 es una respuesta VÁLIDA y ya conocida con certeza estructural
     // ("no tienes ninguno"), nunca "no encontré nada relacionado" (esa
@@ -1323,6 +1324,17 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     return { status: 'no_evidence', answer, claims: [], citations: [] };
 }
 
+function buildConversationalResponse(language: 'es' | 'en'): AgentResponse {
+    return {
+        status: 'answered',
+        answer: language === 'es'
+            ? 'Estoy bien y aquí para ayudarte. ¿En qué te gustaría conversar?'
+            : 'I’m doing well and I’m here to help. What would you like to talk about?',
+        claims: [],
+        citations: [],
+    };
+}
+
 const CAPABILITY_GAP_MESSAGES: Record<string, { es: string; en: string }> = {
     global_transcription_scope_not_supported: {
         es: 'Puedo buscar en un audio dentro de una conversación concreta, pero todavía no puedo buscar en todas tus conversaciones a la vez.',
@@ -1461,6 +1473,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
         if (status === 'needs_clarification') {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && context.interactionMode === 'conversation') {
+            return this.withDiagnostics(buildConversationalResponse(language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'no_evidence') {
             return this.withDiagnostics(buildNoEvidenceResponse(context, language), 'deterministic', startedAt, sourceCount);

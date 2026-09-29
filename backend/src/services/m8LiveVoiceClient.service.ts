@@ -26,7 +26,12 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 </script></body></html>`;
 
 export function getM8LiveVoiceClientHtml(): string {
-    if (process.env.PING_ENVIRONMENT !== 'staging' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
+    // The HTML is a credential-free static bootstrap document. Its delivery
+    // must be gated only by the staging origin; the provider/session feature
+    // flag belongs to the authenticated session broker below. Coupling the
+    // two gates made Expo Go receive a misleading plain-text 404 before the
+    // WebView could even report a real session/configuration failure.
+    if (process.env.PING_ENVIRONMENT !== 'staging') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
     return CLIENT_HTML;
