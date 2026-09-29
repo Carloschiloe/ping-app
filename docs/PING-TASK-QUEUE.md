@@ -12,8 +12,8 @@ evidence; a green unit test alone does not close a milestone.
 | P1 | BUG | Correct the real staging objective-switch/return defect structurally and recertify only staging | DONE | Structural correction and staging certification recorded in M7 state |
 | P2 | QUALITY / TECHNICAL_DEBT | Separate or repair pre-existing full-suite environment failures without weakening the staging gate | DEFERRED | Baseline comparison and reproducible CI result |
 | P2 | QUALITY | Strengthen the staging smoke semantic assertions for objective switch, return, correction, slot isolation, confirmation binding and ambiguity | DONE | Strong assertions run in the staging certification circuit |
-| P3 | PRODUCT / ARCHITECTURE | Correct and certify the M8 Expo Go entry path plus social conversation semantics | IN_PROGRESS | Physical failure recorded on 37380ca: social utterance incorrectly clarified and live client route returned HTTP 404. Local correction passes 518 focused tests and TypeScript; staging verification remains required |
-| P4 | QUALITY / CERTIFICATION | Certify the selected live voice adapter on staging and iPhone | BLOCKED_BY_P3 | Requires exact staging SHA/health, `/api/agent/voice/live/client` returning the voice client, then physical user-to-Ping spoken output, continuity, interruption and zero-side-effect evidence |
+| P3 | PRODUCT / ARCHITECTURE | Correct and certify the M8 Expo Go entry path plus social conversation semantics | DONE_FOR_PHYSICAL_RETEST | Commit ebe4e2d; 518 focused tests and TypeScript PASS; workflow 36511436977 quality, exact staging health/SHA and authenticated E2E PASS; exact live client route HTTP 200 with WebRTC/Core markers |
+| P4 | QUALITY / CERTIFICATION | Certify the selected live voice adapter on staging and iPhone | READY_FOR_PHYSICAL_RETEST | Requires the short physical user-to-Ping spoken output, continuity, interruption and zero-side-effect evidence; M8 remains open |
 
 ## Queue rules
 
