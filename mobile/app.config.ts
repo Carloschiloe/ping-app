@@ -71,6 +71,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
         ios: {
             ...base.ios,
+            infoPlist: {
+                ...base.ios?.infoPlist,
+                ITSAppUsesNonExemptEncryption: false,
+            },
             ...(isStaging ? {
                 bundleIdentifier: 'com.carloschiloe.ping.staging',
                 buildNumber: '5',
