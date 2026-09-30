@@ -43,6 +43,20 @@
         "simulator": false
       }
     },
+    "staging-ios-dev": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu",
+        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
     "production": {
       "distribution": "store",
       "environment": "production",
