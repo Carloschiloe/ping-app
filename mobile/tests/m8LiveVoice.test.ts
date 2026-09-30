@@ -23,7 +23,7 @@ describe('M8 live voice staging surface', () => {
     it('keeps the live surface staging-only at build configuration level', () => {
         const config = read('app.config.ts');
         const eas = read('eas.json');
-        expect(config).toContain("m8LiveVoiceEnabled: isStaging");
+        expect(config).toContain("const m8LiveVoiceEnabled = isStaging && process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true'");
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
         expect(config).toContain("versionCode: isStaging ? 5 : 1");
         expect(config).toContain("buildNumber: '5'");

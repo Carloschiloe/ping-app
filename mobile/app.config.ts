@@ -27,6 +27,7 @@ const blockedBetaPermissions = [
 export default ({ config }: ConfigContext): ExpoConfig => {
     const variant = process.env.APP_VARIANT === 'production' ? 'production' : 'staging';
     const isStaging = variant === 'staging';
+    const m8LiveVoiceEnabled = isStaging && process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true';
     const base = appJson.expo as ExpoConfig;
     const plugins = (base.plugins || []).filter((plugin) => {
         const name = Array.isArray(plugin) ? plugin[0] : plugin;
@@ -66,8 +67,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
             versionCode: isStaging ? 5 : 1,
-            permissions: [],
-            blockedPermissions: blockedBetaPermissions,
+            permissions: m8LiveVoiceEnabled
+                ? ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS']
+                : [],
+            blockedPermissions: m8LiveVoiceEnabled
+                ? blockedBetaPermissions.filter((permission) =>
+                    permission !== 'android.permission.RECORD_AUDIO'
+                    && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS')
+                : blockedBetaPermissions,
         },
         ios: {
             ...base.ios,
@@ -84,7 +91,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             ...base.extra,
             appVariant: variant,
             buildLabel: isStaging ? 'STAGING 1.0.4 (5) · M8 LIVE VOICE SPIKE' : undefined,
-            m8LiveVoiceEnabled: isStaging && process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true',
+            m8LiveVoiceEnabled,
             expectedSupabaseProjectRef: isStaging ? STAGING_PROJECT_REF : undefined,
         },
     };
