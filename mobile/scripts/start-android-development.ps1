@@ -7,7 +7,11 @@ $avdHome = if ($env:ANDROID_AVD_HOME) { $env:ANDROID_AVD_HOME } else { 'C:\tmp\p
 $avdName = 'Ping_M8_API35'
 $adb = Join-Path $sdkRoot 'platform-tools\adb.exe'
 $emulator = Join-Path $sdkRoot 'emulator\emulator.exe'
-$backendEnv = Join-Path $repoRoot 'backend\.env'
+$backendEnv = if ($env:PING_ANDROID_BACKEND_ENV) {
+    [IO.Path]::GetFullPath($env:PING_ANDROID_BACKEND_ENV)
+} else {
+    Join-Path $repoRoot 'backend\.env'
+}
 $packageName = 'com.carloschiloe.ping.staging'
 
 if (-not (Test-Path -LiteralPath $adb)) { throw "Android adb not found at $adb" }
@@ -66,7 +70,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $avdHome "$avdName.avd"))) {
 
 $deviceState = (& $adb devices | Select-String '^emulator-\d+\s+device$')
 if (-not $deviceState) {
-    Start-Process -FilePath $emulator -ArgumentList @('-avd', $avdName, '-no-snapshot', '-no-boot-anim', '-gpu', 'auto') -WindowStyle Hidden
+    Start-Process -FilePath $emulator -WorkingDirectory (Split-Path -Parent $emulator) -ArgumentList @('-avd', $avdName, '-no-snapshot', '-no-boot-anim', '-gpu', 'auto') -WindowStyle Hidden
     & $adb wait-for-device | Out-Null
 }
 for ($i = 0; $i -lt 90; $i++) {

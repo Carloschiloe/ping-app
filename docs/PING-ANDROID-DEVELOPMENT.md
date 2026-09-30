@@ -36,6 +36,9 @@ la consulta remota de la cuenta Expo.
 
 El script exige que `SUPABASE_URL` corresponda a
 `oonijgmddgyymhrlnvuu.supabase.co`; se detiene ante cualquier otra configuración.
+En un checkout normal usa `backend/.env`. Para un worktree aislado se puede
+definir temporalmente `PING_ANDROID_BACKEND_ENV` con la ruta local autorizada,
+sin copiar ni versionar el archivo.
 
 ## Primera compilación / reinstalación
 
@@ -79,6 +82,9 @@ nativos hay que volver a compilar e instalar la APK; no usar Expo Go.
 
 La sesión final no usa Expo Go ni tunnel: para el emulador local usa el
 development client SDK57, el manifiesto offline de Metro y `adb reverse`.
+No se debe ejecutar `qemu-system-x86_64.exe` directamente: el único entrypoint
+soportado es `emulator.exe` mediante el script, con el directorio oficial del
+SDK como working directory.
 
 El gate iPhone SDK57 queda documentado por separado en
 `docs/PING-IPHONE-DEVELOPMENT.md` y requiere Apple/EAS; no es el runtime
