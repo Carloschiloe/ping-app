@@ -6,6 +6,7 @@ import {
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
 import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
+import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../src/services/m8LiveVoiceDiagnostics.service';
 
 const actorUserId = '11111111-1111-4111-8111-111111111111';
 const voiceSessionId = '22222222-2222-4222-8222-222222222222';
@@ -113,5 +114,41 @@ describe('M8 live voice staging boundary', () => {
         expect(getM8LiveVoiceTelemetry(actorUserId, voiceSessionId).events).toContainEqual(expect.objectContaining({
             event: 'voice_stage', stage: 'session_response_received', httpStatus: 201, sideEffects: 0,
         }));
+    });
+
+    it('writes only staging diagnostics with hashed identities and no secrets or SDP', () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+        traceM8LiveVoiceDiagnostic('session_request_received', {
+            actorUserId,
+            voiceSessionId,
+            deviceSessionId,
+            sessionId: 'provider-session-id',
+            authorization: 'Bearer access-token-that-must-not-appear',
+            sdp: 'v=0\r\nprivate-offer',
+            errorMessage: 'refresh_token=secret-value',
+        });
+
+        expect(info).toHaveBeenCalledTimes(1);
+        const line = info.mock.calls[0].map(String).join(' ');
+        expect(line).toContain('PING_M8_BOOTSTRAP_TRACE');
+        expect(line).not.toContain(actorUserId);
+        expect(line).not.toContain(voiceSessionId);
+        expect(line).not.toContain('provider-session-id');
+        expect(line).not.toContain('access-token-that-must-not-appear');
+        expect(line).not.toContain('private-offer');
+        expect(line).not.toContain('secret-value');
+        expect(line).toContain('actorUserIdHash');
+    });
+
+    it('keeps provider/auth failures structured and sanitized', () => {
+        const details = sanitizeM8LiveVoiceError(Object.assign(new Error('Bearer hidden-token'), {
+            name: 'AuthApiError', statusCode: 401, code: 'invalid_token',
+        }));
+        expect(details).toEqual({
+            errorName: 'AuthApiError',
+            errorCode: 'invalid_token',
+            httpStatus: 401,
+            errorMessage: 'Bearer [redacted]',
+        });
     });
 });
