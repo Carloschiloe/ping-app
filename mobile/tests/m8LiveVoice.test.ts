@@ -7,14 +7,13 @@ const read = (relative: string) => fs.readFileSync(path.join(__dirname, '..', re
 describe('M8 live voice staging surface', () => {
     it('uses the authenticated staging broker and the existing Core boundary', () => {
         const source = read('src/components/agent/LiveVoiceSession.tsx');
-        expect(source).toContain("/agent/voice/live/session");
-        expect(source).toContain("/agent/voice/live/telemetry");
-        expect(source).toContain("/agent/turn");
-        expect(source).toContain("sideEffects:0");
-        expect(source).toContain("response.cancel");
-        expect(source).toContain("remote.onplaying");
         expect(source).toContain("/agent/voice/live/client");
         expect(source).toContain("config_requested");
+        expect(source).toContain("native_ready");
+        expect(source).toContain("protocolVersion: 1");
+        expect(source).toContain("handshakeId");
+        expect(source).toContain("message.type === 'retry'");
+        expect(source).not.toContain("const LIVE_VOICE_HTML");
         expect(source).toContain("ping-config");
         expect(source).toContain("onLoadEnd={injectConfig}");
         expect(source).toContain("originWhitelist={['https://*']}");
