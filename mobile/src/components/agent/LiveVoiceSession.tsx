@@ -113,7 +113,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         return () => { active = false; setAuthorization(null); };
     }, [visible]);
 
-    const injected = config ? `window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};true;` : '';
+    const injected = config ? `window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));true;` : '';
     const injectConfig = () => {
         if (injected) webViewRef.current?.injectJavaScript(injected);
     };
@@ -121,6 +121,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         try {
             const message = JSON.parse(event.nativeEvent.data) as { type?: string };
             if (message.type === 'closed') onClose();
+            if (message.type === 'config_requested') injectConfig();
             if (message.type === 'error') setError('No se pudo iniciar la conversación de voz.');
         } catch { /* WebView telemetry is already sent to staging. */ }
     };

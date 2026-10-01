@@ -97,6 +97,7 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain('microphone_permission_timeout');
         expect(html).toContain('session_request_started');
         expect(html).toContain('remote_description_set');
+        expect(html).toContain("config_requested");
         expect(html).not.toContain('OPENAI_API_KEY');
     });
 

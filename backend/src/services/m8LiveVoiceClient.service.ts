@@ -21,7 +21,9 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const errorDetails=(error)=>{const value=error||{};const name=typeof value.name==='string'?value.name.slice(0,60):'Error';const code=typeof value.code==='string'||typeof value.code==='number'?String(value.code).slice(0,60):undefined;const message=typeof value.message==='string'?value.message.replace(/Bearer\\s+[^\\s]+/ig,'Bearer [redacted]').slice(0,120):'voice_session_failed';return {errorName:name,errorCode:code,errorMessage:message}};
   const withTimeout=(promise,ms,code)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(code)),ms);promise.then(value=>{clearTimeout(timer);resolve(value)},error=>{clearTimeout(timer);reject(error)})});
   const sendEvent=(value)=>{if(!dc||dc.readyState!=='open')throw new Error('voice_data_channel_unavailable');dc.send(JSON.stringify(value))};
+  const requestConfig=()=>post({type:'config_requested'});
   async function waitForConfig(){
+    requestConfig();
     stage('client_boot','Preparando Ping','Esperando la configuración segura del dispositivo.');
     for(let attempt=0;attempt<100;attempt+=1){if(window.__PING_CONFIG){cfg=window.__PING_CONFIG;startedAt=Date.now();stage('config_received','Configuración lista','Solicitando acceso al micrófono.');return}await new Promise(resolve=>setTimeout(resolve,100))}
     throw new Error('voice_config_timeout');
