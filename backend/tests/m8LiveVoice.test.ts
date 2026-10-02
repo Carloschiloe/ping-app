@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     clearM8LiveVoiceTelemetryForTests,
     createM8LiveVoiceSession,
+    getLatestM8LiveVoiceTelemetry,
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
@@ -128,6 +129,14 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("audio_ready");
         expect(html).toContain("coreResultReady");
         expect(html).toContain("audio_before_core_result");
+        expect(html).toContain("transcript_received");
+        expect(html).toContain("core_request_started");
+        expect(html).toContain("function_call_output");
+        expect(html).toContain("response_create");
+        expect(html).toContain("response_cancel");
+        expect(html).toContain("audio_transport");
+        expect(html).toContain("speech_started_while_assistant_speaking");
+        expect(html).toContain("remote_audio_stalled");
         expect(html).toContain("setAudioGate(false)");
         expect(html).toContain("setAudioGate(true)");
         expect(html).toContain("remote.muted=!enabled");
@@ -165,6 +174,39 @@ describe('M8 live voice staging boundary', () => {
         expect(getM8LiveVoiceTelemetry(actorUserId, voiceSessionId).events).toContainEqual(expect.objectContaining({
             event: 'voice_stage', stage: 'session_response_received', httpStatus: 201, sideEffects: 0,
         }));
+    });
+
+    it('keeps the latest physical session recoverable and sanitizes transcript/Core text', () => {
+        recordM8LiveVoiceTelemetry(actorUserId, {
+            voiceSessionId,
+            deviceSessionId,
+            event: 'transcript_received',
+            transcript: 'agenda esto access_token=must-not-persist',
+            turnId: 'turn-1',
+            turnSequence: 1,
+            vadState: 'speech_stopped',
+            atMs: 500,
+            sideEffects: 0,
+        });
+        recordM8LiveVoiceTelemetry(actorUserId, {
+            voiceSessionId,
+            deviceSessionId,
+            event: 'core_disposition',
+            coreKind: 'response',
+            coreAnswer: 'respuesta authorization=must-not-persist',
+            httpStatus: 200,
+            latencyMs: 42,
+            atMs: 700,
+            sideEffects: 0,
+        });
+
+        const latest = getLatestM8LiveVoiceTelemetry(actorUserId);
+        expect(latest).toMatchObject({ voiceSessionId, deviceSessionId, eventCount: 2, closed: false, sideEffects: 0 });
+        expect(JSON.stringify(latest)).not.toContain('must-not-persist');
+        expect(latest.events).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'transcript_received', transcript: 'agenda esto access_token=[redacted]' }),
+            expect.objectContaining({ event: 'core_disposition', coreAnswer: 'respuesta authorization=[redacted]', latencyMs: 42 }),
+        ]));
     });
 
     it('writes only staging diagnostics with hashed identities and no secrets or SDP', () => {

@@ -28,7 +28,7 @@ export function traceM8LiveVoiceDiagnostic(
             safeDetails[key] = '[redacted]';
             continue;
         }
-        if (key === 'voiceSessionId' || key === 'deviceSessionId' || key === 'sessionId' || key === 'actorUserId') {
+        if (key === 'voiceSessionId' || key === 'deviceSessionId' || key === 'sessionId' || key === 'actorUserId' || key === 'turnId') {
             safeDetails[`${key}Hash`] = digest(value);
             continue;
         }

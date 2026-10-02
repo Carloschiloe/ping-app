@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { AppError } from '../utils/AppError';
 import {
     createM8LiveVoiceSession,
+    getLatestM8LiveVoiceTelemetry,
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../services/m8LiveVoice.service';
@@ -77,6 +78,19 @@ export function telemetry(req: Request, res: Response): void {
             stage: req.body?.stage,
             detailCode: req.body?.detailCode,
             httpStatus: req.body?.httpStatus,
+            latencyMs: req.body?.latencyMs,
+            turnId: req.body?.turnId,
+            turnSequence: req.body?.turnSequence,
+            responseCreateCount: req.body?.responseCreateCount,
+            audioResponseCount: req.body?.audioResponseCount,
+            cancelCause: req.body?.cancelCause,
+            assistantSpeaking: req.body?.assistantSpeaking,
+            coreResultReady: req.body?.coreResultReady,
+            selfAudioCaptureSuspected: req.body?.selfAudioCaptureSuspected,
+            vadState: req.body?.vadState,
+            webrtcState: req.body?.webrtcState,
+            iceState: req.body?.iceState,
+            audioState: req.body?.audioState,
             sideEffects: req.body?.sideEffects,
         });
         res.status(202).json({ accepted: true });
@@ -90,6 +104,15 @@ export function telemetry(req: Request, res: Response): void {
 export function readTelemetry(req: Request, res: Response): void {
     try {
         res.status(200).json(getM8LiveVoiceTelemetry(req.user!.id, String(req.params.voiceSessionId)));
+    } catch (error) {
+        const status = error instanceof AppError ? error.statusCode : 500;
+        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+    }
+}
+
+export function readLatestTelemetry(req: Request, res: Response): void {
+    try {
+        res.status(200).json(getLatestM8LiveVoiceTelemetry(req.user!.id));
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
         res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });

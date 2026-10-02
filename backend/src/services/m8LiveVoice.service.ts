@@ -32,15 +32,28 @@ type StoredTelemetry = {
     actorUserId: string;
     voiceSessionId: string;
     deviceSessionId: string;
+    createdAt: string;
+    lastEventAt: string;
+    closed: boolean;
     events: M8LiveVoiceTelemetry[];
 };
 
 const telemetryByVoiceSession = new Map<string, StoredTelemetry>();
+const latestTelemetryByActor = new Map<string, string>();
 
 function assertStagingLiveVoiceEnabled(): void {
     if (process.env.PING_ENVIRONMENT !== 'staging' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
+}
+
+function sanitizeTelemetryText(value: string | undefined, maxLength: number): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    return value
+        .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+        .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
+        .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+        .slice(0, maxLength);
 }
 
 function modelForStaging(): string {
@@ -143,31 +156,57 @@ export async function createM8LiveVoiceSession(input: {
 }
 
 export function recordM8LiveVoiceTelemetry(actorUserId: string, event: M8LiveVoiceTelemetry): void {
+    assertStagingLiveVoiceEnabled();
+    const now = new Date().toISOString();
     const existing = telemetryByVoiceSession.get(event.voiceSessionId) ?? {
         actorUserId,
         voiceSessionId: event.voiceSessionId,
         deviceSessionId: event.deviceSessionId,
+        createdAt: now,
+        lastEventAt: now,
+        closed: false,
         events: [],
     };
     if (existing.actorUserId !== actorUserId || existing.deviceSessionId !== event.deviceSessionId) {
         throw new AppError('Live voice telemetry identity mismatch', 403);
     }
-    existing.events.push(event);
+    const sanitizedEvent = {
+        ...event,
+        transcript: sanitizeTelemetryText(event.transcript, 500),
+        coreAnswer: sanitizeTelemetryText(event.coreAnswer, 800),
+    };
+    existing.events.push(sanitizedEvent);
+    existing.lastEventAt = now;
+    if (event.event === 'session_closed') existing.closed = true;
     if (existing.events.length > MAX_TELEMETRY_EVENTS) existing.events.splice(0, existing.events.length - MAX_TELEMETRY_EVENTS);
     telemetryByVoiceSession.set(event.voiceSessionId, existing);
+    latestTelemetryByActor.set(actorUserId, event.voiceSessionId);
 }
 
 export function getM8LiveVoiceTelemetry(actorUserId: string, voiceSessionId: string) {
+    assertStagingLiveVoiceEnabled();
     const existing = telemetryByVoiceSession.get(voiceSessionId);
     if (!existing || existing.actorUserId !== actorUserId) throw new AppError('Live voice telemetry unavailable', 404);
     return {
         voiceSessionId: existing.voiceSessionId,
         deviceSessionId: existing.deviceSessionId,
+        createdAt: existing.createdAt,
+        lastEventAt: existing.lastEventAt,
+        closed: existing.closed,
+        eventCount: existing.events.length,
         events: existing.events,
         sideEffects: existing.events.some((event) => (event.sideEffects ?? 0) > 0) ? 1 : 0,
     };
 }
 
+export function getLatestM8LiveVoiceTelemetry(actorUserId: string) {
+    assertStagingLiveVoiceEnabled();
+    const voiceSessionId = latestTelemetryByActor.get(actorUserId);
+    if (!voiceSessionId) throw new AppError('Live voice telemetry unavailable', 404);
+    return getM8LiveVoiceTelemetry(actorUserId, voiceSessionId);
+}
+
 export function clearM8LiveVoiceTelemetryForTests(): void {
     telemetryByVoiceSession.clear();
+    latestTelemetryByActor.clear();
 }

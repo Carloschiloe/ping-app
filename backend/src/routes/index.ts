@@ -372,6 +372,12 @@ router.post(
     m8LiveVoiceController.telemetry,
 );
 router.get(
+    '/agent/voice/live/telemetry/latest',
+    requireAuth,
+    agentVoiceTelemetryRateLimiter,
+    m8LiveVoiceController.readLatestTelemetry,
+);
+router.get(
     '/agent/voice/live/telemetry/:voiceSessionId',
     requireAuth,
     m8LiveVoiceController.readTelemetry,
