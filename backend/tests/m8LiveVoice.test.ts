@@ -119,6 +119,8 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("const negotiatedSdp=pc.localDescription?.sdp");
         expect(html).toContain("sdp:negotiatedSdp");
         expect(html).not.toContain("sdp:offer.sdp");
+        expect(html).toContain("normalizeSdp");
+        expect(html).toContain("String.fromCharCode(13,10)");
         expect(html).toContain("data_channel_timeout");
         expect(html).toContain("provider_session_timeout");
         expect(html).toContain("retry");
