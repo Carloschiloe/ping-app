@@ -11,11 +11,11 @@ const CLIENT_HTML = `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body{margin:0;background:#091426;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
 main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:56px;background:#1677e8;box-shadow:0 0 0 14px rgba(22,119,232,.15);margin:0 auto 24px;display:flex;align-items:center;justify-content:center;font-size:44px}.orb.active{animation:pulse 1.5s infinite}.status{font-size:17px;font-weight:600;margin:8px 0}.hint{font-size:13px;color:#a9b7c9;line-height:1.5;max-width:290px;margin:0 auto}.stop,.retry{margin-top:28px;border:0;border-radius:22px;padding:12px 24px;color:white;font-size:16px;font-weight:700}.stop{background:#ef4444}.retry{background:#1677e8;margin-left:8px}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
-</style></head><body><main><div id="orb" class="orb">&#9673;</div><div id="status" class="status">Preparando Ping...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline></audio></main><script nonce="__M8_SCRIPT_NONCE__">
+</style></head><body><main><div id="orb" class="orb">&#9673;</div><div id="status" class="status">Preparando Ping...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline muted></audio></main><script nonce="__M8_SCRIPT_NONCE__">
 (function(){
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500;
-  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null;
+  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,coreResultReady=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null;
   const id=()=>{try{return crypto.randomUUID()}catch{return 'm8-'+Date.now()+'-'+Math.random().toString(16).slice(2)}};
   const post=(message)=>{try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(message))}catch{}};
   const setStatus=(text,hint,active=false)=>{statusEl.textContent=text;hintEl.textContent=hint||'';orb.className=active?'orb active':'orb'};
@@ -41,7 +41,9 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const waitForIceGathering=()=>new Promise(resolve=>{if(!pc||pc.iceGatheringState==='complete'){resolve(true);return}const timer=setTimeout(()=>{if(pc)pc.onicegatheringstatechange=null;resolve(true)},10000);pc.onicegatheringstatechange=()=>{if(pc?.iceGatheringState==='complete'){clearTimeout(timer);pc.onicegatheringstatechange=null;resolve(true)}}});
   const clearPending=()=>{if(configTimer)clearTimeout(configTimer);if(sessionTimer)clearTimeout(sessionTimer);if(disconnectTimer)clearTimeout(disconnectTimer);configTimer=null;sessionTimer=null;disconnectTimer=null;resolveSessionCreated=null;rejectSessionCreated=null};
   function fail(stageName,error,httpStatus){if(failed||closed)return;failed=true;clearPending();const details=errorDetails(error);const failedStage=stageName||currentStage||'unknown';telemetry('error',{detailCode:failedStage,httpStatus,...details,sideEffects:0});post({type:'m8_diagnostic_error',stage:failedStage,details});retryEl.hidden=false;setStatus('No se pudo iniciar la voz','Falló la etapa '+failedStage+'. '+(details.errorCode||details.errorMessage||'Revisa la conexión e inténtalo nuevamente.'),false);}
+  const setAudioGate=(enabled)=>{coreResultReady=enabled;remote.muted=!enabled;if(enabled)remote.play().catch(()=>{})};
   async function callCore(input,callId){
+    setAudioGate(false);
     stage('core_request_started','Ping está pensando','Consultando el mismo Ping Core.',{sideEffects:0});
     const body={input,channel:'mobile',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId};
     const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':id()},body:JSON.stringify(body)}),20000,'core_request_timeout');
@@ -51,10 +53,14 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     const core=result||{kind:'error',status:'unavailable'};const kind=core.kind==='plan'?'plan':core.kind==='clarification'?'clarification':core.kind==='response'?'response':'error';
     telemetry('core_disposition',{coreKind:kind,confirmationRequired:core.confirmationRequested===true,sideEffects:0});
     if(core.confirmationRequested===true)telemetry('confirmation_requested',{coreKind:'plan',confirmationRequired:true,sideEffects:0});
-    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core})}});sendEvent({type:'response.create'});
+    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core})}});sendEvent({type:'response.create'});setAudioGate(true);
   }
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}
+    if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result',sideEffects:0});return}}
+    if(event.type==='response.output_audio.done')setAudioGate(false);
+    if(event.type==='response.function_call_arguments.done'){try{sendEvent({type:'response.cancel'})}catch{}}
+    if(event.type==='input_audio_buffer.speech_started'&&assistantSpeaking)setAudioGate(false);
     if(event.type==='session.created'){providerSessionCreated=true;providerSessionId=event.session?.id||providerSessionId;if(sessionTimer)clearTimeout(sessionTimer);if(resolveSessionCreated)resolveSessionCreated(true);resolveSessionCreated=null;rejectSessionCreated=null;telemetry('session_connected',{sessionId:providerSessionId});stage('session_connected','Ping está escuchando','Habla cuando quieras.');stage('listening','Ping está listo','Habla cuando quieras.');return}
     if(event.type==='input_audio_buffer.speech_started'){if(assistantSpeaking){try{sendEvent({type:'response.cancel'})}catch{}telemetry('barge_in',{sideEffects:0});stage('barge_in_detected','Ping te escucha','Interrumpiendo la respuesta anterior.',{sideEffects:0});assistantSpeaking=false}telemetry('speech_started',{sideEffects:0});return}
     if(event.type==='input_audio_buffer.speech_stopped'){telemetry('speech_stopped',{sideEffects:0});return}

@@ -79,9 +79,28 @@ const agentExecutionRateLimiter = rateLimit({
     keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
 });
 
-const agentVoiceRateLimiter = rateLimit({
+const agentVoiceCaptureRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
+});
+
+// Live voice emits many bounded telemetry events. Keep session creation and
+// telemetry on separate budgets so observability cannot consume the budget
+// needed to reopen a voice session.
+const agentVoiceSessionRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 6,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
+});
+
+const agentVoiceTelemetryRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 240,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
@@ -324,7 +343,7 @@ router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage)
 router.post(
     '/agent/voice/transcribe',
     requireAuth,
-    agentVoiceRateLimiter,
+    agentVoiceCaptureRateLimiter,
     raw({ type: () => true, limit: MAX_AGENT_VOICE_BYTES + 1024 }),
     agentVoiceController.agentVoiceRawBodyError,
     validateRequest(agentVoiceTranscriptionRequestSchema),
@@ -337,7 +356,7 @@ router.post(
 router.post(
     '/agent/voice/live/session',
     requireAuth,
-    agentVoiceRateLimiter,
+    agentVoiceSessionRateLimiter,
     validateRequest(m8LiveVoiceSessionSchema),
     m8LiveVoiceController.createSession,
 );
@@ -348,7 +367,7 @@ router.get(
 router.post(
     '/agent/voice/live/telemetry',
     requireAuth,
-    agentVoiceRateLimiter,
+    agentVoiceTelemetryRateLimiter,
     validateRequest(m8LiveVoiceTelemetrySchema),
     m8LiveVoiceController.telemetry,
 );
