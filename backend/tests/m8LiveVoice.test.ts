@@ -89,7 +89,7 @@ describe('M8 live voice staging boundary', () => {
 
     it('serves a staging client with browser media and barge-in controls', () => {
         delete process.env.M8_LIVE_VOICE_ENABLED;
-        const html = getM8LiveVoiceClientHtml();
+        const html = getM8LiveVoiceClientHtml('unit-test-nonce');
         expect(html).toContain('navigator.mediaDevices?.getUserMedia');
         expect(html).toContain('RTCPeerConnection');
         expect(html).toContain('response.cancel');
@@ -109,6 +109,8 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("audio_ready");
         expect(html).toContain('Configurando la conversación segura.');
         expect(html).not.toMatch(/[ÃÂ�]/);
+        expect(html).toContain('<script nonce="unit-test-nonce">');
+        expect(html).not.toContain('__M8_SCRIPT_NONCE__');
         expect(html).not.toContain('OPENAI_API_KEY');
     });
 

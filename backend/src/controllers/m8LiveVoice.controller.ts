@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { randomBytes } from 'crypto';
 import { AppError } from '../utils/AppError';
 import {
     createM8LiveVoiceSession,
@@ -11,9 +12,13 @@ import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../service
 export function client(_req: Request, res: Response): void {
     traceM8LiveVoiceDiagnostic('client_request');
     try {
-        const html = getM8LiveVoiceClientHtml();
+        const scriptNonce = randomBytes(16).toString('hex');
+        const html = getM8LiveVoiceClientHtml(scriptNonce);
         traceM8LiveVoiceDiagnostic('client_served', { status: 200, contentLength: Buffer.byteLength(html), environment: process.env.PING_ENVIRONMENT });
-        res.status(200).type('html').set('Cache-Control', 'no-store').send(html);
+        res.status(200).type('html')
+            .set('Cache-Control', 'no-store')
+            .set('Content-Security-Policy', `default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'nonce-${scriptNonce}'; script-src-attr 'none'; style-src 'self' https: 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; upgrade-insecure-requests`)
+            .send(html);
     } catch (error) {
         traceM8LiveVoiceDiagnostic('client_rejected', { status: error instanceof AppError ? error.statusCode : 404, ...sanitizeM8LiveVoiceError(error) });
         const status = error instanceof AppError ? error.statusCode : 404;

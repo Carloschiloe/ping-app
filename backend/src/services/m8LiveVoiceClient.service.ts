@@ -11,7 +11,7 @@ const CLIENT_HTML = `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body{margin:0;background:#091426;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
 main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:56px;background:#1677e8;box-shadow:0 0 0 14px rgba(22,119,232,.15);margin:0 auto 24px;display:flex;align-items:center;justify-content:center;font-size:44px}.orb.active{animation:pulse 1.5s infinite}.status{font-size:17px;font-weight:600;margin:8px 0}.hint{font-size:13px;color:#a9b7c9;line-height:1.5;max-width:290px;margin:0 auto}.stop,.retry{margin-top:28px;border:0;border-radius:22px;padding:12px 24px;color:white;font-size:16px;font-weight:700}.stop{background:#ef4444}.retry{background:#1677e8;margin-left:8px}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
-</style></head><body><main><div id="orb" class="orb">&#9673;</div><div id="status" class="status">Preparando Ping...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline></audio></main><script>
+</style></head><body><main><div id="orb" class="orb">&#9673;</div><div id="status" class="status">Preparando Ping...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline></audio></main><script nonce="__M8_SCRIPT_NONCE__">
 (function(){
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500;
@@ -92,9 +92,9 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 })();
 </script></body></html>`;
 
-export function getM8LiveVoiceClientHtml(): string {
+export function getM8LiveVoiceClientHtml(scriptNonce = 'm8-test-nonce'): string {
     if (process.env.PING_ENVIRONMENT !== 'staging') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
-    return CLIENT_HTML;
+    return CLIENT_HTML.replace('__M8_SCRIPT_NONCE__', scriptNonce);
 }
