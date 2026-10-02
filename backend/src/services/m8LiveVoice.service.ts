@@ -120,10 +120,22 @@ export async function createM8LiveVoiceSession(input: {
 
     const bodyText = await response.text();
     if (!response.ok) throw providerError(response, bodyText);
-    let body: any;
-    try { body = JSON.parse(bodyText); } catch { throw new AppError('Live voice provider returned invalid session data', 503); }
-    const sessionId = typeof body?.session?.id === 'string' ? body.session.id : null;
-    const sdp = typeof body?.transport?.sdp === 'string' ? body.transport.sdp : null;
+    // The WebRTC calls endpoint returns the SDP answer as the response body;
+    // the provider call identifier is carried by the Location header. It is
+    // not the JSON session envelope used by other Realtime APIs.
+    const location = response.headers.get('location');
+    let sessionId = location ? location.split('/').filter(Boolean).pop() : null;
+    let sdp = bodyText.trim();
+    if (!sdp.startsWith('v=')) {
+        // Keep a narrow compatibility path for provider/test doubles that
+        // still return the older JSON envelope, without treating arbitrary
+        // response text as a valid SDP answer.
+        try {
+            const body = JSON.parse(bodyText);
+            sessionId = typeof body?.session?.id === 'string' ? body.session.id : sessionId;
+            sdp = typeof body?.transport?.sdp === 'string' ? body.transport.sdp.trim() : '';
+        } catch { sdp = ''; }
+    }
     if (!sessionId || !sdp) throw new AppError('Live voice provider returned incomplete session data', 503);
     return { sessionId, sdp, model, provider: 'openai_realtime_webrtc' };
 }

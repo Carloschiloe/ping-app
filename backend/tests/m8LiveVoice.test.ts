@@ -29,10 +29,13 @@ describe('M8 live voice staging boundary', () => {
     });
 
     it('brokers an SDP session without exposing the provider key', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-            session: { id: 'live_test_session' },
-            transport: { type: 'webrtc', sdp: 'v=0\\r\\nanswer' },
-        }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+        const fetchMock = vi.fn().mockResolvedValue(new Response('v=0\\r\\nanswer', {
+            status: 201,
+            headers: {
+                'Content-Type': 'application/sdp',
+                Location: 'https://api.openai.com/v1/realtime/calls/live_test_session',
+            },
+        }));
         vi.stubGlobal('fetch', fetchMock);
 
         const result = await createM8LiveVoiceSession({
@@ -65,6 +68,7 @@ describe('M8 live voice staging boundary', () => {
         expect((session as Blob).type).toBe('application/json');
         await expect((session as Blob).text()).resolves.toContain('ping_core_turn');
         await expect((session as Blob).text()).resolves.toContain('gpt-realtime-2.1');
+        expect(result.sdp).toBe('v=0\\r\\nanswer');
     });
 
     it('keeps telemetry actor/device scoped and reports zero side effects', () => {
