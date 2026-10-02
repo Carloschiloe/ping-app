@@ -118,6 +118,9 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("retry");
         expect(html).toContain("listening");
         expect(html).toContain("audio_ready");
+        expect(html).toContain("currentStage");
+        expect(html).toContain("m8_diagnostic_error");
+        expect(html).toContain("fail(currentStage,error,error?.httpStatus)");
         expect(html).toContain('Configurando la conversación segura.');
         expect(html).not.toMatch(/[ÃÂ�]/);
         expect(html).toContain('<script nonce="unit-test-nonce">');
