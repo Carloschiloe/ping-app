@@ -131,6 +131,16 @@ describe('M8 live voice staging boundary', () => {
         expect(html).not.toContain('OPENAI_API_KEY');
     });
 
+    it('serves an executable bootstrap script after all runtime substitutions', () => {
+        const html = getM8LiveVoiceClientHtml('runtime-test-nonce');
+        const marker = '<script nonce="runtime-test-nonce">';
+        const start = html.indexOf(marker);
+        const end = html.indexOf('</script>', start + marker.length);
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(end).toBeGreaterThan(start);
+        expect(() => new Function(html.slice(start + marker.length, end))).not.toThrow();
+    });
+
     it('accepts sanitized stage diagnostics without side effects', () => {
         recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
