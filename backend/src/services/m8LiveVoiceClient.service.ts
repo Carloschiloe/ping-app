@@ -81,7 +81,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
       const response=await withTimeout(fetch(cfg.apiUrl+'/agent/voice/live/session',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json'},body:JSON.stringify({sdp:offer.sdp,voiceSessionId:cfg.voiceSessionId,deviceSessionId:cfg.deviceSessionId,conversationId:cfg.conversationId,locale:cfg.locale,timezone:cfg.timezone})}),20000,'session_request_timeout');
       stage('voice_session_received',response.ok?'Sesión aceptada':'Sesión rechazada','Finalizando conexión.',{httpStatus:response.status});
       const body=await response.text();let result=null;try{result=JSON.parse(body)}catch{}
-      if(!response.ok)throw Object.assign(new Error(result?.error||'live_session_failed'),{httpStatus:response.status});
+      if(!response.ok){const diagnostic=result?.diagnostic||{};throw Object.assign(new Error(diagnostic.providerErrorMessage||result?.error||'live_session_failed'),{httpStatus:diagnostic.httpStatus||response.status,code:diagnostic.errorCode||diagnostic.providerErrorType})}
       if(!result?.sdp||!result?.sessionId)throw new Error('live_session_incomplete');
        providerSessionId=result.sessionId;await withTimeout(pc.setRemoteDescription({type:'answer',sdp:result.sdp}),15000,'remote_description_timeout');stage('remote_description_set','Sesión de voz lista','Esperando confirmación del canal.');
       await waitForDataChannel();await waitForSessionCreated();

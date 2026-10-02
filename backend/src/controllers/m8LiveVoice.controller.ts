@@ -53,7 +53,16 @@ export async function createSession(req: Request, res: Response): Promise<void> 
             ...sanitizeM8LiveVoiceError(error),
         });
         const status = error instanceof AppError ? error.statusCode : 503;
-        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice session failed' });
+        const diagnostic = sanitizeM8LiveVoiceError(error);
+        res.status(status).json({
+            error: error instanceof AppError ? error.message : 'Live voice session failed',
+            diagnostic: {
+                errorCode: diagnostic.errorCode,
+                httpStatus: diagnostic.httpStatus,
+                providerErrorType: diagnostic.providerErrorType,
+                providerErrorMessage: diagnostic.providerErrorMessage,
+            },
+        });
     }
 }
 
