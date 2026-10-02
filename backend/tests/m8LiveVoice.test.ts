@@ -170,6 +170,26 @@ describe('M8 live voice staging boundary', () => {
             errorCode: 'invalid_token',
             httpStatus: 401,
             errorMessage: 'Bearer [redacted]',
+            providerErrorType: undefined,
+            providerErrorMessage: undefined,
         });
+    });
+
+    it('sanitizes provider rejection diagnostics without retaining credentials or SDP', () => {
+        const details = sanitizeM8LiveVoiceError(Object.assign(new Error('provider rejected'), {
+            status: 400,
+            code: 'invalid_request_error',
+            providerErrorType: 'invalid_request_error',
+            providerErrorMessage: 'Authorization: Bearer hidden-token; sdp=https://private.example/offer',
+        }));
+        expect(details).toMatchObject({
+            errorCode: 'invalid_request_error',
+            httpStatus: 400,
+            providerErrorType: 'invalid_request_error',
+        });
+        expect(String(details.providerErrorMessage)).not.toContain('hidden-token');
+        expect(String(details.providerErrorMessage)).not.toContain('private.example');
+        expect(JSON.stringify(details)).not.toContain('hidden-token');
+        expect(JSON.stringify(details)).not.toContain('private.example');
     });
 });

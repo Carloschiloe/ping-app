@@ -6,6 +6,28 @@ const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const DEFAULT_MODEL = 'gpt-realtime-2.1';
 const MAX_TELEMETRY_EVENTS = 500;
 
+function providerError(response: Response, bodyText: string): AppError {
+    let body: any = null;
+    try { body = JSON.parse(bodyText); } catch { /* keep a generic sanitized diagnostic */ }
+    const provider = body?.error ?? body;
+    const error = new AppError('Live voice provider rejected the session', 503) as AppError & {
+        status?: number;
+        code?: string;
+        providerErrorType?: string;
+        providerErrorMessage?: string;
+    };
+    error.status = response.status;
+    if (typeof provider?.code === 'string') error.code = provider.code.slice(0, 80);
+    if (typeof provider?.type === 'string') error.providerErrorType = provider.type.slice(0, 80);
+    if (typeof provider?.message === 'string') {
+        error.providerErrorMessage = provider.message
+            .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+            .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
+            .slice(0, 160);
+    }
+    return error;
+}
+
 type StoredTelemetry = {
     actorUserId: string;
     voiceSessionId: string;
@@ -97,7 +119,7 @@ export async function createM8LiveVoiceSession(input: {
     }
 
     const bodyText = await response.text();
-    if (!response.ok) throw new AppError('Live voice provider rejected the session', 503);
+    if (!response.ok) throw providerError(response, bodyText);
     let body: any;
     try { body = JSON.parse(bodyText); } catch { throw new AppError('Live voice provider returned invalid session data', 503); }
     const sessionId = typeof body?.session?.id === 'string' ? body.session.id : null;
