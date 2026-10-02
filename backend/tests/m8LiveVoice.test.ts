@@ -112,6 +112,10 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("CONFIG_ATTEMPTS");
         expect(html).toContain("auth_ready");
         expect(html).toContain("voice_session_requested");
+        expect(html).toContain("ice_gathering");
+        expect(html).toContain("waitForIceGathering");
+        expect(html).toContain("remote_description_applying");
+        expect(html).toContain("remote_description_invalid_sdp");
         expect(html).toContain("data_channel_timeout");
         expect(html).toContain("provider_session_timeout");
         expect(html).toContain("retry");
