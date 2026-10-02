@@ -62,12 +62,11 @@ describe('M8 live voice staging boundary', () => {
         const form = request.body as FormData;
         const sdp = form.get('sdp');
         const session = form.get('session');
-        expect(sdp).toBeInstanceOf(Blob);
-        expect((sdp as Blob).type).toBe('application/sdp');
-        expect(session).toBeInstanceOf(Blob);
-        expect((session as Blob).type).toBe('application/json');
-        await expect((session as Blob).text()).resolves.toContain('ping_core_turn');
-        await expect((session as Blob).text()).resolves.toContain('gpt-realtime-2.1');
+        expect(typeof sdp).toBe('string');
+        expect(sdp).toContain('v=0');
+        expect(typeof session).toBe('string');
+        expect(session).toContain('ping_core_turn');
+        expect(session).toContain('gpt-realtime-2.1');
         expect(result.sdp).toBe('v=0\\r\\nanswer');
     });
 

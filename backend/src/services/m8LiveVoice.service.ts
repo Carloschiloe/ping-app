@@ -98,11 +98,13 @@ export async function createM8LiveVoiceSession(input: {
 
     const model = modelForStaging();
     const form = new FormData();
-    // The Realtime WebRTC endpoint relies on the media type of each
-    // multipart part. Plain FormData strings are sent as text/plain by the
-    // Node fetch implementation and can be rejected before a session exists.
-    form.set('sdp', new Blob([input.request.sdp], { type: 'application/sdp' }));
-    form.set('session', new Blob([JSON.stringify(buildSessionConfig(input.request, model))], { type: 'application/json' }));
+    // The unified WebRTC endpoint expects the SDP offer and serialized
+    // session configuration as ordinary multipart fields. Blob parts add
+    // file metadata that the provider rejects as invalid form data.
+    // The unified WebRTC endpoint expects ordinary multipart fields. Blob
+    // parts add file metadata that the provider rejects as invalid form data.
+    form.set('sdp', input.request.sdp);
+    form.set('session', JSON.stringify(buildSessionConfig(input.request, model)));
 
     let response: Response;
     try {
