@@ -56,8 +56,15 @@ describe('M8 live voice staging boundary', () => {
         expect(request.method).toBe('POST');
         expect((request.headers as Record<string, string>).Authorization).toBe('Bearer test-only-key');
         expect((request.headers as Record<string, string>)['OpenAI-Safety-Identifier']).toMatch(/^[a-f0-9]{64}$/);
-        expect(String((request.body as FormData).get('session'))).toContain('ping_core_turn');
-        expect(String((request.body as FormData).get('session'))).toContain('gpt-realtime-2.1');
+        const form = request.body as FormData;
+        const sdp = form.get('sdp');
+        const session = form.get('session');
+        expect(sdp).toBeInstanceOf(Blob);
+        expect((sdp as Blob).type).toBe('application/sdp');
+        expect(session).toBeInstanceOf(Blob);
+        expect((session as Blob).type).toBe('application/json');
+        await expect((session as Blob).text()).resolves.toContain('ping_core_turn');
+        await expect((session as Blob).text()).resolves.toContain('gpt-realtime-2.1');
     });
 
     it('keeps telemetry actor/device scoped and reports zero side effects', () => {
