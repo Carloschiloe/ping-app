@@ -305,21 +305,28 @@ export async function runAgentTurn(
         dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
     }
 
-    // GENERALIZATION (M-7), third mechanism: plan-shown, pre-authorization
-    // date correction (benchmark scenario 4). Only reachable when
-    // pendingAnswerable was false above -- which is always true while
-    // lifecycle === 'plan_pending_authorization', since that state carries
-    // no pendingClarification by construction (markReadyForAuthorization
-    // never sets one). See agentDialogueContinuation.service.ts's own header
-    // comment on this mechanism for the full safety rationale: no bespoke
-    // plan/digest invalidation is needed here, because applyCorrection
-    // (called inside buildPlanDateCorrection) already clears the stale
-    // currentPlanDigestRef and transitions back to `collecting`, and
-    // authorizePlan's existing re-plan-from-scratch + digest-comparison
-    // already makes the OLD, now-superseded plan harmless the instant the
-    // user would try to confirm it.
+    let precomputedSemantic: AgentSemanticInterpretation | null = null;
+    // Interpret date-bearing follow-ups once before correction routing. This
+    // lets Core distinguish a target-less correction of the currently open
+    // objective from an independent reschedule request without a second
+    // interpreter or phrase-specific routing rule.
+    if (existingDialogueState?.openObjective
+        && existingDialogueState.lifecycle !== 'plan_pending_authorization'
+        && extractTimeHint(content.trim())) {
+        precomputedSemantic = await interpretAgentSemanticTurn(content, {
+            actorUserId: input.actorUserId,
+            conversationId,
+            channel,
+        }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
+    }
+
+    // GENERALIZATION (M-7), third mechanism: date correction of the active
+    // objective, whether its plan is already shown or it is being resumed
+    // from a collecting/clarifying state. The same state invalidation and
+    // canonical planner path are used in both cases.
     const correctionClassification = await classifyPlanCorrection(
         existingDialogueState, content, input.actorUserId, conversationId,
+        precomputedSemantic?.objective ?? null,
     );
     tracePlan(traceId, 'PLAN_CORRECTION_CLASSIFIED', {
         isCorrection: correctionClassification.isCorrection, reason: correctionClassification.reason, dialogueScopeKey,
@@ -356,8 +363,6 @@ export async function runAgentTurn(
         }
     }
 
-    let precomputedSemantic: AgentSemanticInterpretation | null = null;
-
     // M-7: reconcile a pending plan through the structured objective
     // interpreter before treating a short follow-up as an isolated READ.
     // The Core owns the existing plan identity and authorization boundary;
@@ -368,7 +373,7 @@ export async function runAgentTurn(
         precomputedSemantic = await interpretAgentSemanticTurn(content, {
             actorUserId: input.actorUserId,
             conversationId,
-        });
+        }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
         const pendingPlanContext = {
             actorUserId: input.actorUserId,
             conversationId,

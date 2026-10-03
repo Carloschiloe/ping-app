@@ -748,11 +748,16 @@ export async function classifyPlanCorrection(
     rawTurn: string,
     actorUserId: string,
     conversationId: string | undefined,
+    candidateObjective: AgentObjective | null = null,
 ): Promise<PlanCorrectionClassification> {
-    if (!dialogueState || dialogueState.lifecycle !== 'plan_pending_authorization' || !dialogueState.openObjective) {
+    if (!dialogueState || !dialogueState.openObjective) {
         return { isCorrection: false, reason: 'no_plan_pending' };
     }
-    if (!PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(dialogueState.openObjective.objectiveType)) {
+    const pendingPlan = dialogueState.lifecycle === 'plan_pending_authorization';
+    const openObjectiveCanReceiveDateCorrection = PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(
+        dialogueState.openObjective.objectiveType,
+    );
+    if (!pendingPlan && !openObjectiveCanReceiveDateCorrection) {
         return { isCorrection: false, reason: 'objective_type_not_eligible' };
     }
     const trimmed = rawTurn.trim();
@@ -763,11 +768,22 @@ export async function classifyPlanCorrection(
     if (!newTimeHint) {
         return { isCorrection: false, reason: 'no_date_expression' };
     }
+    // Once the user has explicitly returned to an open create objective, a
+    // target-less reschedule-shaped semantic candidate is a correction of
+    // that objective's date, not a request to find a separate persisted
+    // commitment. A candidate carrying its own entity/person remains an
+    // independent canonical mutation and must not be absorbed here.
+    const targetlessDateCorrection = candidateObjective?.objectiveType === 'reschedule_existing_commitment'
+        && candidateObjective.targetEntities.entityHints.length === 0
+        && candidateObjective.targetEntities.personHints.length === 0;
+    if (!pendingPlan && !targetlessDateCorrection) {
+        return { isCorrection: false, reason: 'not_targetless_open_objective_correction' };
+    }
     const escape = await classifyExplicitEscape(trimmed, actorUserId, conversationId);
-    if (escape.escaped) {
+    if (escape.escaped && !targetlessDateCorrection) {
         return { isCorrection: false, reason: 'explicit_escape' };
     }
-    return { isCorrection: true, reason: 'date_correction' };
+    return { isCorrection: true, reason: pendingPlan ? 'date_correction' : 'open_objective_date_correction' };
 }
 
 export interface PlanCorrectionResult {
