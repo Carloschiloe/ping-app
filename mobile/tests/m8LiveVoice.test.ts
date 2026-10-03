@@ -16,6 +16,9 @@ describe('M8 live voice staging surface', () => {
         expect(source).not.toContain("const LIVE_VOICE_HTML");
         expect(source).toContain("ping-config");
         expect(source).toContain("onLoadEnd={injectConfig}");
+        expect(source).toContain("injectJavaScript(\"document.getElementById('stop')?.click();true;\")");
+        expect(source).toContain("onRequestClose={requestClose}");
+        expect(source).toContain("if (message.type === 'closed') scheduleClose()");
         expect(source).toContain("originWhitelist={['https://*']}");
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");

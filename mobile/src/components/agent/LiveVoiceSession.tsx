@@ -38,6 +38,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     const [error, setError] = useState<string | null>(null);
     const [sessionKey, setSessionKey] = useState(0);
     const webViewRef = useRef<WebView>(null);
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const config = useMemo<LiveConfig | null>(() => authorization ? {
         apiUrl: API_URL.replace(/\/$/, ''),
         authorization,
@@ -68,19 +69,38 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         setError(null);
         setSessionKey((value) => value + 1);
     };
+    const scheduleClose = () => {
+        if (closeTimerRef.current) return;
+        closeTimerRef.current = setTimeout(() => {
+            closeTimerRef.current = null;
+            onClose();
+        }, 400);
+    };
+    const requestClose = () => {
+        if (!webViewRef.current) {
+            onClose();
+            return;
+        }
+        scheduleClose();
+        try {
+            webViewRef.current.injectJavaScript("document.getElementById('stop')?.click();true;");
+        } catch {
+            onClose();
+        }
+    };
     const handleMessage = (event: WebViewMessageEvent) => {
         try {
             const message = JSON.parse(event.nativeEvent.data) as { type?: string };
-            if (message.type === 'closed') onClose();
+            if (message.type === 'closed') scheduleClose();
             if (message.type === 'config_requested' || message.type === 'webview_ready') injectConfig();
             if (message.type === 'retry') retry();
             if (message.type === 'error') setError('No se pudo iniciar la conversación de voz.');
         } catch { /* WebView telemetry is already sent to staging. */ }
     };
 
-    return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    return <Modal visible={visible} animationType="slide" onRequestClose={requestClose}>
         <View style={styles.container}>
-            <View style={styles.topbar}><Text style={styles.title}>Ping Voz</Text><TouchableOpacity onPress={onClose}><Text style={styles.close}>Cerrar</Text></TouchableOpacity></View>
+            <View style={styles.topbar}><Text style={styles.title}>Ping Voz</Text><TouchableOpacity onPress={requestClose}><Text style={styles.close}>Cerrar</Text></TouchableOpacity></View>
             {visible && (error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={retry}><Text style={styles.retry}>Reintentar</Text></TouchableOpacity></View>
                 : config ? <WebView
                     key={sessionKey}
