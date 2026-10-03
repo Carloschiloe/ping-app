@@ -146,6 +146,13 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("setAudioGate(false)");
         expect(html).toContain("setAudioGate(true)");
         expect(html).toContain("remote.muted=!enabled");
+        expect(html).toContain("echoCancellation:true");
+        expect(html).toContain("noiseSuppression:true");
+        expect(html).toContain("autoGainControl:true");
+        expect(html).toContain("response_cancel_skipped_no_active_response");
+        expect(html).toContain("self_audio_echo_suspected");
+        expect(html).toContain("core_turn_already_in_flight");
+        expect(html).toContain("ECHO_SETTLE_MS");
         expect(html).toContain("currentStage");
         expect(html).toContain("m8_diagnostic_error");
         expect(html).toContain("fail(currentStage,error,error?.httpStatus)");

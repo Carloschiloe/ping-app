@@ -15,7 +15,8 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 (function(){
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500;
-  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,coreResultReady=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle';
+  const ECHO_SETTLE_MS=1200;
+  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,coreResultReady=false,responseActive=false,lastAssistantAudioEndedAt=0,turnMayBeEcho=false,coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle';
   const id=()=>{try{return crypto.randomUUID()}catch{return 'm8-'+Date.now()+'-'+Math.random().toString(16).slice(2)}};
   const post=(message)=>{try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(message))}catch{}};
   const setStatus=(text,hint,active=false)=>{statusEl.textContent=text;hintEl.textContent=hint||'';orb.className=active?'orb active':'orb'};
@@ -44,8 +45,8 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   function fail(stageName,error,httpStatus){if(failed||closed)return;failed=true;clearPending();const details=errorDetails(error);const failedStage=stageName||currentStage||'unknown';telemetry('error',{detailCode:failedStage,httpStatus,...details,sideEffects:0});post({type:'m8_diagnostic_error',stage:failedStage,details});retryEl.hidden=false;setStatus('No se pudo iniciar la voz','Falló la etapa '+failedStage+'. '+(details.errorCode||details.errorMessage||'Revisa la conexión e inténtalo nuevamente.'),false);}
   const setAudioGate=(enabled)=>{coreResultReady=enabled;remote.muted=!enabled;if(enabled)remote.play().catch(()=>{})};
   const coreSummary=(core)=>{const answer=core?.answer||core?.response?.answer||core?.presentation?.summary||core?.presentation?.headline||core?.reason;return safeText(typeof answer==='string'?answer:'',800)};
-  const cancelResponse=(cause)=>{try{telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'})}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0})}};
-  const createResponse=(cause)=>{responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent({type:'response.create'})};
+  const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
+  const createResponse=(cause)=>{responseActive=true;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent({type:'response.create'})};
   async function callCore(input,callId,turnId){
     setAudioGate(false);
     const coreStartedAt=Date.now();
@@ -65,11 +66,12 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}
     if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result',sideEffects:0});return}}
-    if(event.type==='response.output_audio.done')setAudioGate(false);
-    if(event.type==='response.function_call_arguments.done')cancelResponse('function_call_before_core_result');
+    if(event.type==='response.output_audio.done'){setAudioGate(false);responseActive=false;lastAssistantAudioEndedAt=Date.now()}
+    if(event.type==='response.done'||event.type==='response.completed')responseActive=false;
+    if(event.type==='response.function_call_arguments.done'&&assistantSpeaking&&responseActive)cancelResponse('function_call_before_core_result');
     if(event.type==='input_audio_buffer.speech_started'&&assistantSpeaking)setAudioGate(false);
     if(event.type==='conversation.item.input_audio_transcription.completed'||event.type==='input_audio_transcription.completed'){telemetry('transcript_received',{transcript:safeText(event.transcript||event.text,500),detailCode:'input_transcription_completed',sideEffects:0});return}
-    if(event.type==='input_audio_buffer.speech_started'){lastVadState='speech_started';if(!activeTurnId){activeTurnId=id();turnSequence+=1}}
+    if(event.type==='input_audio_buffer.speech_started'){lastVadState='speech_started';turnMayBeEcho=!assistantSpeaking&&Date.now()-lastAssistantAudioEndedAt<ECHO_SETTLE_MS;if(!activeTurnId){activeTurnId=id();turnSequence+=1}}
     if(event.type==='input_audio_buffer.speech_stopped')lastVadState='speech_stopped';
     if((event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta')&&coreResultReady&&!assistantSpeaking){audioResponseCount+=1;lastAudioState='playing'}
     if(event.type==='response.output_audio.done')lastAudioState='ended';
@@ -77,8 +79,8 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     if(event.type==='input_audio_buffer.speech_started'){if(assistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');telemetry('barge_in',{cancelCause:'speech_started_while_assistant_speaking',selfAudioCaptureSuspected:coreResultReady,vadState:lastVadState,sideEffects:0});stage('barge_in_detected','Ping te escucha','Interrumpiendo la respuesta anterior.',{sideEffects:0});assistantSpeaking=false}telemetry('speech_started',{selfAudioCaptureSuspected:assistantSpeaking&&coreResultReady,vadState:lastVadState,sideEffects:0});return}
     if(event.type==='input_audio_buffer.speech_stopped'){telemetry('speech_stopped',{sideEffects:0});return}
     if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!assistantSpeaking){assistantSpeaking=true;telemetry('assistant_audio_started',{sideEffects:0});stage('audio_output_started','Ping está respondiendo','Puedes interrumpirlo cuando quieras.',{sideEffects:0})}return}
-    if(event.type==='response.output_audio.done'){assistantSpeaking=false;telemetry('assistant_audio_stopped',{sideEffects:0});return}
-    if(event.type==='response.function_call_arguments.done'){let args;try{args=JSON.parse(event.arguments||'{}')}catch{telemetry('error',{detailCode:'invalid_tool_arguments',sideEffects:0});return}if(typeof args.input!=='string'||!args.input.trim()){telemetry('error',{detailCode:'missing_core_input',sideEffects:0});return}callCore(args.input,event.call_id,activeTurnId).catch(error=>fail('core_request',error));return}
+    if(event.type==='response.output_audio.done'){assistantSpeaking=false;responseActive=false;lastAssistantAudioEndedAt=Date.now();telemetry('assistant_audio_stopped',{sideEffects:0});return}
+    if(event.type==='response.function_call_arguments.done'){let args;try{args=JSON.parse(event.arguments||'{}')}catch{telemetry('error',{detailCode:'invalid_tool_arguments',sideEffects:0});return}if(typeof args.input!=='string'||!args.input.trim()){telemetry('error',{detailCode:'missing_core_input',sideEffects:0});return}const normalizedInput=args.input.trim().toLowerCase();if(turnMayBeEcho||normalizedInput==='[inaudible noise]'){telemetry('input_ignored',{detailCode:turnMayBeEcho?'self_audio_echo_suspected':'inaudible_input',selfAudioCaptureSuspected:turnMayBeEcho,sideEffects:0});activeTurnId=null;turnMayBeEcho=false;return}if(coreTurnInFlight){telemetry('input_ignored',{detailCode:'core_turn_already_in_flight',sideEffects:0});return}coreTurnInFlight=true;callCore(args.input,event.call_id,activeTurnId).catch(error=>fail('core_request',error)).finally(()=>{coreTurnInFlight=false;activeTurnId=null;turnMayBeEcho=false});return}
     if(event.type==='session.closed'){closed=true;clearPending();telemetry('session_closed',{sideEffects:0});setStatus('Conversación terminada','');return}
     if(event.type==='response.cancelled'||event.type==='response.canceled'){telemetry('response_cancel',{cancelCause:'provider_cancelled',detailCode:event.type,sideEffects:0});return}
     if(event.type==='error'){const providerError=event.error||event;const providerMessage=safeText(providerError.message||providerError.code||'provider_event_error',120);telemetry('error',{detailCode:'provider_event_error',errorName:safeText(providerError.type||providerError.name,60),errorCode:safeText(providerError.code,60),errorMessage:providerMessage,sideEffects:0});fail('provider_event',new Error(providerMessage||'provider_event_error'));}
@@ -88,7 +90,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
       await waitForConfig();
       if(!navigator.mediaDevices?.getUserMedia||typeof RTCPeerConnection!=='function')throw new Error('webrtc_unavailable');
       stage('permission_request','Solicitando micrófono','Acepta el permiso para hablar con Ping.');
-      mic=await withTimeout(navigator.mediaDevices.getUserMedia({audio:true}),15000,'microphone_permission_timeout');
+      mic=await withTimeout(navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}),15000,'microphone_permission_timeout');
       stage('permission_granted','Micrófono listo','Preparando conexión de voz.');
       pc=new RTCPeerConnection();lastWebrtcState=pc.connectionState||'new';lastIceState=pc.iceConnectionState||'new';telemetry('audio_transport',{detailCode:'peer_connection_created',webrtcState:lastWebrtcState,iceState:lastIceState,sideEffects:0});
       pc.ontrack=(event)=>{stage('audio_ready','Audio de Ping listo','La conversación puede continuar.');remote.srcObject=event.streams[0];remote.play().catch(()=>{})};
