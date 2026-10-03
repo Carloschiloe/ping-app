@@ -154,7 +154,9 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("response_cancel_skipped_no_active_response");
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("core_turn_already_in_flight");
-        expect(html).toContain("ECHO_SETTLE_MS");
+        expect(html).toContain("pendingPlaybackInterruption");
+        expect(html).toContain("confirmed_user_turn_after_pending_output");
+        expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("createResponse('user_turn_ready','required')");
         expect(html).toContain("createResponse('core_result_authorized','none')");
         expect(html).toContain("responseHasAudio=toolChoice!=='required'");
@@ -194,7 +196,10 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("if(event.type==='response.output_audio.done'||event.type==='response.audio.done')completeAssistantResponse('audio_output_done')");
         expect(html).toContain("if(event.type==='response.done'||event.type==='response.completed'){if(responseHasAudio||assistantSpeaking||lastAudioState==='playing')completeAssistantResponse(event.type)");
         expect(html).toContain("outputPlaybackPending=shouldReturnToListening");
-        expect(html).toContain("if(wasAssistantSpeaking||wasOutputPending){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false);outputPlaybackPending=false");
+        expect(html).toContain("pendingPlaybackInterruption=wasOutputPending");
+        expect(html).toContain("if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false);outputPlaybackPending=false");
+        expect(html).toContain("if(pendingPlaybackInterruption){setAudioGate(false);outputPlaybackPending=false;pendingPlaybackInterruption=false");
+        expect(html).toContain("if(normalizedInput==='[inaudible noise]')");
         const completionStart = html.indexOf("const completeAssistantResponse=(detailCode)=>");
         const completionEnd = html.indexOf("const createResponse=", completionStart);
         const completion = html.slice(completionStart, completionEnd);
