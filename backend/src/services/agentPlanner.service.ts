@@ -568,13 +568,28 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
         return { steps: [], blockingAmbiguities: [{ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' }] };
     }
 
+    const ownership = objective.constraints.commitmentOwnership
+        ?? 'personal';
+    if (ownership === 'ambiguous') {
+        return {
+            steps: [],
+            blockingAmbiguities: [{ field: 'commitmentOwnership', kind: 'blocking', reason: 'Necesito saber si este compromiso es para ti o si implica a otra persona.' }],
+        };
+    }
+    if (personal && ownership === 'third_party') {
+        return {
+            steps: [],
+            blockingAmbiguities: [{ field: 'commitmentOwnership', kind: 'blocking', reason: 'La interpretación del compromiso es contradictoria: indica una acción personal y una asignación a otra persona.' }],
+        };
+    }
+    const isThirdParty = ownership === 'third_party';
     let responsiblePersonId: string | null = null;
     let responsibleDisplayName: string | null = null;
-    const responsibleHint = personal ? null : objective.constraints.responsibleHint;
-    if (canonicalOnly && !personal && !input.canonicalFacts?.responsiblePerson) {
+    const responsibleHint = isThirdParty ? objective.constraints.responsibleHint : null;
+    if (canonicalOnly && isThirdParty && !input.canonicalFacts?.responsiblePerson) {
         return { steps: [], blockingAmbiguities: [{ field: 'responsible', kind: 'blocking', reason: 'La persona responsable debe estar resuelta por Core antes de preparar este compromiso.' }] };
     }
-    if (canonicalOnly && !personal && input.canonicalFacts?.responsiblePerson) {
+    if (canonicalOnly && isThirdParty && input.canonicalFacts?.responsiblePerson) {
         responsiblePersonId = input.canonicalFacts.responsiblePerson.id;
         responsibleDisplayName = input.canonicalFacts.responsiblePerson.displayName;
     }

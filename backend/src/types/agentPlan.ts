@@ -98,6 +98,8 @@ export type AgentObjectiveType = typeof AGENT_OBJECTIVE_TYPE_VALUES[number];
 
 export type AmbiguityKind = 'blocking' | 'non_blocking';
 
+export type CommitmentOwnership = 'personal' | 'third_party' | 'ambiguous';
+
 export interface AgentObjectiveAmbiguity {
     field: string;
     kind: AmbiguityKind;
@@ -140,6 +142,7 @@ export interface AgentObjective {
         decisionHint?: 'approve' | 'reject' | 'defer' | 'counter_propose' | null; // pending-plan lifecycle / respond_to_existing_proposal
         draftOnly?: boolean; // true only when the user explicitly asked for a preview, never inferred silently
         responsibleHint?: string | null; // raw text naming who should be responsible for a new commitment
+        commitmentOwnership?: CommitmentOwnership;
     };
     desiredOutcome: string;   // short, human-readable restatement — never independently hallucinated prose (sección 27)
     timeConstraints: {

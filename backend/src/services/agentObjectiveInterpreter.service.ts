@@ -22,7 +22,7 @@ import OpenAI from 'openai';
 import type { AgentObjectiveInterpretationPayload } from '../schemas/agentObjectiveInterpretation.schema';
 import { agentObjectiveInterpretationPayloadSchema } from '../schemas/agentObjectiveInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import { AGENT_OBJECTIVE_TYPE_VALUES, type AgentObjective, type AgentObjectiveType, type MessageContentCandidate } from '../types/agentPlan';
+import { AGENT_OBJECTIVE_TYPE_VALUES, type AgentObjective, type AgentObjectiveType, type CommitmentOwnership, type MessageContentCandidate } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
 import { parseDateFromText } from './date-parser.service';
 
@@ -816,6 +816,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             obj.targetEntities.entityHints = explicitTitle
                 ? [explicitTitle]
                 : (reminderTarget ? [reminderTarget] : []);
+            obj.constraints.commitmentOwnership = 'personal';
             obj.timeConstraints.rawHint = timeHint;
             obj.confidence = 0.7;
             return obj;
@@ -862,6 +863,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             const obj = baseObjective('create_commitment_or_proposal', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
             obj.targetEntities.personHints = personHint ? [personHint] : [];
+            obj.constraints.commitmentOwnership = 'personal';
             obj.timeConstraints.rawHint = timeHint;
             obj.confidence = entityHint ? 0.75 : 0.3;
             if (!entityHint) {
@@ -936,7 +938,8 @@ function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContex
         ...(pendingPlanInstruction ? [pendingPlanInstruction] : []),
         'Choose the objective from the user\'s meaning, not from a fixed phrase. A personal commitment is a durable reminder/task for the actor, including indirect formulations about not forgetting, keeping an obligation present, leaving something pending for oneself, or recording something to do later. A shared commitment/proposal is a request to create or name a commitment, or to schedule/organize/coordinate a concrete calendar obligation; an explicit request to “create a commitment”, “make a task”, or “make a reminder” is a creation request even if no other person is named. A retrieval request asks what is already remembered and must never become a write objective. “Recuérdame qué hablamos” retrieves memory; “recuérdame revisar el contrato” creates a personal commitment. Preserve negation: “no quiero olvidarme de enviar esto” creates a reminder, while “no quiero enviar nada” is not a send action.',
         'For creation, prefer create_personal_commitment when the action is clearly for the actor or is framed as remembering/not forgetting/keeping a task pending. A “tarea”, “pendiente”, or “recordatorio” with no named other participant is normally personal. Prefer create_commitment_or_proposal when the user explicitly creates/names a “compromiso” or “propuesta”, or asks to coordinate a shared obligation with another person. For remember_fact, the user asks Ping to retain a fact or preference, not to remind them to perform a future task: “recuérdame que el chequeo es a las nueve” is a reminder because it contains a future event/time, while “recuerda que mi hermano se llama Andrés” is a fact. A request to ask a named person is communicate_message unless it explicitly asks Ping to wait for that person\'s answer; “pregúntale si…” is communicate_and_wait. For lifecycle objectives, distinguish the requested transition (reschedule, complete, respond/reject, cancel) from questions describing a past transition. Colloquial transition formulations such as “dejemos X para el lunes”, “dalo por terminado”, “no sigamos con X”, and “déjala rechazada” still express those lifecycle actions.',
-        `Respond ONLY with a JSON object with these fields: objectiveType (one of: ${AGENT_OBJECTIVE_TYPE_VALUES.join(', ')}), personHints (array of names as written), entityHints (array of entity/title names as written), timeHint (raw time phrase or null), decisionHint (approve/reject/defer/counter_propose or null), draftOnly (boolean), responsibleHint (name or null), followUpObjectiveType (same enum or null, only if there is a clear conditional follow-up action), additionalPersonHint (name or null), desiredOutcomeHint (short restatement or null), verbatimMessageHint (see next line).`,
+        'For a new commitment, also return commitmentOwnership: personal, third_party, or ambiguous. personal means the authenticated actor is the one who will do/remember the action; names of people, companies, places, or objects inside that action are content only. third_party means the request semantically assigns, involves, shares with, notifies, or requires action from another person; only then set responsibleHint to that person. If ownership is unclear, return ambiguous and never use a person hint to guess it. A named person mentioned as the object of the actor\'s own action remains content unless the user explicitly involves that person in the commitment. This is a semantic field, not a phrase list.',
+        `Respond ONLY with a JSON object with these fields: objectiveType (one of: ${AGENT_OBJECTIVE_TYPE_VALUES.join(', ')}), personHints (array of names as written), entityHints (array of entity/title names as written), timeHint (raw time phrase or null), decisionHint (approve/reject/defer/counter_propose or null), draftOnly (boolean), responsibleHint (name or null), commitmentOwnership (personal/third_party/ambiguous/null), followUpObjectiveType (same enum or null, only if there is a clear conditional follow-up action), additionalPersonHint (name or null), desiredOutcomeHint (short restatement or null), verbatimMessageHint (see next line).`,
         'entityHints for create_commitment_or_proposal/create_personal_commitment: if the user explicitly names the commitment/task (markers like "que se llame X", "llamado X", "con nombre X", "titulado X", or a quoted title "X"), entityHints[0] MUST be that exact explicit name X, NEVER a generic object-type noun like "un compromiso", "una tarea", "una reunión", "a commitment", "a task", or "a meeting". For example, for "Crea un compromiso para hoy a las 18:30 que se llame prueba caché Ping" entityHints MUST be ["prueba caché Ping"], never ["un compromiso"]. If there is no explicit name, use the smallest natural title from the actual action content instead (e.g. "revisar informe" for "Agenda revisar informe mañana"), never a generic placeholder.',
         'verbatimMessageHint, for communicate_message/communicate_and_wait ONLY: ONLY the message PAYLOAD that would actually be sent to the recipient — copied VERBATIM (exact same language, wording, casing, and punctuation as it appears in the user request, character for character, never translated or paraphrased, and never capitalizing a lowercase first letter even if it reads oddly as a standalone sentence). This must EXCLUDE the surrounding instruction/addressing wrapper that names the recipient or tells you to send something — return only what comes after that wrapper. For example: for the request "Dile a Alejandra que llegaré tarde" the value is "llegaré tarde" (never "Dile a Alejandra que llegaré tarde" — that includes the addressing wrapper, which is wrong). For "Tell Alejandra that I\'ll be late" the value is "I\'ll be late" (never the whole sentence). For "Message Alejandra: I\'m running late" the value is "I\'m running late". Return null if no message payload applies.',
         `User request: "${input}"`,
@@ -1086,6 +1089,9 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     obj.constraints.decisionHint = payload.decisionHint;
     obj.constraints.draftOnly = payload.draftOnly;
     obj.constraints.responsibleHint = payload.responsibleHint;
+    const inferredOwnership: CommitmentOwnership = payload.commitmentOwnership
+        ?? (objectiveType === 'create_personal_commitment' ? 'personal' : 'personal');
+    obj.constraints.commitmentOwnership = inferredOwnership;
     // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION
     // FIX: Core's deterministically re-derived result clause dominates a
     // conflicting/absent desiredOutcomeHint for this objective type --

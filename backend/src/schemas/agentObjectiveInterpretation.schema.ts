@@ -19,6 +19,7 @@ export const agentObjectiveInterpretationPayloadSchema = z.object({
     decisionHint: z.enum(['approve', 'reject', 'defer', 'counter_propose']).nullable().default(null),
     draftOnly: z.boolean().default(false),
     responsibleHint: z.string().trim().max(80).nullable().default(null),
+    commitmentOwnership: z.enum(['personal', 'third_party', 'ambiguous']).nullable().default(null),
     // Segundo objetivo condicional (sección 17/18: "pregúntale a X si Y, y
     // si acepta, agéndalo") — el modelo puede sugerir que hay un paso de
     // seguimiento, nunca más de uno (acotado, sección 47: los planes son
