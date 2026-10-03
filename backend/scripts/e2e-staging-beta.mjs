@@ -428,6 +428,79 @@ try {
       && typeof secondSelf.payload?.conversationId === 'string');
   resources.conversations.add(secondSelf.payload.conversationId);
 
+  // Voice commitment contract: this uses the same authenticated Core plan,
+  // authorization and execution boundaries as the WebView client, but keeps
+  // the controlled write inside the temporary E2E user and cleanup ledger.
+  const voiceCommitmentInput = `Agenda mañana a las 10 revisar inventario ${runMarker}`;
+  const voicePlan = await request('/agent/turn', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      input: voiceCommitmentInput,
+      channel: 'mobile',
+      locale: 'es-CL',
+      timezone: 'America/Santiago',
+      conversationId,
+      idempotencyKey: randomUUID(),
+    },
+  });
+  const voicePlanReady = voicePlan.response.status === 200
+    && voicePlan.payload?.kind === 'plan'
+    && voicePlan.payload?.confirmationRequested !== true
+    && typeof voicePlan.payload?.plan?.planDigest === 'string'
+    && Array.isArray(voicePlan.payload?.plan?.steps)
+    && voicePlan.payload.plan.steps.length > 0;
+  check('voice create reaches a Core plan requiring confirmation', voicePlanReady);
+
+  const voiceAuthorization = await request('/agent/authorize', {
+    token: first.token,
+    method: 'POST',
+    body: {
+      input: voiceCommitmentInput,
+      channel: 'mobile',
+      locale: 'es-CL',
+      timezone: 'America/Santiago',
+      conversationId,
+      planDigest: voicePlan.payload.plan.planDigest,
+      stepIds: voicePlan.payload.plan.steps.map((step) => step.stepId),
+      confirm: true,
+    },
+  });
+  check('voice confirmation obtains canonical authorization',
+    voiceAuthorization.response.status === 200
+      && voiceAuthorization.payload?.status === 'authorized'
+      && typeof voiceAuthorization.payload?.authorizationId === 'string');
+
+  const voiceExecution = await request('/agent/execute', {
+    token: first.token,
+    method: 'POST',
+    body: { authorizationId: voiceAuthorization.payload.authorizationId },
+  });
+  const voiceCommitmentRef = voiceExecution.payload?.createdEntityRefs?.find(
+    (ref) => ref.entityType === 'commitment',
+  );
+  check('voice confirmation executes and returns a verified commitment',
+    voiceExecution.response.status === 200
+      && voiceExecution.payload?.status === 'done'
+      && voiceExecution.payload?.executedSteps?.every((step) => step.status === 'succeeded' && step.verified === true)
+      && typeof voiceCommitmentRef?.entityId === 'string');
+  resources.commitments.add(voiceCommitmentRef.entityId);
+
+  const voiceReadAfterWrite = await request('/commitments', { token: first.token });
+  check('voice execution is visible through the canonical read route',
+    voiceReadAfterWrite.response.status === 200
+      && voiceReadAfterWrite.payload?.some((commitment) => commitment.id === voiceCommitmentRef.entityId));
+
+  const voiceExecutionReplay = await request('/agent/execute', {
+    token: first.token,
+    method: 'POST',
+    body: { authorizationId: voiceAuthorization.payload.authorizationId },
+  });
+  check('repeated voice execution replays without a second write',
+    voiceExecutionReplay.response.status === 200
+      && voiceExecutionReplay.payload?.status === 'done'
+      && voiceExecutionReplay.payload?.createdEntityRefs?.some((ref) => ref.entityId === voiceCommitmentRef.entityId));
+
   const crossConversation = await request(`/conversations/${conversationId}/messages`, {
     token: second.token,
   });
