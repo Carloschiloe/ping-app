@@ -161,6 +161,7 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("response.created");
         expect(html).toContain("realtime_output_transcript_done");
         expect(html).toContain("realtime_audio_done");
+        expect(html).toContain("provider_audio_generation_done");
         expect(html).toContain("realtimeOutputText");
         expect(html).toContain("audioDeltaCount");
         expect(html).toContain("tool_response_done");
@@ -192,6 +193,14 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("const completeAssistantResponse=(detailCode)=>");
         expect(html).toContain("if(event.type==='response.output_audio.done'||event.type==='response.audio.done')completeAssistantResponse('audio_output_done')");
         expect(html).toContain("if(event.type==='response.done'||event.type==='response.completed'){if(responseHasAudio||assistantSpeaking||lastAudioState==='playing')completeAssistantResponse(event.type)");
+        expect(html).toContain("outputPlaybackPending=shouldReturnToListening");
+        expect(html).toContain("if(wasAssistantSpeaking||wasOutputPending){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false);outputPlaybackPending=false");
+        const completionStart = html.indexOf("const completeAssistantResponse=(detailCode)=>");
+        const completionEnd = html.indexOf("const createResponse=", completionStart);
+        const completion = html.slice(completionStart, completionEnd);
+        expect(completion).not.toContain("setAudioGate(false)");
+        expect(completion).not.toContain("assistant_audio_stopped");
+        expect(completion).toContain("stage:'provider_audio_generation_done'");
         expect(html).toContain("currentStage!=='listening'");
         expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.'");
     });
