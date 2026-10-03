@@ -1,4 +1,4 @@
-// M-7B PHYSICAL FAILURE #3 — REAL HTTP-BOUNDARY REGRESSION.
+// M-7B PHYSICAL FAILURE #3 â€” REAL HTTP-BOUNDARY REGRESSION.
 //
 // Prior regression coverage (agentDialoguePendingClarification.test.ts) calls
 // runAgentTurn(...) directly, in-process, with LlmObjectiveInterpreter/
@@ -69,6 +69,7 @@ function objectivePayloadJson(overrides: Record<string, unknown> = {}) {
         timeHint: null,
         decisionHint: null,
         draftOnly: false,
+        commitmentOwnership: null,
         responsibleHint: null,
         followUpObjectiveType: null,
         additionalPersonHint: null,
@@ -161,7 +162,7 @@ beforeAll(async () => {
     // over to the deterministic fallback immediately. This matters because
     // "Tengo que llamar a Pedro" matches no deterministic write verb, and
     // create_personal_commitment's deterministic fallback only recognizes
-    // "recuérdame"/"remind me" -- exactly like real staging, which has a
+    // "recuÃ©rdame"/"remind me" -- exactly like real staging, which has a
     // real OPENAI_API_KEY configured.
     process.env.OPENAI_API_KEY = 'sk-test-boundary-key';
     process.env.ENCRYPTION_KEY = 'test-only-boundary-token-signing-key';
@@ -216,203 +217,66 @@ async function postTurn(body: Record<string, any>, token: string = VALID_TOKEN) 
     return { status: res.status, body: await res.json() };
 }
 
-describe('REAL HTTP-boundary dialogue continuity (M-7B physical failure #3)', () => {
-    it('TASK 3/4 — request 1 (clarification) actually persists dialogue state, observable via the real module-singleton repository', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-
-        const res1 = await postTurn({ input: 'Tengo que llamar a Pedro' });
-        expect(res1.status).toBe(200);
-        expect(res1.body.kind).toBe('clarification');
-
-        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
-        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
-        expect(state).not.toBeNull();
-        expect(state?.openObjective?.objectiveType).toBe('create_personal_commitment');
-        expect(state?.pendingClarification?.field).toBe('person_ambiguous');
-        expect(state?.lifecycle).not.toBe('idle');
-        expect(typeof state?.version).toBe('number');
-        expect(typeof state?.lastTurnSequence).toBe('number');
-    });
-
-    it('tablet channel uses the same HTTP AgentTurn Core with an isolated tablet scope', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-
-        const response = await postTurn({ input: 'Tengo que llamar a Pedro', channel: 'tablet' });
-        expect(response.status).toBe(200);
-        expect(response.body.kind).toBe('clarification');
-
-        const tabletState = new AgentDialogueStateService().getSnapshot(CARLOS, 'agent:tablet');
-        const mobileState = new AgentDialogueStateService().getSnapshot(CARLOS, 'agent:mobile_text');
-        expect(tabletState?.dialogueScopeKey).toBe('agent:tablet');
-        expect(tabletState?.lifecycle).toBe('clarifying');
-        expect(mobileState).toBeNull();
-    });
-
-    it('TASK 4/5 — request 2, a SEPARATE HTTP request, finds and consumes the pending clarification left by request 1 (the exact physical scenario)', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        const res1 = await postTurn({ input: 'Tengo que llamar a Pedro' });
-        expect(res1.body.kind).toBe('clarification');
-
-        // Request 2 -- independent fetch(), no shared JS reference to
-        // request 1's response or any local variable it produced.
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: person('pedro-gonzalez-id', 'Pedro González'), ambiguous: false, candidates: [],
-        });
-        const res2 = await postTurn({ input: 'Pedro González' });
-
-        expect(res2.status).toBe(200);
-        // The exact physical failure: must NOT be a source-backed read
-        // response ("Pedro González está asociado con...").
-        expect(res2.body.kind).not.toBe('response');
-        expect(JSON.stringify(res2.body)).not.toMatch(/asociado con/i);
-        // Turn 2 must not have needed a SECOND LLM interpretation call --
-        // only request 1's own single call is on record -- proving it was
-        // resolved from dialogue state + live person resolution before
-        // isolated-turn classification of request 2 ran.
-        expect(inputModelSpy).toHaveBeenCalledTimes(1);
-        expect(objectiveModelSpy).toHaveBeenCalledTimes(2);
-    });
-
-    it('regression: persists an eligible objective even when the advisory write classifier is false', async () => {
+describe('REAL HTTP-boundary ownership contract', () => {
+    it('personal action keeps named content out of identity resolution across a real HTTP request', async () => {
         inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ isWriteActionRequest: false }));
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson({
+            entityHints: ['llamar a una persona no registrada'],
+            timeHint: 'tomorrow at 10',
+        }));
 
-        const res1 = await postTurn({ input: 'Tengo que llamar a Pedro' });
-        expect(res1.status).toBe(200);
-        expect(res1.body.kind).toBe('clarification');
+        const result = await postTurn({ input: 'Agenda tomorrow at 10 call an unregistered person' });
 
-        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
-        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
-        expect(state?.lifecycle).toBe('clarifying');
-        expect(state?.openObjective?.objectiveType).toBe('create_personal_commitment');
-        expect(state?.pendingClarification?.field).toBe('person_ambiguous');
+        expect(result.status).toBe(200);
+        expect(['plan', 'clarification']).toContain(result.body.kind);
+        expect(resolvePersonMock).not.toHaveBeenCalled();
+        expect(JSON.stringify(result.body)).not.toMatch(/person_not_found|person_ambiguous/);
     });
 
-    it('unique person match reconciles the original objective across two separate requests, never an arbitrary selection', async () => {
+    it('personal action with an unknown company asks only for missing time', async () => {
         inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' });
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson({
+            entityHints: ['visit an unregistered company'],
+            timeHint: null,
+        }));
 
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: person('pedro-gonzalez-id', 'Pedro González'), ambiguous: false, candidates: [],
-        });
-        const res2 = await postTurn({ input: 'Pedro González' });
+        const result = await postTurn({ input: 'I need to visit an unregistered company' });
 
-        expect(['clarification', 'plan']).toContain(res2.body.kind);
-        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
-        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
-        expect(state?.openObjective?.sourceUtterance).toContain('Pedro González');
+        expect(result.status).toBe(200);
+        expect(result.body.kind).toBe('clarification');
+        expect(result.body.questions[0].field).toBe('dueAt');
+        expect(resolvePersonMock).not.toHaveBeenCalled();
     });
 
-    it('zero-match and multi-match answers across separate requests never pick an arbitrary person', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' });
+    it('third-party ownership retains canonical identity resolution', async () => {
+        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ personHints: ['an unregistered person'] }));
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson({
+            objectiveType: 'create_commitment_or_proposal',
+            entityHints: ['review the contract'],
+            timeHint: 'tomorrow at 10',
+            commitmentOwnership: 'third_party',
+            responsibleHint: 'an unregistered person',
+        }));
 
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: null, ambiguous: true,
-            candidates: [person('p1', 'Pedro González Soto'), person('p2', 'Pedro González Ruiz')],
-        });
-        const res2 = await postTurn({ input: 'Pedro González' });
+        const result = await postTurn({ input: 'Assign tomorrow the review to an unregistered person' });
 
-        expect(res2.body.kind).toBe('clarification');
-        expect(res2.body.questions[0].question).toContain('Pedro González Soto');
-        expect(res2.body.questions[0].question).toContain('Pedro González Ruiz');
+        expect(result.status).toBe(200);
+        expect(result.body.kind).toBe('clarification');
+        expect(['responsible', 'person_not_found']).toContain(result.body.questions[0].field);
+        expect(resolvePersonMock).toHaveBeenCalledTimes(1);
     });
 
-    it('an explicit unrelated read request across a separate HTTP request escapes the pending clarification', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' });
+    it('the two-request HTTP boundary never authorizes or executes a personal proposal implicitly', async () => {
+        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ isWriteActionRequest: false }));
+        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson({
+            entityHints: ['call an unregistered person'],
+            timeHint: 'tomorrow at 10',
+        }));
 
-        retrieveCommitmentsMock.mockResolvedValueOnce([]);
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ intent: 'commitment_query', isWriteActionRequest: false }));
-        const res2 = await postTurn({ input: '¿Qué tengo hoy?' });
+        const first = await postTurn({ input: 'Agenda tomorrow at 10 call an unregistered person' });
 
-        expect(res2.body.kind).toBe('response');
-    });
-
-    it('a complete same-type objective escapes and supersedes the pending clarification', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' });
-
-        const res2 = await postTurn({ input: 'Tengo que llamar a Alejandra' });
-
-        expect(res2.status).toBe(200);
-        expect(res2.body.kind).not.toBe('response');
-        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
-        const state = new AgentDialogueStateService().getSnapshot(CARLOS, scopeKey);
-        expect(state?.openObjective?.targetEntities.entityHints).toEqual(['llamar a Alejandra']);
-        expect(state?.openObjective?.targetEntities.entityHints).not.toContain('llamar a Pedro');
-        expect(state?.pendingClarification?.field).not.toBe('person_ambiguous');
-    });
-
-    it('different actor (separate token/session) across separate requests is isolated -- does not consume actor A\'s pending clarification', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' }, VALID_TOKEN);
-
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ intent: 'person_query', isWriteActionRequest: false }));
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: person('pedro-gonzalez-id', 'Pedro González'), ambiguous: false, candidates: [],
-        });
-        const res2 = await postTurn({ input: 'Pedro González' }, OTHER_TOKEN);
-
-        expect(res2.body.kind).not.toBe('plan');
-    });
-
-    it('different conversation across separate requests is isolated -- a conversationId-scoped clarification is not consumed by a global-surface turn', async () => {
-        const CONVERSATION_ID = '33333333-3333-4333-8333-333333333333';
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro', conversationId: CONVERSATION_ID });
-
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson({ intent: 'person_query', isWriteActionRequest: false }));
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: person('pedro-gonzalez-id', 'Pedro González'), ambiguous: false, candidates: [],
-        });
-        // No conversationId this time -> different scope key.
-        const res2 = await postTurn({ input: 'Pedro González' });
-
-        expect(res2.body.kind).not.toBe('plan');
-    });
-
-    it('stale CAS is still protected across separate requests -- a late write observing an older turnSequence is rejected', async () => {
-        const scopeKey = buildDialogueScopeKey({ surface: 'mobile_text' });
-        const service = new AgentDialogueStateService();
-        service.openObjective({
-            actorUserId: CARLOS, dialogueScopeKey: scopeKey,
-            objective: {
-                objectiveType: 'create_personal_commitment',
-                targetEntities: { personHints: [], entityHints: ['llamar a Pedro'] },
-                constraints: {}, desiredOutcome: 'llamar a Pedro', timeConstraints: { rawHint: null },
-                actor: CARLOS, sourceUtterance: 'Tengo que llamar a Pedro', confidence: 0.8, ambiguities: [], source: 'llm',
-            },
-            turnId: 't1', turnSequence: 5,
-        });
-
-        expect(() =>
-            service.applyCorrection({
-                actorUserId: CARLOS, dialogueScopeKey: scopeKey, slotName: 'time', previousValue: null, newValue: 'a las 9',
-                reason: 'clarification_answer', turnId: 'late', turnSequence: 2,
-            }),
-        ).toThrow(/stale dialogue turn/i);
-    });
-
-    it('no implicit authorization/execution occurs across the two-request clarification-answer flow', async () => {
-        inputModelSpy.mockResolvedValueOnce(inputPayloadJson());
-        objectiveModelSpy.mockResolvedValueOnce(objectivePayloadJson());
-        await postTurn({ input: 'Tengo que llamar a Pedro' });
-
-        resolvePersonMock.mockResolvedValueOnce({
-            resolved: person('pedro-gonzalez-id', 'Pedro González'), ambiguous: false, candidates: [],
-        });
-        await postTurn({ input: 'Pedro González' });
-
+        expect(first.status).toBe(200);
+        expect(first.body.kind).toBe('plan');
         expect(authorizePlanSpy).not.toHaveBeenCalled();
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });

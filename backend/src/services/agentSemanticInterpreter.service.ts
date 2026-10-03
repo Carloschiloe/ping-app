@@ -112,6 +112,8 @@ export async function interpretAgentSemanticTurn(
             conversationId: context.conversationId,
         });
         const safeWriteObjective = structuralObjective.objectiveType === 'create_personal_commitment'
+            || (structuralObjective.objectiveType === 'create_commitment_or_proposal'
+                && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
             || structuralObjective.objectiveType === 'cancel_existing_commitment';
         if (safeWriteObjective && structuralObjective.confidence >= 0.7) {

@@ -63,4 +63,25 @@ describe('M-7 reproduction: deterministic routing cannot own natural-language un
             },
         ]);
     });
+
+    it('admits a complete personal scheduling objective even when the input model says read', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-read-wobble-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: null, temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const routing = await interpretAgentSemanticTurn(
+            'Agenda maÃ±ana a las 10 llamar a Persona No Registrada.',
+            CONTEXT,
+            { inputInterpreter },
+        );
+
+        expect(routing.route).toBe('write');
+        expect(routing.objective?.objectiveType).toBe('create_commitment_or_proposal');
+        expect(routing.objective?.constraints.commitmentOwnership).toBe('personal');
+    });
 });

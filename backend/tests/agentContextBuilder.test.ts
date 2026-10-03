@@ -1143,6 +1143,38 @@ describe('M-1G.1: buildAgentContext — petición de escritura -> capabilityGap,
     });
 });
 
+describe('M-7 ownership boundary: write content is not read-side identity scope', () => {
+    it.each([
+        ['Create a reminder for tomorrow to call an unknown person', 'call an unknown person'],
+        ['Create a reminder to visit an unknown company', 'visit an unknown company'],
+        ['Create a reminder to review the contract with an unknown person', 'review the contract with an unknown person'],
+    ])('%s does not resolve content entities before planning', async (input, title) => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await buildAgentContext(
+            { actorUserId: 'u1', input },
+            {
+                interpreter: new DeterministicInputInterpreter(),
+                objective: {
+                    objectiveType: 'create_personal_commitment',
+                    targetEntities: { personHints: [], entityHints: [title] },
+                    constraints: { commitmentOwnership: 'personal', responsibleHint: null },
+                    desiredOutcome: title,
+                    timeConstraints: { rawHint: 'tomorrow' },
+                    actor: 'u1',
+                    sourceUtterance: input,
+                    confidence: 1,
+                    ambiguities: [],
+                    source: 'deterministic',
+                },
+            },
+        );
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.canonicalFacts).toEqual([]);
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+    });
+});
+
 // M-1G.3 — CRITICAL REGRESSION (sección 12 del ticket): reproduce
 // exactamente la causa que M-1G.2 intentó resolver y no logró, porque el
 // camino real de ejecución tenía textQuery="vencido" (activando FTS), no el

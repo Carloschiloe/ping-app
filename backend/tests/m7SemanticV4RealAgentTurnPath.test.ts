@@ -231,6 +231,42 @@ describe('M-7 real /agent/turn boundary with a precomputed V4 input', () => {
         expect(telemetry[0].sideEffects.persistenceWrites).toBe(0);
     });
 
+    it('keeps an unknown person inside a personal commitment title on the real turn path', async () => {
+        const { runAgentTurn } = await import('../src/services/agentTurn.service');
+        const telemetry: any[] = [];
+        const input = 'Agenda maÃ±ana a las 10 llamar a Persona No Registrada.';
+        const result = await runAgentTurn({ actorUserId: ACTOR, conversationId: CONVERSATION, input }, {
+            inputInterpreter: { interpret: async () => interpretation({ isWriteActionRequest: true }) as any },
+            objectiveInterpreter: {
+                interpret: async () => objective({
+                    targetEntities: { personHints: [], entityHints: ['llamar a Persona No Registrada'] },
+                    desiredOutcome: 'llamar a Persona No Registrada',
+                    sourceUtterance: input,
+                    constraints: { commitmentOwnership: 'personal', responsibleHint: null },
+                }),
+            },
+            precomputedSemanticV4: {
+                semantic: semantic({
+                    kind: 'write_request',
+                    objectiveType: 'create_personal_commitment',
+                    readMeaning: null,
+                    slots: { title: 'llamar a Persona No Registrada', time: 'maÃ±ana a las 10' },
+                }),
+                diagnostics,
+            },
+            semanticV4CoreShadowResolver: new AgentSemanticV4HighFidelityReadOnlyResolver(repository()),
+            semanticV4CoreShadowObserver: (value) => telemetry.push(value),
+        });
+
+        expect(result.kind).toBe('plan');
+        expect((result as any).plan.status).toBe('ready_for_authorization');
+        expect((result as any).plan.steps[0].operation).toContain('llamar a Persona No Registrada');
+        expect((result as any).plan.steps[0].operation).not.toMatch(/a Persona No Registrada$/);
+        expect(telemetry).toHaveLength(1);
+        expect(telemetry[0].failure).toBeNull();
+        expect(telemetry[0].sideEffects.persistenceWrites).toBe(0);
+    });
+
     it('preserves a real dialogue service across turns while V4 inputs are replayed independently', async () => {
         const { runAgentTurn } = await import('../src/services/agentTurn.service');
         const dialogueService = new AgentDialogueStateService();

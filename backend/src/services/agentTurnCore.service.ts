@@ -578,7 +578,10 @@ export async function runAgentTurn(
         traceId,
         priorReadContext,
         authorizedCommitmentReferentId: options.authorizedCommitmentReferentId,
-    }, { interpretation: semantic.interpretation });
+    }, {
+        interpretation: semantic.interpretation,
+        objective: semantic.objective,
+    });
 
     // `isWriteActionRequest` itself lives on the internal `Interpretation`
     // type, never propagated onto the public `AgentContext` — the

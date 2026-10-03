@@ -56,6 +56,7 @@ import type {
     TemporalIntent,
     PriorReferenceIntent,
 } from '../types/agentContext';
+import type { AgentObjective } from '../types/agentPlan';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 import type { AgentReadContext } from '../types/agentDialogueState';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
@@ -483,6 +484,12 @@ export interface BuildAgentContextOptions {
     interpreter?: AgentInputInterpreter;
     /** Semantic interpretation already resolved by Ping Core for this turn. */
     interpretation?: Interpretation;
+    /**
+     * Objective already resolved by the canonical semantic boundary. Write
+     * planning owns write-shaped entity resolution; the read context builder
+     * must not reinterpret a content mention as a read-side person scope.
+     */
+    objective?: AgentObjective | null;
     budget?: AgentContextBudget;
 }
 
@@ -774,16 +781,32 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const sourceCounts: Record<string, number> = {};
 
     // ─── Entity resolution (sección 11) — nunca se elige arbitrariamente. ────
+    const isWritePlanning = options.objective !== undefined && options.objective !== null;
+    // A creation objective is routed to the planner immediately after this
+    // context pass. Its title/content may mention a person, company or place,
+    // but that mention is not read-side identity scope. The planner remains
+    // the only layer that resolves a responsible person, and only when the
+    // objective's semantic ownership is third_party. This prevents a
+    // personal action such as "llamar a ..." from being rejected by the
+    // unrelated read pipeline before the plan is built.
+    const writeKeepsIdentityScope = isWritePlanning
+        && options.objective?.constraints.commitmentOwnership === 'third_party';
+    const objectiveResponsibleHint = writeKeepsIdentityScope
+        && typeof options.objective?.constraints.responsibleHint === 'string'
+        && options.objective.constraints.responsibleHint.trim().length > 0
+        ? [options.objective.constraints.responsibleHint.trim()]
+        : [];
     const semanticActionPersonHints = rawInterpretation.isWriteActionRequest === true
         ? advisoryPersonHints
         : [];
     const canonicalPersonScope: string[] = Array.from(new Set([
-        ...deterministicSignals.personHints,
-        ...semanticActionPersonHints,
+        ...(!isWritePlanning || writeKeepsIdentityScope ? deterministicSignals.personHints : []),
+        ...(!isWritePlanning || writeKeepsIdentityScope ? semanticActionPersonHints : []),
+        ...objectiveResponsibleHint,
     ]));
     const people: PersonResolutionResult[] = [];
-    let needsClarification = priorReferenceAmbiguous;
-    let clarification: AgentClarification | undefined = priorReferenceAmbiguous ? { reason: 'topic_too_broad' } : undefined;
+    let needsClarification = isWritePlanning ? false : priorReferenceAmbiguous;
+    let clarification: AgentClarification | undefined = !isWritePlanning && priorReferenceAmbiguous ? { reason: 'topic_too_broad' } : undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
@@ -903,7 +926,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // produces the same routing, independent of whether/how the LLM phrased
     // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
-    if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
+    if (!isWritePlanning && !needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
         clarification = { reason: 'person_ambiguous', candidates: [] };
     }
@@ -1141,7 +1164,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             && commitment.title.trim().toLocaleLowerCase() === priorSingleReferent.rawText.trim().toLocaleLowerCase())
         : filteredCommitments;
     const focusedReferentMissing = priorSingleReferent !== null && focusedReferentMatches.length === 0;
-    if (focusedReferentMissing) {
+    if (focusedReferentMissing && !isWritePlanning) {
         needsClarification = true;
         clarification = { reason: 'topic_too_broad' };
     }
@@ -1298,7 +1321,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // Deliberately checked BEFORE topic_too_broad: this signal is a real,
     // Core-verified structural ambiguity about a KNOWN set of live
     // candidates, strictly more specific than "no signal at all".
-    if (!needsClarification && interpretation.wantsSingularStatusEntityReference) {
+    if (!isWritePlanning && !needsClarification && interpretation.wantsSingularStatusEntityReference) {
         const qualifyingStatuses = interpretation.wantsOverdueFocus
             ? null // overdue is derived, not a stored status -- checked via isCommitmentOverdue below instead
             : interpretation.statusHints;
@@ -1326,7 +1349,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // canonicalPersonScope, never interpretation.personHints — an LLM-only
     // hallucinated hint (advisory, no authority) must never count as "real
     // signal exists" any more than it may block a source.
-    if (!needsClarification && interpretation.interactionMode !== 'conversation'
+    if (!isWritePlanning && !needsClarification && interpretation.interactionMode !== 'conversation'
         && !evidenceFound && interpretation.intent === 'general_context'
         && canonicalPersonScope.length === 0 && !input.authorizedPersonReferentId && !interpretation.textQuery && !interpretation.timeExpression) {
         needsClarification = true;
@@ -1342,7 +1365,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales genuinas del intérprete, sin un resolutor determinístico
     // propio todavía -- fuera de alcance de este ticket.
     const ambiguityHints = interpretation.ambiguityHints ?? []; // defensivo: un intérprete mal formado no debe crashear el builder
-    if (!needsClarification) {
+    if (!isWritePlanning && !needsClarification) {
         if (ambiguityHints.includes('time_ambiguous')) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
