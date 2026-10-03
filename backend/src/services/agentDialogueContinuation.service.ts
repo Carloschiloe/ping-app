@@ -231,6 +231,16 @@ export function buildPendingPlanEdit(input: {
                 entityHints: nextTitle ? [nextTitle] : prior.targetEntities.entityHints,
             },
             timeConstraints: { rawHint: nextTime ?? priorTime },
+            // A replacement must replace every semantic slot that describes
+            // the proposed work.  Keeping the prior desiredOutcome here
+            // leaves the state internally contradictory: the title/time may
+            // point at the new proposal while the objective summary still
+            // describes the superseded one.  Prefer the candidate's
+            // structured content when it is present; otherwise the canonical
+            // title is the safe fallback for commitment creation.
+            desiredOutcome: changedSlots.includes('title')
+                ? (nextTitle ?? input.candidate.desiredOutcome ?? prior.desiredOutcome)
+                : prior.desiredOutcome,
             sourceUtterance,
             ambiguities: [],
         },

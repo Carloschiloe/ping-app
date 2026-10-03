@@ -746,6 +746,13 @@ describe('M-7 physical defect regressions: pending edits and cancellation', () =
             expect(corrected.presentation?.stepPresentations[0]?.dateLabel)
                 .toBe(first.presentation?.stepPresentations[0]?.dateLabel);
         }
+        const { AgentDialogueStateService, buildDialogueScopeKey } = await import('../src/services/agentDialogueState.service');
+        const state = new AgentDialogueStateService().getSnapshot(
+            ACTOR_A,
+            buildDialogueScopeKey({ surface: 'mobile_text' }),
+        );
+        expect(state?.openObjective?.desiredOutcome).toBe('revisar inventario');
+        expect(state?.openObjective?.desiredOutcome).not.toContain('llamar a Pedro');
     });
 
     it('real Core path cancels the pending plan, tombstones its digest, and cannot resurrect it', async () => {
