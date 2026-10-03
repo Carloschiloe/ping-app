@@ -60,6 +60,22 @@ describe('commitment ownership stays separate from content entities', () => {
         expect(resolvePersonMock).not.toHaveBeenCalled();
     });
 
+    it('a coordination request without explicit third-party involvement remains an actor-owned commitment', async () => {
+        const input = 'Necesito coordinar la revisiÃ³n del inventario para el jueves.';
+        const current = objective({
+            targetEntities: { personHints: [], entityHints: ['la revisiÃ³n del inventario'] },
+            desiredOutcome: 'coordinar la revisiÃ³n del inventario', sourceUtterance: input,
+            timeConstraints: { rawHint: 'el jueves' },
+        });
+        const { planObjective } = await import('../src/services/agentPlanner.service');
+        const result = await planObjective({ actorUserId: ACTOR_ID, objective: current, input, now: NOW });
+
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].arguments).toMatchObject({ responsiblePersonId: null });
+        expect(resolvePersonMock).not.toHaveBeenCalled();
+    });
+
     it('third-party assignment preserves identity resolution', async () => {
         const input = 'Asigna para mañana este compromiso a una persona desconocida.';
         const current = objective({
