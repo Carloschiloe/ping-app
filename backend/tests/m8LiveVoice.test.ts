@@ -157,6 +157,13 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("ECHO_SETTLE_MS");
         expect(html).toContain("createResponse('user_turn_ready','required')");
         expect(html).toContain("createResponse('core_result_authorized','none')");
+        expect(html).toContain("responseHasAudio=toolChoice!=='required'");
+        expect(html).toContain("response.created");
+        expect(html).toContain("realtime_output_transcript_done");
+        expect(html).toContain("realtime_audio_done");
+        expect(html).toContain("realtimeOutputText");
+        expect(html).toContain("audioDeltaCount");
+        expect(html).toContain("tool_response_done");
         expect(html).toContain("response:{tool_choice:toolChoice,output_modalities:toolChoice==='required'?['text']:['audio']}");
         expect(html).toContain("keepalive:event==='session_closed'");
         expect(html).toContain("currentStage");
@@ -183,8 +190,8 @@ describe('M8 live voice staging boundary', () => {
         const html = getM8LiveVoiceClientHtml('completion-test-nonce');
 
         expect(html).toContain("const completeAssistantResponse=(detailCode)=>");
-        expect(html).toContain("if(event.type==='response.output_audio.done')completeAssistantResponse('audio_output_done')");
-        expect(html).toContain("if(event.type==='response.done'||event.type==='response.completed')completeAssistantResponse(event.type)");
+        expect(html).toContain("if(event.type==='response.output_audio.done'||event.type==='response.audio.done')completeAssistantResponse('audio_output_done')");
+        expect(html).toContain("if(event.type==='response.done'||event.type==='response.completed'){if(responseHasAudio||assistantSpeaking||lastAudioState==='playing')completeAssistantResponse(event.type)");
         expect(html).toContain("currentStage!=='listening'");
         expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.'");
     });
