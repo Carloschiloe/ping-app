@@ -46,7 +46,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const setAudioGate=(enabled)=>{coreResultReady=enabled;remote.muted=!enabled;if(enabled)remote.play().catch(()=>{})};
   const coreSummary=(core)=>{const answer=core?.answer||core?.response?.answer||core?.presentation?.summary||core?.presentation?.headline||core?.reason;return safeText(typeof answer==='string'?answer:'',800)};
   const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
-  const createResponse=(cause)=>{responseActive=true;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent({type:'response.create'})};
+  const createResponse=(cause,toolChoice)=>{responseActive=true;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent(toolChoice?{type:'response.create',response:{tool_choice:toolChoice}}:{type:'response.create'})};
   async function callCore(input,callId,turnId){
     setAudioGate(false);
     const coreStartedAt=Date.now();
@@ -61,7 +61,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     telemetry('core_disposition',{turnId:turnId||activeTurnId,coreKind:kind,coreAnswer:coreSummary(core),confirmationRequired:core.confirmationRequested===true,httpStatus:response.status,detailCode:'agent_turn_completed',sideEffects:0});
     telemetry('core_response_received',{turnId:turnId||activeTurnId,httpStatus:response.status,latencyMs:Date.now()-coreStartedAt,detailCode:'agent_turn_completed',sideEffects:0});
     if(core.confirmationRequested===true)telemetry('confirmation_requested',{coreKind:'plan',confirmationRequired:true,sideEffects:0});
-    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:'ping_core_turn_output',coreKind:kind,coreAnswer:coreSummary(core),sideEffects:0});createResponse('core_result_authorized');setAudioGate(true);
+    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:'ping_core_turn_output',coreKind:kind,coreAnswer:coreSummary(core),sideEffects:0});createResponse('core_result_authorized','none');setAudioGate(true);
   }
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}
@@ -72,7 +72,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     if(event.type==='input_audio_buffer.speech_started'&&assistantSpeaking)setAudioGate(false);
     if(event.type==='conversation.item.input_audio_transcription.completed'||event.type==='input_audio_transcription.completed'){telemetry('transcript_received',{transcript:safeText(event.transcript||event.text,500),detailCode:'input_transcription_completed',sideEffects:0});return}
     if(event.type==='input_audio_buffer.speech_started'){lastVadState='speech_started';turnMayBeEcho=!assistantSpeaking&&Date.now()-lastAssistantAudioEndedAt<ECHO_SETTLE_MS;if(!activeTurnId){activeTurnId=id();turnSequence+=1}}
-    if(event.type==='input_audio_buffer.speech_stopped'){lastVadState='speech_stopped';if(activeTurnId&&!assistantSpeaking&&!responseActive&&!coreTurnInFlight&&!turnMayBeEcho){createResponse('user_turn_ready')}return}
+    if(event.type==='input_audio_buffer.speech_stopped'){lastVadState='speech_stopped';if(activeTurnId&&!assistantSpeaking&&!responseActive&&!coreTurnInFlight&&!turnMayBeEcho){createResponse('user_turn_ready','required')}return}
     if((event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta')&&coreResultReady&&!assistantSpeaking){audioResponseCount+=1;lastAudioState='playing'}
     if(event.type==='response.output_audio.done')lastAudioState='ended';
     if(event.type==='session.created'){providerSessionCreated=true;providerSessionId=event.session?.id||providerSessionId;if(sessionTimer)clearTimeout(sessionTimer);if(resolveSessionCreated)resolveSessionCreated(true);resolveSessionCreated=null;rejectSessionCreated=null;telemetry('session_connected',{sessionId:providerSessionId});stage('session_connected','Ping está escuchando','Habla cuando quieras.');stage('listening','Ping está listo','Habla cuando quieras.');return}
