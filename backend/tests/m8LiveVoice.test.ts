@@ -210,6 +210,29 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.'");
     });
 
+    it('does not mute pending playback on VAD alone and gates only confirmed input', () => {
+        const html = getM8LiveVoiceClientHtml('pending-playback-test-nonce');
+        const speechStart = html.indexOf("if(event.type==='input_audio_buffer.speech_started')");
+        const speechStop = html.indexOf("if(event.type==='input_audio_buffer.speech_stopped')", speechStart);
+        const speechBlock = html.slice(speechStart, speechStop);
+        expect(speechBlock).toContain('pendingPlaybackInterruption=wasOutputPending');
+        const assistantBranch = speechBlock.indexOf('if(wasAssistantSpeaking)');
+        expect(assistantBranch).toBeGreaterThanOrEqual(0);
+        expect(speechBlock.slice(0, assistantBranch)).not.toContain('setAudioGate(false)');
+        expect(html).toContain("if(normalizedInput==='[inaudible noise]')");
+        expect(html).toContain("detailCode:pendingPlaybackInterruption?'self_audio_echo_suspected':'inaudible_input'");
+        expect(html).toContain("stage:'confirmed_user_turn_after_pending_output'");
+        expect(html).toContain("detailCode:'playback_gate_released_for_core'");
+    });
+
+    it('keeps real barge-in immediate while preserving the Core boundary', () => {
+        const html = getM8LiveVoiceClientHtml('barge-in-contract-test-nonce');
+        expect(html).toContain("if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false)");
+        expect(html).toContain("if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result'");
+        expect(html).toContain("callCore(args.input,event.call_id,activeTurnId)");
+        expect(html).toContain("if(event.type==='session.closed'){closed=true;clearPending();telemetry('session_closed'");
+    });
+
     it('accepts sanitized stage diagnostics without side effects', () => {
         recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
