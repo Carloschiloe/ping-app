@@ -72,7 +72,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     if(event.type==='input_audio_buffer.speech_started'&&assistantSpeaking)setAudioGate(false);
     if(event.type==='conversation.item.input_audio_transcription.completed'||event.type==='input_audio_transcription.completed'){telemetry('transcript_received',{transcript:safeText(event.transcript||event.text,500),detailCode:'input_transcription_completed',sideEffects:0});return}
     if(event.type==='input_audio_buffer.speech_started'){lastVadState='speech_started';turnMayBeEcho=!assistantSpeaking&&Date.now()-lastAssistantAudioEndedAt<ECHO_SETTLE_MS;if(!activeTurnId){activeTurnId=id();turnSequence+=1}}
-    if(event.type==='input_audio_buffer.speech_stopped')lastVadState='speech_stopped';
+    if(event.type==='input_audio_buffer.speech_stopped'){lastVadState='speech_stopped';if(activeTurnId&&!assistantSpeaking&&!responseActive&&!coreTurnInFlight&&!turnMayBeEcho){createResponse('user_turn_ready')}return}
     if((event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta')&&coreResultReady&&!assistantSpeaking){audioResponseCount+=1;lastAudioState='playing'}
     if(event.type==='response.output_audio.done')lastAudioState='ended';
     if(event.type==='session.created'){providerSessionCreated=true;providerSessionId=event.session?.id||providerSessionId;if(sessionTimer)clearTimeout(sessionTimer);if(resolveSessionCreated)resolveSessionCreated(true);resolveSessionCreated=null;rejectSessionCreated=null;telemetry('session_connected',{sessionId:providerSessionId});stage('session_connected','Ping está escuchando','Habla cuando quieras.');stage('listening','Ping está listo','Habla cuando quieras.');return}

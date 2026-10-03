@@ -90,7 +90,7 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
             `Idioma preferido: ${input.locale || 'es-CL'}. Zona horaria: ${input.timezone || 'America/Santiago'}.`,
         ].join(' '),
         audio: {
-            input: { turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: true } },
+            input: { turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false, interrupt_response: true } },
             output: { voice: process.env.M8_LIVE_VOICE_OUTPUT_VOICE?.trim() || 'marin' },
         },
         tools: [coreToolDefinition()],

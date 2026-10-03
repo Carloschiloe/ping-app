@@ -74,6 +74,8 @@ describe('M8 live voice staging boundary', () => {
         expect(typeof session).toBe('string');
         expect(session).toContain('ping_core_turn');
         expect(session).toContain('gpt-realtime-2.1');
+        expect(session).toContain('"create_response":false');
+        expect(session).toContain('"interrupt_response":true');
         expect(result.sdp).toBe('v=0\\r\\nanswer');
     });
 
@@ -153,6 +155,7 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("core_turn_already_in_flight");
         expect(html).toContain("ECHO_SETTLE_MS");
+        expect(html).toContain("createResponse('user_turn_ready')");
         expect(html).toContain("currentStage");
         expect(html).toContain("m8_diagnostic_error");
         expect(html).toContain("fail(currentStage,error,error?.httpStatus)");
