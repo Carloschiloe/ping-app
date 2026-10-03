@@ -330,6 +330,27 @@ describe('M8 live voice staging boundary', () => {
         });
     });
 
+    it('routes voice confirmation through canonical authorization, execution, and read-after-write', () => {
+        process.env.PING_ENVIRONMENT = 'staging';
+        const html = getM8LiveVoiceClientHtml('voice-commitment-contract-test');
+        const authorizeAt = html.indexOf("apiJson('/agent/authorize'");
+        const executeAt = html.indexOf("apiJson('/agent/execute'");
+        const verifyAt = html.indexOf("read_after_write_verified");
+        expect(authorizeAt).toBeGreaterThanOrEqual(0);
+        expect(executeAt).toBeGreaterThan(authorizeAt);
+        expect(verifyAt).toBeGreaterThan(executeAt);
+        expect(html).toContain("core.confirmationRequested===true");
+        expect(html).toContain("pendingPlan?.sourceInput");
+        expect(html).toContain("planDigest:plan.planDigest");
+        expect(html).toContain("stepIds:plan.steps.map(step=>step.stepId)");
+        expect(html).toContain("confirm:true");
+        expect(html).toContain("execution?.status==='done'");
+        expect(html).toContain("step?.status==='succeeded'&&step?.verified===true");
+        expect(html).toContain("execution_missing_created_entity");
+        expect(html).toContain("read_after_write_not_found");
+        expect(html).toContain("pendingPlan=null");
+    });
+
     it('sanitizes provider rejection diagnostics without retaining credentials or SDP', () => {
         const details = sanitizeM8LiveVoiceError(Object.assign(new Error('provider rejected'), {
             status: 400,
