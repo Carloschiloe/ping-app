@@ -373,6 +373,7 @@ export async function runAgentTurn(
         precomputedSemantic = await interpretAgentSemanticTurn(content, {
             actorUserId: input.actorUserId,
             conversationId,
+            pendingPlan: { objectiveType: existingDialogueState!.openObjective!.objectiveType },
         }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
         const pendingPlanContext = {
             actorUserId: input.actorUserId,

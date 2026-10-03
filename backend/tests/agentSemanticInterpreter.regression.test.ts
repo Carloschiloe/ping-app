@@ -59,4 +59,28 @@ describe('semantic boundary read/write regression', () => {
         expect(result.objective).toBeNull();
         expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
     });
+
+    it('passes pending-plan context to the objective interpreter before Core classifies confirmation, deferral, or replacement', async () => {
+        const objectiveInterpreter = {
+            interpret: vi.fn(async (_input: string, context: { pendingPlan?: { objectiveType: string } }) => {
+                expect(context.pendingPlan).toEqual({ objectiveType: 'create_personal_commitment' });
+                return rememberFactObjective();
+            }),
+        };
+        const result = await interpretAgentSemanticTurn(
+            'No lo hagas todavía; prefiero dejarlo pendiente.',
+            {
+                actorUserId: ACTOR,
+                conversationId: 'conversation-regression',
+                pendingPlan: { objectiveType: 'create_personal_commitment' },
+            },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('write');
+        expect(objectiveInterpreter.interpret).toHaveBeenCalledOnce();
+    });
 });

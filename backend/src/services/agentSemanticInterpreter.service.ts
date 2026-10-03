@@ -64,7 +64,13 @@ async function interpretInput(
  */
 export async function interpretAgentSemanticTurn(
     input: string,
-    context: { actorUserId: string; conversationId?: string; channel?: string; priorReadSummary?: InterpreterContext['priorReadSummary'] },
+    context: {
+        actorUserId: string;
+        conversationId?: string;
+        channel?: string;
+        priorReadSummary?: InterpreterContext['priorReadSummary'];
+        pendingPlan?: ObjectiveInterpreterContext['pendingPlan'];
+    },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
@@ -132,6 +138,7 @@ export async function interpretAgentSemanticTurn(
     const objectiveContext: ObjectiveInterpreterContext = {
         actorUserId: context.actorUserId,
         conversationId: context.conversationId,
+        pendingPlan: context.pendingPlan,
     };
     let objective: AgentObjective;
     try {
