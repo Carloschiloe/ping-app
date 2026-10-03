@@ -4,9 +4,15 @@ import { AppError } from '../utils/AppError';
 import {
     createM8LiveVoiceSession,
     getLatestM8LiveVoiceTelemetry,
+    getLatestM8LiveVoiceTelemetryInternal,
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../services/m8LiveVoice.service';
+import {
+    assertInternalM8LiveVoiceDiagnostics,
+    M8_LIVE_VOICE_DIAGNOSTIC_SIGNATURE_HEADER,
+    M8_LIVE_VOICE_DIAGNOSTIC_TIMESTAMP_HEADER,
+} from '../services/m8LiveVoiceInternalDiagnostics.service';
 import { getM8LiveVoiceClientHtml } from '../services/m8LiveVoiceClient.service';
 import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../services/m8LiveVoiceDiagnostics.service';
 
@@ -113,6 +119,19 @@ export function readTelemetry(req: Request, res: Response): void {
 export function readLatestTelemetry(req: Request, res: Response): void {
     try {
         res.status(200).json(getLatestM8LiveVoiceTelemetry(req.user!.id));
+    } catch (error) {
+        const status = error instanceof AppError ? error.statusCode : 500;
+        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+    }
+}
+
+export function readLatestTelemetryInternal(req: Request, res: Response): void {
+    try {
+        assertInternalM8LiveVoiceDiagnostics(
+            req.header(M8_LIVE_VOICE_DIAGNOSTIC_TIMESTAMP_HEADER),
+            req.header(M8_LIVE_VOICE_DIAGNOSTIC_SIGNATURE_HEADER),
+        );
+        res.status(200).json(getLatestM8LiveVoiceTelemetryInternal());
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
         res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });

@@ -6,6 +6,10 @@ import {
     getM8LiveVoiceTelemetry,
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
+import {
+    assertInternalM8LiveVoiceDiagnostics,
+    createM8LiveVoiceLatestProof,
+} from '../src/services/m8LiveVoiceInternalDiagnostics.service';
 import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
 import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../src/services/m8LiveVoiceDiagnostics.service';
 
@@ -19,6 +23,7 @@ describe('M8 live voice staging boundary', () => {
         process.env.M8_LIVE_VOICE_ENABLED = 'true';
         process.env.M8_LIVE_VOICE_MODEL = 'gpt-realtime-2.1';
         process.env.OPENAI_API_KEY = 'test-only-key';
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'staging-diagnostic-test-key';
         clearM8LiveVoiceTelemetryForTests();
     });
 
@@ -27,6 +32,7 @@ describe('M8 live voice staging boundary', () => {
         delete process.env.M8_LIVE_VOICE_ENABLED;
         delete process.env.M8_LIVE_VOICE_MODEL;
         delete process.env.OPENAI_API_KEY;
+        delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     });
 
     it('brokers an SDP session without exposing the provider key', async () => {
@@ -207,6 +213,15 @@ describe('M8 live voice staging boundary', () => {
             expect.objectContaining({ event: 'transcript_received', transcript: 'agenda esto access_token=[redacted]' }),
             expect.objectContaining({ event: 'core_disposition', coreAnswer: 'respuesta authorization=[redacted]', latencyMs: 42 }),
         ]));
+    });
+
+    it('accepts only a short-lived staging HMAC capability for internal recovery', () => {
+        const timestamp = String(Date.now());
+        expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, createM8LiveVoiceLatestProof(timestamp))).not.toThrow();
+        expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, '0'.repeat(64))).toThrowError(/unauthorized/i);
+        expect(() => assertInternalM8LiveVoiceDiagnostics(String(Date.now() - 120_000), createM8LiveVoiceLatestProof(String(Date.now() - 120_000)))).toThrowError(/unauthorized/i);
+        process.env.PING_ENVIRONMENT = 'production';
+        expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, createM8LiveVoiceLatestProof(timestamp))).toThrowError(/unavailable/i);
     });
 
     it('writes only staging diagnostics with hashed identities and no secrets or SDP', () => {

@@ -40,6 +40,7 @@ type StoredTelemetry = {
 
 const telemetryByVoiceSession = new Map<string, StoredTelemetry>();
 const latestTelemetryByActor = new Map<string, string>();
+let latestTelemetryGlobalVoiceSessionId: string | null = null;
 
 function assertStagingLiveVoiceEnabled(): void {
     if (process.env.PING_ENVIRONMENT !== 'staging' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
@@ -181,6 +182,7 @@ export function recordM8LiveVoiceTelemetry(actorUserId: string, event: M8LiveVoi
     if (existing.events.length > MAX_TELEMETRY_EVENTS) existing.events.splice(0, existing.events.length - MAX_TELEMETRY_EVENTS);
     telemetryByVoiceSession.set(event.voiceSessionId, existing);
     latestTelemetryByActor.set(actorUserId, event.voiceSessionId);
+    latestTelemetryGlobalVoiceSessionId = event.voiceSessionId;
 }
 
 export function getM8LiveVoiceTelemetry(actorUserId: string, voiceSessionId: string) {
@@ -206,7 +208,25 @@ export function getLatestM8LiveVoiceTelemetry(actorUserId: string) {
     return getM8LiveVoiceTelemetry(actorUserId, voiceSessionId);
 }
 
+export function getLatestM8LiveVoiceTelemetryInternal() {
+    assertStagingLiveVoiceEnabled();
+    if (!latestTelemetryGlobalVoiceSessionId) throw new AppError('Live voice telemetry unavailable', 404);
+    const existing = telemetryByVoiceSession.get(latestTelemetryGlobalVoiceSessionId);
+    if (!existing) throw new AppError('Live voice telemetry unavailable', 404);
+    return {
+        voiceSessionId: existing.voiceSessionId,
+        deviceSessionId: existing.deviceSessionId,
+        createdAt: existing.createdAt,
+        lastEventAt: existing.lastEventAt,
+        closed: existing.closed,
+        eventCount: existing.events.length,
+        events: existing.events,
+        sideEffects: existing.events.some((event) => (event.sideEffects ?? 0) > 0) ? 1 : 0,
+    };
+}
+
 export function clearM8LiveVoiceTelemetryForTests(): void {
     telemetryByVoiceSession.clear();
     latestTelemetryByActor.clear();
+    latestTelemetryGlobalVoiceSessionId = null;
 }
