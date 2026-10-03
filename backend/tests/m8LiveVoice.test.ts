@@ -167,7 +167,8 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("realtimeOutputText");
         expect(html).toContain("audioDeltaCount");
         expect(html).toContain("tool_response_done");
-        expect(html).toContain("response:{tool_choice:toolChoice,output_modalities:toolChoice==='required'?['text']:['audio']}");
+        expect(html).toContain("response:toolChoice==='required'?{tool_choice:'required',output_modalities:['text']");
+        expect(html).toContain("{tool_choice:'none',output_modalities:['audio']");
         expect(html).toContain("keepalive:event==='session_closed'");
         expect(html).toContain("currentStage");
         expect(html).toContain("m8_diagnostic_error");

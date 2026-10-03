@@ -84,8 +84,8 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
         instructions: [
             'Eres la interfaz de voz de Ping, no un agente separado.',
             'Para cada turno del usuario debes llamar a ping_core_turn con la transcripción exacta que entendiste.',
-            'No respondas con hechos, planes ni acciones antes de recibir el resultado de Ping Core.',
-            'Describe los resultados del Core de forma breve y natural.',
+            'Antes de recibir el resultado de Ping Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
+            'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
             'Una propuesta nunca es una ejecución: conserva siempre la confirmación explícita requerida por el Core.',
             `Idioma preferido: ${input.locale || 'es-CL'}. Zona horaria: ${input.timezone || 'America/Santiago'}.`,
         ].join(' '),
