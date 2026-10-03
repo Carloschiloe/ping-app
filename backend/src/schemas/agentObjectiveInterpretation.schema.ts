@@ -15,6 +15,10 @@ export const agentObjectiveInterpretationPayloadSchema = z.object({
     objectiveType: z.enum(AGENT_OBJECTIVE_TYPE_VALUES),
     personHints: z.array(HINT_STRING).max(5).default([]),
     entityHints: z.array(HINT_STRING).max(5).default([]),
+    // Semantic content slot for a new commitment. This is deliberately
+    // separate from temporal/discourse material: Core still validates the
+    // value against the source utterance before planning a write.
+    contentHint: HINT_STRING.nullable().default(null),
     timeHint: z.string().trim().max(60).nullable().default(null),
     decisionHint: z.enum(['approve', 'reject', 'defer', 'counter_propose']).nullable().default(null),
     draftOnly: z.boolean().default(false),

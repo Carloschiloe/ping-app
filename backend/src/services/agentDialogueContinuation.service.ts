@@ -145,11 +145,96 @@ export function classifyPendingPlanDecision(
     objective: AgentObjective | null | undefined,
 ): 'approve' | 'reject' | 'defer' | null {
     if (!objective || objective.objectiveType === 'unsupported') return null;
-    const decisionHint = objective.constraints.decisionHint;
-    if (decisionHint !== 'approve' && decisionHint !== 'reject' && decisionHint !== 'defer') return null;
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
-    return hasExplicitTarget ? null : decisionHint;
+    if (hasExplicitTarget) return null;
+    // A target-less lifecycle cancellation is never an approval of the
+    // currently shown plan, even if an upstream model emitted contradictory
+    // decision metadata. A targeted cancellation remains an independent
+    // canonical cancel action and must continue to the planner.
+    if (objective.objectiveType === 'cancel_existing_commitment') return 'reject';
+    const decisionHint = objective.constraints.decisionHint;
+    if (decisionHint !== 'approve' && decisionHint !== 'reject' && decisionHint !== 'defer') return null;
+    return decisionHint;
+}
+
+export interface PendingPlanEditResult {
+    isEdit: boolean;
+    correctedObjective?: AgentObjective;
+    changedSlots: Array<'title' | 'time'>;
+}
+
+/**
+ * Reconciles semantic slot updates against the one plan currently awaiting
+ * authorization. The interpreter proposes slots; Core preserves omitted
+ * slots and invalidates the old plan through the state service.
+ */
+export function buildPendingPlanEdit(input: {
+    dialogueState: AgentDialogueState;
+    candidate: AgentObjective;
+    dialogueService: { applyCorrection: (value: {
+        actorUserId: string; dialogueScopeKey: string; slotName: string;
+        previousValue: string | null; newValue: string; reason: 'user_correction';
+        turnId: string; turnSequence: number;
+    }) => unknown };
+    dialogueScopeKey: string;
+    actorUserId: string;
+    turnId: string;
+    now: Date;
+}): PendingPlanEditResult {
+    const prior = input.dialogueState.openObjective;
+    if (!prior || input.dialogueState.lifecycle !== 'plan_pending_authorization') {
+        return { isEdit: false, changedSlots: [] };
+    }
+    const sameCommitmentFamily = new Set(['create_commitment_or_proposal', 'create_personal_commitment']);
+    if (!sameCommitmentFamily.has(prior.objectiveType) || !sameCommitmentFamily.has(input.candidate.objectiveType)) {
+        return { isEdit: false, changedSlots: [] };
+    }
+    if (input.candidate.constraints.commitmentOwnership === 'ambiguous') {
+        return { isEdit: false, changedSlots: [] };
+    }
+
+    const nextTitle = input.candidate.targetEntities.entityHints[0]?.trim() || null;
+    const nextTime = input.candidate.timeConstraints.rawHint?.trim() || null;
+    const priorTitle = prior.targetEntities.entityHints[0]?.trim() || null;
+    const priorTime = prior.timeConstraints.rawHint?.trim() || null;
+    const changedSlots: Array<'title' | 'time'> = [];
+    if (nextTitle && nextTitle !== priorTitle) changedSlots.push('title');
+    if (nextTime && nextTime !== priorTime) changedSlots.push('time');
+    if (changedSlots.length === 0) return { isEdit: false, changedSlots };
+
+    let turnSequence = input.dialogueState.lastTurnSequence + 1;
+    for (const slot of changedSlots) {
+        input.dialogueService.applyCorrection({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey: input.dialogueScopeKey,
+            slotName: slot === 'title' ? 'targetEntities.entityHints' : 'timeConstraints.rawHint',
+            previousValue: slot === 'title' ? priorTitle : priorTime,
+            newValue: slot === 'title' ? nextTitle! : nextTime!,
+            reason: 'user_correction',
+            turnId: input.turnId,
+            turnSequence,
+        });
+        turnSequence += 1;
+    }
+
+    const sourceUtterance = changedSlots.includes('time')
+        ? `${nextTitle ?? priorTitle ?? ''} ${input.candidate.sourceUtterance}`.trim()
+        : `${input.candidate.sourceUtterance} ${prior.sourceUtterance}`.trim();
+    return {
+        isEdit: true,
+        changedSlots,
+        correctedObjective: {
+            ...prior,
+            targetEntities: {
+                ...prior.targetEntities,
+                entityHints: nextTitle ? [nextTitle] : prior.targetEntities.entityHints,
+            },
+            timeConstraints: { rawHint: nextTime ?? priorTime },
+            sourceUtterance,
+            ambiguities: [],
+        },
+    };
 }
 
 /**

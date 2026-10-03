@@ -138,6 +138,10 @@ export interface AgentObjective {
         personHints: string[];   // raw text, never IDs — resolved later by the planner via context.entities.people
         entityHints: string[];   // raw text naming a commitment/proposal (e.g. "Entrenar"), never an ID
     };
+    // Raw semantic content for a newly created commitment. It is not an
+    // authority or a canonical entity; the planner must prove it belongs to
+    // sourceUtterance before using it as a title.
+    contentHint?: string | null;
     constraints: {
         decisionHint?: 'approve' | 'reject' | 'defer' | 'counter_propose' | null; // pending-plan lifecycle / respond_to_existing_proposal
         draftOnly?: boolean; // true only when the user explicitly asked for a preview, never inferred silently

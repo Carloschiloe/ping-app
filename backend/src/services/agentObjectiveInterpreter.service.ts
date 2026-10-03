@@ -24,7 +24,7 @@ import { agentObjectiveInterpretationPayloadSchema } from '../schemas/agentObjec
 import { isAiConfigured } from './synthesis.service';
 import { AGENT_OBJECTIVE_TYPE_VALUES, type AgentObjective, type AgentObjectiveType, type CommitmentOwnership, type MessageContentCandidate } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
-import { parseDateFromText } from './date-parser.service';
+import { extractDateTextSpans, parseDateFromText } from './date-parser.service';
 
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
@@ -291,7 +291,7 @@ function extractCompletionTargetAndResult(afterVerbRaw: string): { target: strin
     return { target, result: result.length > 0 ? result : null };
 }
 
-function extractEntityHint(afterVerbRaw: string): string | null {
+export function extractEntityHint(afterVerbRaw: string): string | null {
     const afterVerb = afterVerbRaw.replace(GENERIC_TARGET_NOUN_PREFIX, ' ');
     const stopMatch = afterVerb.match(ENTITY_STOP_MARKER);
     const raw = stopMatch ? afterVerb.slice(0, stopMatch.index) : afterVerb;
@@ -303,7 +303,7 @@ function extractEntityHint(afterVerbRaw: string): string | null {
         // end-to-end de este mismo módulo).
         .replace(/[.,;:!?]+\s*$/u, '')
         .trim();
-    if (trimmed.length > 0) return trimmed;
+    if (trimmed.length > 0 && extractDateTextSpans(trimmed).length === 0) return trimmed;
 
     // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: when the PREFIX before
     // the stop marker is empty (e.g. "Agenda para mañana a las 8 revisar
@@ -318,7 +318,35 @@ function extractEntityHint(afterVerbRaw: string): string | null {
         const suffixTrimmed = stripLeadingTimeTokens(afterStop)
             .replace(/[.,;:!?]+\s*$/u, '')
             .trim();
-        if (suffixTrimmed.length > 0) return suffixTrimmed;
+        if (suffixTrimmed.length > 0 && extractDateTextSpans(suffixTrimmed).length === 0) return suffixTrimmed;
+    }
+
+    // When the time expression precedes the action, preserve the lexical
+    // segment between temporal spans. This is a parser-backed slot boundary,
+    // not a phrase or entity rule, and avoids moving time/discourse into the
+    // commitment title. The model's contentHint remains authoritative when
+    // available; this is the deterministic fallback.
+    const spans = extractDateTextSpans(afterVerb);
+    if (spans.length > 0) {
+        const segments: string[] = [];
+        let cursor = 0;
+        for (const span of spans) {
+            segments.push(afterVerb.slice(cursor, span.index));
+            cursor = span.index + span.text.length;
+        }
+        segments.push(afterVerb.slice(cursor));
+        const candidates = segments
+            .map((segment, index) => ({ index, value: segment
+                .replace(/^\s*(?:a|de|del|el|la|por|para)\s+/iu, '')
+                .replace(/\s+(?:a|de|del|el|la|por|para)\s*$/iu, '')
+                .replace(/[.,;:!?]+\s*$/u, '')
+                .trim() }))
+            .filter((candidate) => candidate.value.length > 0);
+        const interior = candidates
+            .filter((candidate) => candidate.index > 0 && candidate.index < segments.length - 1)
+            .sort((left, right) => right.value.length - left.value.length)[0];
+        if (interior) return interior.value;
+        if (candidates.length > 0) return candidates.sort((left, right) => right.value.length - left.value.length)[0].value;
     }
 
     return null;
@@ -939,7 +967,8 @@ function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContex
         'Choose the objective from the user\'s meaning, not from a fixed phrase. A personal commitment is a durable reminder/task for the actor, including indirect formulations about not forgetting, keeping an obligation present, leaving something pending for oneself, or recording something to do later. A shared commitment/proposal is a request to create or name a commitment, or to schedule/organize/coordinate a concrete calendar obligation; an explicit request to “create a commitment”, “make a task”, or “make a reminder” is a creation request even if no other person is named. A retrieval request asks what is already remembered and must never become a write objective. “Recuérdame qué hablamos” retrieves memory; “recuérdame revisar el contrato” creates a personal commitment. Preserve negation: “no quiero olvidarme de enviar esto” creates a reminder, while “no quiero enviar nada” is not a send action.',
         'For creation, prefer create_personal_commitment when the action is clearly for the actor or is framed as remembering/not forgetting/keeping a task pending. A “tarea”, “pendiente”, or “recordatorio” with no named other participant is normally personal. Prefer create_commitment_or_proposal when the user explicitly creates/names a “compromiso” or “propuesta”, or asks to coordinate a shared obligation with another person. For remember_fact, the user asks Ping to retain a fact or preference, not to remind them to perform a future task: “recuérdame que el chequeo es a las nueve” is a reminder because it contains a future event/time, while “recuerda que mi hermano se llama Andrés” is a fact. A request to ask a named person is communicate_message unless it explicitly asks Ping to wait for that person\'s answer; “pregúntale si…” is communicate_and_wait. For lifecycle objectives, distinguish the requested transition (reschedule, complete, respond/reject, cancel) from questions describing a past transition. Colloquial transition formulations such as “dejemos X para el lunes”, “dalo por terminado”, “no sigamos con X”, and “déjala rechazada” still express those lifecycle actions.',
         'For a new commitment, also return commitmentOwnership: personal, third_party, or ambiguous. This field describes who owns or must perform the obligation and is independent from objectiveType: do not change objectiveType merely to fill this field. personal means the authenticated actor is the one who will do/remember the action; names of people, companies, places, or objects inside that action are content only. A scheduling or coordination request remains personal when it describes the actor\'s own obligation and does not explicitly assign, involve, share with, notify, or require action from another person. Do not mark it ambiguous merely because it uses a coordination/scheduling framing or mentions an entity. third_party means the request semantically assigns, involves, shares with, notifies, or requires action from another person; only then set responsibleHint to that person. Use ambiguous only when the request clearly implicates another person but the ownership/role cannot be determined, and never use a person hint to guess it. A named person mentioned as the object of the actor\'s own action remains content unless the user explicitly involves that person in the commitment. This is a semantic field, not a phrase list.',
-        `Respond ONLY with a JSON object with these fields: objectiveType (one of: ${AGENT_OBJECTIVE_TYPE_VALUES.join(', ')}), personHints (array of names as written), entityHints (array of entity/title names as written), timeHint (raw time phrase or null), decisionHint (approve/reject/defer/counter_propose or null), draftOnly (boolean), responsibleHint (name or null), commitmentOwnership (personal/third_party/ambiguous/null), followUpObjectiveType (same enum or null, only if there is a clear conditional follow-up action), additionalPersonHint (name or null), desiredOutcomeHint (short restatement or null), verbatimMessageHint (see next line).`,
+        `Respond ONLY with a JSON object with these fields: objectiveType (one of: ${AGENT_OBJECTIVE_TYPE_VALUES.join(', ')}), personHints (array of names as written), entityHints (array of entity/title names as written), contentHint (for a new commitment only: the smallest actionable content/title span, excluding dates, times and discourse/politeness), timeHint (raw time phrase or null), decisionHint (approve/reject/defer/counter_propose or null), draftOnly (boolean), responsibleHint (name or null), commitmentOwnership (personal/third_party/ambiguous/null), followUpObjectiveType (same enum or null, only if there is a clear conditional follow-up action), additionalPersonHint (name or null), desiredOutcomeHint (short restatement or null), verbatimMessageHint (see next line).`,
+        'For contentHint, preserve the user wording and return null when no safe actionable span can be identified. Never include a date/time expression or politeness/discourse wrapper in this slot.',
         'entityHints for create_commitment_or_proposal/create_personal_commitment: if the user explicitly names the commitment/task (markers like "que se llame X", "llamado X", "con nombre X", "titulado X", or a quoted title "X"), entityHints[0] MUST be that exact explicit name X, NEVER a generic object-type noun like "un compromiso", "una tarea", "una reunión", "a commitment", "a task", or "a meeting". For example, for "Crea un compromiso para hoy a las 18:30 que se llame prueba caché Ping" entityHints MUST be ["prueba caché Ping"], never ["un compromiso"]. If there is no explicit name, use the smallest natural title from the actual action content instead (e.g. "revisar informe" for "Agenda revisar informe mañana"), never a generic placeholder.',
         'verbatimMessageHint, for communicate_message/communicate_and_wait ONLY: ONLY the message PAYLOAD that would actually be sent to the recipient — copied VERBATIM (exact same language, wording, casing, and punctuation as it appears in the user request, character for character, never translated or paraphrased, and never capitalizing a lowercase first letter even if it reads oddly as a standalone sentence). This must EXCLUDE the surrounding instruction/addressing wrapper that names the recipient or tells you to send something — return only what comes after that wrapper. For example: for the request "Dile a Alejandra que llegaré tarde" the value is "llegaré tarde" (never "Dile a Alejandra que llegaré tarde" — that includes the addressing wrapper, which is wrong). For "Tell Alejandra that I\'ll be late" the value is "I\'ll be late" (never the whole sentence). For "Message Alejandra: I\'m running late" the value is "I\'m running late". Return null if no message payload applies.',
         `User request: "${input}"`,
@@ -1021,6 +1050,7 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
         ? [...payload.personHints, payload.additionalPersonHint].slice(0, 5)
         : payload.personHints;
     obj.targetEntities.entityHints = payload.entityHints;
+    obj.contentHint = payload.contentHint;
     // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: the LLM is the PRIMARY
     // objective interpreter (DeterministicObjectiveInterpreter is only the
     // fallback on timeout/error/invalid-json), and its prompt only ever
@@ -1041,6 +1071,7 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     if (payload.objectiveType === 'create_commitment_or_proposal' || payload.objectiveType === 'create_personal_commitment') {
         const explicitTitle = extractExplicitTitle(input);
         if (explicitTitle) obj.targetEntities.entityHints = [explicitTitle];
+        else if (payload.contentHint) obj.targetEntities.entityHints = [payload.contentHint];
     }
     // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: for the
     // mutation objectives (reschedule/complete/respond), entityHints[0] is
@@ -1256,7 +1287,7 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
         const sameObjectiveFamily = structuralObjective.objectiveType === llmObjective.objectiveType;
         if (sameObjectiveFamily && structuralObjective.confidence >= 0.7) {
             const structuralEntityHints = structuralObjective.targetEntities.entityHints;
-            if (structuralEntityHints.length > 0) {
+            if (structuralEntityHints.length > 0 && llmObjective.targetEntities.entityHints.length === 0) {
                 llmObjective.targetEntities.entityHints = structuralEntityHints;
             }
             if (!llmObjective.timeConstraints.rawHint && structuralObjective.timeConstraints.rawHint) {

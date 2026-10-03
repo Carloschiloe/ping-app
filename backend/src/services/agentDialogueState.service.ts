@@ -20,10 +20,12 @@ import type {
     AgentReadContext,
     DialogueLifecycleState,
     DialogueReferentCandidate,
+    NonExecutablePlanDigestRef,
     SlotCorrection,
 } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveAmbiguity, ClarificationQuestion } from '../types/agentPlan';
 import type { AgentSurface } from '../types/agentInput';
+import { clearPlanDigestInvalidationsForTests, recordPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
 
 // ADR Q8 — starting defaults, explicitly not measured/tuned figures (ADR
 // is explicit that these need product judgment/telemetry later). Centralized
@@ -35,6 +37,7 @@ export const DIALOGUE_STATE_LIMITS = {
     maxCorrectionsPerSlot: 3, // ADR Q6: bounded, supports one-level revert with headroom
     maxSuspendedObjectives: 3,
     maxDialogueStates: 500, // mirrors MAX_AGENT_SESSIONS's own bound, same reasoning
+    maxNonExecutablePlanRefs: 10,
 } as const;
 
 // ADR Q4 — the SOLE owner of scope-key construction. Never inlined ad hoc
@@ -162,6 +165,7 @@ const defaultRepository = createInMemoryDialogueStateRepository();
 
 export function clearAgentDialogueStateForTests(): void {
     defaultRepository.clearForTests();
+    clearPlanDigestInvalidationsForTests();
 }
 
 function computeExpiry(lifecycle: DialogueLifecycleState, now: Date): string {
@@ -183,6 +187,7 @@ function emptyState(actorUserId: string, dialogueScopeKey: string, now: Date): A
         lastReadContext: null,
         currentPlanDigestRef: null,
         currentAuthorizationIdRef: null,
+        nonExecutablePlanDigestRefs: [],
         version: 0,
         lastTurnSequence: 0,
         createdAt: now.toISOString(),
@@ -374,6 +379,9 @@ export class AgentDialogueStateService {
         // touches planDigest/authorizationId values themselves -- it only
         // clears its own REFERENCE once a correction supersedes it.
         const shouldClearPlanRef = existing.lifecycle === 'plan_pending_authorization';
+        const nonExecutablePlanDigestRefs = shouldClearPlanRef && existing.currentPlanDigestRef
+            ? appendNonExecutablePlanRef(existing.nonExecutablePlanDigestRefs, existing.currentPlanDigestRef, 'superseded', now)
+            : existing.nonExecutablePlanDigestRefs ?? [];
         const nextLifecycle = shouldClearPlanRef ? transitionDialogueState(existing.lifecycle, 'collecting') : existing.lifecycle;
 
         const next: AgentDialogueState = {
@@ -381,11 +389,20 @@ export class AgentDialogueStateService {
             lifecycle: nextLifecycle,
             corrections: { ...existing.corrections, [input.slotName]: boundedStack },
             currentPlanDigestRef: shouldClearPlanRef ? null : existing.currentPlanDigestRef,
+            nonExecutablePlanDigestRefs,
             lastTurnSequence: input.turnSequence,
             updatedAt: now.toISOString(),
             expiresAt: computeExpiry(nextLifecycle, now),
         };
-        return this.persist(next, existing.version);
+        const persisted = this.persist(next, existing.version);
+        if (existing.lifecycle === 'plan_pending_authorization' && existing.currentPlanDigestRef) {
+            recordPlanDigestNonExecutable({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: input.dialogueScopeKey,
+                planDigest: existing.currentPlanDigestRef,
+            });
+        }
+        return persisted;
     }
 
     // ADR Q6 — "no, déjalo como estaba": pops the most recent correction
@@ -520,6 +537,9 @@ export class AgentDialogueStateService {
         const nextLifecycle = afterCollecting === 'clarifying'
             ? afterCollecting
             : transitionDialogueState(afterCollecting, 'clarifying');
+        const nonExecutablePlanDigestRefs = existing.lifecycle === 'plan_pending_authorization' && existing.currentPlanDigestRef
+            ? appendNonExecutablePlanRef(existing.nonExecutablePlanDigestRefs, existing.currentPlanDigestRef, 'superseded', now)
+            : existing.nonExecutablePlanDigestRefs ?? [];
         const next: AgentDialogueState = {
             ...existing,
             lifecycle: nextLifecycle,
@@ -529,11 +549,20 @@ export class AgentDialogueStateService {
             pendingClarification: input.clarification,
             currentPlanDigestRef: null,
             currentAuthorizationIdRef: null,
+            nonExecutablePlanDigestRefs,
             lastTurnSequence: input.turnSequence,
             updatedAt: now.toISOString(),
             expiresAt: computeExpiry(nextLifecycle, now),
         };
-        return this.persist(next, existing.version);
+        const persisted = this.persist(next, existing.version);
+        if (existing.lifecycle === 'plan_pending_authorization' && existing.currentPlanDigestRef) {
+            recordPlanDigestNonExecutable({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: input.dialogueScopeKey,
+                planDigest: existing.currentPlanDigestRef,
+            });
+        }
+        return persisted;
     }
 
     // ADR §3.2/Q13 — records that a real AgentPlan reached
@@ -595,6 +624,38 @@ export class AgentDialogueStateService {
         return this.persist(next, existing.version);
     }
 
+    rejectPendingPlan(input: { actorUserId: string; dialogueScopeKey: string; turnId: string; turnSequence: number }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing) throw new AppError('No dialogue state to reject', 404);
+        this.assertFreshTurn(existing, input.turnSequence);
+        const nonExecutablePlanDigestRefs = existing.currentPlanDigestRef
+            ? appendNonExecutablePlanRef(existing.nonExecutablePlanDigestRefs, existing.currentPlanDigestRef, 'rejected', now)
+            : existing.nonExecutablePlanDigestRefs ?? [];
+        const next: AgentDialogueState = {
+            ...emptyState(input.actorUserId, input.dialogueScopeKey, now),
+            lifecycle: transitionDialogueState(existing.lifecycle, 'idle'),
+            nonExecutablePlanDigestRefs,
+            version: existing.version,
+            lastTurnSequence: input.turnSequence,
+            createdAt: existing.createdAt,
+        };
+        const persisted = this.persist(next, existing.version);
+        if (existing.currentPlanDigestRef) {
+            recordPlanDigestNonExecutable({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: input.dialogueScopeKey,
+                planDigest: existing.currentPlanDigestRef,
+            });
+        }
+        return persisted;
+    }
+
+    isPlanDigestNonExecutable(actorUserId: string, dialogueScopeKey: string, digest: string): boolean {
+        const state = this.repository.get(actorUserId, dialogueScopeKey, this.now());
+        return Boolean(state?.nonExecutablePlanDigestRefs?.some((ref) => ref.digest === digest));
+    }
+
     // Records a conversational turn without changing the active objective,
     // plan digest, lifecycle, or authorization references. This is used for
     // semantic deferral: the user postponed a pending plan, so the plan stays
@@ -651,14 +712,25 @@ export class AgentDialogueStateService {
         const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
         if (!existing) return;
         const nextLifecycle = transitionDialogueState(existing.lifecycle, 'idle');
+        const nonExecutablePlanDigestRefs = existing.lifecycle === 'plan_pending_authorization' && existing.currentPlanDigestRef
+            ? appendNonExecutablePlanRef(existing.nonExecutablePlanDigestRefs, existing.currentPlanDigestRef, 'rejected', now)
+            : existing.nonExecutablePlanDigestRefs ?? [];
         const next: AgentDialogueState = {
             ...emptyState(input.actorUserId, input.dialogueScopeKey, now),
             lifecycle: nextLifecycle,
+            nonExecutablePlanDigestRefs,
             version: existing.version,
             lastTurnSequence: existing.lastTurnSequence,
             createdAt: existing.createdAt,
         };
         this.persist(next, existing.version);
+        if (existing.lifecycle === 'plan_pending_authorization' && existing.currentPlanDigestRef) {
+            recordPlanDigestNonExecutable({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: input.dialogueScopeKey,
+                planDigest: existing.currentPlanDigestRef,
+            });
+        }
     }
 
     // ADR Q12 — an older/late turn must never overwrite a newer correction.
@@ -675,6 +747,16 @@ export class AgentDialogueStateService {
         const withVersion: AgentDialogueState = { ...next, version: next.version + 1 };
         return this.repository.save(withVersion, expectedVersion);
     }
+}
+
+function appendNonExecutablePlanRef(
+    refs: NonExecutablePlanDigestRef[] | undefined,
+    digest: string,
+    reason: NonExecutablePlanDigestRef['reason'],
+    now: Date,
+): NonExecutablePlanDigestRef[] {
+    return [...(refs ?? []).filter((ref) => ref.digest !== digest), { digest, reason, invalidatedAt: now.toISOString() }]
+        .slice(-DIALOGUE_STATE_LIMITS.maxNonExecutablePlanRefs);
 }
 
 export function createAgentDialogueStateService(deps?: DialogueStateServiceDeps): AgentDialogueStateService {

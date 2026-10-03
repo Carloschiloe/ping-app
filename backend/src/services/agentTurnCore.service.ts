@@ -68,6 +68,7 @@ import {
     tryAnswerPendingClarification,
     classifyPlanCorrection,
     buildPlanDateCorrection,
+    buildPendingPlanEdit,
     isExplicitPlanConfirmation,
     classifyPendingPlanDecision,
     isIndependentWriteObjective,
@@ -384,6 +385,33 @@ export async function runAgentTurn(
                 ...pendingPlanContext,
             });
         if (pendingPlanCandidate) {
+        const pendingPlanEdit = buildPendingPlanEdit({
+            dialogueState: existingDialogueState,
+            candidate: pendingPlanCandidate,
+            dialogueService,
+            dialogueScopeKey,
+            actorUserId: input.actorUserId,
+            turnId: traceId,
+            now,
+        });
+        if (pendingPlanEdit.isEdit && pendingPlanEdit.correctedObjective) {
+            dialogueService.openObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                objective: pendingPlanEdit.correctedObjective,
+                turnId: traceId,
+                turnSequence: existingDialogueState.lastTurnSequence + pendingPlanEdit.changedSlots.length + 1,
+            });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'semantic_pending_plan_edit', dialogueScopeKey,
+                changedSlots: pendingPlanEdit.changedSlots,
+            });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: pendingPlanEdit.correctedObjective,
+            }), traceId);
+        }
         const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
         if (pendingDecision === 'approve') {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
@@ -397,7 +425,12 @@ export async function runAgentTurn(
             }), traceId);
         }
         if (pendingDecision === 'reject') {
-            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+            dialogueService.rejectPendingPlan({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: traceId,
+                turnSequence: existingDialogueState.lastTurnSequence + 1,
+            });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_plan_rejection', dialogueScopeKey,
             });

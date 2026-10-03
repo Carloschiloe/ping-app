@@ -30,6 +30,7 @@ import {
     isExplicitPlanConfirmation,
     classifyPendingPlanDecision,
     isIndependentWriteObjective,
+    buildPendingPlanEdit,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -127,6 +128,41 @@ describe('semantic pending-plan reconciliation', () => {
 
     it('does not replace a pending plan with an unsupported candidate', () => {
         expect(isIndependentWriteObjective(objective({ objectiveType: 'unsupported' }))).toBe(false);
+    });
+
+    it('treats a lifecycle cancellation as rejection even if decision metadata conflicts', () => {
+        expect(classifyPendingPlanDecision(objective({
+            objectiveType: 'cancel_existing_commitment',
+            constraints: { decisionHint: 'approve' },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('reject');
+    });
+
+    it('edits title and time slots on the pending plan without dropping omitted slots', () => {
+        const calls: any[] = [];
+        const prior = objective({
+            targetEntities: { personHints: [], entityHints: ['llamar a Pedro'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            sourceUtterance: 'Agendar llamar a Pedro mañana a las 10',
+        });
+        const result = buildPendingPlanEdit({
+            dialogueState: dialogueState({ lifecycle: 'plan_pending_authorization', openObjective: prior, currentPlanDigestRef: 'old-digest' }),
+            candidate: objective({
+                targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+                timeConstraints: { rawHint: 'el viernes' },
+                sourceUtterance: 'Cambiar el título a revisar inventario y dejarlo para el viernes',
+            }),
+            dialogueService: { applyCorrection: (value) => calls.push(value) },
+            dialogueScopeKey: CONV_1,
+            actorUserId: ACTOR_A,
+            turnId: 'edit-1',
+            now: new Date('2026-01-01T00:00:00.000Z'),
+        });
+        expect(result.isEdit).toBe(true);
+        expect(result.changedSlots).toEqual(['title', 'time']);
+        expect(result.correctedObjective?.targetEntities.entityHints).toEqual(['revisar inventario']);
+        expect(result.correctedObjective?.timeConstraints.rawHint).toBe('el viernes');
+        expect(calls).toHaveLength(2);
     });
 });
 
@@ -675,5 +711,80 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
         if (result.kind === 'plan') {
             expect(result.plan.steps[0]?.toolId).toBe('create_commitment');
         }
+    });
+});
+
+describe('M-7 physical defect regressions: pending edits and cancellation', () => {
+    it('real Core path replaces the pending title, preserves time, and requires a new digest', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Agendar llamar a Pedro mañana a las 10',
+            targetEntities: { personHints: [], entityHints: ['llamar a Pedro'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Agendar llamar a Pedro mañana a las 10' });
+        expect(first.kind).toBe('plan');
+        if (first.kind !== 'plan') return;
+        const oldDigest = first.plan.planDigest;
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Cambiar el título a revisar inventario',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: null },
+        }));
+        const corrected = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Cambiar el título a revisar inventario' });
+        expect(corrected.kind).toBe('plan');
+        if (corrected.kind === 'plan') {
+            expect(corrected.plan.planDigest).not.toBe(oldDigest);
+            // The public plan deliberately omits executable arguments. Assert
+            // the Core-owned presentation projection instead: it is derived
+            // from the same frozen step arguments and exposes the corrected
+            // title and preserved due date without widening the HTTP contract.
+            expect(corrected.presentation?.stepPresentations[0]?.targetLabel).toBe('revisar inventario');
+            expect(corrected.presentation?.stepPresentations[0]?.dateLabel)
+                .toBe(first.presentation?.stepPresentations[0]?.dateLabel);
+        }
+    });
+
+    it('real Core path cancels the pending plan, tombstones its digest, and cannot resurrect it', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        expect(first.kind).toBe('plan');
+        if (first.kind !== 'plan') return;
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            objectiveType: 'cancel_existing_commitment',
+            sourceUtterance: 'Cancelar',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'approve' },
+        }));
+        const cancelled = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Cancelar' });
+        expect(cancelled.kind).toBe('response');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+
+        const { AgentDialogueStateService, buildDialogueScopeKey } = await import('../src/services/agentDialogueState.service');
+        const state = new AgentDialogueStateService().getSnapshot(ACTOR_A, buildDialogueScopeKey({ surface: 'mobile_text' }));
+        expect(state?.lifecycle).toBe('idle');
+        expect(state?.currentPlanDigestRef).toBeNull();
+        expect(state?.nonExecutablePlanDigestRefs?.some((ref) => ref.digest === first.plan.planDigest)).toBe(true);
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Sí, hazlo',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'approve' },
+        }));
+        await runAgentTurn({ actorUserId: ACTOR_A, input: 'Sí, hazlo' });
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });
 });

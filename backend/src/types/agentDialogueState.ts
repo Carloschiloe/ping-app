@@ -74,6 +74,12 @@ export interface AgentReadContext {
     statuses?: CanonicalCommitmentStatus[] | null;
 }
 
+export interface NonExecutablePlanDigestRef {
+    digest: string;
+    reason: 'rejected' | 'superseded';
+    invalidatedAt: string;
+}
+
 // ADR Q1/Q2 — the minimum cross-turn state: one open, partially-filled
 // AgentObjective, its correction history, its referent candidates, and
 // (only once they exist) references to the canonical systems that own the
@@ -127,6 +133,9 @@ export interface AgentDialogueState {
     // is always the actual source of truth.
     currentPlanDigestRef: string | null;
     currentAuthorizationIdRef: string | null;
+    // Bounded tombstones prevent a rejected or superseded plan from being
+    // re-authorized after the conversational state is reset.
+    nonExecutablePlanDigestRefs?: NonExecutablePlanDigestRef[];
 
     // ADR Q12 — monotonic turn sequence + optimistic version, reusing the
     // exact `UPDATE ... WHERE version = $expected` CAS idiom already

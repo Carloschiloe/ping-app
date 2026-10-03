@@ -7,6 +7,22 @@ export interface ParsedDateResult {
     textRef: string;
 }
 
+export interface ParsedDateSpan {
+    index: number;
+    text: string;
+}
+
+/**
+ * Returns every temporal span recognized by the same Chrono configuration
+ * used by parseDateFromText. Callers use this only to keep content and time
+ * slots separate; it does not create a second date grammar.
+ */
+export function extractDateTextSpans(text: string): ParsedDateSpan[] {
+    return chrono.es.parse(text, new Date(), { forwardDate: true })
+        .map((result) => ({ index: result.index, text: result.text }))
+        .sort((left, right) => left.index - right.index);
+}
+
 type WallClockParts = {
     year: number;
     month: number;

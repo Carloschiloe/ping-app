@@ -17,6 +17,8 @@ import {
     transitionDialogueState,
 } from '../src/services/agentDialogueState.service';
 import type { AgentObjective } from '../src/types/agentPlan';
+import { isPlanDigestNonExecutable } from '../src/services/agentPlanInvalidationGuard.service';
+import { authorizePlan } from '../src/services/agentAuthorization.service';
 
 afterEach(() => {
     clearAgentDialogueStateForTests();
@@ -159,6 +161,31 @@ describe('create/read + versioning (test areas 4-7)', () => {
             sourceTurnId: 'trace-1',
         });
         expect(JSON.stringify(state.lastReadContext)).not.toContain('raw');
+    });
+});
+
+describe('downstream plan invalidation guard', () => {
+    it('rejects a late authorization lookup after the pending plan is cancelled', async () => {
+        const service = new AgentDialogueStateService();
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective({ objectiveType: 'create_personal_commitment' }), turnId: 't1', turnSequence: 1 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'cancelled-digest', turnId: 't2', turnSequence: 2 });
+        service.rejectPendingPlan({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, turnId: 't3', turnSequence: 3 });
+
+        await expect(isPlanDigestNonExecutable({
+            actorUserId: ACTOR_A,
+            conversationId: CONV_1,
+            planDigest: 'cancelled-digest',
+        })).resolves.toBe(true);
+
+        const lateAuthorization = await authorizePlan({
+            actorUserId: ACTOR_A,
+            conversationId: CONV_1,
+            input: 'Confirmar el plan anterior',
+            planDigest: 'cancelled-digest',
+            requestedStepIds: [],
+            confirm: true,
+        });
+        expect(lateAuthorization).toMatchObject({ ok: false, failureCode: 'plan_rejected' });
     });
 });
 

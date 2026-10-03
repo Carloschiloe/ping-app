@@ -12,6 +12,7 @@ import { traceAuth } from '../utils/executionTrace';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
+import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
@@ -61,6 +62,23 @@ function rowToAuthorization(row: any): AgentAuthorization {
 
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
+
+    // Durable dialogue keeps bounded tombstones for plans rejected or
+    // superseded during a conversation. Check that boundary before any
+    // re-plan or authorization insert so a late/replayed confirmation cannot
+    // resurrect a plan the user already cancelled or corrected.
+    if (await isPlanDigestNonExecutable({
+        actorUserId: input.actorUserId,
+        conversationId: input.conversationId,
+        channel: input.channel,
+        inputEnvelope: input.inputEnvelope,
+        planDigest: input.planDigest,
+    })) {
+        traceAuth(input.traceId, 'NON_EXECUTABLE_PLAN_REJECTED', {
+            planDigest: input.planDigest,
+        });
+        return { ok: false, failureCode: 'plan_rejected', message: 'This plan is no longer executable. Please review the current plan before confirming.' };
+    }
     const orchestratorInput: AgentPlanOrchestratorInput = {
         actorUserId: input.actorUserId,
         input: input.input,

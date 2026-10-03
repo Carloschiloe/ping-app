@@ -25,6 +25,13 @@ describe('DeterministicObjectiveInterpreter: clasificación (sección 7 del tick
         expect(obj.timeConstraints.rawHint).toBeTruthy();
     });
 
+    it('separa el contenido accionable de fechas y discurso en una orden natural', async () => {
+        const obj = await interpreter.interpret('Agendar mañana llamar a Pedro a las 10 de la mañana por favor.', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('llamar a Pedro');
+        expect(obj.timeConstraints.rawHint).toMatch(/mañana/i);
+        expect(obj.targetEntities.entityHints[0]).not.toMatch(/10|por favor/i);
+    });
+
     it('"Mueve Entrenar al viernes." -> reschedule_existing_commitment, entityHint=Entrenar, timeHint=viernes', async () => {
         const obj = await interpreter.interpret('Mueve Entrenar al viernes.', CTX);
         expect(obj.objectiveType).toBe('reschedule_existing_commitment');
