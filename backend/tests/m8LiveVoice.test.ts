@@ -179,6 +179,16 @@ describe('M8 live voice staging boundary', () => {
         expect(() => new Function(html.slice(start + marker.length, end))).not.toThrow();
     });
 
+    it('returns the voice UI to listening after output or response completion', () => {
+        const html = getM8LiveVoiceClientHtml('completion-test-nonce');
+
+        expect(html).toContain("const completeAssistantResponse=(detailCode)=>");
+        expect(html).toContain("if(event.type==='response.output_audio.done')completeAssistantResponse('audio_output_done')");
+        expect(html).toContain("if(event.type==='response.done'||event.type==='response.completed')completeAssistantResponse(event.type)");
+        expect(html).toContain("currentStage!=='listening'");
+        expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.'");
+    });
+
     it('accepts sanitized stage diagnostics without side effects', () => {
         recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
