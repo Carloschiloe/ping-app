@@ -157,7 +157,7 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("ECHO_SETTLE_MS");
         expect(html).toContain("createResponse('user_turn_ready','required')");
         expect(html).toContain("createResponse('core_result_authorized','none')");
-        expect(html).toContain("response:{tool_choice:toolChoice}");
+        expect(html).toContain("response:{tool_choice:toolChoice,modalities:toolChoice==='required'?['text']:['audio']}");
         expect(html).toContain("currentStage");
         expect(html).toContain("m8_diagnostic_error");
         expect(html).toContain("fail(currentStage,error,error?.httpStatus)");

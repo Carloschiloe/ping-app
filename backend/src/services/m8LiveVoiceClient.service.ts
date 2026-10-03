@@ -46,7 +46,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const setAudioGate=(enabled)=>{coreResultReady=enabled;remote.muted=!enabled;if(enabled)remote.play().catch(()=>{})};
   const coreSummary=(core)=>{const answer=core?.answer||core?.response?.answer||core?.presentation?.summary||core?.presentation?.headline||core?.reason;return safeText(typeof answer==='string'?answer:'',800)};
   const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
-  const createResponse=(cause,toolChoice)=>{responseActive=true;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent(toolChoice?{type:'response.create',response:{tool_choice:toolChoice}}:{type:'response.create'})};
+  const createResponse=(cause,toolChoice)=>{responseActive=true;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,sideEffects:0});sendEvent(toolChoice?{type:'response.create',response:{tool_choice:toolChoice,modalities:toolChoice==='required'?['text']:['audio']}}:{type:'response.create'})};
   async function callCore(input,callId,turnId){
     setAudioGate(false);
     const coreStartedAt=Date.now();
