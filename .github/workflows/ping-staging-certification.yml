@@ -5,6 +5,12 @@ on:
     branches:
       - codex/staging-beta
   workflow_dispatch:
+    inputs:
+      run_jarvis:
+        description: 'Run the real 100-conversation Jarvis certification after staging E2E'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -128,6 +134,16 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.PING_STAGING_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PING_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/e2e-m7-agent-staging.mjs
+      - name: Run Jarvis 100-conversation certification
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_jarvis == true }}
+        working-directory: backend
+        env:
+          PING_STAGING_BASE_URL: ${{ env.STAGING_BASE_URL }}
+          PING_EXPECTED_SHA: ${{ github.sha }}
+          SUPABASE_URL: ${{ secrets.PING_STAGING_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.PING_STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PING_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/e2e-jarvis-staging.mjs
       - name: Upload M7 evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -136,3 +152,11 @@ jobs:
           path: backend/.m7-smoke-artifacts/staging-agent/*.json
           if-no-files-found: warn
           retention-days: 14
+      - name: Upload Jarvis evidence
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_jarvis == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ping-jarvis-certification-${{ github.sha }}
+          path: backend/.m8-smoke-artifacts/jarvis/*.json
+          if-no-files-found: error
+          retention-days: 30
