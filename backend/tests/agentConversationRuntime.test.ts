@@ -38,10 +38,25 @@ const plan: AgentTurnPlan = {
 };
 
 describe('canonical conversation runtime', () => {
+    const dialogueService = {
+        getSnapshot: vi.fn(() => ({ lastTurnSequence: 7 })),
+        markResolved: vi.fn(),
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
         durableEnabledMock.mockReturnValue(true);
-        durableMock.mockResolvedValue(plan);
+        durableMock.mockImplementation(async (_input, _options, _idempotencyKey, _dependencies, postProcess) => {
+            if (!postProcess) return plan;
+            return postProcess({
+                result: plan,
+                dialogueService: dialogueService as any,
+                actorUserId: 'actor-1',
+                dialogueScopeKey: 'scope-1',
+                turnId: 'turn-1',
+                turnSequence: 1,
+            });
+        });
         authorizeMock.mockResolvedValue({ ok: true, authorization: { id: 'auth-1' } });
         executeMock.mockResolvedValue({
             status: 'done', humanReadableSummary: 'Compromiso creado y verificado.',
@@ -63,6 +78,9 @@ describe('canonical conversation runtime', () => {
         expect(result).toMatchObject({
             kind: 'response', response: { status: 'answered', answer: 'Compromiso creado y verificado.' },
         });
+        expect(dialogueService.markResolved).toHaveBeenCalledWith(expect.objectContaining({
+            actorUserId: 'actor-1', dialogueScopeKey: 'scope-1', turnSequence: 8,
+        }));
     });
 
     it('does not authorize a proposal that still requires confirmation', async () => {

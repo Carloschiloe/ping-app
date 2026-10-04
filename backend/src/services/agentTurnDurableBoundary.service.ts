@@ -27,6 +27,19 @@ export type AgentTurnDurableBoundaryDeps = {
     runTurn?: typeof runAgentTurn;
 };
 
+export type DurableTurnPostProcessContext = {
+    result: AgentTurnResult;
+    dialogueService: AgentDialogueStateService;
+    actorUserId: string;
+    dialogueScopeKey: string;
+    turnId: string;
+    turnSequence: number;
+};
+
+export type DurableTurnPostProcess = (
+    context: DurableTurnPostProcessContext,
+) => Promise<AgentTurnResult>;
+
 export function isDurableGeneralAgentTurnEnabled(): boolean {
     return isCanonicalDurableAgentRuntimeEnabled();
 }
@@ -162,6 +175,7 @@ export async function runDurableAgentTurn(
     options: RunAgentTurnOptions,
     idempotencyKey: string,
     dependencies: AgentTurnDurableBoundaryDeps = defaultDependencies(),
+    postProcess?: DurableTurnPostProcess,
 ): Promise<AgentTurnResult> {
     const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
     const dialogueScopeKey = durableDialogueScopeKey(input, options.now);
@@ -198,6 +212,16 @@ export async function runDurableAgentTurn(
             repository: createInMemoryDialogueStateRepository(restoredState ?? undefined),
         });
         const result = await (dependencies.runTurn ?? runAgentTurn)(input, { ...options, dialogueService });
+        const processedResult = postProcess
+            ? await postProcess({
+                result,
+                dialogueService,
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: claimedAdmission.turnId,
+                turnSequence: claimedAdmission.turnSequence,
+            })
+            : result;
         const nextState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
 
         // Read-only turns do not need to create or mutate a dialogue row.
@@ -205,9 +229,9 @@ export async function runDurableAgentTurn(
         if (!nextState) {
             await dependencies.admission.complete(
                 claimedAdmission,
-                (result.kind === 'read' ? toAgentTurnReplayV2(result) : toAgentTurnReplayV1(result)) as unknown as Record<string, unknown>,
+                (processedResult.kind === 'read' ? toAgentTurnReplayV2(processedResult) : toAgentTurnReplayV1(processedResult)) as unknown as Record<string, unknown>,
             );
-            return result;
+            return processedResult;
         }
 
         const expectedDialogueVersion = checkpoint.status === 'found' ? checkpoint.snapshot.version : 0;
@@ -222,7 +246,7 @@ export async function runDurableAgentTurn(
                 activeDialogue: { kind: DIALOGUE_STATE_ENVELOPE, state: nextState },
                 suspendedDialogue: null,
                 expiresAt: nextState.expiresAt,
-                result,
+                result: processedResult,
             });
             return replayToResult(applied.replay as unknown as Record<string, unknown>);
         } catch (error) {

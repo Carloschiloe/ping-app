@@ -84,7 +84,15 @@ export function assertStrongM7Sequence(turns) {
     excludedEntity: ['proveedor'],
     excludedTime: ['jueves', 'viernes'],
   }), 'Turn 6 confirmation was not bound to the current objective');
-  assert(turns[5].response?.kind === 'plan', 'Turn 6 confirmation did not remain a dry-run plan');
+  // The canonical staging runtime now owns the complete confirmation path:
+  // /agent/turn binds the confirmation, then the server performs the
+  // canonical authorization/execution boundary before returning its final
+  // response.  The old assertion that required a dry-run plan described the
+  // pre-unification client-orchestrated contract and is no longer valid.
+  assert(turns[5].response?.kind === 'response', 'Turn 6 confirmation did not return the canonical execution response');
+  assert(turns[5].response?.responseStatus === 'answered', 'Turn 6 confirmation did not report a verified successful execution');
+  assert(turns[5].execution?.status === 'done', 'Turn 6 execution did not reach done');
+  assert(turns[5].execution?.verified === true, 'Turn 6 execution was not verified');
 
   const deferred = objectiveOf(turns[6]);
   assert(objectiveMatches(deferred, {

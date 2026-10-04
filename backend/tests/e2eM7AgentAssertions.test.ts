@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { assertStrongM7Sequence } from '../scripts/e2e-m7-agent-assertions.mjs';
 
-function turn(sequence: number, objective: Record<string, unknown> | null, kind: string) {
+function turn(sequence: number, objective: Record<string, unknown> | null, kind: string, execution = false) {
   return {
     status: 200,
-    response: { kind },
+    response: { kind, ...(execution ? { responseStatus: 'answered' } : {}) },
+    ...(execution ? { execution: { status: 'done', verified: true } } : {}),
     checkpoint: { turnSequence: sequence, activeObjective: objective },
   };
 }
@@ -17,14 +18,14 @@ const objective = (entity: string, time: string) => ({
 });
 
 describe('M7 staging semantic assertions', () => {
-  it('accepts an isolated objective switch, return, correction and safe follow-ups', () => {
+  it('accepts an isolated objective switch, return, correction and verified confirmation', () => {
     const turns = [
       turn(1, objective('revisión del inventario', 'jueves'), 'plan'),
       turn(2, objective('llamada al proveedor', 'viernes'), 'plan'),
       turn(3, objective('llamada al proveedor', 'viernes'), 'clarification'),
       turn(4, objective('revisión del inventario', 'jueves'), 'response'),
       turn(5, objective('revisión del inventario', 'lunes siguiente'), 'plan'),
-      turn(6, objective('revisión del inventario', 'lunes siguiente'), 'plan'),
+      turn(6, objective('revisión del inventario', 'lunes siguiente'), 'response', true),
       turn(7, objective('revisión del inventario', 'lunes siguiente'), 'clarification'),
       turn(8, objective('revisión del inventario', 'lunes siguiente'), 'clarification'),
     ];
@@ -38,7 +39,7 @@ describe('M7 staging semantic assertions', () => {
       turn(3, objective('llamada al proveedor jueves', 'viernes'), 'clarification'),
       turn(4, objective('llamada al proveedor', 'viernes'), 'response'),
       turn(5, objective('llamada al proveedor', 'lunes'), 'plan'),
-      turn(6, objective('llamada al proveedor', 'lunes'), 'plan'),
+      turn(6, objective('llamada al proveedor', 'lunes'), 'response', true),
       turn(7, objective('llamada al proveedor', 'lunes'), 'clarification'),
       turn(8, objective('llamada al proveedor', 'lunes'), 'clarification'),
     ];

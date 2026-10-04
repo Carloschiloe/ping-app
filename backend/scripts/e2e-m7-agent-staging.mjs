@@ -75,7 +75,41 @@ function summarizePayload(payload) {
       : [],
     hasPlan: Boolean(plan || payload.planForConfirmation),
     confirmationRequired: Boolean(payload.requiresConfirmation || payload.planForConfirmation),
+    responseStatus: payload.response?.status ?? null,
+    answer: typeof payload.response?.answer === 'string' ? payload.response.answer : null,
   };
+}
+
+async function executionEvidence(actorUserId, turn) {
+  const { data: authorizations, error: authorizationError } = await admin
+    .from('agent_authorizations')
+    .select('id,status,authorized_step_ids')
+    .eq('actor_user_id', actorUserId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (authorizationError) throw authorizationError;
+  const authorization = authorizations?.[0];
+  if (!authorization) return { status: null, verified: false, authorizationId: null };
+  const { data: executions, error: executionError } = await admin
+    .from('agent_executions')
+    .select('authorization_id,status,result_ref')
+    .eq('actor_user_id', actorUserId)
+    .eq('authorization_id', authorization.id)
+    .order('created_at', { ascending: false });
+  if (executionError) throw executionError;
+  const verified = Array.isArray(executions) && executions.length > 0
+    && executions.every((row) => row.status === 'succeeded' && row.result_ref?.verified === true);
+  const evidence = {
+    status: verified ? 'done' : (executions?.[0]?.status ?? null),
+    verified,
+    authorizationId: authorization.id,
+    executionCount: executions?.length ?? 0,
+    createdCommitmentIds: executions?.flatMap((row) => {
+      const id = row.result_ref?.commitmentId;
+      return typeof id === 'string' ? [id] : [];
+    }) ?? [],
+  };
+  return turn === 6 ? evidence : { status: null, verified: false, authorizationId: null };
 }
 
 function summarizeObjective(state) {
@@ -189,6 +223,7 @@ async function run() {
   report.identityCreated = identity.temporary ? 1 : 0;
   let token;
   let conversationId = null;
+  const createdCommitmentIds = new Set();
   let cleanupDone = false;
   const inputs = [
     '\u004eecesito coordinar la revisi\u00f3n del inventario para el jueves.',
@@ -221,13 +256,25 @@ async function run() {
         input: inputs[index],
         status: response.status,
         response: summarizePayload(response.payload),
+        execution: index === 5 ? await executionEvidence(identity.id, index + 1) : null,
         checkpoint: await checkpoint(identity.id, conversationId),
       });
+      for (const commitmentId of report.turns.at(-1).execution?.createdCommitmentIds ?? []) {
+        createdCommitmentIds.add(commitmentId);
+      }
+      if (index === 5 && report.turns.at(-1).execution?.executionCount) {
+        report.sideEffects.agentWriters = report.turns.at(-1).execution.executionCount;
+        report.sideEffects.commitmentMutations = report.turns.at(-1).execution.createdCommitmentIds.length;
+      }
       if (response.status !== 200) throw new Error(`Agent turn ${index + 1} failed (${response.status})`);
     }
     assertStrongM7Sequence(report.turns);
     const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
     if (deleted.status !== 200) throw new Error(`Fixture conversation tombstone failed (${deleted.status})`);
+    for (const commitmentId of createdCommitmentIds) {
+      const archived = await http(`/commitments/${commitmentId}`, { token, method: 'DELETE' });
+      if (archived.status !== 200) throw new Error(`Temporary commitment cleanup failed (${archived.status})`);
+    }
     cleanupDone = true;
     const { data: conversation, error: conversationError } = await admin.from('conversations')
       .select('deleted_at').eq('id', conversationId).single();
@@ -252,6 +299,11 @@ async function run() {
         report.cleanup = { conversationTombstoned: deleted.status === 200, cleanupAfterFailure: true };
       } catch (error) {
         report.cleanup = { conversationTombstoned: false, cleanupError: error?.message ?? String(error) };
+      }
+    }
+    if (!cleanupDone && token) {
+      for (const commitmentId of createdCommitmentIds) {
+        try { await http(`/commitments/${commitmentId}`, { token, method: 'DELETE' }); } catch { /* best-effort cleanup */ }
       }
     }
     if (identity.temporary) {

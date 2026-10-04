@@ -288,6 +288,41 @@ describe('general Agent Turn durable boundary', () => {
         expect(deps.admission.complete).not.toHaveBeenCalled();
     });
 
+    it('persists a post-confirmation runtime result with the resolved dialogue state', async () => {
+        const restored = dialogueState({
+            lifecycle: 'plan_pending_authorization',
+            currentPlanDigestRef: 'digest-1',
+        });
+        const processed: AgentTurnResult = {
+            kind: 'response',
+            response: { status: 'answered', answer: 'Ejecutado y verificado.', citations: [] },
+        };
+        const deps = baseDependencies();
+        vi.mocked(deps.checkpoint.loadDialogueCheckpoint).mockResolvedValue(checkpointFor(restored, 7));
+        deps.commit.applyTurn = vi.fn(async () => application(processed));
+        deps.runTurn = vi.fn(async () => ({
+            kind: 'plan', confirmationState: 'received', plan: {} as any, presentation: {} as any,
+        }));
+
+        const output = await runDurableAgentTurn(input, {}, 'client-turn-1', deps, async (context) => {
+            const current = context.dialogueService.getSnapshot(actorUserId, scope)!;
+            context.dialogueService.markResolved({
+                actorUserId, dialogueScopeKey: scope, turnId: context.turnId,
+                turnSequence: current.lastTurnSequence + 1,
+            });
+            return processed;
+        });
+
+        expect(output).toEqual(processed);
+        expect(deps.commit.applyTurn).toHaveBeenCalledWith(expect.objectContaining({
+            lifecycle: 'resolved',
+            result: processed,
+            activeDialogue: expect.objectContaining({
+                state: expect.objectContaining({ lifecycle: 'resolved', currentPlanDigestRef: 'digest-1' }),
+            }),
+        }));
+    });
+
     it('marks an uncertain application retryable after reconciliation says it was not applied', async () => {
         const deps = baseDependencies();
         const restored = dialogueState();

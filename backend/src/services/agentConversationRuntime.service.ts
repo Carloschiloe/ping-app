@@ -2,7 +2,7 @@ import { authorizePlan } from './agentAuthorization.service';
 import { executeAuthorization } from './agentExecution.service';
 import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 import { runAgentTurn } from './agentTurn.service';
-import { runDurableAgentTurn } from './agentTurnDurableBoundary.service';
+import { runDurableAgentTurn, type DurableTurnPostProcessContext } from './agentTurnDurableBoundary.service';
 import type { AgentTurnInput, AgentTurnResult } from '../types/agentTurn';
 import type { RunAgentTurnOptions } from './agentTurnCore.service';
 
@@ -16,17 +16,24 @@ export async function runCanonicalAgentTurn(
     options: RunAgentTurnOptions,
     idempotencyKey: string,
 ): Promise<AgentTurnResult> {
-    const durable = isCanonicalDurableAgentRuntimeEnabled();
-    const turn = durable
-        ? await runDurableAgentTurn(input, options, idempotencyKey)
-        : await runAgentTurn(input, options);
+    if (!isCanonicalDurableAgentRuntimeEnabled()) return runAgentTurn(input, options);
 
-    // A confirmation is a Core-owned transition. Only the durable runtime can
-    // safely bind the short confirmation to the pending objective, so the
-    // non-durable production fallback remains proposal-only.
-    if (!durable || turn.kind !== 'plan' || turn.confirmationState !== 'received') {
-        return turn;
-    }
+    return runDurableAgentTurn(
+        input,
+        options,
+        idempotencyKey,
+        undefined,
+        async (context) => executeConfirmedTurn(input, options, context),
+    );
+}
+
+async function executeConfirmedTurn(
+    input: AgentTurnInput,
+    options: RunAgentTurnOptions,
+    context: DurableTurnPostProcessContext,
+): Promise<AgentTurnResult> {
+    const turn = context.result;
+    if (turn.kind !== 'plan' || turn.confirmationState !== 'received') return turn;
     if (typeof turn.plan.planDigest !== 'string' || turn.plan.planDigest.length === 0) {
         return executionResponse('El plan confirmado ya no está disponible para autorizarlo.', false);
     }
@@ -45,9 +52,7 @@ export async function runCanonicalAgentTurn(
         confirm: true,
     });
 
-    if (!authorization.ok) {
-        return executionResponse(authorization.message, false);
-    }
+    if (!authorization.ok) return executionResponse(authorization.message, false);
 
     const execution = await executeAuthorization({
         authorizationId: authorization.authorization.id,
@@ -57,6 +62,18 @@ export async function runCanonicalAgentTurn(
     const verified = execution.status === 'done'
         && execution.executedSteps.length > 0
         && execution.executedSteps.every((step) => step.status === 'succeeded' && step.verified === true);
+
+    if (verified) {
+        const state = context.dialogueService.getSnapshot(input.actorUserId, context.dialogueScopeKey);
+        if (state) {
+            context.dialogueService.markResolved({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: context.dialogueScopeKey,
+                turnId: context.turnId,
+                turnSequence: state.lastTurnSequence + 1,
+            });
+        }
+    }
 
     return executionResponse(execution.humanReadableSummary, verified);
 }
