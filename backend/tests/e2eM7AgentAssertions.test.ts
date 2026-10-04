@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { assertStrongM7Sequence } from '../scripts/e2e-m7-agent-assertions.mjs';
 
 function turn(sequence: number, objective: Record<string, unknown> | null, kind: string, execution = false) {
@@ -44,5 +46,10 @@ describe('M7 staging semantic assertions', () => {
       turn(8, objective('llamada al proveedor', 'lunes'), 'response'),
     ];
     expect(() => assertStrongM7Sequence(turns)).toThrow(/Turn 4/);
+  });
+
+  it('samples execution evidence at the confirmation turn used by the runner', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../scripts/e2e-m7-agent-staging.mjs'), 'utf8');
+    expect(source).toMatch(/return turn === 7 \? evidence/);
   });
 });

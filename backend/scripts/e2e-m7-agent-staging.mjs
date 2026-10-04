@@ -109,7 +109,7 @@ async function executionEvidence(actorUserId, turn) {
       return typeof id === 'string' ? [id] : [];
     }) ?? [],
   };
-  return turn === 6 ? evidence : { status: null, verified: false, authorizationId: null };
+  return turn === 7 ? evidence : { status: null, verified: false, authorizationId: null };
 }
 
 function summarizeObjective(state) {
