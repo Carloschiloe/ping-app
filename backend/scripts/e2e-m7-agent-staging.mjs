@@ -198,6 +198,30 @@ async function deleteTemporaryIdentity(identityId) {
   if (deleted.error) throw deleted.error;
 }
 
+async function deleteTemporaryCommitmentArtifacts(commitmentIds) {
+  if (!commitmentIds.length) return;
+  const { data: commitments, error: commitmentLookupError } = await admin
+    .from('commitments')
+    .select('id,proposal_id')
+    .in('id', commitmentIds);
+  if (commitmentLookupError) throw commitmentLookupError;
+  const proposalIds = (commitments ?? [])
+    .map((row) => row.proposal_id)
+    .filter((id) => typeof id === 'string');
+
+  for (const query of [
+    admin.from('commitment_audit_records').delete().in('commitment_id', commitmentIds),
+    admin.from('commitment_audit_records').delete().in('proposal_id', proposalIds),
+    admin.from('commitment_proposal_events').delete().in('proposal_id', proposalIds),
+    admin.from('commitment_proposal_responses').delete().in('proposal_id', proposalIds),
+    admin.from('commitments').delete().in('id', commitmentIds),
+    admin.from('commitment_proposals').delete().in('id', proposalIds),
+  ]) {
+    const { error } = await query;
+    if (error) throw error;
+  }
+}
+
 async function checkpoint(actorUserId, conversationId) {
   const { data, error } = await admin.from('agent_dialogue_checkpoints')
     .select('lifecycle,version,last_applied_turn_sequence,expires_at,active_dialogue')
@@ -301,9 +325,20 @@ async function run() {
         report.cleanup = { conversationTombstoned: false, cleanupError: error?.message ?? String(error) };
       }
     }
-    if (!cleanupDone && token) {
-      for (const commitmentId of createdCommitmentIds) {
-        try { await http(`/commitments/${commitmentId}`, { token, method: 'DELETE' }); } catch { /* best-effort cleanup */ }
+    if (token) {
+      if (!cleanupDone) {
+        for (const commitmentId of createdCommitmentIds) {
+          try { await http(`/commitments/${commitmentId}`, { token, method: 'DELETE' }); } catch { /* best-effort cleanup */ }
+        }
+      }
+      try {
+        await deleteTemporaryCommitmentArtifacts([...createdCommitmentIds]);
+      } catch (error) {
+        report.success = false;
+        report.cleanup = {
+          ...(report.cleanup ?? {}),
+          commitmentCleanupError: error?.message ?? String(error),
+        };
       }
     }
     if (identity.temporary) {
