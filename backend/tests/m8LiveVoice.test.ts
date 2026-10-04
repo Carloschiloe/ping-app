@@ -339,7 +339,9 @@ describe('M8 live voice staging boundary', () => {
         expect(authorizeAt).toBeGreaterThanOrEqual(0);
         expect(executeAt).toBeGreaterThan(authorizeAt);
         expect(verifyAt).toBeGreaterThan(executeAt);
-        expect(html).toContain("core.confirmationRequested===true");
+        expect(html).toContain("shouldAuthorizeM8VoicePlan(core)");
+        expect(html).toContain("confirmationState==='required'");
+        expect(html).not.toContain("if(core.confirmationRequested===true)");
         expect(html).toContain("pendingPlan?.sourceInput");
         expect(html).toContain("planDigest:plan.planDigest");
         expect(html).toContain("stepIds:plan.steps.map(step=>step.stepId)");
@@ -349,6 +351,18 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("execution_missing_created_entity");
         expect(html).toContain("read_after_write_not_found");
         expect(html).toContain("pendingPlan=null");
+    });
+
+    it('keeps a Core confirmation request at the Voice boundary without auth or execution', () => {
+        const html = getM8LiveVoiceClientHtml('confirmation-boundary-test');
+        const requiredGuard = html.indexOf("if(kind==='plan'&&confirmationState==='required'");
+        const authorizeAt = html.indexOf("apiJson('/agent/authorize'");
+        expect(requiredGuard).toBeGreaterThanOrEqual(0);
+        expect(authorizeAt).toBeGreaterThanOrEqual(0);
+        expect(html).toContain("confirmationState==='received'");
+        expect(html).toContain("confirmation_received");
+        expect(html).toContain("plan_pending_confirmation");
+        expect(html).not.toContain("confirmationRequested===true");
     });
 
     it('sanitizes provider rejection diagnostics without retaining credentials or SDP', () => {

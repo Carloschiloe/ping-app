@@ -1,4 +1,5 @@
 export type M8VoiceCoreKind = 'response' | 'plan' | 'clarification' | 'unsupported' | 'error';
+import { resolveM8VoiceConfirmationState } from './m8VoiceConfirmationContract.service';
 
 export interface M8VoiceCorePresentation {
     kind: M8VoiceCoreKind;
@@ -55,10 +56,11 @@ export function buildM8VoiceCorePresentation(core: unknown): M8VoiceCorePresenta
 
     if (kind === 'plan') {
         const presentation = value.presentation && typeof value.presentation === 'object' ? value.presentation : {};
+        const confirmationState = resolveM8VoiceConfirmationState(value);
         return {
             kind,
             authorizedText: firstText(presentation.summary, presentation.headline, presentation.effectDescription) || EMPTY_CORE_PRESENTATION,
-            confirmationRequired: value.confirmationRequested === true || presentation.requiresExplicitConfirmation === true,
+            confirmationRequired: confirmationState !== 'received' && presentation.requiresExplicitConfirmation === true,
             confirmationLabel: firstText(presentation.confirmationLabel) || undefined,
             cancelLabel: firstText(presentation.cancelLabel) || undefined,
         };
@@ -87,7 +89,7 @@ const buildM8VoiceCorePresentation=(core)=>{
   const empty='${EMPTY_CORE_PRESENTATION}';
   if(kind==='response')return {kind,authorizedText:firstText(value.response?.answer,value.answer)||empty,confirmationRequired:false};
   if(kind==='clarification'){const questions=Array.isArray(value.questions)?value.questions.map(question=>text(question?.question)).filter(Boolean):[];return {kind,authorizedText:firstText(questions.join(' '),value.partialResponse?.answer)||empty,confirmationRequired:false};}
-  if(kind==='plan'){const presentation=value.presentation&&typeof value.presentation==='object'?value.presentation:{};return {kind,authorizedText:firstText(presentation.summary,presentation.headline,presentation.effectDescription)||empty,confirmationRequired:value.confirmationRequested===true||presentation.requiresExplicitConfirmation===true,confirmationLabel:firstText(presentation.confirmationLabel)||undefined,cancelLabel:firstText(presentation.cancelLabel)||undefined};}
+  if(kind==='plan'){const presentation=value.presentation&&typeof value.presentation==='object'?value.presentation:{};const confirmationState=resolveM8VoiceConfirmationState(value);return {kind,authorizedText:firstText(presentation.summary,presentation.headline,presentation.effectDescription)||empty,confirmationRequired:confirmationState!=='received'&&presentation.requiresExplicitConfirmation===true,confirmationLabel:firstText(presentation.confirmationLabel)||undefined,cancelLabel:firstText(presentation.cancelLabel)||undefined};}
   if(kind==='unsupported')return {kind,authorizedText:text(value.reason)||empty,confirmationRequired:false};
   return {kind:'error',authorizedText:empty,confirmationRequired:false};
 };

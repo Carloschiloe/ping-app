@@ -54,6 +54,7 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
     it('preserves plan confirmation semantics from Core presentation', () => {
         expect(buildM8VoiceCorePresentation({
             kind: 'plan',
+            confirmationState: 'required',
             confirmationRequested: true,
             presentation: {
                 summary: 'Se preparará la actualización.',
@@ -69,6 +70,20 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
             confirmationLabel: 'Confirmar',
             cancelLabel: 'Cancelar',
         });
+    });
+
+    it('fails closed when legacy confirmationRequested is present without explicit received state', () => {
+        expect(buildM8VoiceCorePresentation({
+            kind: 'plan',
+            confirmationRequested: true,
+            presentation: { summary: 'Crear', requiresExplicitConfirmation: true },
+        }).confirmationRequired).toBe(true);
+        expect(buildM8VoiceCorePresentation({
+            kind: 'plan',
+            confirmationState: 'received',
+            confirmationRequested: true,
+            presentation: { summary: 'Crear', requiresExplicitConfirmation: true },
+        }).confirmationRequired).toBe(false);
     });
 
     it('does not authorize pre-Core narration and sends only the Core projection', () => {

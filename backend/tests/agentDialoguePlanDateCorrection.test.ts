@@ -103,6 +103,7 @@ describe('Turn 1 — a real plan reaching ready_for_authorization is tracked as 
 
         expect(confirmed.kind).toBe('plan');
         if (confirmed.kind === 'plan' && first.kind === 'plan') {
+            expect(confirmed.confirmationState).toBe('received');
             expect(confirmed.confirmationRequested).toBe(true);
             expect(confirmed.plan.planDigest).toBe(first.plan.planDigest);
         }

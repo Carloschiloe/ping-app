@@ -1071,8 +1071,10 @@ function routePlanningResult(
         return { kind: 'clarification', questions: plan.unresolvedInputs };
     }
     if (plan.status === 'ready_for_authorization') {
+        const confirmationState = context.confirmationRequested === true ? 'received' : 'required' as const;
         return {
             kind: 'plan',
+            confirmationState,
             confirmationRequested: context.confirmationRequested,
             plan: toPublicAgentPlanResponse(plan),
             presentation: buildPlanPresentation(plan, context),
