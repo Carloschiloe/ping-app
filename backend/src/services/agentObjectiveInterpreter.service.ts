@@ -944,7 +944,7 @@ function getOpenAiObjectiveClient(): OpenAI {
 
 function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContext): string {
     const pendingPlanInstruction = context.pendingPlan
-        ? `An authorization plan is currently pending with objective type "${context.pendingPlan.objectiveType}". Interpret this turn in relation to that existing plan. If the user semantically approves it, set decisionHint to approve; if the user semantically rejects/cancels it, set decisionHint to reject; if the user explicitly defers/leaves it pending without rejecting it, set decisionHint to defer. Keep entityHints, personHints and timeHint empty unless the user introduces a genuinely new target or correction. Do not invent a target and do not execute anything.`
+        ? `An authorization plan is currently pending with objective type "${context.pendingPlan.objectiveType}". Interpret this turn in relation to that existing plan. If the user semantically approves it, set decisionHint to approve; if the user semantically rejects/cancels it, set decisionHint to reject; if the user explicitly defers/leaves it pending without rejecting it, set decisionHint to defer. Keep entityHints, personHints and timeHint empty unless the user introduces a genuinely new target or correction. When the user introduces a new objective, every extracted slot must be grounded only in the current user request: never copy, concatenate, or retain a value from the pending plan. A new objective replaces the pending one structurally; it is not a merge with the previous title/date/time. Do not invent a target and do not execute anything.`
         : null;
     return [
         'You are an intent classifier for Ping, a global, multilingual, domain-agnostic personal/professional assistant.',
@@ -1269,6 +1269,17 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
         // unambiguous capability into a personal reminder and thereby change
         // authorization semantics.
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, context);
+        // A pending-plan interpretation may propose a replacement, but it is
+        // never allowed to carry temporal state across turns. The raw current
+        // utterance is the only source for the current time slot; this keeps a
+        // provider response from concatenating an old plan's date with the
+        // new one before Core performs its replacement decision.
+        const currentTimeHint = extractTimeHint(input);
+        if (context.pendingPlan) {
+            llmObjective.timeConstraints.rawHint = currentTimeHint;
+        } else if (currentTimeHint && llmObjective.timeConstraints.rawHint) {
+            llmObjective.timeConstraints.rawHint = currentTimeHint;
+        }
         // Structural verbatim hints are safety data, not a competing semantic
         // router. When the model and the independent interpreter agree on the
         // objective family, preserve the fragment extracted from the original

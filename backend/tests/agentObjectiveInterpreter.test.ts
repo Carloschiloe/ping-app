@@ -125,6 +125,23 @@ function hangingModel(delayMs: number): AgentObjectiveModel {
 }
 
 describe('LlmObjectiveInterpreter: fallback determinístico ante cualquier fallo del proveedor (sección 49, nunca red real)', () => {
+    it('grounds a pending-plan time slot in the current utterance and drops stale provider carry-over', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'create_commitment_or_proposal',
+            personHints: [], entityHints: ['llamada al proveedor'],
+            timeHint: 'jueves viernes', decisionHint: null, draftOnly: false,
+            responsibleHint: null, followUpObjectiveType: null, additionalPersonHint: null,
+            desiredOutcomeHint: 'prepara la llamada al proveedor',
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret(
+            'Cambiemos de objetivo: prepara la llamada al proveedor para el viernes.',
+            { ...CTX, pendingPlan: { objectiveType: 'create_commitment_or_proposal' } },
+        );
+        expect(obj.timeConstraints.rawHint).toMatch(/viernes/i);
+        expect(obj.timeConstraints.rawHint).not.toMatch(/jueves/i);
+    });
+
     it('un modelo válido produce un objective con source="llm"', async () => {
         const model = fakeModel(JSON.stringify({ objectiveType: 'communicate_message', personHints: ['Alejandra'], entityHints: [], timeHint: null, decisionHint: null, draftOnly: false, responsibleHint: null, followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: 'Llegaré tarde' }));
         const interpreter = new LlmObjectiveInterpreter({ model });
