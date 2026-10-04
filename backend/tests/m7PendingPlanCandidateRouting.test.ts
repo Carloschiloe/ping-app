@@ -42,10 +42,12 @@ describe('M7 pending-plan candidate routing', () => {
     it('grounds a pending candidate temporal slot in the current utterance only', () => {
         const grounded = groundPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
+            slotDelta: { title: 'llamada al proveedor', date: 'jueves viernes', time: null },
             timeConstraints: { rawHint: 'jueves viernes' },
         }), 'Cambiemos de objetivo: prepara la llamada al proveedor para el viernes.');
         expect(grounded.timeConstraints.rawHint).toMatch(/viernes/i);
         expect(grounded.timeConstraints.rawHint).not.toMatch(/jueves/i);
+        expect(grounded.slotDelta?.date).toBeNull();
     });
 
     it('does not reinterpret lifecycle decisions as temporal plan edits', () => {

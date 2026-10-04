@@ -824,6 +824,14 @@ export function groundPendingPlanCandidate(
     if (candidate.constraints.decisionHint) return candidate;
     return {
         ...candidate,
+        // Some providers expose the same temporal proposal in both the
+        // legacy raw hint and structured slotDelta fields. Clear the
+        // provider-owned date/time slots before Core derives them from the
+        // current utterance, otherwise one stale field can reintroduce the
+        // superseded value during pending-plan reconciliation.
+        slotDelta: candidate.slotDelta
+            ? { ...candidate.slotDelta, date: null, time: null }
+            : candidate.slotDelta,
         timeConstraints: {
             ...candidate.timeConstraints,
             rawHint: extractTimeHint(currentInput),
