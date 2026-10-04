@@ -113,6 +113,36 @@ export async function interpretAgentSemanticTurn(
     // from silently turning an explicit state-changing request into “no
     // evidence”, while lifecycle/entity/permission decisions remain in Core.
     if (!interpretation.isWriteActionRequest) {
+        // Some natural commitments are declarative rather than imperative
+        // (the user states an obligation they want kept, instead of saying
+        // "create" or "remind me").  Let the objective interpreter decide
+        // whether that meaning is a write; the bounded structural admission
+        // below only applies to a non-interrogative commitment frame and
+        // still sends the resulting objective through the normal planner.
+        const declarativeCommitmentFrame = !/[?\u061f]$/u.test(input.trim())
+            && interpretation.intent === 'commitment_query';
+        if (declarativeCommitmentFrame) {
+            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
+            const candidate = await objectiveInterpreter.interpret(input, {
+                actorUserId: context.actorUserId,
+                conversationId: context.conversationId,
+            });
+            const creationObjective = candidate.objectiveType === 'create_personal_commitment'
+                || candidate.objectiveType === 'create_commitment_or_proposal';
+            if (creationObjective && (candidate.targetEntities.entityHints.length > 0
+                || candidate.timeConstraints.rawHint
+                || candidate.sourceUtterance.trim().length > 0)) {
+                return {
+                    route: 'write',
+                    interpretation: {
+                        ...interpretation,
+                        interactionMode: 'task',
+                        isWriteActionRequest: true,
+                    },
+                    objective: candidate,
+                };
+            }
+        }
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, {
             actorUserId: context.actorUserId,
             conversationId: context.conversationId,

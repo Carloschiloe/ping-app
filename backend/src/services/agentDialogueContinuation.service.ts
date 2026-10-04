@@ -29,7 +29,12 @@ import {
     parseDateFromText,
 } from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
-import { LlmObjectiveInterpreter, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
+import {
+    DeterministicObjectiveInterpreter,
+    LlmObjectiveInterpreter,
+    extractTimeHint,
+    stripTrailingDateSpan,
+} from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
@@ -421,6 +426,36 @@ function hasExplicitDateWord(text: string): boolean {
 // explicitly a later, separate task -- never silently widened here.
 const ANSWERABLE_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set(['person_ambiguous', 'targetEntity']);
 
+// Temporal planner clarifications are not entity selections.  They still
+// belong to the already-open create objective, but the answer is a structured
+// date/time fragment that must be merged before the normal planner runs.
+// Keeping this as a field contract (rather than a phrase detector) lets the
+// same path serve every natural-language way of supplying the missing time.
+const TEMPORAL_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set([
+    'dueAt', 'date', 'time', 'time_ambiguous', 'newDueAt',
+]);
+
+export function buildPendingTemporalAnswerObjective(
+    dialogueState: AgentDialogueState | null,
+    rawAnswer: string,
+): AgentObjective | null {
+    if (!dialogueState?.openObjective
+        || (dialogueState.lifecycle !== 'clarifying' && dialogueState.lifecycle !== 'collecting')
+        || !dialogueState.pendingClarification
+        || !TEMPORAL_CLARIFICATION_FIELDS.has(dialogueState.pendingClarification.field)
+        || !isContinuationEligibleObjectiveType(dialogueState.openObjective.objectiveType)) {
+        return null;
+    }
+    const timeHint = extractTimeHint(rawAnswer.trim());
+    if (!timeHint) return null;
+    return {
+        ...dialogueState.openObjective,
+        sourceUtterance: rawAnswer.trim(),
+        timeConstraints: { rawHint: timeHint },
+        ambiguities: [],
+    };
+}
+
 // Reuses TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES defined above (alongside
 // isDialogueTrackedObjectiveType) -- never a second, divergent copy here.
 export function isPendingClarificationAnswerable(dialogueState: AgentDialogueState | null): boolean {
@@ -769,9 +804,19 @@ export async function classifyPlanCorrection(
     // that objective's date, not a request to find a separate persisted
     // commitment. A candidate carrying its own entity/person remains an
     // independent canonical mutation and must not be absorbed here.
-    const targetlessDateCorrection = candidateObjective?.objectiveType === 'reschedule_existing_commitment'
-        && candidateObjective.targetEntities.entityHints.length === 0
-        && candidateObjective.targetEntities.personHints.length === 0;
+    // Pending plans intentionally defer provider objective interpretation until
+    // after this gate. Use the existing structural objective interpreter only
+    // to recognize a target-less reschedule shape, so a second temporal
+    // correction cannot be mistaken for a new objective merely because the
+    // provider omitted the correction lifecycle in its output.
+    const structuralCandidate = candidateObjective ?? await new DeterministicObjectiveInterpreter().interpret(trimmed, {
+        actorUserId,
+        conversationId,
+        pendingPlan: { objectiveType: dialogueState.openObjective.objectiveType },
+    });
+    const targetlessDateCorrection = structuralCandidate.objectiveType === 'reschedule_existing_commitment'
+        && structuralCandidate.targetEntities.entityHints.length === 0
+        && structuralCandidate.targetEntities.personHints.length === 0;
     if (!pendingPlan && !targetlessDateCorrection) {
         return { isCorrection: false, reason: 'not_targetless_open_objective_correction' };
     }

@@ -52,10 +52,14 @@ vi.mock('../src/services/retrieval.service', () => ({
     retrieveCommitmentProposals: (...args: any[]) => retrieveCommitmentProposalsMock(...args),
     retrieveVisibleCommitmentById: (...args: any[]) => retrieveVisibleCommitmentByIdMock(...args),
 }));
-vi.mock('../src/services/date-parser.service', () => ({
-    parseDateFromText: (...args: any[]) => parseDateFromTextMock(...args),
-    resolveTimeZone: (tz?: string | null) => tz || 'America/Santiago',
-}));
+vi.mock('../src/services/date-parser.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/date-parser.service')>();
+    return {
+        ...actual,
+        parseDateFromText: (...args: any[]) => parseDateFromTextMock(...args),
+        resolveTimeZone: (tz?: string | null) => tz || 'America/Santiago',
+    };
+});
 vi.mock('../src/services/memory.service', () => ({
     retrieveMemory: (...args: any[]) => retrieveMemoryMock(...args),
 }));

@@ -519,6 +519,11 @@ function extractRescheduleTargetHint(afterVerb: string): string | null {
     const withoutDate = stripTrailingDateSpan(afterVerb, new Date(), 'UTC');
     const withoutPrefix = withoutDate.replace(GENERIC_TARGET_NOUN_PREFIX, ' ');
     const trimmed = withoutPrefix.replace(/[.,;:!?]+\s*$/u, '').trim();
+    // A temporal correction can name the slot being changed without naming a
+    // new commitment target. Keep that distinction structural: the canonical
+    // date/time parser owns the value, while this extractor must not turn the
+    // slot label itself into an entity to resolve.
+    if (/^(?:(?:la|el)\s+)?(?:hora|fecha|d[ií]a|momento|horario)(?:\s+(?:a|de|del))?$/iu.test(trimmed)) return null;
     return trimmed.length > 0 ? trimmed : null;
 }
 

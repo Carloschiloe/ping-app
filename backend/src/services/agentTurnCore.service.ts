@@ -66,6 +66,7 @@ import {
     isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
+    buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
     buildPlanDateCorrection,
     buildPendingPlanEdit,
@@ -556,6 +557,25 @@ export async function runAgentTurn(
         priorReadSummary,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
 
+    // A planner clarification such as a missing due date is an open
+    // dialogue slot, not a new read query. The answer may be only a temporal
+    // fragment, so there is no standalone write verb for the input
+    // interpreter to route. Bind the fragment to the Core-owned objective
+    // after the normal semantic pass and send it through the same planner /
+    // authorization path.
+    const pendingTemporalObjective = buildPendingTemporalAnswerObjective(existingDialogueState, content);
+    if (pendingTemporalObjective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
+        });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: pendingTemporalObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
+        }), traceId);
+    }
+
     // A read-shaped turn can explicitly name a previously suspended objective
     // (for example, returning to an earlier task after changing topics). The
     // match is structural over interpreter-provided topic hints and requires a
@@ -578,7 +598,9 @@ export async function runAgentTurn(
         ];
         const candidates = existingDialogueState.suspendedObjectives
             .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
-            .filter((candidate) => candidate.score > 0)
+            .filter((candidate) => candidate.score > 0
+                || (semantic.interpretation.dialogueControl === 'resume_suspended'
+                    && existingDialogueState!.suspendedObjectives.length === 1))
             .sort((left, right) => right.score - left.score);
         if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
             const selected = candidates[0];
@@ -827,7 +849,7 @@ export async function runAgentTurn(
             dialogueScopeKey,
             isWriteActionRequest,
         });
-        if (clarification?.reason === 'person_ambiguous') {
+        {
             // A provider may conservatively mark the input READ while the
             // resolved read context proves that an unresolved person is
             // blocking a write-shaped commitment. In that narrow case Core
@@ -837,7 +859,7 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId,
                 conversationId,
             });
-            const eligible = !!candidateObjective && isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
+            const eligible = !!candidateObjective && isDialogueTrackedObjectiveType(candidateObjective.objectiveType);
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
                 objectiveType: candidateObjective?.objectiveType ?? null, eligible, dialogueScopeKey,
             });
@@ -847,13 +869,17 @@ export async function runAgentTurn(
                 dialogueService.openObjective({
                     actorUserId: input.actorUserId,
                     dialogueScopeKey,
-                    objective: candidateObjective,
+                    objective: candidateObjective!,
                     turnId,
-                    turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
+                    turnSequence: options.dialogueTurnSequence ?? turnSequence,
                 });
                 dialogueService.setPendingClarification({
                     actorUserId: input.actorUserId, dialogueScopeKey,
-                    clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
+                    clarification: {
+                        field: clarification?.reason ?? 'clarification',
+                        question: answer,
+                        options: followUp.options,
+                    },
                     turnId,
                     turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
                 });

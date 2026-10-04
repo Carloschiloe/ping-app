@@ -28,6 +28,29 @@ function llmWriteInterpretation(): Interpretation {
     };
 }
 
+function llmReadCommitmentInterpretation(): Interpretation {
+    return {
+        ...llmWriteInterpretation(),
+        isWriteActionRequest: false,
+        source: 'llm',
+    };
+}
+
+function personalCommitmentObjective(): AgentObjective {
+    return {
+        objectiveType: 'create_personal_commitment',
+        targetEntities: { personHints: [], entityHints: ['revisar el inventario'] },
+        constraints: { commitmentOwnership: 'personal' },
+        desiredOutcome: 'revisar el inventario',
+        timeConstraints: { rawHint: 'el lunes' },
+        actor: ACTOR,
+        sourceUtterance: 'Tengo pendiente revisar el inventario el lunes.',
+        confidence: 0.8,
+        ambiguities: [],
+        source: 'llm',
+    };
+}
+
 function rememberFactObjective(): AgentObjective {
     return {
         objectiveType: 'remember_fact',
@@ -44,6 +67,22 @@ function rememberFactObjective(): AgentObjective {
 }
 
 describe('semantic boundary read/write regression', () => {
+    it('admits a declarative personal commitment through the normal WRITE planner route', async () => {
+        const objectiveInterpreter = { interpret: vi.fn(async () => personalCommitmentObjective()) };
+        const result = await interpretAgentSemanticTurn(
+            'Tengo pendiente revisar el inventario el lunes.',
+            { actorUserId: ACTOR, conversationId: 'conversation-regression' },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmReadCommitmentInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('write');
+        expect(result.objective?.objectiveType).toBe('create_personal_commitment');
+        expect(objectiveInterpreter.interpret).toHaveBeenCalledOnce();
+    });
+
     it('keeps a novel attribute question on the READ route', async () => {
         const objectiveInterpreter = { interpret: vi.fn(async () => rememberFactObjective()) };
         const result = await interpretAgentSemanticTurn(

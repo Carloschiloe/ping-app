@@ -31,6 +31,8 @@ import {
     isIndependentWriteObjective,
     isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
+    buildPendingTemporalAnswerObjective,
+    classifyPlanCorrection,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -88,6 +90,19 @@ describe('isContinuationEligibleObjectiveType', () => {
 });
 
 describe('semantic pending-plan reconciliation', () => {
+    it('treats a target-less temporal correction as a correction without provider lifecycle metadata', async () => {
+        const result = await classifyPlanCorrection(
+            dialogueState({
+                lifecycle: 'plan_pending_authorization',
+                currentPlanDigestRef: 'pending-digest',
+            }),
+            'Y cambia la hora a las 12',
+            ACTOR_A,
+            CONV_1,
+        );
+        expect(result.isCorrection).toBe(true);
+    });
+
     it('accepts a structured approval without requiring a confirmation phrase', () => {
         expect(classifyPendingPlanDecision(objective({
             constraints: { decisionHint: 'approve' },
@@ -219,6 +234,27 @@ describe('semantic pending-plan reconciliation', () => {
         });
         expect(classifyPendingPlanDecision(candidate)).toBeNull();
         expect(isSelfContainedPendingPlanCandidate(candidate)).toBe(false);
+    });
+});
+
+describe('pending temporal clarification answers', () => {
+    it('binds a natural date/time fragment to the existing objective without a phrase list', () => {
+        const candidate = buildPendingTemporalAnswerObjective(
+            dialogueState({ pendingClarification: { field: 'dueAt', question: '¿Cuándo?' } }),
+            'Durante el jueves a las 14:00',
+        );
+
+        expect(candidate?.objectiveType).toBe('create_personal_commitment');
+        expect(candidate?.targetEntities.entityHints).toEqual(['llamar a Pedro']);
+        expect(candidate?.timeConstraints.rawHint).toContain('jueves');
+        expect(candidate?.sourceUtterance).toContain('14:00');
+    });
+
+    it('does not turn an unrelated fragment into a continuation', () => {
+        expect(buildPendingTemporalAnswerObjective(
+            dialogueState(),
+            '¿Qué mensajes tengo?',
+        )).toBeNull();
     });
 });
 
