@@ -323,6 +323,27 @@ describe('general Agent Turn durable boundary', () => {
         }));
     });
 
+    it('keeps one admitted sequence across multiple internal state transitions', async () => {
+        const restored = dialogueState({ lastTurnSequence: 0 });
+        const deps = baseDependencies();
+        vi.mocked(deps.checkpoint.loadDialogueCheckpoint).mockResolvedValue(checkpointFor(restored, 7));
+        deps.runTurn = vi.fn(async (_input, options) => {
+            const service = options.dialogueService!;
+            service.recordTurn({ actorUserId, dialogueScopeKey: scope, turnId: 'internal-a', turnSequence: 1 });
+            service.recordTurn({ actorUserId, dialogueScopeKey: scope, turnId: 'internal-b', turnSequence: 1 });
+            return result;
+        });
+
+        await runDurableAgentTurn(input, {}, 'client-turn-1', deps);
+
+        expect(deps.commit.applyTurn).toHaveBeenCalledWith(expect.objectContaining({
+            turnSequence: 1,
+            activeDialogue: expect.objectContaining({
+                state: expect.objectContaining({ lastTurnSequence: 1 }),
+            }),
+        }));
+    });
+
     it('marks an uncertain application retryable after reconciliation says it was not applied', async () => {
         const deps = baseDependencies();
         const restored = dialogueState();

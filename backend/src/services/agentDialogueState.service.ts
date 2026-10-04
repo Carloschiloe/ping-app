@@ -199,6 +199,7 @@ function emptyState(actorUserId: string, dialogueScopeKey: string, now: Date): A
 export interface DialogueStateServiceDeps {
     repository?: DialogueStateRepository;
     now?: () => Date;
+    allowSameTurnSequence?: boolean;
 }
 
 // ADR §3.2 — Core owns state transitions; the repository only stores state
@@ -207,10 +208,12 @@ export interface DialogueStateServiceDeps {
 export class AgentDialogueStateService {
     private readonly repository: DialogueStateRepository;
     private readonly now: () => Date;
+    private readonly allowSameTurnSequence: boolean;
 
     constructor(deps: DialogueStateServiceDeps = {}) {
         this.repository = deps.repository ?? defaultRepository;
         this.now = deps.now ?? (() => new Date());
+        this.allowSameTurnSequence = deps.allowSameTurnSequence ?? false;
     }
 
     // Read-only snapshot; returns null if no state exists or it has expired
@@ -766,7 +769,9 @@ export class AgentDialogueStateService {
     // lastTurnSequence is rejected outright (the caller's own turn is still
     // valid/honest -- it just does not win the dialogue-state merge).
     private assertFreshTurn(existing: AgentDialogueState | null, turnSequence: number): void {
-        if (existing && turnSequence <= existing.lastTurnSequence) {
+        if (existing && (this.allowSameTurnSequence
+            ? turnSequence < existing.lastTurnSequence
+            : turnSequence <= existing.lastTurnSequence)) {
             throw new AppError('Stale dialogue turn rejected (a newer turn has already been applied)', 409);
         }
     }

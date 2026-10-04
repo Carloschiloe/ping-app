@@ -189,6 +189,7 @@ export function buildPendingPlanEdit(input: {
     actorUserId: string;
     turnId: string;
     now: Date;
+    turnSequence?: number;
 }): PendingPlanEditResult {
     const prior = input.dialogueState.openObjective;
     if (!prior || input.dialogueState.lifecycle !== 'plan_pending_authorization') {
@@ -223,7 +224,7 @@ export function buildPendingPlanEdit(input: {
     if (!candidateDate && !candidateClock && nextTime && nextTime !== priorTime) changedSlots.push('time');
     if (changedSlots.length === 0) return { isEdit: false, changedSlots };
 
-    let turnSequence = input.dialogueState.lastTurnSequence + 1;
+    let turnSequence = input.turnSequence ?? input.dialogueState.lastTurnSequence + 1;
     for (const slot of changedSlots) {
         input.dialogueService.applyCorrection({
             actorUserId: input.actorUserId,
@@ -235,7 +236,7 @@ export function buildPendingPlanEdit(input: {
             turnId: input.turnId,
             turnSequence,
         });
-        turnSequence += 1;
+        if (input.turnSequence === undefined) turnSequence += 1;
     }
 
     const sourceUtterance = changedSlots.includes('time') || changedSlots.includes('date')
@@ -834,11 +835,12 @@ export function buildPlanDateCorrection(
     turnId: string,
     now: Date,
     timezone: string,
+    admittedTurnSequence?: number,
 ): PlanCorrectionResult {
     const priorObjective = dialogueState.openObjective as AgentObjective;
     const previousRawHint = priorObjective.timeConstraints.rawHint;
     const mergedTimeHint = mergeTemporalCorrection(previousRawHint, newTimeHint);
-    const turnSequence = dialogueState.lastTurnSequence + 1;
+    const turnSequence = admittedTurnSequence ?? dialogueState.lastTurnSequence + 1;
 
     dialogueService.applyCorrection({
         actorUserId, dialogueScopeKey, slotName: 'timeConstraints.rawHint',

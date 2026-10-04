@@ -94,6 +94,16 @@ export interface RunAgentTurnOptions {
     semanticV4CoreShadowResolver?: V4CoreShadowResolver;
     semanticV4CoreShadowObserver?: (telemetry: V4CoreShadowTelemetry) => void;
     objectiveInterpreter?: AgentObjectiveInterpreter;
+    // One durable admission sequence is shared by every internal state
+    // transition produced while processing this user turn.
+    dialogueTurnSequence?: number;
+}
+
+function turnSequenceFor(
+    existing: { lastTurnSequence: number } | null | undefined,
+    admittedTurnSequence?: number,
+): number {
+    return admittedTurnSequence ?? ((existing?.lastTurnSequence ?? 0) + 1);
 }
 
 // Sección 20/34 del ticket — ejemplos honestos de lo que SÍ existe hoy,
@@ -206,6 +216,7 @@ export async function runAgentTurn(
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
             newTurnObjective: existingDialogueState.openObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
             confirmationRequested: true,
         }), traceId);
     }
@@ -232,7 +243,8 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_resolved', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.reconciledObjective,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.reconciledObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
         // GENERALIZATION (M-7): the targetEntity re-ask is built directly
@@ -253,10 +265,10 @@ export async function runAgentTurn(
             const language = detectAgentLanguage(content, locale);
             const isEntityField = existingDialogueState!.pendingClarification?.field === 'targetEntity';
             let answer: string;
-            let options: { id: string; label: string }[] | undefined;
+            let clarificationOptions: { id: string; label: string }[] | undefined;
             if (isEntityField) {
                 const entityCandidates = pendingResult.outcome === 'multi_match_entity' ? pendingResult.candidates : [];
-                options = entityCandidates.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` }));
+                clarificationOptions = entityCandidates.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` }));
                 answer = entityCandidates.length > 0
                     ? (language === 'es'
                         ? `Hay más de un resultado. ¿Cuál compromiso? ${entityCandidates.map((c) => c.title).join(', ')}.`
@@ -270,21 +282,22 @@ export async function runAgentTurn(
                     : { reason: 'person_ambiguous' as const, candidates: [] };
                 const realized = realizeAgentClarification(clarification, language);
                 answer = realized.answer;
-                options = realized.followUp.options;
+                clarificationOptions = realized.followUp.options;
             }
             const field = isEntityField ? 'targetEntity' : 'person_ambiguous';
             const turnId = `${traceId}:${Date.now()}`;
-            const nextTurnSequence = (existingDialogueState!.lastTurnSequence ?? 0) + 1;
+            const nextTurnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
             dialogueService.setPendingClarification({
                 actorUserId: input.actorUserId, dialogueScopeKey,
-                clarification: { field, question: answer, options },
-                turnId, turnSequence: nextTurnSequence,
+                clarification: { field, question: answer, options: clarificationOptions },
+                turnId,
+                turnSequence: options.dialogueTurnSequence ?? nextTurnSequence + 1,
             });
             traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field });
             traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
             return finalizeAgentTurn({
                 kind: 'clarification',
-                questions: [{ field, question: answer, options }],
+                questions: [{ field, question: answer, options: clarificationOptions }],
             }, traceId);
         }
         if (pendingResult.newObjective) {
@@ -296,7 +309,8 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'explicit_new_objective_escape', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.newObjective,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.newObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
@@ -344,7 +358,7 @@ export async function runAgentTurn(
             const turnId = `${traceId}:${Date.now()}`;
             const { correctedObjective, turnSequence } = buildPlanDateCorrection(
                 dialogueService, existingDialogueState!, dialogueScopeKey, input.actorUserId, newTimeHint, turnId,
-                now, resolveTimeZone(timezone),
+                now, resolveTimeZone(timezone), options.dialogueTurnSequence,
             );
             // buildPlanDateCorrection's own applyCorrection call already
             // consumed `turnSequence` (it is now existingDialogueState's new
@@ -353,12 +367,17 @@ export async function runAgentTurn(
             // exactly mirroring the person_ambiguous re-ask path's own
             // turnSequence/turnSequence + 1 pattern above.
             dialogueService.openObjective({
-                actorUserId: input.actorUserId, dialogueScopeKey, objective: correctedObjective, turnId, turnSequence: turnSequence + 1,
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                objective: correctedObjective,
+                turnId,
+                turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
             });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_date_correction', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: correctedObjective,
+                admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
     }
@@ -395,10 +414,11 @@ export async function runAgentTurn(
             dialogueState: existingDialogueState,
             candidate: pendingPlanCandidate,
             dialogueService,
-            dialogueScopeKey,
-            actorUserId: input.actorUserId,
-            turnId: traceId,
-            now,
+                dialogueScopeKey,
+                actorUserId: input.actorUserId,
+                turnId: traceId,
+                now,
+                turnSequence: options.dialogueTurnSequence,
         });
         if (pendingPlanEdit.isEdit && pendingPlanEdit.correctedObjective) {
             dialogueService.openObjective({
@@ -406,7 +426,8 @@ export async function runAgentTurn(
                 dialogueScopeKey,
                 objective: pendingPlanEdit.correctedObjective,
                 turnId: traceId,
-                turnSequence: existingDialogueState.lastTurnSequence + pendingPlanEdit.changedSlots.length + 1,
+                turnSequence: options.dialogueTurnSequence
+                    ?? existingDialogueState.lastTurnSequence + pendingPlanEdit.changedSlots.length + 1,
             });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_pending_plan_edit', dialogueScopeKey,
@@ -416,6 +437,7 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
                 newTurnObjective: pendingPlanEdit.correctedObjective,
+                admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
         const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
@@ -427,6 +449,7 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
                 newTurnObjective: existingDialogueState.openObjective,
+                admittedTurnSequence: options.dialogueTurnSequence,
                 confirmationRequested: true,
             }), traceId);
         }
@@ -435,7 +458,7 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId,
                 dialogueScopeKey,
                 turnId: traceId,
-                turnSequence: existingDialogueState.lastTurnSequence + 1,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
             });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_plan_rejection', dialogueScopeKey,
@@ -453,7 +476,7 @@ export async function runAgentTurn(
             }, traceId);
         }
         if (pendingDecision === 'defer') {
-            const turnSequence = (existingDialogueState.lastTurnSequence ?? 0) + 1;
+            const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
             dialogueService.recordTurn({
                 actorUserId: input.actorUserId,
                 dialogueScopeKey,
@@ -482,6 +505,7 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
                 newTurnObjective: pendingPlanCandidate,
+                admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
         }
@@ -527,7 +551,7 @@ export async function runAgentTurn(
                 dialogueScopeKey,
                 suspendedIndex: selected.index,
                 turnId: traceId,
-                turnSequence: (existingDialogueState.lastTurnSequence ?? 0) + 1,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
             });
             resumedSuspendedObjective = true;
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
@@ -783,14 +807,19 @@ export async function runAgentTurn(
             });
             if (eligible) {
                 const turnId = `${traceId}:${Date.now()}`;
-                const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
+                const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
                 dialogueService.openObjective({
-                    actorUserId: input.actorUserId, dialogueScopeKey, objective: candidateObjective, turnId, turnSequence,
+                    actorUserId: input.actorUserId,
+                    dialogueScopeKey,
+                    objective: candidateObjective,
+                    turnId,
+                    turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
                 });
                 dialogueService.setPendingClarification({
                     actorUserId: input.actorUserId, dialogueScopeKey,
                     clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
-                    turnId, turnSequence: turnSequence + 1,
+                    turnId,
+                    turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
                 });
                 const writtenState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
                 traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_RESULT', {
@@ -825,6 +854,7 @@ export async function runAgentTurn(
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: semantic.objective,
+            admittedTurnSequence: options.dialogueTurnSequence,
             preloadedCommitments: context.commitments,
         }), traceId);
     }
@@ -871,7 +901,7 @@ export async function runAgentTurn(
             }
             : null,
         turnId: traceId,
-        turnSequence: (existingDialogueState?.lastTurnSequence ?? 0) + 1,
+        turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
     });
     return finalizeAgentTurn({ kind: 'response', response: toPublicAgentResponse(response) }, traceId);
 }
@@ -912,6 +942,7 @@ async function runWriteActionTurn(params: {
     newTurnObjective: AgentObjective;
     preloadedCommitments?: AgentContext['commitments'];
     confirmationRequested?: boolean;
+    admittedTurnSequence?: number;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
     const dialogueService = params.dialogueService;
@@ -923,7 +954,7 @@ async function runWriteActionTurn(params: {
     // genuinely newer concurrent turn (per the CAS guard inside
     // AgentDialogueStateService) would still win over this one if it
     // commits first.
-    const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
+    const turnSequence = turnSequenceFor(existingDialogueState, params.admittedTurnSequence);
 
     const classification = classifyContinuation(existingDialogueState, newTurnObjective);
     tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_CLASSIFIED', {
@@ -978,7 +1009,7 @@ async function runWriteActionTurn(params: {
                 dialogueScopeKey,
                 clarification,
                 turnId,
-                turnSequence: turnSequence + 1,
+                turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
             });
         }
         traceAgentDevice(params.traceId, 'AGENT_ROUTING_DECISION', {
@@ -1028,11 +1059,14 @@ async function runWriteActionTurn(params: {
     } else if (plan.status === 'needs_clarification') {
         dialogueService.openObjective({
             actorUserId, dialogueScopeKey, objective: objectiveForPlanning,
-            ambiguities: plan.objective.ambiguities, turnId, turnSequence,
+            ambiguities: plan.objective.ambiguities,
+            turnId,
+            turnSequence: params.admittedTurnSequence ?? turnSequence,
         });
         if (plan.unresolvedInputs[0]) {
             dialogueService.setPendingClarification({
-                actorUserId, dialogueScopeKey, clarification: plan.unresolvedInputs[0], turnId, turnSequence: turnSequence + 1,
+                actorUserId, dialogueScopeKey, clarification: plan.unresolvedInputs[0], turnId,
+                turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
             });
         }
     } else if (plan.status === 'ready_for_authorization' && plan.planDigest) {
@@ -1044,10 +1078,12 @@ async function runWriteActionTurn(params: {
         // authorization has occurred yet; PlanCard confirmation is still
         // required exactly as for any other plan.
         dialogueService.openObjective({
-            actorUserId, dialogueScopeKey, objective: objectiveForPlanning, turnId, turnSequence,
+            actorUserId, dialogueScopeKey, objective: objectiveForPlanning, turnId,
+            turnSequence: params.admittedTurnSequence ?? turnSequence,
         });
         dialogueService.markReadyForAuthorization({
-            actorUserId, dialogueScopeKey, planDigest: plan.planDigest, turnId, turnSequence: turnSequence + 1,
+            actorUserId, dialogueScopeKey, planDigest: plan.planDigest, turnId,
+            turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
         });
     } else if (classification.isContinuation) {
         // A continuation attempt that still resolved to 'draft'/unsupported

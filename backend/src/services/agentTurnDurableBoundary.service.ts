@@ -210,8 +210,13 @@ export async function runDurableAgentTurn(
             : null;
         const dialogueService = new AgentDialogueStateService({
             repository: createInMemoryDialogueStateRepository(restoredState ?? undefined),
+            allowSameTurnSequence: true,
         });
-        const result = await (dependencies.runTurn ?? runAgentTurn)(input, { ...options, dialogueService });
+        const result = await (dependencies.runTurn ?? runAgentTurn)(input, {
+            ...options,
+            dialogueService,
+            dialogueTurnSequence: claimedAdmission.turnSequence,
+        });
         const processedResult = postProcess
             ? await postProcess({
                 result,
