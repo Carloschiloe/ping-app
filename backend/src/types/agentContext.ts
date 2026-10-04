@@ -132,7 +132,8 @@ export type UrgencyComparison = 'most_urgent';
 export type TemporalComparison = 'earliest' | 'latest';
 export type PriorReferenceIntent = 'single_entity' | 'result_set';
 export type AgentFollowUpAttribute = 'time' | 'date' | 'responsible' | 'status' | 'details';
-export type AgentDialogueControl = 'resume_suspended';
+export type AgentDialogueControl = 'resume_suspended' | 'suspend_current';
+export type AgentDialogueAct = 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other';
 
 // Structural, non-authoritative summary of the immediately preceding read.
 // It is safe to expose to the language interpreter because it contains no
@@ -167,6 +168,7 @@ export interface Interpretation {
     temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
     priorReferenceIntent?: PriorReferenceIntent | null;
     followUpAttribute?: AgentFollowUpAttribute | null;
+    dialogueAct?: AgentDialogueAct | null;
     dialogueControl?: AgentDialogueControl | null;
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;

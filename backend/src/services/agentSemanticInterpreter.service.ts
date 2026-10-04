@@ -77,6 +77,7 @@ export async function interpretAgentSemanticTurn(
     const interpretation = await interpretInput(input, {
         conversationId: context.conversationId,
         channel: context.channel,
+        pendingPlan: context.pendingPlan,
         priorReadSummary: context.priorReadSummary,
     }, inputInterpreter);
 

@@ -5,6 +5,7 @@ evidence; a green unit test alone does not close a milestone.
 
 | Priority | Type | Task | State | Evidence / exit condition |
 |---|---|---|---|---|
+| P0 | CERTIFICATION | Publish and recertify the structural semantic dialogue reconciliation candidate | BLOCKED_PENDING_COMMIT | Local TypeScript and 394 focused tests PASS. Published baseline 7bf5b477 Jarvis run 37236059358: 49/100 PASS, 51 failures concentrated in correction-twice, clarify-confirm, objective-switch, context and reconnect. Commit was blocked by the approval-system usage limit; no new staging certification is claimed. |
 | P0 | SECURITY / INFRASTRUCTURE | Create the staging-only Render deploy hook and store it in `ping-staging-certification` | DONE | Environment secret present; staging-only hook used by the certification circuit; production untouched |
 | P1 | CERTIFICATION | Run the permanent staging gate for the current M7 candidate | DONE | Quality, exact health/SHA, authenticated semantic `/agent/turn` E2E and artifact evidence recorded in the M7 completion candidate |
 | P1 | CERTIFICATION | Verify M7 health, auth, persistence, reload, conversation and safety invariants in staging | DONE | Strong semantic sequence PASS; private database diagnostic PASS; zero writers/mutations/messages in the certification artifact |

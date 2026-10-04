@@ -435,6 +435,28 @@ export async function runAgentTurn(
         const pendingPlanCandidate = pendingPlanCandidateRaw
             ? groundPendingPlanCandidate(pendingPlanCandidateRaw, content)
             : null;
+        // The input interpreter and objective interpreter are independent
+        // semantic proposals. When the objective proposal is structurally
+        // empty but the input boundary has already identified the speech act,
+        // carry that bounded act into the pending-plan candidate. This keeps
+        // elliptical confirmations/rejections on the Core-owned plan without
+        // introducing a phrase vocabulary or granting the interpreter any
+        // authorization authority.
+        const inputDialogueAct = precomputedSemantic?.interpretation.dialogueAct;
+        if (pendingPlanCandidate
+            && !pendingPlanCandidate.dialogueAct
+            && inputDialogueAct
+            && inputDialogueAct !== 'other'
+            && inputDialogueAct !== 'new_objective'
+            && inputDialogueAct !== 'clarify') {
+            pendingPlanCandidate.dialogueAct = inputDialogueAct;
+            if ((inputDialogueAct === 'confirm' || inputDialogueAct === 'reject' || inputDialogueAct === 'defer')
+                && !pendingPlanCandidate.constraints.decisionHint) {
+                pendingPlanCandidate.constraints.decisionHint = inputDialogueAct === 'confirm'
+                    ? 'approve'
+                    : inputDialogueAct;
+            }
+        }
         if (pendingPlanCandidate) {
         const pendingPlanEdit = buildPendingPlanEdit({
             dialogueState: existingDialogueState,
@@ -556,6 +578,64 @@ export async function runAgentTurn(
         channel,
         priorReadSummary,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
+
+    // A semantic topic switch without a complete replacement objective must
+    // suspend, not discard, the Core-owned objective. No write or execution
+    // occurs here; the earlier plan remains non-authorized and can only be
+    // resumed later through the unique suspended-objective path.
+    if (semantic.interpretation.dialogueControl === 'suspend_current'
+        && existingDialogueState?.openObjective
+        && !semantic.objective
+        && semantic.route === 'read') {
+        dialogueService.suspendCurrentObjective({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey,
+            turnId: traceId,
+            turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+        });
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'semantic_suspend_current_objective', dialogueScopeKey,
+        });
+        const language = detectAgentLanguage(content, locale);
+        return finalizeAgentTurn({
+            kind: 'response',
+            response: {
+                status: 'answered',
+                answer: language === 'es'
+                    ? 'De acuerdo. Dejé el objetivo anterior en pausa.'
+                    : 'Understood. I left the previous objective suspended.',
+                citations: [],
+            },
+        }, traceId);
+    }
+
+    // An attribute question about the currently open Core-owned objective is
+    // a read of dialogue state, not a new retrieval query. The state carries
+    // only bounded user-proposed fields; it does not authorize or execute a
+    // write. This keeps a pending objective useful across short follow-ups
+    // without requiring it to have already been persisted as a commitment.
+    const activeObjective = existingDialogueState?.openObjective;
+    const followUpAttribute = semantic.interpretation.followUpAttribute;
+    if (activeObjective
+        && semantic.route === 'read'
+        && (followUpAttribute === 'date' || followUpAttribute === 'time')
+        && activeObjective.timeConstraints.rawHint) {
+        const language = detectAgentLanguage(content, locale);
+        const temporalHint = activeObjective.timeConstraints.rawHint;
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'active_objective_attribute_read', dialogueScopeKey, followUpAttribute,
+        });
+        return finalizeAgentTurn({
+            kind: 'response',
+            response: {
+                status: 'answered',
+                answer: language === 'es'
+                    ? `El objetivo pendiente está previsto para ${temporalHint}.`
+                    : `The pending objective is set for ${temporalHint}.`,
+                citations: [],
+            },
+        }, traceId);
+    }
 
     // A planner clarification such as a missing due date is an open
     // dialogue slot, not a new read query. The answer may be only a temporal

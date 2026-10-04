@@ -83,6 +83,20 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
         expect(result.temporalComparison).toBe('latest');
     });
 
+    it('preserva el acto de habla de una decisión elíptica cuando existe plan pendiente', async () => {
+        const model = fakeModel(validPayload({
+            intent: 'general_context',
+            dialogueAct: 'confirm',
+            isWriteActionRequest: false,
+        }));
+        const result = await new LlmInputInterpreter({ model }).interpret('Hazlo.', {
+            pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
+
+        expect(result.dialogueAct).toBe('confirm');
+        expect(result.isWriteActionRequest).toBe(false);
+    });
+
     // M-1D.2: bug real encontrado en el smoke contra el proveedor real — el
     // modelo, de forma perfectamente razonable, a veces devuelve
     // `commitmentFilterHints: null` directamente (en vez de `{status:null}`)

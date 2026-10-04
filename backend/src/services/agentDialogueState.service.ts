@@ -320,6 +320,46 @@ export class AgentDialogueStateService {
         return this.persist(next, existing.version);
     }
 
+    /**
+     * Suspends the currently open objective without changing or executing it.
+     * The objective remains Core-owned and can only be resumed through the
+     * normal unique-objective selection path. This is the state transition
+     * needed when a user changes topic before supplying a complete replacement.
+     */
+    suspendCurrentObjective(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing?.openObjective) throw new AppError('No dialogue objective to suspend', 404);
+        this.assertFreshTurn(existing, input.turnSequence);
+        const suspendedObjectives = [...(existing.suspendedObjectives ?? []), {
+            objective: existing.openObjective,
+            lifecycle: existing.lifecycle,
+            planDigestRef: existing.currentPlanDigestRef,
+            ambiguities: existing.ambiguities,
+            pendingClarification: existing.pendingClarification,
+        }].slice(-DIALOGUE_STATE_LIMITS.maxSuspendedObjectives);
+        const next: AgentDialogueState = {
+            ...existing,
+            lifecycle: transitionDialogueState(existing.lifecycle, 'idle'),
+            openObjective: null,
+            suspendedObjectives,
+            ambiguities: [],
+            pendingClarification: null,
+            currentPlanDigestRef: null,
+            currentAuthorizationIdRef: null,
+            lastReadContext: null,
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry('idle', now),
+        };
+        return this.persist(next, existing.version);
+    }
+
     // Stores only Core-derived read scope so a bounded comparative follow-up
     // can reuse the prior temporal window. This never stores raw text,
     // retrieved evidence, canonical IDs or authorization decisions.

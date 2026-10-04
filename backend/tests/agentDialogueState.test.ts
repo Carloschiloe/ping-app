@@ -99,6 +99,29 @@ describe('create/read + versioning (test areas 4-7)', () => {
         expect(snapshot?.lifecycle).toBe('collecting');
     });
 
+    it('suspends a current objective without executing or losing its plan reference', () => {
+        const service = new AgentDialogueStateService();
+        service.openObjective({
+            actorUserId: ACTOR_A,
+            dialogueScopeKey: CONV_1,
+            objective: objective({ objectiveType: 'create_personal_commitment' }),
+            turnId: 't1',
+            turnSequence: 1,
+        });
+        const suspended = service.suspendCurrentObjective({
+            actorUserId: ACTOR_A,
+            dialogueScopeKey: CONV_1,
+            turnId: 't2',
+            turnSequence: 2,
+        });
+
+        expect(suspended.lifecycle).toBe('idle');
+        expect(suspended.openObjective).toBeNull();
+        expect(suspended.suspendedObjectives).toHaveLength(1);
+        expect(suspended.suspendedObjectives[0]?.objective.objectiveType).toBe('create_personal_commitment');
+        expect(suspended.currentPlanDigestRef).toBeNull();
+    });
+
     it('5. version increments on every write', () => {
         const service = new AgentDialogueStateService();
         const first = service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
