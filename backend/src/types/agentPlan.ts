@@ -133,7 +133,7 @@ export interface MessageContentCandidate {
 }
 
 export interface AgentObjective {
-    dialogueAct?: 'confirm' | 'reject' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
+    dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
     slotDelta?: {
         title?: string | null;
         date?: string | null;

@@ -12,7 +12,7 @@ import { AGENT_OBJECTIVE_TYPE_VALUES } from '../types/agentPlan';
 const HINT_STRING = z.string().trim().min(1).max(80);
 
 export const agentObjectiveInterpretationPayloadSchema = z.object({
-    dialogueAct: z.enum(['confirm', 'reject', 'correct', 'clarify', 'new_objective', 'other']).nullable().default(null),
+    dialogueAct: z.enum(['confirm', 'reject', 'defer', 'correct', 'clarify', 'new_objective', 'other']).nullable().default(null),
     slotDelta: z.object({
         title: HINT_STRING.nullable().default(null),
         date: HINT_STRING.nullable().default(null),

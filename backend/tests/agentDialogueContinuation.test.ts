@@ -113,6 +113,11 @@ describe('semantic pending-plan reconciliation', () => {
             constraints: { decisionHint: null },
             targetEntities: { personHints: [], entityHints: [] },
         }))).toBe('reject');
+        expect(classifyPendingPlanDecision(objective({
+            dialogueAct: 'defer',
+            constraints: { decisionHint: null },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('defer');
     });
 
     it('material slot deltas take precedence over an approval hint', () => {

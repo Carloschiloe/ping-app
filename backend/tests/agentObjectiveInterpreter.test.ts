@@ -142,6 +142,24 @@ describe('LlmObjectiveInterpreter: fallback determinístico ante cualquier fallo
         expect(obj.dialogueAct).toBe('confirm');
     });
 
+    it('binds a structured deferral to the pending objective without downgrading it', async () => {
+        const model = fakeModel(JSON.stringify({
+            dialogueAct: 'defer', objectiveType: 'unsupported', decisionHint: 'defer',
+            slotDelta: { title: null, date: null, time: null },
+            personHints: [], entityHints: [], contentHint: null, timeHint: null,
+            draftOnly: false, responsibleHint: null, commitmentOwnership: null,
+            followUpObjectiveType: null, additionalPersonHint: null,
+            desiredOutcomeHint: null, verbatimMessageHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Déjalo pendiente.', {
+            ...CTX, pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
+        expect(obj.objectiveType).toBe('create_personal_commitment');
+        expect(obj.dialogueAct).toBe('defer');
+        expect(obj.constraints.decisionHint).toBe('defer');
+    });
+
     it('grounds a pending-plan time slot in the current utterance and drops stale provider carry-over', async () => {
         const model = fakeModel(JSON.stringify({
             objectiveType: 'create_commitment_or_proposal',

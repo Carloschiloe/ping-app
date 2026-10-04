@@ -127,6 +127,7 @@ export function classifyPendingPlanDecision(
     // This keeps confirmation semantic while avoiding a vocabulary list.
     if (objective.dialogueAct === 'confirm') return 'approve';
     if (objective.dialogueAct === 'reject') return 'reject';
+    if (objective.dialogueAct === 'defer') return 'defer';
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
     if (hasExplicitTarget) return null;
