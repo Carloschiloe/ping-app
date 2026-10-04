@@ -25,9 +25,9 @@ describe('M7 staging semantic assertions', () => {
       turn(3, objective('llamada al proveedor', 'viernes'), 'clarification'),
       turn(4, objective('revisión del inventario', 'jueves'), 'response'),
       turn(5, objective('revisión del inventario', 'lunes siguiente'), 'plan'),
-      turn(6, objective('revisión del inventario', 'lunes siguiente'), 'response', true),
-      turn(7, objective('revisión del inventario', 'lunes siguiente'), 'clarification'),
-      turn(8, objective('revisión del inventario', 'lunes siguiente'), 'clarification'),
+      turn(6, objective('revisión del inventario', 'lunes siguiente'), 'clarification'),
+      turn(7, objective('revisión del inventario', 'lunes siguiente'), 'response', true),
+      turn(8, objective('revisión del inventario', 'lunes siguiente'), 'response'),
     ];
     expect(assertStrongM7Sequence(turns)).toEqual({ ok: true });
   });
@@ -39,9 +39,9 @@ describe('M7 staging semantic assertions', () => {
       turn(3, objective('llamada al proveedor jueves', 'viernes'), 'clarification'),
       turn(4, objective('llamada al proveedor', 'viernes'), 'response'),
       turn(5, objective('llamada al proveedor', 'lunes'), 'plan'),
-      turn(6, objective('llamada al proveedor', 'lunes'), 'response', true),
-      turn(7, objective('llamada al proveedor', 'lunes'), 'clarification'),
-      turn(8, objective('llamada al proveedor', 'lunes'), 'clarification'),
+      turn(6, objective('llamada al proveedor', 'lunes'), 'clarification'),
+      turn(7, objective('llamada al proveedor', 'lunes'), 'response', true),
+      turn(8, objective('llamada al proveedor', 'lunes'), 'response'),
     ];
     expect(() => assertStrongM7Sequence(turns)).toThrow(/Turn 4/);
   });
