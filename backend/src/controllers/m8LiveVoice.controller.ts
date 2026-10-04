@@ -73,9 +73,9 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     }
 }
 
-export function telemetry(req: Request, res: Response): void {
+export async function telemetry(req: Request, res: Response): Promise<void> {
     try {
-        recordM8LiveVoiceTelemetry(req.user!.id, req.body);
+        await recordM8LiveVoiceTelemetry(req.user!.id, req.body);
         traceM8LiveVoiceDiagnostic('client_telemetry', {
             actorUserId: req.user!.id,
             voiceSessionId: req.body?.voiceSessionId,
@@ -107,31 +107,31 @@ export function telemetry(req: Request, res: Response): void {
     }
 }
 
-export function readTelemetry(req: Request, res: Response): void {
+export async function readTelemetry(req: Request, res: Response): Promise<void> {
     try {
-        res.status(200).json(getM8LiveVoiceTelemetry(req.user!.id, String(req.params.voiceSessionId)));
+        res.status(200).json(await getM8LiveVoiceTelemetry(req.user!.id, String(req.params.voiceSessionId)));
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
         res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
     }
 }
 
-export function readLatestTelemetry(req: Request, res: Response): void {
+export async function readLatestTelemetry(req: Request, res: Response): Promise<void> {
     try {
-        res.status(200).json(getLatestM8LiveVoiceTelemetry(req.user!.id));
+        res.status(200).json(await getLatestM8LiveVoiceTelemetry(req.user!.id));
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
         res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
     }
 }
 
-export function readLatestTelemetryInternal(req: Request, res: Response): void {
+export async function readLatestTelemetryInternal(req: Request, res: Response): Promise<void> {
     try {
         assertInternalM8LiveVoiceDiagnostics(
             req.header(M8_LIVE_VOICE_DIAGNOSTIC_TIMESTAMP_HEADER),
             req.header(M8_LIVE_VOICE_DIAGNOSTIC_SIGNATURE_HEADER),
         );
-        res.status(200).json(getLatestM8LiveVoiceTelemetryInternal());
+        res.status(200).json(await getLatestM8LiveVoiceTelemetryInternal());
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
         res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });

@@ -55,6 +55,7 @@ export const m8LiveVoiceTelemetrySchema = z.object({
         errorMessage: z.string().trim().max(120).optional(),
         turnId: z.string().trim().max(100).optional(),
         turnSequence: z.number().int().min(0).max(1000).optional(),
+        conversationId: z.string().uuid().optional(),
         transcript: z.string().trim().max(500).optional(),
         coreAnswer: z.string().trim().max(800).optional(),
         realtimeOutputText: z.string().trim().max(800).optional(),

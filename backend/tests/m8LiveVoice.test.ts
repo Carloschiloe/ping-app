@@ -79,8 +79,8 @@ describe('M8 live voice staging boundary', () => {
         expect(result.sdp).toBe('v=0\\r\\nanswer');
     });
 
-    it('keeps telemetry actor/device scoped and reports zero side effects', () => {
-        recordM8LiveVoiceTelemetry(actorUserId, {
+    it('keeps telemetry actor/device scoped and reports zero side effects', async () => {
+        await recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
             deviceSessionId,
             event: 'core_disposition',
@@ -90,7 +90,7 @@ describe('M8 live voice staging boundary', () => {
             sideEffects: 0,
         });
 
-        expect(getM8LiveVoiceTelemetry(actorUserId, voiceSessionId)).toMatchObject({
+        expect(await getM8LiveVoiceTelemetry(actorUserId, voiceSessionId)).toMatchObject({
             voiceSessionId,
             deviceSessionId,
             sideEffects: 0,
@@ -234,8 +234,8 @@ describe('M8 live voice staging boundary', () => {
         expect(html).toContain("if(event.type==='session.closed'){closed=true;clearPending();telemetry('session_closed'");
     });
 
-    it('accepts sanitized stage diagnostics without side effects', () => {
-        recordM8LiveVoiceTelemetry(actorUserId, {
+    it('accepts sanitized stage diagnostics without side effects', async () => {
+        await recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
             deviceSessionId,
             event: 'voice_stage',
@@ -245,13 +245,13 @@ describe('M8 live voice staging boundary', () => {
             sideEffects: 0,
         });
 
-        expect(getM8LiveVoiceTelemetry(actorUserId, voiceSessionId).events).toContainEqual(expect.objectContaining({
+        expect((await getM8LiveVoiceTelemetry(actorUserId, voiceSessionId)).events).toContainEqual(expect.objectContaining({
             event: 'voice_stage', stage: 'session_response_received', httpStatus: 201, sideEffects: 0,
         }));
     });
 
-    it('keeps the latest physical session recoverable and sanitizes transcript/Core text', () => {
-        recordM8LiveVoiceTelemetry(actorUserId, {
+    it('keeps the latest physical session recoverable and sanitizes transcript/Core text', async () => {
+        await recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
             deviceSessionId,
             event: 'transcript_received',
@@ -262,7 +262,7 @@ describe('M8 live voice staging boundary', () => {
             atMs: 500,
             sideEffects: 0,
         });
-        recordM8LiveVoiceTelemetry(actorUserId, {
+        await recordM8LiveVoiceTelemetry(actorUserId, {
             voiceSessionId,
             deviceSessionId,
             event: 'core_disposition',
@@ -274,7 +274,7 @@ describe('M8 live voice staging boundary', () => {
             sideEffects: 0,
         });
 
-        const latest = getLatestM8LiveVoiceTelemetry(actorUserId);
+        const latest = await getLatestM8LiveVoiceTelemetry(actorUserId);
         expect(latest).toMatchObject({ voiceSessionId, deviceSessionId, eventCount: 2, closed: false, sideEffects: 0 });
         expect(JSON.stringify(latest)).not.toContain('must-not-persist');
         expect(latest.events).toEqual(expect.arrayContaining([
