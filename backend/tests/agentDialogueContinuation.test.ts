@@ -643,6 +643,38 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
         }), ['¿Qué fecha tiene?'])).toBe(0);
     });
 
+    it('resumes a uniquely named suspended objective before reconciling the active pending plan', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Necesito coordinar la revision del inventario para el jueves',
+            targetEntities: { personHints: [], entityHints: ['revision del inventario'] },
+            desiredOutcome: 'Necesito coordinar la revision del inventario para el jueves',
+            timeConstraints: { rawHint: 'jueves' },
+        }));
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Coordina la revision del inventario para el jueves' })).kind).toBe('plan');
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Prepara la llamada al proveedor para el viernes',
+            targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
+            desiredOutcome: 'Prepara la llamada al proveedor para el viernes',
+            timeConstraints: { rawHint: 'viernes' },
+        }));
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Prepara la llamada al proveedor para el viernes' })).kind).toBe('plan');
+
+        llmInputInterpretMock.mockResolvedValueOnce(readOnlyInterpretation({
+            wantsCommitments: true,
+            textQuery: 'revision del inventario',
+        }));
+        const resumed = await runAgentTurn({
+            actorUserId: ACTOR_A,
+            input: 'Volvamos a la revision del inventario; que fecha tiene?',
+        });
+        expect(resumed.kind).not.toBe('clarification');
+        const { AgentDialogueStateService } = await import('../src/services/agentDialogueState.service');
+        const snapshot = new AgentDialogueStateService().getSnapshot(ACTOR_A, 'agent:mobile');
+        expect(snapshot?.openObjective?.targetEntities.entityHints).toEqual(['revision del inventario']);
+    });
+
     it('reconciles a lifecycle rejection even when the route proposal is read-shaped', async () => {
         llmInputInterpretMock.mockResolvedValueOnce(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({

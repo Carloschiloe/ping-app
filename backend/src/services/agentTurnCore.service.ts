@@ -305,6 +305,41 @@ export async function runAgentTurn(
         dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
     }
 
+    // A pending plan belongs to the currently active objective, but an
+    // explicit return to a uniquely named suspended objective must be
+    // reconciled before the pending-plan interpreter gets a chance to treat
+    // the turn as a decision about the wrong plan. The match is Core-owned
+    // and structural: it uses the persisted objective hints plus the current
+    // utterance, with uniqueness still required. No language-specific escape
+    // rule is involved.
+    if (existingDialogueState?.suspendedObjectives?.length) {
+        const candidates = existingDialogueState.suspendedObjectives
+            .map((entry, index) => ({
+                entry,
+                index,
+                score: suspendedObjectiveMatchScore(entry.objective, [content]),
+            }))
+            .filter((candidate) => candidate.score > 0)
+            .sort((left, right) => right.score - left.score);
+        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
+            const selected = candidates[0];
+            existingDialogueState = dialogueService.resumeObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            resumedSuspendedObjective = true;
+            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                matchScore: selected.score,
+                phase: 'before_pending_plan_reconciliation',
+            });
+        }
+    }
+
     let precomputedSemantic: AgentSemanticInterpretation | null = null;
     // Interpret date-bearing follow-ups once before correction routing. This
     // lets Core distinguish a target-less correction of the currently open
@@ -372,7 +407,8 @@ export async function runAgentTurn(
     // interpreter before treating a short follow-up as an isolated READ.
     // The Core owns the existing plan identity and authorization boundary;
     // the interpreter only proposes the user's decision or a new objective.
-    if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
+    if (!resumedSuspendedObjective
+        && existingDialogueState?.lifecycle === 'plan_pending_authorization'
         && existingDialogueState.openObjective
         && existingDialogueState.currentPlanDigestRef) {
         precomputedSemantic = await interpretAgentSemanticTurn(content, {
@@ -529,7 +565,7 @@ export async function runAgentTurn(
     // match is stronger evidence of which suspended objective is being
     // addressed than that route label; the ordinary planner and authorization
     // gates still decide what the resumed turn may do.
-    if (existingDialogueState?.suspendedObjectives?.length) {
+    if (!resumedSuspendedObjective && existingDialogueState?.suspendedObjectives?.length) {
         const topicHints = [
             ...semantic.interpretation.topicHints,
             ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
