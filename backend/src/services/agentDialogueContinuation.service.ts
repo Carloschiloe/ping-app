@@ -121,6 +121,12 @@ export function classifyPendingPlanDecision(
     const slotDelta = objective.slotDelta;
     const hasMaterialSlotDelta = Boolean(slotDelta?.title || slotDelta?.date || slotDelta?.time);
     if (objective.dialogueAct === 'correct' || hasMaterialSlotDelta) return null;
+    // The model exposes the speech act separately from the optional decision
+    // hint. Core may use that structured act for an elliptical answer to the
+    // pending plan, but only when the turn introduces no new slots/target.
+    // This keeps confirmation semantic while avoiding a vocabulary list.
+    if (objective.dialogueAct === 'confirm') return 'approve';
+    if (objective.dialogueAct === 'reject') return 'reject';
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
     if (hasExplicitTarget) return null;

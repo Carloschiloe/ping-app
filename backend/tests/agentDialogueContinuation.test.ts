@@ -102,6 +102,19 @@ describe('semantic pending-plan reconciliation', () => {
         }))).toBe('reject');
     });
 
+    it('uses the structured speech act when the provider omits decisionHint', () => {
+        expect(classifyPendingPlanDecision(objective({
+            dialogueAct: 'confirm',
+            constraints: { decisionHint: null },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('approve');
+        expect(classifyPendingPlanDecision(objective({
+            dialogueAct: 'reject',
+            constraints: { decisionHint: null },
+            targetEntities: { personHints: [], entityHints: [] },
+        }))).toBe('reject');
+    });
+
     it('material slot deltas take precedence over an approval hint', () => {
         expect(classifyPendingPlanDecision(objective({
             dialogueAct: 'correct',

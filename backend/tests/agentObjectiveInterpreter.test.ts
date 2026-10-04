@@ -125,6 +125,23 @@ function hangingModel(delayMs: number): AgentObjectiveModel {
 }
 
 describe('LlmObjectiveInterpreter: fallback determinístico ante cualquier fallo del proveedor (sección 49, nunca red real)', () => {
+    it('binds a short structured confirmation to the pending objective without a phrase list', async () => {
+        const model = fakeModel(JSON.stringify({
+            dialogueAct: 'confirm', objectiveType: 'unsupported', decisionHint: null,
+            slotDelta: { title: null, date: null, time: null },
+            personHints: [], entityHints: [], contentHint: null, timeHint: null,
+            draftOnly: false, responsibleHint: null, commitmentOwnership: null,
+            followUpObjectiveType: null, additionalPersonHint: null,
+            desiredOutcomeHint: null, verbatimMessageHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Confirmo.', {
+            ...CTX, pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
+        expect(obj.objectiveType).toBe('create_personal_commitment');
+        expect(obj.dialogueAct).toBe('confirm');
+    });
+
     it('grounds a pending-plan time slot in the current utterance and drops stale provider carry-over', async () => {
         const model = fakeModel(JSON.stringify({
             objectiveType: 'create_commitment_or_proposal',
