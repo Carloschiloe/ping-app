@@ -198,25 +198,49 @@ async function deleteTemporaryIdentity(identityId) {
   if (deleted.error) throw deleted.error;
 }
 
-async function deleteTemporaryCommitmentArtifacts(commitmentIds) {
-  if (!commitmentIds.length) return;
+async function deleteTemporaryCommitmentArtifacts(commitmentIds, identityId) {
+  if (!commitmentIds.length && !identityId) return;
   const { data: commitments, error: commitmentLookupError } = await admin
     .from('commitments')
     .select('id,proposal_id')
-    .in('id', commitmentIds);
+    .or([
+      commitmentIds.length ? `id.in.(${commitmentIds.join(',')})` : null,
+      identityId ? `owner_user_id.eq.${identityId}` : null,
+    ].filter(Boolean).join(','));
   if (commitmentLookupError) throw commitmentLookupError;
-  const proposalIds = (commitments ?? [])
+  const proposalIdsFromCommitments = (commitments ?? [])
     .map((row) => row.proposal_id)
     .filter((id) => typeof id === 'string');
+  const { data: ownedProposals, error: proposalLookupError } = await admin
+    .from('commitment_proposals')
+    .select('id')
+    .eq('proposed_by_user_id', identityId);
+  if (proposalLookupError) throw proposalLookupError;
+  const proposalIds = [...new Set([
+    ...proposalIdsFromCommitments,
+    ...(ownedProposals ?? []).map((row) => row.id).filter((id) => typeof id === 'string'),
+  ])];
+  const commitmentIdsToDelete = [...new Set([
+    ...commitmentIds,
+    ...(commitments ?? []).map((row) => row.id).filter((id) => typeof id === 'string'),
+  ])];
 
-  for (const query of [
-    admin.from('commitment_audit_records').delete().in('commitment_id', commitmentIds),
-    admin.from('commitment_audit_records').delete().in('proposal_id', proposalIds),
-    admin.from('commitment_proposal_events').delete().in('proposal_id', proposalIds),
-    admin.from('commitment_proposal_responses').delete().in('proposal_id', proposalIds),
-    admin.from('commitments').delete().in('id', commitmentIds),
-    admin.from('commitment_proposals').delete().in('id', proposalIds),
-  ]) {
+  const cleanupQueries = [];
+  if (commitmentIdsToDelete.length) {
+    cleanupQueries.push(admin.from('commitment_audit_records').delete().in('commitment_id', commitmentIdsToDelete));
+    cleanupQueries.push(admin.from('commitments').delete().in('id', commitmentIdsToDelete));
+  }
+  if (proposalIds.length) {
+    cleanupQueries.push(admin.from('commitment_audit_records').delete().in('proposal_id', proposalIds));
+    cleanupQueries.push(admin.from('commitment_proposal_events').delete().in('proposal_id', proposalIds));
+    cleanupQueries.push(admin.from('commitment_proposal_responses').delete().in('proposal_id', proposalIds));
+    cleanupQueries.push(admin.from('commitment_proposals').delete().in('id', proposalIds));
+  }
+  if (identityId) {
+    cleanupQueries.push(admin.from('commitment_proposal_responses').delete().eq('participant_user_id', identityId));
+    cleanupQueries.push(admin.from('commitment_proposals').delete().eq('proposed_by_user_id', identityId));
+  }
+  for (const query of cleanupQueries) {
     const { error } = await query;
     if (error) throw error;
   }
@@ -342,7 +366,7 @@ async function run() {
       }
     }
     try {
-      await deleteTemporaryCommitmentArtifacts(commitmentIdsToCleanup);
+      await deleteTemporaryCommitmentArtifacts(commitmentIdsToCleanup, identity.id);
     } catch (error) {
       report.success = false;
       report.cleanup = {
