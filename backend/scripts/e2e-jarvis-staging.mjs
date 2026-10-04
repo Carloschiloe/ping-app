@@ -48,10 +48,9 @@ function summary(payload) {
   };
 }
 
-async function identity() {
-  const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (listed.error) throw listed.error;
-  const email = `ping-jarvis-${runId}@example.invalid`;
+async function identity(caseId) {
+  const suffix = caseId ? `-${caseId}` : '';
+  const email = `ping-jarvis-${runId}${suffix}@example.invalid`;
   const created = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { e2e_run: runId, e2e_suite: 'jarvis_100' } });
   if (created.error || !created.data?.user?.id) throw created.error || new Error('Could not create temporary identity');
   const profile = await admin.from('profiles').upsert({ id: created.data.user.id, email, full_name: 'Ping Jarvis certification' });
@@ -123,44 +122,54 @@ async function cleanupOrphanedJarvisIdentities() {
 
 async function run() {
   const orphanedIdentities = await cleanupOrphanedJarvisIdentities();
-  const who = await identity();
-  let token = await login(who.email);
   const commitmentIds = new Set();
+  let identitiesDeleted = 0;
   try {
     for (const testCase of cases()) {
+      // /agent/turn intentionally has a per-user abuse limit. Each fixture
+      // keeps one identity for its complete conversation, but cases use
+      // isolated identities so certification cannot consume the product's
+      // protection and turn later cases into false 429 failures.
+      const who = await identity(testCase.id);
+      let token = await login(who.email);
       const group = await http('/groups', { token, method: 'POST', body: { name: `Jarvis ${testCase.id}`, participantIds: [] } });
-      if (group.status !== 201 || !group.payload?.conversationId) throw new Error(`fixture group failed ${testCase.id}`);
-      const conversationId = group.payload.conversationId;
-      const turns = [];
-      for (let index = 0; index < testCase.turns.length; index += 1) {
-        if (testCase.reconnectBefore === index) token = await login(who.email);
-        const body = { input: testCase.turns[index], conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' };
-        const result = await http('/agent/turn', { token, method: 'POST', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
-        turns.push({ index: index + 1, status: result.status, response: summary(result.payload) });
+      try {
+        if (group.status !== 201 || !group.payload?.conversationId) throw new Error(`fixture group failed ${testCase.id}`);
+        const conversationId = group.payload.conversationId;
+        const turns = [];
+        for (let index = 0; index < testCase.turns.length; index += 1) {
+          if (testCase.reconnectBefore === index) token = await login(who.email);
+          const body = { input: testCase.turns[index], conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' };
+          const result = await http('/agent/turn', { token, method: 'POST', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
+          turns.push({ index: index + 1, status: result.status, response: summary(result.payload) });
+        }
+        if (testCase.replayFinal) {
+          const replay = await http('/agent/turn', { token, method: 'POST', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
+          turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload) });
+        }
+        const { data: created } = await admin.from('commitments').select('id').eq('owner_user_id', who.id);
+        for (const row of created || []) commitmentIds.add(row.id);
+        const expectedWrite = testCase.write;
+        const hasPlan = turns.some(turn => turn.response?.hasPlan);
+        const final = turns.at(-1)?.response;
+        const allHttpOk = turns.every(turn => turn.status === 200);
+        const passed = allHttpOk && hasPlan && final?.answerPresent === true
+          && (expectedWrite ? (created?.length ?? 0) > 0 : (created?.length ?? 0) === 0);
+        report.cases.push({ id: testCase.id, family: testCase.family, turns, passed, expectedWrite, observedCommitments: created?.length ?? 0 });
+        const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
+        if (deleted.status !== 200) report.cases.at(-1).cleanupError = `group_${deleted.status}`;
+      } finally {
+        await deleteFixtureData(who.id);
+        identitiesDeleted += 1;
       }
-      if (testCase.replayFinal) {
-        const replay = await http('/agent/turn', { token, method: 'POST', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
-        turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload) });
-      }
-      const { data: created } = await admin.from('commitments').select('id').eq('owner_user_id', who.id);
-      for (const row of created || []) commitmentIds.add(row.id);
-      const expectedWrite = testCase.write;
-      const hasPlan = turns.some(turn => turn.response?.hasPlan);
-      const final = turns.at(-1)?.response;
-      const allHttpOk = turns.every(turn => turn.status === 200);
-      const passed = allHttpOk && hasPlan && final?.answerPresent === true
-        && (expectedWrite ? (created?.length ?? 0) > 0 : (created?.length ?? 0) === 0);
-      report.cases.push({ id: testCase.id, family: testCase.family, turns, passed, expectedWrite, observedCommitments: created?.length ?? 0 });
-      const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
-      if (deleted.status !== 200) report.cases.at(-1).cleanupError = `group_${deleted.status}`;
     }
     report.success = report.cases.length === 100 && report.cases.every(item => item.passed);
     report.sideEffects.persistenceMutations = commitmentIds.size;
     report.sideEffects.writers = commitmentIds.size;
     report.cleanupOrphanedIdentities = orphanedIdentities;
+    report.identitiesDeleted = identitiesDeleted;
   } finally {
-    try { await deleteFixtureData(who.id); report.cleanup = { identityDeleted: 1, commitmentCount: commitmentIds.size, orphanedIdentities }; }
-    catch (error) { report.cleanup = { identityDeleted: 0, error: error?.message || String(error) }; report.success = false; }
+    report.cleanup = { identitiesDeleted, commitmentCount: commitmentIds.size, orphanedIdentities };
   }
 }
 
