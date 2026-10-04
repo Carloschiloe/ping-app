@@ -1,4 +1,3 @@
-import { getEnvConfig } from '../config/env';
 import { AppError } from '../utils/AppError';
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentTurnInput, AgentTurnResult } from '../types/agentTurn';
@@ -12,6 +11,7 @@ import { AgentDialogueCheckpointService, type DialogueCheckpointLoadResult } fro
 import { AgentTurnCommitService, toAgentTurnReplayV1, toAgentTurnReplayV2 } from './agentTurnCommit.service';
 import { resolveTextSurface } from './agentInputEnvelope.service';
 import { verifyVoiceInputToken } from './agentInputEnvelope.service';
+import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 
 const DIALOGUE_STATE_ENVELOPE = 'agent_dialogue_state_v1' as const;
 
@@ -28,10 +28,7 @@ export type AgentTurnDurableBoundaryDeps = {
 };
 
 export function isDurableGeneralAgentTurnEnabled(): boolean {
-    const environment = getEnvConfig().environmentName;
-    return (environment === 'local' || environment === 'staging')
-        && process.env.PING_ENABLE_DURABLE_AGENT_TURN === 'true'
-        && Boolean(process.env.PING_M7_DATABASE_URL);
+    return isCanonicalDurableAgentRuntimeEnabled();
 }
 
 export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date()): string {

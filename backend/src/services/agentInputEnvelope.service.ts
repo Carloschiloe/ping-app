@@ -96,7 +96,7 @@ export function createTextInputEnvelope(input: {
         inputId: randomUUID(),
         actorUserId: input.actorUserId,
         surface,
-        modality: 'text',
+        modality: input.channel === 'mobile_voice' ? 'voice' : 'text',
         content: input.content,
         audioRef: null,
         transcriptRef: null,
@@ -156,6 +156,7 @@ export function createReviewedVoiceTextInputEnvelope(input: {
 export function resolveTextSurface(channel?: string): AgentSurface {
     return channel === 'web' ? 'web'
         : channel === 'desktop' ? 'desktop'
+            : channel === 'mobile_voice' ? 'mobile_voice'
             : channel === 'tablet' ? 'tablet'
                 : channel === 'car' ? 'car'
                     : channel === 'device' ? 'device'

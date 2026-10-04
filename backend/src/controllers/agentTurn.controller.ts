@@ -3,10 +3,11 @@
 // maps result to discriminated union, maps known errors to HTTP.
 import { Request, Response } from 'express';
 import { runAgentTurn } from '../services/agentTurn.service';
+import { runCanonicalAgentTurn } from '../services/agentConversationRuntime.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
-import { isDurableGeneralAgentTurnEnabled, runDurableAgentTurn } from '../services/agentTurnDurableBoundary.service';
+import { isDurableGeneralAgentTurnEnabled } from '../services/agentTurnDurableBoundary.service';
 
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
@@ -42,7 +43,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
             traceId,
         };
         const result = durableEnabled
-            ? await runDurableAgentTurn(turnInput, {}, idempotencyKey!)
+            ? await runCanonicalAgentTurn(turnInput, {}, idempotencyKey!)
             : await runAgentTurn(turnInput);
 
         // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render

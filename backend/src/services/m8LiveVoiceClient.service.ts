@@ -1,7 +1,6 @@
 import { AppError } from '../utils/AppError';
 import { M8_VOICE_PROTOCOL_VERSION } from './m8VoiceBootstrapProtocol';
 import { M8_VOICE_PRESENTATION_BROWSER_SOURCE } from './m8VoicePresentation.service';
-import { M8_VOICE_CONFIRMATION_BROWSER_SOURCE } from './m8VoiceConfirmationContract.service';
 
 // Credential-free WebView client served by the HTTPS staging origin. The
 // native shell injects the authenticated session envelope; this document
@@ -16,10 +15,9 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 </style></head><body><main><div id="orb" class="orb">&#9673;</div><div id="status" class="status">Preparando Ping...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline muted></audio></main><script nonce="__M8_SCRIPT_NONCE__">
 (function(){
   ${M8_VOICE_PRESENTATION_BROWSER_SOURCE}
-  ${M8_VOICE_CONFIRMATION_BROWSER_SOURCE}
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500;
-  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,authorizationInFlight=false,executionInFlight=false,pendingPlan=null,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle';
+  let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle';
   const id=()=>{try{return crypto.randomUUID()}catch{return 'm8-'+Date.now()+'-'+Math.random().toString(16).slice(2)}};
   const post=(message)=>{try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(message))}catch{}};
   const setStatus=(text,hint,active=false)=>{statusEl.textContent=text;hintEl.textContent=hint||'';orb.className=active?'orb active':'orb'};
@@ -50,45 +48,14 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
   const completeAssistantResponse=(detailCode)=>{const wasSpeaking=assistantSpeaking||lastAudioState==='playing';const shouldReturnToListening=responseHasAudio||wasSpeaking||lastAudioState==='playing';outputPlaybackPending=shouldReturnToListening;pendingPlaybackInterruption=false;assistantSpeaking=false;responseActive=false;lastAudioState='provider_done';telemetry('voice_stage',{stage:'provider_audio_generation_done',detailCode,responseHasAudio,realtimeOutputText:responseOutputText||undefined,audioDeltaCount:responseAudioDeltaCount,sideEffects:0});if(shouldReturnToListening&&!closed&&!failed&&currentStage!=='listening')stage('listening','Ping está listo','Habla cuando quieras.',{detailCode,sideEffects:0});responseHasAudio=false;responseProviderId=null;responseTurnId=null;responseOutputText='';responseAudioDeltaCount=0};
   const createResponse=(cause,toolChoice)=>{responseActive=true;responsePurpose=toolChoice==='required'?'tool_selection':'core_presentation';responseHasAudio=toolChoice!=='required';responseProviderId=null;responseTurnId=activeTurnId;responseOutputText='';responseAudioDeltaCount=0;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,responseHasAudio,sideEffects:0});sendEvent({type:'response.create',response:toolChoice==='required'?{tool_choice:'required',output_modalities:['text'],instructions:'Selecciona únicamente la herramienta ping_core_turn para entregar la transcripción exacta. No generes texto narrativo ni audio en esta fase.'}:{tool_choice:'none',output_modalities:['audio'],instructions:'Verbaliza únicamente el texto autorizado de core_presentation. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones que no estén contenidos en ese payload. Conserva literalmente la aclaración y la confirmación requerida por Core.'}})};
-  const apiJson=async(path,body,code)=>{const options={method:body?'POST':'GET',headers:{Authorization:cfg.authorization,'Content-Type':'application/json'}};if(body)options.body=JSON.stringify(body);const response=await withTimeout(fetch(cfg.apiUrl+path,options),20000,code);const raw=await response.text();let value=null;try{value=JSON.parse(raw)}catch{}if(!response.ok){const message=safeText(value?.error||value?.message||('http_'+response.status),160)||('http_'+response.status);throw Object.assign(new Error(message),{httpStatus:response.status,code})}return value};
-  const listFromReadResponse=(value)=>Array.isArray(value)?value:Array.isArray(value?.commitments)?value.commitments:Array.isArray(value?.proposals)?value.proposals:[];
-  const verifyCreatedEntities=async(execution)=>{const refs=Array.isArray(execution?.createdEntityRefs)?execution.createdEntityRefs:[];if(refs.length===0)throw new Error('execution_missing_created_entity');for(const ref of refs){const path=ref?.entityType==='commitment'?'/commitments':ref?.entityType==='commitment_proposal'?'/commitment-proposals':null;if(!path)throw new Error('read_after_write_unsupported_entity');const rows=listFromReadResponse(await apiJson(path,null,'read_after_write_failed'));if(!rows.some(row=>String(row?.id||row?.commitmentId||row?.proposalId)===String(ref.entityId)))throw new Error('read_after_write_not_found')}return refs};
-  const failurePresentation=(error)=>({kind:'error',authorizedText:safeText(error?.message||'No se pudo completar la acción autorizada.',800)||'No se pudo completar la acción autorizada.',confirmationRequired:false});
-  const authorizeAndExecute=async(core,turnId)=>{
-    if(authorizationInFlight||executionInFlight){telemetry('input_ignored',{detailCode:'authorization_or_execution_in_flight',turnId,sideEffects:0});return failurePresentation(new Error('La ejecución anterior todavía está en curso.'))}
-    const plan=core?.plan;const sourceInput=pendingPlan?.sourceInput;const expectedDigest=pendingPlan?.planDigest;
-    if(!sourceInput||!plan||typeof plan.planDigest!=='string'||plan.planDigest!==expectedDigest||!Array.isArray(plan.steps)||plan.steps.length===0){pendingPlan=null;telemetry('execution_blocked',{detailCode:'confirmation_context_unavailable',turnId,sideEffects:0});return failurePresentation(new Error('El plan ya no está disponible para autorizarlo.'))}
-    authorizationInFlight=true;
-    try{
-      stage('authorization_requested','Confirmación recibida','Validando el plan con Ping Core.',{turnId,sideEffects:0});
-      const authorization=await apiJson('/agent/authorize',{input:sourceInput,channel:'mobile',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId,planDigest:plan.planDigest,stepIds:plan.steps.map(step=>step.stepId),confirm:true},'agent_authorize_failed');
-      if(typeof authorization?.authorizationId!=='string')throw new Error('authorization_response_invalid');
-      telemetry('authorization_received',{turnId,authorizationIdPresent:true,sideEffects:0});
-      stage('authorization_granted','Plan autorizado','Ejecutando la acción confirmada.',{turnId,sideEffects:0});
-      executionInFlight=true;
-      const execution=await apiJson('/agent/execute',{authorizationId:authorization.authorizationId},'agent_execute_failed');
-      telemetry('execution_result',{turnId,executionStatus:execution?.status,executedStepCount:Array.isArray(execution?.executedSteps)?execution.executedSteps.length:0,createdEntityCount:Array.isArray(execution?.createdEntityRefs)?execution.createdEntityRefs.length:0,sideEffects:0});
-      const successful=execution?.status==='done'&&Array.isArray(execution?.executedSteps)&&execution.executedSteps.length>0&&execution.executedSteps.every(step=>step?.status==='succeeded'&&step?.verified===true);
-      if(!successful)throw new Error(safeText(execution?.humanReadableSummary||'execution_not_verified',240)||'execution_not_verified');
-      stage('read_after_write_started','Verificando el resultado','Comprobando la persistencia real.',{turnId,sideEffects:0});
-      const refs=await verifyCreatedEntities(execution);
-      telemetry('read_after_write_verified',{turnId,createdEntityCount:refs.length,sideEffects:0});
-      stage('execution_verified','Acción verificada','El resultado quedó guardado.',{turnId,sideEffects:0});
-      pendingPlan=null;
-      return {kind:'response',authorizedText:safeText(execution.humanReadableSummary,800)||'Acción ejecutada y verificada.',confirmationRequired:false};
-    }catch(error){
-      telemetry('execution_failed',{turnId,...errorDetails(error),httpStatus:error?.httpStatus,sideEffects:0});
-      pendingPlan=null;
-      return failurePresentation(error);
-    }finally{authorizationInFlight=false;executionInFlight=false}
-  };
   async function callCore(input,callId,turnId){
     outputPlaybackPending=false;pendingPlaybackInterruption=false;setAudioGate(false);
     const coreStartedAt=Date.now();
     telemetry('core_request_started',{turnId:turnId||activeTurnId,transcript:safeText(input,500),detailCode:'agent_turn_started',sideEffects:0});
     stage('core_request_started','Ping está pensando','Consultando el mismo Ping Core.',{sideEffects:0});
-    const body={input,channel:'mobile',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId};
-    const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':id()},body:JSON.stringify(body)}),20000,'core_request_timeout');
+    const turnKey='m8-voice-'+cfg.voiceSessionId+'-'+(turnId||activeTurnId||id());
+    const body={input,channel:'mobile_voice',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId};
+    const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':turnKey},body:JSON.stringify(body)}),20000,'core_request_timeout');
     const text=await response.text();let result=null;try{result=JSON.parse(text)}catch{}
     stage('core_response_received',response.ok?'Respuesta recibida':'Core no disponible','Preparando la respuesta de voz.',{httpStatus:response.status,sideEffects:0});
     if(!response.ok)throw new Error('core_'+response.status);
@@ -96,9 +63,8 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     telemetry('core_disposition',{turnId:turnId||activeTurnId,coreKind:kind,coreAnswer:safeText(presentation.authorizedText,800),confirmationRequired:presentation.confirmationRequired,httpStatus:response.status,detailCode:'agent_turn_completed',sideEffects:0});
     telemetry('core_response_received',{turnId:turnId||activeTurnId,httpStatus:response.status,latencyMs:Date.now()-coreStartedAt,detailCode:'agent_turn_completed',sideEffects:0});
     const confirmationState=resolveM8VoiceConfirmationState(core);
-    if(shouldAuthorizeM8VoicePlan(core)){telemetry('confirmation_received',{coreKind:'plan',confirmationState,sideEffects:0});presentation=await authorizeAndExecute(core,turnId||activeTurnId)}
-    else if(kind==='plan'&&confirmationState==='required'&&typeof core.plan?.planDigest==='string'&&Array.isArray(core.plan?.steps)){pendingPlan={sourceInput:input,planDigest:core.plan.planDigest};telemetry('confirmation_requested',{coreKind:'plan',confirmationState,confirmationRequired:true,sideEffects:0});telemetry('plan_pending_confirmation',{turnId:turnId||activeTurnId,planDigestPresent:true,stepCount:core.plan.steps.length,confirmationState,sideEffects:0})}
-    else if(kind==='response'||kind==='unsupported'||kind==='clarification')pendingPlan=null;
+    if(confirmationState==='received')telemetry('confirmation_received',{coreKind:kind,confirmationState,sideEffects:0});
+    if(kind==='plan'&&confirmationState==='required'&&typeof core.plan?.planDigest==='string'&&Array.isArray(core.plan?.steps)){telemetry('confirmation_requested',{coreKind:'plan',confirmationState,confirmationRequired:true,sideEffects:0});telemetry('plan_pending_confirmation',{turnId:turnId||activeTurnId,planDigestPresent:true,stepCount:core.plan.steps.length,confirmationState,sideEffects:0})}
     sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:presentation})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:confirmationState==='received'?'verified_execution_result':'ping_core_turn_output',coreKind:presentation.kind,coreAnswer:safeText(presentation.authorizedText,800),confirmationRequired:presentation.confirmationRequired,confirmationState,sideEffects:0});createResponse('core_result_authorized','none');setAudioGate(true);
   }
   function onEvent(raw){

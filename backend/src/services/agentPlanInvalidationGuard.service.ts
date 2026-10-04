@@ -1,4 +1,5 @@
 import { agentDialogueCheckpointService } from './agentDialogueCheckpoint.service';
+import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 import type { AgentObjective } from '../types/agentPlan';
 
 // Process-local defense for the default in-memory dialogue boundary. Staging
@@ -23,9 +24,10 @@ export function clearPlanDigestInvalidationsForTests(): void {
     processInvalidatedDigests.clear();
 }
 
-function resolveSurface(channel?: string): 'mobile_text' | 'web' | 'desktop' | 'tablet' | 'car' | 'device' {
+function resolveSurface(channel?: string): 'mobile_text' | 'mobile_voice' | 'web' | 'desktop' | 'tablet' | 'car' | 'device' {
     return channel === 'web' ? 'web'
         : channel === 'desktop' ? 'desktop'
+            : channel === 'mobile_voice' ? 'mobile_voice'
             : channel === 'tablet' ? 'tablet'
                 : channel === 'car' ? 'car'
                     : channel === 'device' ? 'device'
@@ -49,7 +51,7 @@ export async function isPlanDigestNonExecutable(input: {
         resolveSurface(input.inputEnvelope?.surface ?? input.channel),
     );
     if (processInvalidatedDigests.has(processDigestKey(input.actorUserId, dialogueScopeKey, input.planDigest))) return true;
-    if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true' || !process.env.PING_M7_DATABASE_URL) return false;
+    if (!isCanonicalDurableAgentRuntimeEnabled()) return false;
     const checkpoint = await agentDialogueCheckpointService.loadDialogueCheckpoint({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
@@ -73,7 +75,7 @@ export async function loadPendingDialogueObjective(input: {
     inputEnvelope?: { conversationId?: string | null; surface: string };
     planDigest: string;
 }): Promise<AgentObjective | null> {
-    if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true' || !process.env.PING_M7_DATABASE_URL) return null;
+    if (!isCanonicalDurableAgentRuntimeEnabled()) return null;
     const dialogueScopeKey = buildScope(
         input.inputEnvelope?.conversationId ?? input.conversationId,
         resolveSurface(input.inputEnvelope?.surface ?? input.channel),

@@ -34,6 +34,7 @@ describe('Agent surface contract', () => {
 
     it('keeps channel mapping and capabilities server-owned', () => {
         expect(resolveTextSurface('tablet')).toBe('tablet');
+        expect(resolveTextSurface('mobile_voice')).toBe('mobile_voice');
         expect(resolveTextSurface('unknown-client-value')).toBe('mobile_text');
         expect(surfaceSupports('tablet', 'voice_input')).toBe(true);
         expect(surfaceSupports('tablet', 'conversation_scope')).toBe(true);

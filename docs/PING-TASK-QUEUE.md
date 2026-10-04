@@ -18,6 +18,7 @@ evidence; a green unit test alone does not close a milestone.
 | P2 | INFRASTRUCTURE | Replace Expo Go with the SDK57 iOS development client for physical M8 testing | HUMAN_GATE_REQUIRED | Project is SDK57/RN0.86.3; Expo Go App Store iPhone runtime is SDK54. `expo-dev-client ~57.0.19` and EAS profile `staging-ios-dev` are configured locally; EAS Apple signing/build/install may require owner interaction |
 | P2 | INFRASTRUCTURE | Establish Android SDK57 development runtime on Windows | DONE_FOR_RUNTIME_PREPARATION | `Ping_M8_API35` booted; SDK57 development APK installed as `com.carloschiloe.ping.staging`; offline dev-client manifest HTTP 200, `adb reverse`, `Running main`, staging health `ok=true`, DB connected, microphone/audio output available. M8 behavior is still untested |
 | P3 | PRODUCT / CERTIFICATION | Execute M8 conversation trial in Android development runtime | READY_FOR_PHYSICAL_TEST | Must demonstrate user speech, Ping spoken response, same Core/context, interruption/barge-in and zero unsafe side effects. M8 remains incomplete |
+| P1 | ARCHITECTURE / BUG | Unify text and mobile voice on the durable conversation runtime | IN_PROGRESS | Recovered Redmi trace proves the prior Voice-local orchestration lost pending context; candidate must pass focused runtime/continuity tests, CI and staging exact-SHA certification before physical retest |
 
 ## Queue rules
 
