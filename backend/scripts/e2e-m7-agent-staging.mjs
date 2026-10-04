@@ -317,6 +317,15 @@ async function run() {
     };
     report.success = true;
   } finally {
+    const commitmentIdsToCleanup = [...new Set([
+      ...createdCommitmentIds,
+      ...report.turns.flatMap((turn) => turn.execution?.createdCommitmentIds ?? []),
+    ])];
+    report.cleanup = {
+      ...(report.cleanup ?? {}),
+      commitmentCleanupAttempted: commitmentIdsToCleanup.length > 0,
+      commitmentIdsObserved: commitmentIdsToCleanup.length,
+    };
     if (!cleanupDone && conversationId) {
       try {
         const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
@@ -327,19 +336,19 @@ async function run() {
     }
     if (token) {
       if (!cleanupDone) {
-        for (const commitmentId of createdCommitmentIds) {
+        for (const commitmentId of commitmentIdsToCleanup) {
           try { await http(`/commitments/${commitmentId}`, { token, method: 'DELETE' }); } catch { /* best-effort cleanup */ }
         }
       }
-      try {
-        await deleteTemporaryCommitmentArtifacts([...createdCommitmentIds]);
-      } catch (error) {
-        report.success = false;
-        report.cleanup = {
-          ...(report.cleanup ?? {}),
-          commitmentCleanupError: error?.message ?? String(error),
-        };
-      }
+    }
+    try {
+      await deleteTemporaryCommitmentArtifacts(commitmentIdsToCleanup);
+    } catch (error) {
+      report.success = false;
+      report.cleanup = {
+        ...(report.cleanup ?? {}),
+        commitmentCleanupError: error?.message ?? String(error),
+      };
     }
     if (identity.temporary) {
       try {
