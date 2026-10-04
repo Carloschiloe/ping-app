@@ -113,7 +113,11 @@ async function executionEvidence(actorUserId, turn) {
 }
 
 function summarizeObjective(state) {
-  const objective = state?.openObjective;
+  // Active dialogue snapshots wrap the objective as `openObjective`, while
+  // suspended entries persist the objective directly under `entry.objective`.
+  // Accept both shapes so staging evidence cannot erase a real suspended
+  // objective as `null`.
+  const objective = state?.openObjective ?? state;
   if (!objective || typeof objective !== 'object') return null;
   return {
     objectiveType: objective.objectiveType ?? null,
