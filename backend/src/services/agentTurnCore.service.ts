@@ -524,13 +524,12 @@ export async function runAgentTurn(
     // (for example, returning to an earlier task after changing topics). The
     // match is structural over interpreter-provided topic hints and requires a
     // unique candidate; Core never guesses among equally plausible objectives.
-    // A provider may classify an explicit return question as write-shaped
-    // because it mentions an action/objective. That route proposal must not
-    // suppress a safe resume when it is not itself a complete independent
-    // write objective. Core still refuses to resume when the candidate has
-    // its own target/person/time slots.
-    if (existingDialogueState?.suspendedObjectives?.length
-        && (semantic.route === 'read' || !isIndependentWriteObjective(semantic.objective))) {
+    // A provider may classify an explicit return/correction as write-shaped
+    // because it mentions an action/objective. The unique Core-side topic
+    // match is stronger evidence of which suspended objective is being
+    // addressed than that route label; the ordinary planner and authorization
+    // gates still decide what the resumed turn may do.
+    if (existingDialogueState?.suspendedObjectives?.length) {
         const topicHints = [
             ...semantic.interpretation.topicHints,
             ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
