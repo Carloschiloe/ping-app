@@ -8,9 +8,9 @@ PROJECT_NORTH_STAR: "Ping is one safe, natural, horizontal assistant over a shar
 CURRENT_MILESTONE: M8
 CURRENT_STATE: M8_CANONICAL_RUNTIME_REFACTOR_IN_PROGRESS
 ACTIVE_TASK: "Preserve the single durable conversation runtime boundary and prepare the next physical M8 voice validation only after recoverable telemetry is available."
-LAST_CERTIFIED_SHA: "0c52ab93b5bdb9621b5f86a7c88bbaea5cd681f0 (workflow 37216999644: quality PASS, exact staging deploy/health PASS, authenticated E2E PASS, cleanup PASS)"
-STAGING_REMOTE_SHA: 0c52ab93b5bdb9621b5f86a7c88bbaea5cd681f0
-STAGING_DEPLOYED_SHA: "0c52ab93b5bdb9621b5f86a7c88bbaea5cd681f0 (workflow 37216999644; exact SHA health PASS, authenticated E2E PASS; artifact run 51ccf186-d44a-47f0-8543-50febcc57059)"
+LAST_CERTIFIED_SHA: "ca2dc6f344e12787c14debc0aa283b261d9af935 (workflow 37217450944: quality PASS, exact staging deploy/health PASS, authenticated E2E PASS, cleanup PASS)"
+STAGING_REMOTE_SHA: ca2dc6f344e12787c14debc0aa283b261d9af935
+STAGING_DEPLOYED_SHA: "ca2dc6f344e12787c14debc0aa283b261d9af935 (workflow 37217450944; exact SHA health PASS, authenticated E2E PASS; artifact run 6de1933f-4043-4fae-9ec8-26afcd6a8fba)"
 KNOWN_FAILURES: "The prior physical Redmi trace is not recoverable because the process-local latest-telemetry buffer has no retained artifact. The durable runtime objective-switch/stale-slot defect is fixed and the authenticated staging E2E now passes through correction, rejection, confirmation, verified execution, read-after-write and fixture cleanup. No new physical test is authorized until a recoverable telemetry path is demonstrated. Expo Go remains invalid for SDK57; Android development build is the primary physical runtime."
 TECHNICAL_DEBT: "Legacy text PlanCard authorization contracts remain for compatibility, while the staging durable path moves semantic confirmation, authorization, execution and verification into the shared server runtime. The architecture audit is recorded in docs/PING-CONVERSATION-RUNTIME-ARCHITECTURE.md."
 SECURITY_DEBT: "Staging-only GitHub/Render controls remain in use; production secrets and data are not used. The authenticated live-voice session broker retains its staging feature gate."
