@@ -30,6 +30,7 @@ import {
     isExplicitPlanConfirmation,
     classifyPendingPlanDecision,
     isIndependentWriteObjective,
+    isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
 } from '../src/services/agentDialogueContinuation.service';
 
@@ -172,6 +173,45 @@ describe('semantic pending-plan reconciliation', () => {
         expect(result.correctedObjective?.targetEntities.entityHints).toEqual(['revisar inventario']);
         expect(result.correctedObjective?.timeConstraints.rawHint).toBe('el viernes');
         expect(calls).toHaveLength(2);
+    });
+
+    it('applies a date-only semantic delta while preserving the existing clock time', () => {
+        const calls: any[] = [];
+        const prior = objective({
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            sourceUtterance: 'Revisar inventario mañana a las 10',
+        });
+        const result = buildPendingPlanEdit({
+            dialogueState: dialogueState({ lifecycle: 'plan_pending_authorization', openObjective: prior, currentPlanDigestRef: 'old-digest' }),
+            candidate: objective({
+                dialogueAct: 'correct',
+                slotDelta: { title: null, date: 'el viernes', time: null },
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+                sourceUtterance: 'mejor el viernes',
+            }),
+            dialogueService: { applyCorrection: (value) => calls.push(value) },
+            dialogueScopeKey: CONV_1,
+            actorUserId: ACTOR_A,
+            turnId: 'edit-date-1',
+            now: new Date('2026-01-01T00:00:00.000Z'),
+        });
+        expect(result.isEdit).toBe(true);
+        expect(result.changedSlots).toEqual(['date']);
+        expect(result.correctedObjective?.timeConstraints.rawHint).toBe('el viernes a las 10');
+        expect(calls).toHaveLength(1);
+    });
+
+    it('never treats a mixed approval plus material delta as confirmation', () => {
+        const candidate = objective({
+            dialogueAct: 'correct',
+            slotDelta: { title: null, date: null, time: 'a las 12' },
+            constraints: { decisionHint: 'approve' },
+            targetEntities: { personHints: [], entityHints: [] },
+        });
+        expect(classifyPendingPlanDecision(candidate)).toBeNull();
+        expect(isSelfContainedPendingPlanCandidate(candidate)).toBe(false);
     });
 });
 
@@ -724,6 +764,42 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
 });
 
 describe('M-7 physical defect regressions: pending edits and cancellation', () => {
+    it('real semantic correction wins over approval metadata and never executes the old plan', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Agendar llamar a Pedro mañana a las 10',
+            targetEntities: { personHints: [], entityHints: ['llamar a Pedro'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+        }));
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Agendar llamar a Pedro mañana a las 10' });
+        expect(first.kind).toBe('plan');
+        if (first.kind !== 'plan') return;
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            dialogueAct: 'correct',
+            slotDelta: { title: null, date: null, time: 'a las 12' },
+            constraints: { decisionHint: 'approve' },
+            sourceUtterance: 'No, mejor cambie la hora, déjalo para las 12.',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+        }));
+        const corrected = await runAgentTurn({
+            actorUserId: ACTOR_A,
+            input: 'No, mejor cambie la hora, déjalo para las 12.',
+        });
+
+        expect(corrected.kind).toBe('plan');
+        if (corrected.kind === 'plan') {
+            expect(corrected.confirmationState).toBe('required');
+            expect(corrected.plan.planDigest).not.toBe(first.plan.planDigest);
+            const originalDate = first.presentation?.stepPresentations[0]?.dateLabel?.split(' a las ')[0];
+            const correctedDate = corrected.presentation?.stepPresentations[0]?.dateLabel?.split(' a las ')[0];
+            expect(correctedDate).toBe(originalDate);
+        }
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
     it('real Core path replaces the pending title, preserves time, and requires a new digest', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({

@@ -306,9 +306,9 @@ describe('general Agent Turn durable boundary', () => {
 
         const output = await runDurableAgentTurn(input, {}, 'client-turn-1', deps, async (context) => {
             const current = context.dialogueService.getSnapshot(actorUserId, scope)!;
-            context.dialogueService.markResolved({
+            context.dialogueService.markResolvedAfterExecution({
                 actorUserId, dialogueScopeKey: scope, turnId: context.turnId,
-                turnSequence: current.lastTurnSequence + 1,
+                turnSequence: context.turnSequence,
             });
             return processed;
         });
@@ -318,7 +318,7 @@ describe('general Agent Turn durable boundary', () => {
             lifecycle: 'resolved',
             result: processed,
             activeDialogue: expect.objectContaining({
-                state: expect.objectContaining({ lifecycle: 'resolved', currentPlanDigestRef: 'digest-1' }),
+                state: expect.objectContaining({ lifecycle: 'resolved', currentPlanDigestRef: null }),
             }),
         }));
     });

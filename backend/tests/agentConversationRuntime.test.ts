@@ -41,6 +41,7 @@ describe('canonical conversation runtime', () => {
     const dialogueService = {
         getSnapshot: vi.fn(() => ({ lastTurnSequence: 7 })),
         markResolved: vi.fn(),
+        markResolvedAfterExecution: vi.fn(),
     };
 
     beforeEach(() => {
@@ -78,8 +79,8 @@ describe('canonical conversation runtime', () => {
         expect(result).toMatchObject({
             kind: 'response', response: { status: 'answered', answer: 'Compromiso creado y verificado.' },
         });
-        expect(dialogueService.markResolved).toHaveBeenCalledWith(expect.objectContaining({
-            actorUserId: 'actor-1', dialogueScopeKey: 'scope-1', turnSequence: 8,
+        expect(dialogueService.markResolvedAfterExecution).toHaveBeenCalledWith(expect.objectContaining({
+            actorUserId: 'actor-1', dialogueScopeKey: 'scope-1', turnSequence: 1,
         }));
     });
 

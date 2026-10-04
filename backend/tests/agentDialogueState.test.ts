@@ -391,6 +391,24 @@ describe('expiry (test areas 18-19, ADR Q8)', () => {
     });
 });
 
+describe('verified execution terminal transition', () => {
+    it('resolves within the admitted turn and clears executable plan references', () => {
+        const service = new AgentDialogueStateService();
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'd1', turnId: 't1', turnSequence: 2 });
+
+        const resolved = service.markResolvedAfterExecution({
+            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, turnId: 't1', turnSequence: 1,
+        });
+
+        expect(resolved.lifecycle).toBe('resolved');
+        expect(resolved.lastTurnSequence).toBe(1);
+        expect(resolved.currentPlanDigestRef).toBeNull();
+        expect(resolved.currentAuthorizationIdRef).toBeNull();
+        expect(resolved.pendingClarification).toBeNull();
+    });
+});
+
 describe('reset/delete (test area 20)', () => {
     it('20. soft reset clears the objective/corrections/clarification and returns to idle', () => {
         const service = new AgentDialogueStateService();

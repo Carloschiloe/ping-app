@@ -66,11 +66,11 @@ async function executeConfirmedTurn(
     if (verified) {
         const state = context.dialogueService.getSnapshot(input.actorUserId, context.dialogueScopeKey);
         if (state) {
-            context.dialogueService.markResolved({
+            context.dialogueService.markResolvedAfterExecution({
                 actorUserId: input.actorUserId,
                 dialogueScopeKey: context.dialogueScopeKey,
                 turnId: context.turnId,
-                turnSequence: state.lastTurnSequence + 1,
+                turnSequence: context.turnSequence,
             });
         }
     }

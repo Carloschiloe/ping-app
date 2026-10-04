@@ -22,7 +22,12 @@ import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
 import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
-import { mergeTemporalCorrection, parseDateFromText } from './date-parser.service';
+import {
+    extractDateTextSpans,
+    extractExplicitTimeHint,
+    mergeTemporalCorrection,
+    parseDateFromText,
+} from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { LlmObjectiveInterpreter, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
@@ -164,7 +169,7 @@ export function classifyPendingPlanDecision(
 export interface PendingPlanEditResult {
     isEdit: boolean;
     correctedObjective?: AgentObjective;
-    changedSlots: Array<'title' | 'time'>;
+    changedSlots: Array<'title' | 'date' | 'time'>;
 }
 
 /**
@@ -199,13 +204,23 @@ export function buildPendingPlanEdit(input: {
 
     const nextTitle = input.candidate.slotDelta?.title?.trim()
         || input.candidate.targetEntities.entityHints[0]?.trim() || null;
-    const nextTime = input.candidate.slotDelta?.time?.trim()
-        || input.candidate.timeConstraints.rawHint?.trim() || null;
+    const deltaDate = input.candidate.slotDelta?.date?.trim() || null;
+    const deltaTime = input.candidate.slotDelta?.time?.trim() || null;
+    const legacyTemporal = input.candidate.timeConstraints.rawHint?.trim() || null;
     const priorTitle = prior.targetEntities.entityHints[0]?.trim() || null;
     const priorTime = prior.timeConstraints.rawHint?.trim() || null;
-    const changedSlots: Array<'title' | 'time'> = [];
+    const priorDate = priorTime ? extractDateTextSpans(priorTime)[0]?.text?.trim() ?? null : null;
+    const priorClock = priorTime ? extractExplicitTimeHint(priorTime) : null;
+    const candidateDate = deltaDate;
+    const candidateClock = deltaTime;
+    const nextTime = deltaDate || deltaTime
+        ? [candidateDate ?? priorDate, candidateClock ?? priorClock].filter(Boolean).join(' ').trim()
+        : legacyTemporal;
+    const changedSlots: Array<'title' | 'date' | 'time'> = [];
     if (nextTitle && nextTitle !== priorTitle) changedSlots.push('title');
-    if (nextTime && nextTime !== priorTime) changedSlots.push('time');
+    if (candidateDate && candidateDate !== priorDate) changedSlots.push('date');
+    if (candidateClock && candidateClock !== priorClock) changedSlots.push('time');
+    if (!candidateDate && !candidateClock && nextTime && nextTime !== priorTime) changedSlots.push('time');
     if (changedSlots.length === 0) return { isEdit: false, changedSlots };
 
     let turnSequence = input.dialogueState.lastTurnSequence + 1;
@@ -223,7 +238,7 @@ export function buildPendingPlanEdit(input: {
         turnSequence += 1;
     }
 
-    const sourceUtterance = changedSlots.includes('time')
+    const sourceUtterance = changedSlots.includes('time') || changedSlots.includes('date')
         ? `${nextTitle ?? priorTitle ?? ''} ${input.candidate.sourceUtterance}`.trim()
         : `${input.candidate.sourceUtterance} ${prior.sourceUtterance}`.trim();
     return {

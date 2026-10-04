@@ -699,6 +699,34 @@ export class AgentDialogueStateService {
         return this.persist(next, existing.version);
     }
 
+    // Execution is a post-process of the same admitted turn, not a new user
+    // turn. The in-process dialogue pipeline may perform several internal
+    // transitions while building the plan, so its sequence can be ahead of
+    // the durable admission sequence. Reusing markResolved here would make
+    // the next admitted turn look stale. Reconcile the terminal state to the
+    // admission sequence and clear references that must not be reused after
+    // a verified write.
+    markResolvedAfterExecution(input: { actorUserId: string; dialogueScopeKey: string; turnId: string; turnSequence: number }): AgentDialogueState {
+        const now = this.now();
+        const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
+        if (!existing) throw new AppError('No open dialogue state to resolve', 404);
+        if (existing.lifecycle === 'resolved') return existing;
+
+        const nextLifecycle = transitionDialogueState(existing.lifecycle, 'resolved');
+        const next: AgentDialogueState = {
+            ...existing,
+            lifecycle: nextLifecycle,
+            currentPlanDigestRef: null,
+            currentAuthorizationIdRef: null,
+            pendingClarification: null,
+            ambiguities: [],
+            lastTurnSequence: input.turnSequence,
+            updatedAt: now.toISOString(),
+            expiresAt: computeExpiry(nextLifecycle, now),
+        };
+        return this.persist(next, existing.version);
+    }
+
     // ADR Q8 — manual reset ("olvida eso" / "empecemos de nuevo" / logout /
     // conversation switch not bleeding into a new scope). Clears the
     // objective/corrections/clarification and returns to idle, or deletes
