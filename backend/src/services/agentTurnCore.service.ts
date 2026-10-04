@@ -73,6 +73,7 @@ import {
     classifyPendingPlanDecision,
     isIndependentWriteObjective,
     isSelfContainedPendingPlanCandidate,
+    groundPendingPlanCandidate,
 } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
@@ -403,12 +404,15 @@ export async function runAgentTurn(
             && precomputedSemantic.objective
             && precomputedSemantic.objective.objectiveType !== 'unsupported'
             ? precomputedSemantic.objective : null;
-        const pendingPlanCandidate = routeCandidate
+        const pendingPlanCandidateRaw = routeCandidate
             && isSelfContainedPendingPlanCandidate(routeCandidate)
             ? routeCandidate
             : await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
                 ...pendingPlanContext,
             });
+        const pendingPlanCandidate = pendingPlanCandidateRaw
+            ? groundPendingPlanCandidate(pendingPlanCandidateRaw, content)
+            : null;
         if (pendingPlanCandidate) {
         const pendingPlanEdit = buildPendingPlanEdit({
             dialogueState: existingDialogueState,

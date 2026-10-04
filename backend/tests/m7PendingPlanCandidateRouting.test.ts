@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
-import { isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
+import { groundPendingPlanCandidate, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
 import { containsThirdPersonPronoun, hasUnresolvedPersonReference } from '../src/services/agentInputInterpreter.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
@@ -37,6 +37,23 @@ describe('M7 pending-plan candidate routing', () => {
         expect(isSelfContainedPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
         }))).toBe(true);
+    });
+
+    it('grounds a pending candidate temporal slot in the current utterance only', () => {
+        const grounded = groundPendingPlanCandidate(candidate({
+            targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
+            timeConstraints: { rawHint: 'jueves viernes' },
+        }), 'Cambiemos de objetivo: prepara la llamada al proveedor para el viernes.');
+        expect(grounded.timeConstraints.rawHint).toMatch(/viernes/i);
+        expect(grounded.timeConstraints.rawHint).not.toMatch(/jueves/i);
+    });
+
+    it('does not reinterpret lifecycle decisions as temporal plan edits', () => {
+        const decision = candidate({
+            constraints: { decisionHint: 'reject', draftOnly: false, responsibleHint: null },
+            timeConstraints: { rawHint: null },
+        });
+        expect(groundPendingPlanCandidate(decision, 'No lo ejecutes por ahora')).toEqual(decision);
     });
 
     it('treats demonstrative person references as unresolved until Core authorizes an antecedent', () => {

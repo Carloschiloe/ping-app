@@ -807,6 +807,30 @@ export async function classifyPlanCorrection(
     return { isCorrection: true, reason: pendingPlan ? 'date_correction' : 'open_objective_date_correction' };
 }
 
+/**
+ * A pending-plan candidate is an interpretation of the current utterance,
+ * not a second copy of the open plan. Ground temporal state at this Core
+ * boundary so a provider cannot carry or concatenate a previous date/time
+ * before replacement or correction is classified.
+ */
+export function groundPendingPlanCandidate(
+    candidate: AgentObjective,
+    currentInput: string,
+): AgentObjective {
+    // Lifecycle decisions are not replacement objectives. Their empty slot
+    // shape is intentional: grounding a generic temporal word such as
+    // "ahora" from a rejection/defer utterance could turn the decision back
+    // into a plan edit and bypass the pending-plan lifecycle path.
+    if (candidate.constraints.decisionHint) return candidate;
+    return {
+        ...candidate,
+        timeConstraints: {
+            ...candidate.timeConstraints,
+            rawHint: extractTimeHint(currentInput),
+        },
+    };
+}
+
 export interface PlanCorrectionResult {
     correctedObjective: AgentObjective;
     turnSequence: number;
