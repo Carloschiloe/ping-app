@@ -12,7 +12,7 @@ import { traceAuth } from '../utils/executionTrace';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
-import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
+import { isPlanDigestNonExecutable, loadPendingDialogueObjective } from './agentPlanInvalidationGuard.service';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
@@ -105,11 +105,18 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // final plan-status owner (semantic enrichment, LLM fallback,
     // validation, digest — all unchanged, all still exclusively there).
     // authorizePlan itself contains zero interpreter-selection policy.
-    const routing = await resolveDeterministicRouting(input.input, {
+    // A multi-turn confirmation may arrive after the user corrected the
+    // pending plan. In that case the short confirmation input is not the
+    // source of the plan. Re-derive from the durable Core-owned objective
+    // whose digest is being confirmed; never reinterpret it as a new request.
+    const pendingObjective = await loadPendingDialogueObjective(input);
+    const routing = pendingObjective ? null : await resolveDeterministicRouting(input.input, {
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
     });
-    const freshPlan = await runAgentPlanning(orchestratorInput, { resolvedObjective: routing.resolvedObjective });
+    const freshPlan = await runAgentPlanning(orchestratorInput, {
+        resolvedObjective: pendingObjective ?? routing?.resolvedObjective,
+    });
 
     traceAuth(input.traceId, 'REPLAN_FOR_AUTHORIZATION', {
         status: freshPlan.status, freshDigest: freshPlan.planDigest, claimedDigest: input.planDigest,

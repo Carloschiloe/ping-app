@@ -187,6 +187,82 @@ describe('Canonical planning pipeline: /agent/turn, /api/agent/plan, and /agent/
 // an actual canonical DB and a real row-count check) lives in
 // scratch-m4-real-persistence-proof.mjs (real local Postgres, not
 // committed — see the M-4 API/Core certification report for its output).
+describe('multi-turn authorization binds to the durable pending objective', () => {
+    it('replans a corrected pending objective instead of interpreting the short confirmation as a new request', async () => {
+        const previousFlag = process.env.PING_ENABLE_DURABLE_AGENT_TURN;
+        const previousDatabaseUrl = process.env.PING_M7_DATABASE_URL;
+        process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
+        process.env.PING_M7_DATABASE_URL = 'postgresql://local.invalid/ping';
+        try {
+            const { authorizePlan } = await import('../src/services/agentAuthorization.service');
+            const { resolveDeterministicRouting, runAgentPlanning } = await import('../src/services/agentPlanOrchestrator.service');
+            const input = 'Agenda entrenar mañana a las 8';
+            const scopeKey = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+            const routing = await resolveDeterministicRouting(input, { actorUserId: ACTOR_ID, conversationId: scopeKey });
+            const genuinePlan = await runAgentPlanning({ actorUserId: ACTOR_ID, input, conversationId: scopeKey, now }, { resolvedObjective: routing.resolvedObjective });
+            expect(genuinePlan.status).toBe('ready_for_authorization');
+            expect(genuinePlan.planDigest).toBeTruthy();
+
+            setSupabaseAdminMock(createSupabaseAdminMock({
+                agent_dialogue_checkpoints: [{
+                    data: {
+                        actor_user_id: ACTOR_ID,
+                        dialogue_scope_key: scopeKey,
+                        lifecycle: 'plan_pending_authorization',
+                        active_dialogue: {
+                            kind: 'agent_dialogue_state_v1',
+                            state: {
+                                actorUserId: ACTOR_ID,
+                                dialogueScopeKey: scopeKey,
+                                lifecycle: 'plan_pending_authorization',
+                                openObjective: genuinePlan.objective,
+                                currentPlanDigestRef: genuinePlan.planDigest,
+                                version: 2,
+                                lastTurnSequence: 3,
+                                expiresAt: new Date(now.getTime() + 600000).toISOString(),
+                            },
+                        },
+                        suspended_dialogue: null,
+                        version: 2,
+                        last_applied_turn_id: 'turn-3',
+                        last_applied_turn_sequence: 3,
+                        expires_at: new Date(now.getTime() + 600000).toISOString(),
+                    },
+                    error: null,
+                }],
+                agent_authorizations: [{
+                    data: {
+                        id: 'pending-objective-authorization', actor_user_id: ACTOR_ID,
+                        plan_digest: genuinePlan.planDigest, objective_type: genuinePlan.objective.objectiveType,
+                        frozen_steps: genuinePlan.steps, authorized_step_ids: genuinePlan.steps.map((step) => step.stepId),
+                        confirmation_level: 'explicit', status: 'authorized', issued_at: now.toISOString(),
+                        expires_at: new Date(now.getTime() + 300000).toISOString(), consumed_at: null, revoked_at: null, trace_id: null,
+                    },
+                    error: null,
+                }],
+            }));
+
+            const result = await authorizePlan({
+                actorUserId: ACTOR_ID,
+                input: 'Sí, confírmalo.',
+                conversationId: scopeKey,
+                now,
+                planDigest: genuinePlan.planDigest!,
+                requestedStepIds: genuinePlan.steps.map((step) => step.stepId),
+                confirm: true,
+            });
+
+            expect(result.ok).toBe(true);
+        } finally {
+            if (previousFlag === undefined) delete process.env.PING_ENABLE_DURABLE_AGENT_TURN;
+            else process.env.PING_ENABLE_DURABLE_AGENT_TURN = previousFlag;
+            if (previousDatabaseUrl === undefined) delete process.env.PING_M7_DATABASE_URL;
+            else process.env.PING_M7_DATABASE_URL = previousDatabaseUrl;
+            seedAuthorizationInsert();
+        }
+    });
+});
+
 describe('M-4 exact-plan digest binding: altering ANY execution-relevant field is rejected before authorization', () => {
     async function realPlan(input: string, conversationId?: string) {
         const { runAgentPlanning, resolveDeterministicRouting } = await import('../src/services/agentPlanOrchestrator.service');
