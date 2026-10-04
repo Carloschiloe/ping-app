@@ -528,6 +528,12 @@ export async function runAgentTurn(
         const topicHints = [
             ...semantic.interpretation.topicHints,
             ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
+            // The current utterance is an additional bounded topic signal.
+            // A read-shaped return can explicitly name a suspended objective
+            // even when the input interpreter omits that topic from its
+            // optional hints. Core still requires a unique structural match;
+            // this does not invent or resolve an objective from free text.
+            content,
         ];
         const candidates = existingDialogueState.suspendedObjectives
             .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
@@ -1354,11 +1360,29 @@ function buildRiskLabel(riskLevel: 'low' | 'medium' | 'high'): string {
     }
 }
 
-function suspendedObjectiveMatchScore(objective: AgentObjective, topicHints: string[]): number {
+export function suspendedObjectiveMatchScore(objective: AgentObjective, topicHints: string[]): number {
     const candidates = [
         ...objective.targetEntities.entityHints,
         ...objective.targetEntities.personHints,
+        // The model's bounded objective summary/source preserve the natural
+        // wording of the earlier topic. They are still only match hints; a
+        // unique match is required before Core resumes anything.
+        objective.desiredOutcome,
+        objective.sourceUtterance,
     ].map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
     const hints = topicHints.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-    return candidates.reduce((score, candidate) => score + (hints.some((hint) => hint.includes(candidate) || candidate.includes(hint)) ? 1 : 0), 0);
+    return candidates.reduce((score, candidate) => score + (hints.some((hint) => topicHintMatches(candidate, hint)) ? 1 : 0), 0);
+}
+
+function topicHintMatches(candidate: string, hint: string): boolean {
+    if (hint.includes(candidate) || candidate.includes(hint)) return true;
+    const tokenize = (value: string): string[] => value
+        .normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
+        .split(/[^\p{L}\p{N}]+/u)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 4);
+    const candidateTokens = [...new Set(tokenize(candidate))];
+    const hintTokens = new Set(tokenize(hint));
+    const overlap = candidateTokens.filter((token) => hintTokens.has(token)).length;
+    return overlap >= 2 && overlap / Math.max(1, Math.min(candidateTokens.length, hintTokens.size)) >= 0.4;
 }

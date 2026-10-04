@@ -632,6 +632,17 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
         }
     });
 
+    it('matches a uniquely named suspended objective from the current utterance when optional topic hints are empty', async () => {
+        const { suspendedObjectiveMatchScore } = await import('../src/services/agentTurnCore.service');
+        expect(suspendedObjectiveMatchScore(objective({
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            desiredOutcome: 'Necesito coordinar la revisión del inventario para el jueves.',
+        }), ['Volvamos a la revisión del inventario; ¿qué fecha tiene?'])).toBe(1);
+        expect(suspendedObjectiveMatchScore(objective({
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+        }), ['¿Qué fecha tiene?'])).toBe(0);
+    });
+
     it('reconciles a lifecycle rejection even when the route proposal is read-shaped', async () => {
         llmInputInterpretMock.mockResolvedValueOnce(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
