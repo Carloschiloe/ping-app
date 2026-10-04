@@ -44,6 +44,7 @@ function summary(payload) {
     objectiveType: payload?.objectiveType ?? plan?.objectiveType ?? null,
     confirmationRequired: Boolean(payload?.requiresConfirmation || payload?.planForConfirmation),
     answerPresent: typeof payload?.response?.answer === 'string' || typeof payload?.answer === 'string',
+    errorCode: typeof payload?.error === 'string' ? payload.error.slice(0, 120) : null,
   };
 }
 
@@ -85,16 +86,43 @@ function cases() {
   return out;
 }
 
-async function deleteFixtureData(actorId, commitmentIds) {
+async function deleteFixtureData(actorId) {
+  const { data: commitments, error: commitmentError } = await admin.from('commitments').select('id,proposal_id').eq('owner_user_id', actorId);
+  if (commitmentError) throw commitmentError;
+  const commitmentIds = (commitments || []).map(row => row.id).filter(Boolean);
+  const proposalIds = (commitments || []).map(row => row.proposal_id).filter(Boolean);
+  const { data: proposals, error: proposalError } = await admin.from('commitment_proposals').select('id').eq('proposed_by_user_id', actorId);
+  if (proposalError) throw proposalError;
+  const allProposalIds = [...new Set([...proposalIds, ...(proposals || []).map(row => row.id).filter(Boolean)])];
+  if (commitmentIds.length) {
+    const { error } = await admin.from('commitment_audit_records').delete().in('commitment_id', commitmentIds); if (error) throw error;
+    const { error: commitmentDeleteError } = await admin.from('commitments').delete().in('id', commitmentIds); if (commitmentDeleteError) throw commitmentDeleteError;
+  }
+  if (allProposalIds.length) {
+    for (const table of ['commitment_audit_records', 'commitment_proposal_events', 'commitment_proposal_responses']) {
+      const { error } = await admin.from(table).delete().in('proposal_id', allProposalIds); if (error) throw error;
+    }
+    const { error } = await admin.from('commitment_proposals').delete().in('id', allProposalIds); if (error) throw error;
+  }
   const tables = ['agent_executions', 'agent_authorizations', 'agent_turn_semantic_checkpoints', 'agent_turn_admissions', 'agent_turn_sequence_allocators', 'agent_dialogue_checkpoints'];
   for (const table of tables) { const { error } = await admin.from(table).delete().eq('actor_user_id', actorId); if (error) throw error; }
-  if (commitmentIds.length) {
-    for (const table of ['commitment_audit_records', 'commitments']) { const { error } = await admin.from(table).delete().in('commitment_id', commitmentIds); if (error) throw error; }
-  }
   const deleted = await admin.auth.admin.deleteUser(actorId); if (deleted.error) throw deleted.error;
 }
 
+async function cleanupOrphanedJarvisIdentities() {
+  const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (listed.error) throw listed.error;
+  let deleted = 0;
+  for (const user of listed.data?.users || []) {
+    if (user.user_metadata?.e2e_suite !== 'jarvis_100') continue;
+    await deleteFixtureData(user.id);
+    deleted += 1;
+  }
+  return deleted;
+}
+
 async function run() {
+  const orphanedIdentities = await cleanupOrphanedJarvisIdentities();
   const who = await identity();
   let token = await login(who.email);
   const commitmentIds = new Set();
@@ -109,28 +137,29 @@ async function run() {
         const body = { input: testCase.turns[index], conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' };
         const result = await http('/agent/turn', { token, method: 'POST', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
         turns.push({ index: index + 1, status: result.status, response: summary(result.payload) });
-        if (result.status !== 200) throw new Error(`${testCase.id} turn ${index + 1} returned ${result.status}`);
       }
       if (testCase.replayFinal) {
         const replay = await http('/agent/turn', { token, method: 'POST', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
         turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload) });
-        if (replay.status !== 200) throw new Error(`${testCase.id} replay returned ${replay.status}`);
       }
       const { data: created } = await admin.from('commitments').select('id').eq('owner_user_id', who.id);
       for (const row of created || []) commitmentIds.add(row.id);
       const expectedWrite = testCase.write;
       const hasPlan = turns.some(turn => turn.response?.hasPlan);
       const final = turns.at(-1)?.response;
-      const passed = hasPlan && final?.answerPresent === true && (!expectedWrite || final?.kind === 'response' || final?.responseStatus === 'success');
+      const allHttpOk = turns.every(turn => turn.status === 200);
+      const passed = allHttpOk && hasPlan && final?.answerPresent === true
+        && (expectedWrite ? (created?.length ?? 0) > 0 : (created?.length ?? 0) === 0);
       report.cases.push({ id: testCase.id, family: testCase.family, turns, passed, expectedWrite, observedCommitments: created?.length ?? 0 });
       const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
-      if (deleted.status !== 200) throw new Error(`${testCase.id} fixture cleanup returned ${deleted.status}`);
+      if (deleted.status !== 200) report.cases.at(-1).cleanupError = `group_${deleted.status}`;
     }
     report.success = report.cases.length === 100 && report.cases.every(item => item.passed);
     report.sideEffects.persistenceMutations = commitmentIds.size;
     report.sideEffects.writers = commitmentIds.size;
+    report.cleanupOrphanedIdentities = orphanedIdentities;
   } finally {
-    try { await deleteFixtureData(who.id, [...commitmentIds]); report.cleanup = { identityDeleted: 1, commitmentCount: commitmentIds.size }; }
+    try { await deleteFixtureData(who.id); report.cleanup = { identityDeleted: 1, commitmentCount: commitmentIds.size, orphanedIdentities }; }
     catch (error) { report.cleanup = { identityDeleted: 0, error: error?.message || String(error) }; report.success = false; }
   }
 }
