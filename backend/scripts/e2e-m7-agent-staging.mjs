@@ -231,9 +231,9 @@ async function run() {
     '\u00bfQu\u00e9 queda pendiente de eso?',
     'Volvamos a la revisi\u00f3n del inventario; \u00bfqu\u00e9 fecha tiene?',
     'Corrige esa fecha al lunes siguiente.',
-    'Confirma el plan vigente.',
     'No lo hagas todav\u00eda; prefiero dejarlo pendiente.',
-    'Hazlo con esa persona.',
+    'Confirma el plan vigente.',
+    '\u00bfQu\u00e9 qued\u00f3 registrado?',
   ];
   try {
     token = await loginWithMagicLink(identity.email);
@@ -256,13 +256,13 @@ async function run() {
         input: inputs[index],
         status: response.status,
         response: summarizePayload(response.payload),
-        execution: index === 5 ? await executionEvidence(identity.id, index + 1) : null,
+        execution: index === 6 ? await executionEvidence(identity.id, index + 1) : null,
         checkpoint: await checkpoint(identity.id, conversationId),
       });
       for (const commitmentId of report.turns.at(-1).execution?.createdCommitmentIds ?? []) {
         createdCommitmentIds.add(commitmentId);
       }
-      if (index === 5 && report.turns.at(-1).execution?.executionCount) {
+      if (index === 6 && report.turns.at(-1).execution?.executionCount) {
         report.sideEffects.agentWriters = report.turns.at(-1).execution.executionCount;
         report.sideEffects.commitmentMutations = report.turns.at(-1).execution.createdCommitmentIds.length;
       }

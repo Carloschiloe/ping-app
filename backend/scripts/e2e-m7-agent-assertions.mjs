@@ -77,41 +77,38 @@ export function assertStrongM7Sequence(turns) {
     excludedTime: ['jueves', 'viernes'],
   }), 'Turn 5 did not replace only the active inventory date');
 
-  const confirmed = objectiveOf(turns[5]);
-  assert(objectiveMatches(confirmed, {
-    entity: ['inventario'],
-    time: ['lunes'],
-    excludedEntity: ['proveedor'],
-    excludedTime: ['jueves', 'viernes'],
-  }), 'Turn 6 confirmation was not bound to the current objective');
-  // The canonical staging runtime now owns the complete confirmation path:
-  // /agent/turn binds the confirmation, then the server performs the
-  // canonical authorization/execution boundary before returning its final
-  // response.  The old assertion that required a dry-run plan described the
-  // pre-unification client-orchestrated contract and is no longer valid.
-  assert(turns[5].response?.kind === 'response', 'Turn 6 confirmation did not return the canonical execution response');
-  assert(turns[5].response?.responseStatus === 'answered', 'Turn 6 confirmation did not report a verified successful execution');
-  assert(turns[5].execution?.status === 'done', 'Turn 6 execution did not reach done');
-  assert(turns[5].execution?.verified === true, 'Turn 6 execution was not verified');
-
-  const deferred = objectiveOf(turns[6]);
+  const deferred = objectiveOf(turns[5]);
   assert(objectiveMatches(deferred, {
     entity: ['inventario'],
     time: ['lunes'],
     excludedEntity: ['proveedor'],
     excludedTime: ['jueves', 'viernes'],
-  }), 'Turn 7 changed the objective while deferring the current plan');
-  assert(turns[6].response?.kind === 'clarification' || turns[6].response?.kind === 'plan',
-    'Turn 7 did not produce a safe non-executing response');
+  }), 'Turn 6 changed the objective while deferring the current plan');
+  assert(turns[5].response?.kind === 'clarification' || turns[5].response?.kind === 'plan',
+    'Turn 6 did not produce a safe non-executing response');
 
-  const ambiguous = objectiveOf(turns[7]);
-  assert(objectiveMatches(ambiguous, {
+  const confirmed = objectiveOf(turns[6]);
+  assert(objectiveMatches(confirmed, {
     entity: ['inventario'],
     time: ['lunes'],
     excludedEntity: ['proveedor'],
     excludedTime: ['jueves', 'viernes'],
-  }), 'Turn 8 lost the active objective while resolving an ambiguous person');
-  assert(turns[7].response?.kind === 'clarification', 'Turn 8 did not ask for safe clarification');
+  }), 'Turn 7 confirmation was not bound to the current objective');
+  // The canonical staging runtime now owns the complete confirmation path:
+  // /agent/turn binds the confirmation, then the server performs the
+  // canonical authorization/execution boundary before returning its final
+  // response.  The old assertion that required a dry-run plan described the
+  // pre-unification client-orchestrated contract and is no longer valid.
+  assert(turns[6].response?.kind === 'response', 'Turn 7 confirmation did not return the canonical execution response');
+  assert(turns[6].response?.responseStatus === 'answered', 'Turn 7 confirmation did not report a verified successful execution');
+  assert(turns[6].execution?.status === 'done', 'Turn 7 execution did not reach done');
+  assert(turns[6].execution?.verified === true, 'Turn 7 execution was not verified');
+
+  const readAfterWrite = objectiveOf(turns[7]);
+  assert(readAfterWrite && readAfterWrite.objectiveType === 'create_commitment_or_proposal',
+    'Turn 8 did not preserve canonical context for read-after-write');
+  assert(turns[7].response?.kind === 'response' || turns[7].response?.kind === 'clarification',
+    'Turn 8 did not return a canonical read-after-write response');
   return { ok: true };
 }
 
