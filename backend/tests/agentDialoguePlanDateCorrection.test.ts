@@ -111,6 +111,26 @@ describe('Turn 1 — a real plan reaching ready_for_authorization is tracked as 
 });
 
 describe('Turn 2 — a bare date correction regenerates the SAME plan with the new date, never forcing the user to restate the request', () => {
+    it('the real temporal correction form cannot approve the old pending plan', async () => {
+        const first = await moveEntrenarToFriday();
+        expect(first.kind).toBe('plan');
+        const firstDigest = first.kind === 'plan' ? first.plan.planDigest : null;
+
+        retrieveCommitmentsMock.mockResolvedValueOnce([commitment(ENTRENAR_ID, 'Entrenar', '2026-09-20T08:00:00.000Z')]);
+        const second = await runAgentTurn({
+            actorUserId: ACTOR,
+            input: 'No, mire, mejor cambie la hora, d\u00e9jalo para las 15.',
+            conversationId: CONVERSATION_ID,
+        });
+
+        expect(second.kind).toBe('plan');
+        if (second.kind === 'plan') {
+            expect(second.plan.status).toBe('ready_for_authorization');
+            expect(second.confirmationState).toBe('required');
+            expect(second.plan.planDigest).not.toBe(firstDigest);
+        }
+    });
+
     it('"mejor al sábado" produces a new plan without repeating "entrenar"/"mueve", and clears the stale plan reference', async () => {
         const first = await moveEntrenarToFriday();
         expect(first.kind).toBe('plan');

@@ -79,6 +79,17 @@ function normalizeSpanish(value: string) {
         .toLowerCase();
 }
 
+// Canonical grammar for explicit clock-time expressions. It is shared by
+// date parsing and pending-plan correction detection so natural prepositions
+// and spoken hours cannot disappear at one boundary and be interpreted
+// differently at the next one.
+const SPANISH_HOUR_WORD_PATTERN = '(?:una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintid[oó]s|veintitr[eé]s)';
+const EXPLICIT_TIME_PATTERN = new RegExp(
+    `\\b(?:a|para)\\s+las?\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche))?`
+    + `|\\b(?:a|para)\\s+las?\\s+${SPANISH_HOUR_WORD_PATTERN}(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche))?`,
+    'iu',
+);
+
 export function resolveTimeZone(timeZone?: string | null): string {
     const candidate = timeZone?.trim();
     if (!candidate) return DEFAULT_TIME_ZONE;
@@ -164,7 +175,7 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
     const normalized = normalizeSpanish(text);
     const meridiem = '(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:manana|tarde|noche))';
     const withPrefix = normalized.match(
-        new RegExp(`\\b(?:a\\s+las?|a\\s+la)\\s+([01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(${meridiem})?`, 'i')
+        new RegExp(`\\b(?:a|para)\\s+las?\\s+([01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(${meridiem})?`, 'i')
     );
     const twentyFourHour = normalized.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
     if (withPrefix) {
@@ -181,7 +192,7 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
         .sort((a, b) => b.length - a.length)
         .join('|');
     const wordTime = normalized.match(
-        new RegExp(`\\b(?:a\\s+las?|a\\s+la)\\s+(${hourWords})(?:\\s+(y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(${meridiem})?`, 'i')
+        new RegExp(`\\b(?:a|para)\\s+las?\\s+(${hourWords})(?:\\s+(y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(${meridiem})?`, 'i')
     );
     if (!wordTime) return null;
 
@@ -194,6 +205,35 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
         minute = minutePhrase.startsWith('menos') ? 45 : 15;
     }
     return { hour: applyMeridiem(hour, wordTime[3] || ''), minute };
+}
+
+/** Returns the original user-facing clock-time span, if present. */
+export function extractExplicitTimeHint(text: string): string | null {
+    return text.match(EXPLICIT_TIME_PATTERN)?.[0]?.trim() ?? null;
+}
+
+/** Removes only the clock-time part, preserving any calendar date context. */
+export function removeExplicitTimeHint(text: string): string {
+    const hint = extractExplicitTimeHint(text);
+    return hint ? text.replace(hint, ' ').replace(/\\s+/gu, ' ').trim() : text.trim();
+}
+
+/** Returns the canonical calendar + clock-time slot proposed by the user. */
+export function extractTemporalHint(text: string): string | null {
+    const timeHint = extractExplicitTimeHint(text);
+    const calendarText = removeExplicitTimeHint(text);
+    const calendarHint = extractDateTextSpans(calendarText)[0]?.text?.trim() ?? null;
+    if (calendarHint && timeHint) return `${calendarHint} ${timeHint}`.trim();
+    return calendarHint || timeHint;
+}
+
+/** A time-only correction keeps the active calendar slot. */
+export function mergeTemporalCorrection(previousHint: string | null, nextHint: string): string {
+    const previousDate = previousHint ? removeExplicitTimeHint(previousHint) : '';
+    const nextDate = removeExplicitTimeHint(nextHint);
+    return previousDate && !nextDate
+        ? `${previousDate} ${nextHint}`.trim()
+        : nextHint.trim();
 }
 
 function parseExplicitWeekday(

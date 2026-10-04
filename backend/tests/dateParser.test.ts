@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseDateFromText } from '../src/services/date-parser.service';
+import {
+    extractTemporalHint,
+    mergeTemporalCorrection,
+    parseDateFromText,
+} from '../src/services/date-parser.service';
 
 const THURSDAY_JULY_30_IN_CHILE = new Date('2026-07-30T15:12:00.000Z');
 const TUESDAY_SEPTEMBER_1 = new Date('2026-09-01T18:33:53.000Z');
@@ -149,5 +153,13 @@ describe('parseDateFromText', () => {
             minute: '2-digit',
             hourCycle: 'h23',
         }).format(result!.date)).toBe('19:30');
+    });
+
+    it('reconoce la preposición natural "para" y conserva la fecha al corregir sólo la hora', () => {
+        const result = parseDateFromText('mañana para las 12 llamar a Pedro', TUESDAY_SEPTEMBER_1, 'America/Santiago');
+        expect(result?.date.toISOString()).toBe('2026-09-02T16:00:00.000Z');
+        expect(extractTemporalHint('No, mejor déjalo para las 12')).toBe('para las 12');
+        expect(extractTemporalHint('mejor a las doce')).toBe('a las doce');
+        expect(mergeTemporalCorrection('mañana a las 10', 'para las 12')).toBe('mañana para las 12');
     });
 });

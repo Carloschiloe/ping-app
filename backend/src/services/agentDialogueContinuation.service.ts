@@ -22,7 +22,7 @@ import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
 import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
-import { parseDateFromText } from './date-parser.service';
+import { mergeTemporalCorrection, parseDateFromText } from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { LlmObjectiveInterpreter, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
@@ -145,6 +145,9 @@ export function classifyPendingPlanDecision(
     objective: AgentObjective | null | undefined,
 ): 'approve' | 'reject' | 'defer' | null {
     if (!objective || objective.objectiveType === 'unsupported') return null;
+    const slotDelta = objective.slotDelta;
+    const hasMaterialSlotDelta = Boolean(slotDelta?.title || slotDelta?.date || slotDelta?.time);
+    if (objective.dialogueAct === 'correct' || hasMaterialSlotDelta) return null;
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
     if (hasExplicitTarget) return null;
@@ -194,8 +197,10 @@ export function buildPendingPlanEdit(input: {
         return { isEdit: false, changedSlots: [] };
     }
 
-    const nextTitle = input.candidate.targetEntities.entityHints[0]?.trim() || null;
-    const nextTime = input.candidate.timeConstraints.rawHint?.trim() || null;
+    const nextTitle = input.candidate.slotDelta?.title?.trim()
+        || input.candidate.targetEntities.entityHints[0]?.trim() || null;
+    const nextTime = input.candidate.slotDelta?.time?.trim()
+        || input.candidate.timeConstraints.rawHint?.trim() || null;
     const priorTitle = prior.targetEntities.entityHints[0]?.trim() || null;
     const priorTime = prior.timeConstraints.rawHint?.trim() || null;
     const changedSlots: Array<'title' | 'time'> = [];
@@ -817,11 +822,12 @@ export function buildPlanDateCorrection(
 ): PlanCorrectionResult {
     const priorObjective = dialogueState.openObjective as AgentObjective;
     const previousRawHint = priorObjective.timeConstraints.rawHint;
+    const mergedTimeHint = mergeTemporalCorrection(previousRawHint, newTimeHint);
     const turnSequence = dialogueState.lastTurnSequence + 1;
 
     dialogueService.applyCorrection({
         actorUserId, dialogueScopeKey, slotName: 'timeConstraints.rawHint',
-        previousValue: previousRawHint, newValue: newTimeHint,
+        previousValue: previousRawHint, newValue: mergedTimeHint,
         reason: 'user_correction', turnId, turnSequence,
     });
 
@@ -838,8 +844,8 @@ export function buildPlanDateCorrection(
 
     const correctedObjective: AgentObjective = {
         ...priorObjective,
-        timeConstraints: { rawHint: newTimeHint },
-        sourceUtterance: `${utteranceWithoutOldDate} ${newTimeHint}`.trim(),
+        timeConstraints: { rawHint: mergedTimeHint },
+        sourceUtterance: `${utteranceWithoutOldDate} ${mergedTimeHint}`.trim(),
         ambiguities: [],
     };
 

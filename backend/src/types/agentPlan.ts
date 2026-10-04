@@ -133,6 +133,12 @@ export interface MessageContentCandidate {
 }
 
 export interface AgentObjective {
+    dialogueAct?: 'confirm' | 'reject' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
+    slotDelta?: {
+        title?: string | null;
+        date?: string | null;
+        time?: string | null;
+    };
     objectiveType: AgentObjectiveType;
     targetEntities: {
         personHints: string[];   // raw text, never IDs — resolved later by the planner via context.entities.people
