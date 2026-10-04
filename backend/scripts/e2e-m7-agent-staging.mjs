@@ -260,6 +260,9 @@ async function checkpoint(actorUserId, conversationId) {
     activeObjective: summarizeObjective(data.active_dialogue?.state),
     hasObjective: Boolean(data.active_dialogue?.state?.openObjective),
     hasPendingPlan: Boolean(data.active_dialogue?.state?.currentPlanDigestRef),
+    suspendedObjectives: Array.isArray(data.active_dialogue?.state?.suspendedObjectives)
+      ? data.active_dialogue.state.suspendedObjectives.map((entry) => summarizeObjective(entry?.objective))
+      : [],
     referentCount: Array.isArray(data.active_dialogue?.state?.referents)
       ? data.active_dialogue.state.referents.length : null,
   } : null;
