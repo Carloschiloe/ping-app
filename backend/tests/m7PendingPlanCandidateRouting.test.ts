@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
-import { classifyPendingPlanSemanticRelation, groundPendingPlanCandidate, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
+import { classifyPendingPlanSemanticRelation, groundPendingPlanCandidate, isCompletePendingPlanReplacement, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
 import { containsThirdPersonPronoun, hasUnresolvedPersonReference } from '../src/services/agentInputInterpreter.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
@@ -37,6 +37,19 @@ describe('M7 pending-plan candidate routing', () => {
         expect(isSelfContainedPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
         }))).toBe(true);
+    });
+
+    it('allows a complete replacement before applying a concurrent suspend signal', () => {
+        expect(isCompletePendingPlanReplacement(candidate({
+            dialogueAct: 'new_objective',
+            targetEntities: { personHints: [], entityHints: ['preparar la llamada al proveedor'] },
+            timeConstraints: { rawHint: 'viernes' },
+        }))).toBe(true);
+        expect(isCompletePendingPlanReplacement(candidate({
+            dialogueAct: 'correct',
+            targetEntities: { personHints: [], entityHints: ['preparar la llamada al proveedor'] },
+            timeConstraints: { rawHint: 'viernes' },
+        }))).toBe(false);
     });
 
     it('grounds a pending candidate temporal slot in the current utterance only', () => {

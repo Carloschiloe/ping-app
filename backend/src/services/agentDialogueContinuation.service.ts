@@ -475,6 +475,14 @@ export function buildPendingTemporalAnswerObjective(
     };
 }
 
+/** A pending plan can be replaced only by a complete, explicitly new act. */
+export function isCompletePendingPlanReplacement(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    return objective?.dialogueAct === 'new_objective'
+        && isIndependentWriteObjective(objective);
+}
+
 // Reuses TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES defined above (alongside
 // isDialogueTrackedObjectiveType) -- never a second, divergent copy here.
 export function isPendingClarificationAnswerable(dialogueState: AgentDialogueState | null): boolean {

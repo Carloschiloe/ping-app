@@ -73,6 +73,7 @@ import {
     classifyPendingPlanDecision,
     classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
+    isCompletePendingPlanReplacement,
     isSelfContainedPendingPlanCandidate,
     groundPendingPlanCandidate,
 } from './agentDialogueContinuation.service';
@@ -469,16 +470,6 @@ export async function runAgentTurn(
                 questions: [{ field: 'pending_plan', question: 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.' }],
             }, traceId);
         }
-        if (semanticRelation.kind === 'suspend') {
-            dialogueService.suspendCurrentObjective({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: { status: 'answered', answer: 'De acuerdo. Dejé el objetivo anterior en pausa.', citations: [] },
-            }, traceId);
-        }
         if (semanticRelation.kind === 'follow_up'
             && (semanticRelation.attribute === 'date' || semanticRelation.attribute === 'time')
             && existingDialogueState.openObjective.timeConstraints.rawHint) {
@@ -630,7 +621,7 @@ export async function runAgentTurn(
                 }],
             }, traceId);
         }
-        if (precomputedSemantic.route === 'write' && isIndependentWriteObjective(pendingPlanCandidate)) {
+        if (isCompletePendingPlanReplacement(pendingPlanCandidate)) {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
             });
@@ -640,6 +631,21 @@ export async function runAgentTurn(
                 newTurnObjective: pendingPlanCandidate,
                 admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
+        }
+        // A semantic suspend signal is only a fallback when the current turn
+        // did not provide a complete replacement objective. The input
+        // interpreter may conservatively mark an explicit topic switch as
+        // suspend_current while the objective interpreter still provides the
+        // complete replacement. Core must reconcile that candidate first.
+        if (semanticRelation.kind === 'suspend') {
+            dialogueService.suspendCurrentObjective({
+                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: { status: 'answered', answer: 'De acuerdo. Dejé el objetivo anterior en pausa.', citations: [] },
+            }, traceId);
         }
         }
     }
