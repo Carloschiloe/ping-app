@@ -52,6 +52,14 @@ describe('M7 pending-plan candidate routing', () => {
         }))).toBe(false);
     });
 
+    it('does not call an untimed new objective a complete replacement', () => {
+        expect(isCompletePendingPlanReplacement(candidate({
+            dialogueAct: 'new_objective',
+            targetEntities: { personHints: [], entityHints: ['revisar otro asunto'] },
+            timeConstraints: { rawHint: null },
+        }))).toBe(false);
+    });
+
     it('grounds a pending candidate temporal slot in the current utterance only', () => {
         const grounded = groundPendingPlanCandidate(candidate({
             targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },

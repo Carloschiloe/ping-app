@@ -479,8 +479,21 @@ export function buildPendingTemporalAnswerObjective(
 export function isCompletePendingPlanReplacement(
     objective: AgentObjective | null | undefined,
 ): boolean {
-    return objective?.dialogueAct === 'new_objective'
-        && isIndependentWriteObjective(objective);
+    if (objective?.dialogueAct !== 'new_objective' || !isIndependentWriteObjective(objective)) {
+        return false;
+    }
+
+    // A pending-plan replacement is complete only when it carries the
+    // minimum structured slots needed to enter the normal planning path.
+    // An entity/title alone is still an open objective: routing it as a
+    // replacement would discard the suspended plan before the new objective
+    // has enough information to be planned. Core must suspend the old plan
+    // until the new objective is independently actionable. This is a
+    // structural slot contract, not a phrase or vocabulary rule.
+    const hasContent = objective.targetEntities.entityHints.length > 0
+        || objective.targetEntities.personHints.length > 0;
+    const hasTemporalConstraint = Boolean(objective.timeConstraints.rawHint?.trim());
+    return hasContent && hasTemporalConstraint;
 }
 
 // Reuses TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES defined above (alongside
