@@ -33,6 +33,7 @@ import {
     buildPendingPlanEdit,
     buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
+    groundPendingPlanCandidate,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -160,6 +161,27 @@ describe('semantic pending-plan reconciliation', () => {
 
     it('does not replace a pending plan with an unsupported candidate', () => {
         expect(isIndependentWriteObjective(objective({ objectiveType: 'unsupported' }))).toBe(false);
+    });
+
+    it('removes provider-echoed target slots that are absent from the current decision turn', () => {
+        const grounded = groundPendingPlanCandidate(objective({
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }), 'Dale.');
+
+        expect(grounded.targetEntities.entityHints).toEqual([]);
+        expect(grounded.timeConstraints.rawHint).toBeNull();
+    });
+
+    it('keeps a replacement target only when the structured act declares a new objective', () => {
+        const grounded = groundPendingPlanCandidate(objective({
+            dialogueAct: 'new_objective',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'el viernes' },
+        }), 'Prepara revisar inventario el viernes.');
+
+        expect(grounded.targetEntities.entityHints).toEqual(['revisar inventario']);
+        expect(grounded.timeConstraints.rawHint).toBe('viernes');
     });
 
     it('treats a lifecycle cancellation as rejection even if decision metadata conflicts', () => {

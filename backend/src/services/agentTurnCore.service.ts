@@ -353,6 +353,7 @@ export async function runAgentTurn(
             actorUserId: input.actorUserId,
             conversationId,
             channel,
+            dialogueReconciliation: 'active_objective',
             activeObjective: {
                 lifecycle: existingDialogueState.lifecycle,
                 objectiveType: existingDialogueState.openObjective.objectiveType,
@@ -421,15 +422,23 @@ export async function runAgentTurn(
         precomputedSemantic = await interpretAgentSemanticTurn(content, {
             actorUserId: input.actorUserId,
             conversationId,
+            dialogueReconciliation: 'pending_plan',
             pendingPlan: {
                 objectiveType: existingDialogueState!.openObjective!.objectiveType,
                 desiredOutcome: existingDialogueState!.openObjective!.desiredOutcome,
                 timeHint: existingDialogueState!.openObjective!.timeConstraints.rawHint,
             },
+            activeObjective: {
+                lifecycle: existingDialogueState.lifecycle,
+                objectiveType: existingDialogueState.openObjective.objectiveType,
+                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+            },
         }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
         const pendingPlanContext = {
             actorUserId: input.actorUserId,
             conversationId,
+            dialogueReconciliation: 'pending_plan' as const,
             pendingPlan: {
                 objectiveType: existingDialogueState.openObjective.objectiveType,
                 desiredOutcome: existingDialogueState.openObjective.desiredOutcome,

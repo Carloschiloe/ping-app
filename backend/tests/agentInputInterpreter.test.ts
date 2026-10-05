@@ -97,6 +97,24 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
         expect(result.isWriteActionRequest).toBe(false);
     });
 
+    it('propaga el modo de reconciliación estructural al modelo', async () => {
+        const requests: AgentInputModelRequest[] = [];
+        const model: AgentInputModel = {
+            modelName: 'fake-model',
+            interpret: vi.fn(async (request: AgentInputModelRequest) => {
+                requests.push(request);
+                return validPayload({ intent: 'general_context', dialogueAct: 'defer' });
+            }),
+        };
+        await new LlmInputInterpreter({ model }).interpret('Déjalo pendiente.', {
+            dialogueReconciliation: 'pending_plan',
+            pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
+
+        expect(requests[0]?.context.dialogueReconciliation).toBe('pending_plan');
+        expect(requests[0]?.context.pendingPlan?.objectiveType).toBe('create_personal_commitment');
+    });
+
     // M-1D.2: bug real encontrado en el smoke contra el proveedor real — el
     // modelo, de forma perfectamente razonable, a veces devuelve
     // `commitmentFilterHints: null` directamente (en vez de `{status:null}`)

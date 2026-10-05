@@ -71,6 +71,7 @@ export async function interpretAgentSemanticTurn(
         priorReadSummary?: InterpreterContext['priorReadSummary'];
         pendingPlan?: ObjectiveInterpreterContext['pendingPlan'];
         activeObjective?: InterpreterContext['activeObjective'];
+        dialogueReconciliation?: InterpreterContext['dialogueReconciliation'];
     },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
@@ -80,6 +81,7 @@ export async function interpretAgentSemanticTurn(
         channel: context.channel,
         pendingPlan: context.pendingPlan,
         activeObjective: context.activeObjective,
+        dialogueReconciliation: context.dialogueReconciliation,
         priorReadSummary: context.priorReadSummary,
     }, inputInterpreter);
 
@@ -172,6 +174,7 @@ export async function interpretAgentSemanticTurn(
         actorUserId: context.actorUserId,
         conversationId: context.conversationId,
         pendingPlan: context.pendingPlan,
+        dialogueReconciliation: context.dialogueReconciliation,
     };
     let objective: AgentObjective;
     try {

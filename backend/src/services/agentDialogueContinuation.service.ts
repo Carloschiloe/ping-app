@@ -842,8 +842,26 @@ export function groundPendingPlanCandidate(
     // "ahora" from a rejection/defer utterance could turn the decision back
     // into a plan edit and bypass the pending-plan lifecycle path.
     if (candidate.constraints.decisionHint) return candidate;
+    const normalizedInput = normalizeGroundingText(currentInput);
+    const isGroundedInCurrentTurn = (hint: string): boolean => {
+        const normalizedHint = normalizeGroundingText(hint);
+        return normalizedHint.length > 0 && normalizedInput.includes(normalizedHint);
+    };
+    const isNewObjective = candidate.dialogueAct === 'new_objective';
     return {
         ...candidate,
+        // A provider may echo the active plan's title/person while deciding
+        // an elliptical turn. Those values are not current-turn evidence and
+        // must not make a confirmation/rejection look like a replacement.
+        // A structurally declared new objective is the only case where the
+        // provider may introduce a new target, and Core still sends it
+        // through the normal planner/resolution boundary.
+        targetEntities: isNewObjective
+            ? candidate.targetEntities
+            : {
+                entityHints: candidate.targetEntities.entityHints.filter(isGroundedInCurrentTurn),
+                personHints: candidate.targetEntities.personHints.filter(isGroundedInCurrentTurn),
+            },
         // Some providers expose the same temporal proposal in both the
         // legacy raw hint and structured slotDelta fields. Clear the
         // provider-owned date/time slots before Core derives them from the
@@ -857,6 +875,10 @@ export function groundPendingPlanCandidate(
             rawHint: extractTimeHint(currentInput),
         },
     };
+}
+
+function normalizeGroundingText(value: string): string {
+    return value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/gu, '');
 }
 
 export interface PlanCorrectionResult {
