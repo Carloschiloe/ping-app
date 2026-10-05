@@ -52,6 +52,7 @@ import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
 import type { SemanticV4Diagnostics } from './canonicalSemanticProducer.service';
 import type { V4CoreShadowResolver, V4CoreShadowTelemetry } from './agentSemanticV4CoreShadow.service';
 import type { AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import { LlmDialogueReconciler, type AgentDialogueReconciler } from './agentDialogueReconciler.service';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -95,6 +96,7 @@ export interface RunAgentTurnOptions {
     semanticV4CoreShadowResolver?: V4CoreShadowResolver;
     semanticV4CoreShadowObserver?: (telemetry: V4CoreShadowTelemetry) => void;
     objectiveInterpreter?: AgentObjectiveInterpreter;
+    dialogueReconciler?: AgentDialogueReconciler;
     // One durable admission sequence is shared by every internal state
     // transition produced while processing this user turn.
     dialogueTurnSequence?: number;
@@ -572,6 +574,84 @@ export async function runAgentTurn(
                         ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
                         : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
                 }],
+            }, traceId);
+        }
+        const dialogueReconciliation = await (options.dialogueReconciler ?? new LlmDialogueReconciler()).reconcile(content, {
+            lifecycle: existingDialogueState.lifecycle,
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+            timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+        });
+        traceAgentDevice(traceId, 'AGENT_DIALOGUE_RECONCILIATION', {
+            action: dialogueReconciliation?.action ?? null,
+            attribute: dialogueReconciliation?.attribute ?? null,
+            replacementComplete: dialogueReconciliation?.replacementComplete ?? null,
+        });
+        if (dialogueReconciliation?.action === 'approve'
+            || dialogueReconciliation?.action === 'reject'
+            || dialogueReconciliation?.action === 'defer') {
+            const decisionCandidate = {
+                ...pendingPlanCandidate,
+                dialogueAct: dialogueReconciliation.action === 'approve' ? 'confirm' as const
+                    : dialogueReconciliation.action === 'reject' ? 'reject' as const : 'defer' as const,
+                constraints: {
+                    ...pendingPlanCandidate.constraints,
+                    decisionHint: dialogueReconciliation.action === 'approve' ? 'approve' as const
+                        : dialogueReconciliation.action,
+                },
+            };
+            const reconciledDecision = classifyPendingPlanDecision(decisionCandidate);
+            if (reconciledDecision === 'approve') {
+                return finalizeAgentTurn(await runWriteActionTurn({
+                    actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                    now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                    newTurnObjective: existingDialogueState.openObjective,
+                    admittedTurnSequence: options.dialogueTurnSequence,
+                    confirmationRequested: true,
+                }), traceId);
+            }
+            if (reconciledDecision === 'reject') {
+                dialogueService.rejectPendingPlan({
+                    actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                    turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+                });
+                return finalizeAgentTurn({
+                    kind: 'response',
+                    response: { status: 'answered', answer: 'Entendido; no ejecutaré el plan pendiente.', citations: [] },
+                }, traceId);
+            }
+            if (reconciledDecision === 'defer') {
+                dialogueService.recordTurn({
+                    actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                    turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+                });
+                return finalizeAgentTurn({
+                    kind: 'clarification',
+                    questions: [{ field: 'pending_plan', question: 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.' }],
+                }, traceId);
+            }
+        }
+        if (dialogueReconciliation?.action === 'suspend'
+            || (dialogueReconciliation?.action === 'new_objective' && !dialogueReconciliation.replacementComplete)) {
+            dialogueService.suspendCurrentObjective({
+                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: { status: 'answered', answer: 'De acuerdo. Dejé el objetivo anterior en pausa.', citations: [] },
+            }, traceId);
+        }
+        if (dialogueReconciliation?.action === 'follow_up'
+            && (dialogueReconciliation.attribute === 'date' || dialogueReconciliation.attribute === 'time')
+            && existingDialogueState.openObjective.timeConstraints.rawHint) {
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: `El objetivo pendiente está previsto para ${existingDialogueState.openObjective.timeConstraints.rawHint}.`,
+                    citations: [],
+                },
             }, traceId);
         }
         if (precomputedSemantic.route === 'write' && isIndependentWriteObjective(pendingPlanCandidate)) {

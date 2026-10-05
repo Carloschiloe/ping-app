@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
 import { groundPendingPlanCandidate, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
 import { containsThirdPersonPronoun, hasUnresolvedPersonReference } from '../src/services/agentInputInterpreter.service';
+import { normalizeDialogueReconciliationResult } from '../src/services/agentDialogueReconciler.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
     return {
@@ -68,5 +69,17 @@ describe('M7 pending-plan candidate routing', () => {
         expect(hasUnresolvedPersonReference('Hazlo con Ana.', candidate({
             targetEntities: { personHints: ['Ana'], entityHints: [] },
         }))).toBe(false);
+    });
+
+    it('normalizes semantic reconciliation actions without relying on wording', () => {
+        expect(normalizeDialogueReconciliationResult({
+            action: 'approve', attribute: null, replacementComplete: false,
+        })).toEqual({ action: 'approve', attribute: null, replacementComplete: false });
+        expect(normalizeDialogueReconciliationResult({
+            action: 'follow_up', attribute: 'date', replacementComplete: false,
+        })).toEqual({ action: 'follow_up', attribute: 'date', replacementComplete: false });
+        expect(normalizeDialogueReconciliationResult({
+            action: 'not-a-valid-action', attribute: null, replacementComplete: false,
+        })).toBeNull();
     });
 });
