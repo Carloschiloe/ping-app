@@ -28,6 +28,7 @@ import {
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
     classifyPendingPlanDecision,
+    classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
     isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
@@ -134,6 +135,11 @@ describe('semantic pending-plan reconciliation', () => {
             constraints: { decisionHint: null },
             targetEntities: { personHints: [], entityHints: [] },
         }))).toBe('defer');
+    });
+
+    it('suspends an incomplete semantic topic switch instead of leaving the old plan active', () => {
+        expect(classifyPendingPlanSemanticRelation({ dialogueAct: 'new_objective' }))
+            .toEqual({ kind: 'suspend' });
     });
 
     it('material slot deltas take precedence over an approval hint', () => {
@@ -986,5 +992,72 @@ describe('M-7 physical defect regressions: pending edits and cancellation', () =
         await runAgentTurn({ actorUserId: ACTOR_A, input: 'Sí, hazlo' });
         expect(authorizePlanSpy).not.toHaveBeenCalled();
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('acknowledges semantic deferral without downgrading it to a clarification', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' })).kind).toBe('plan');
+
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            dialogueAct: 'defer',
+            sourceUtterance: 'Déjalo pendiente',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: null },
+            constraints: { decisionHint: 'defer' },
+        }));
+        const result = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Déjalo pendiente' });
+        expect(result.kind).toBe('response');
+        if (result.kind === 'response') expect(result.response.status).toBe('answered');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps the latest plan executable after two sequential slot corrections', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock
+            .mockResolvedValueOnce(writeObjective({
+                sourceUtterance: 'Pon revisar inventario para el viernes a las 8',
+                targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
+                timeConstraints: { rawHint: 'viernes a las 8' },
+            }))
+            .mockResolvedValueOnce(writeObjective({
+                dialogueAct: 'correct',
+                slotDelta: { title: null, date: 'el sábado', time: null },
+                sourceUtterance: 'Mejor el sábado',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+            }))
+            .mockResolvedValueOnce(writeObjective({
+                dialogueAct: 'correct',
+                slotDelta: { title: null, date: null, time: 'a las 12' },
+                sourceUtterance: 'Y cambia la hora a las 12',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+            }))
+            .mockResolvedValueOnce(writeObjective({
+                dialogueAct: 'confirm',
+                sourceUtterance: 'Dale',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+                constraints: { decisionHint: 'approve' },
+            }));
+
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Pon revisar inventario para el viernes a las 8' });
+        expect(first.kind).toBe('plan');
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Mejor el sábado' });
+        expect(second.kind).toBe('plan');
+        const third = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Y cambia la hora a las 12' });
+        expect(third.kind).toBe('plan');
+        if (first.kind === 'plan' && third.kind === 'plan') {
+            expect(third.plan.planDigest).not.toBe(first.plan.planDigest);
+        }
+        const confirmed = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Dale' });
+        expect(confirmed.kind).toBe('plan');
+        if (confirmed.kind === 'plan') expect(confirmed.confirmationState).toBe('received');
     });
 });

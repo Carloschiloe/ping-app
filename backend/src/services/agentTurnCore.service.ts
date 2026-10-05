@@ -465,9 +465,16 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
                 turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
             });
+            const language = detectAgentLanguage(content, locale);
             return finalizeAgentTurn({
-                kind: 'clarification',
-                questions: [{ field: 'pending_plan', question: 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.' }],
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: language === 'es'
+                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
+                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
+                    citations: [],
+                },
             }, traceId);
         }
         if (semanticRelation.kind === 'follow_up'
@@ -612,13 +619,14 @@ export async function runAgentTurn(
             });
             const language = detectAgentLanguage(content, locale);
             return finalizeAgentTurn({
-                kind: 'clarification',
-                questions: [{
-                    field: 'pending_plan',
-                    question: language === 'es'
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: language === 'es'
                         ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
                         : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
-                }],
+                    citations: [],
+                },
             }, traceId);
         }
         if (isCompletePendingPlanReplacement(pendingPlanCandidate)) {

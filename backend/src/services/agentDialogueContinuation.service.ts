@@ -160,6 +160,14 @@ export function classifyPendingPlanSemanticRelation(input: {
     if (input.dialogueAct === 'confirm') return { kind: 'approve' };
     if (input.dialogueAct === 'reject') return { kind: 'reject' };
     if (input.dialogueAct === 'defer') return { kind: 'defer' };
+    // A provider may correctly identify a topic switch as a new objective
+    // without having extracted enough independent slots to plan it yet.  The
+    // Core must suspend the currently authorized-but-unexecuted plan in that
+    // case; otherwise the incomplete candidate falls through to the ordinary
+    // route and the old objective remains active by accident.  A complete
+    // replacement is handled by isCompletePendingPlanReplacement before this
+    // relation is consulted.
+    if (input.dialogueAct === 'new_objective') return { kind: 'suspend' };
     if (input.dialogueControl === 'suspend_current') return { kind: 'suspend' };
     if (input.followUpAttribute) return { kind: 'follow_up', attribute: input.followUpAttribute };
     return { kind: 'none' };
