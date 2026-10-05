@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
-    generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition,
+    generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition, classifyAgentInputProviderError,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -440,6 +440,24 @@ describe('M-1D.4: statusHints opt-in vía statusBasis — nunca default implíci
 });
 
 describe('M-1D.1: LlmInputInterpreter — fallback conservador (nunca rompe)', () => {
+    it('clasifica errores HTTP del SDK sin conservar mensajes ni secretos', () => {
+        const result = classifyAgentInputProviderError(Object.assign(new Error('api_key=secret-value'), {
+            name: 'AuthenticationError', status: 401, code: 'invalid_api_key',
+        }));
+        expect(result).toEqual({
+            providerErrorClass: 'http',
+            providerHttpStatus: 401,
+            providerErrorCode: 'invalid_api_key',
+            providerErrorType: 'AuthenticationError',
+        });
+        expect(JSON.stringify(result)).not.toContain('secret-value');
+    });
+
+    it('clasifica errores de red y configuración sin exponer el error crudo', () => {
+        expect(classifyAgentInputProviderError(Object.assign(new Error('socket failure'), { code: 'ECONNRESET' })).providerErrorClass).toBe('network');
+        expect(classifyAgentInputProviderError(new Error('OPENAI_API_KEY is not configured')).providerErrorClass).toBe('configuration');
+    });
+
     it('JSON inválido -> fallback, fallbackReason="invalid_json"', async () => {
         const model = fakeModel('esto no es json{{{');
         const interpreter = new LlmInputInterpreter({ model });
@@ -458,10 +476,17 @@ describe('M-1D.1: LlmInputInterpreter — fallback conservador (nunca rompe)', (
     });
 
     it('error de API (promesa rechazada) -> fallback, fallbackReason="api_error"', async () => {
-        const interpreter = new LlmInputInterpreter({ model: throwingModel() });
+        const interpreter = new LlmInputInterpreter({ model: {
+            modelName: 'fake-model',
+            interpret: vi.fn(async () => { throw Object.assign(new Error('private token=secret'), { name: 'RateLimitError', status: 429, code: 'rate_limit_exceeded' }); }),
+        } });
         const result = await interpreter.interpret('algo', {});
         expect(result.source).toBe('llm_fallback');
         expect(result.fallbackReason).toBe('api_error');
+        expect(result.providerErrorClass).toBe('http');
+        expect(result.providerHttpStatus).toBe(429);
+        expect(result.providerErrorCode).toBe('rate_limit_exceeded');
+        expect((result as any).providerErrorMessage).toBeUndefined();
     });
 
     it('timeout -> fallback, fallbackReason="timeout"', async () => {

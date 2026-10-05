@@ -836,6 +836,10 @@ export async function runAgentTurn(
         route: semantic.route,
         inputSource: semantic.interpretation.source,
         fallbackReason: semantic.interpretation.fallbackReason ?? null,
+        providerErrorClass: semantic.interpretation.providerErrorClass ?? null,
+        providerHttpStatus: semantic.interpretation.providerHttpStatus ?? null,
+        providerErrorCode: semantic.interpretation.providerErrorCode ?? null,
+        providerErrorType: semantic.interpretation.providerErrorType ?? null,
         schemaValid: semantic.interpretation.schemaValid ?? null,
         objectiveType: semantic.objective?.objectiveType ?? null,
     });

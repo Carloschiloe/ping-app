@@ -52,6 +52,7 @@ describe('Jarvis harness diagnostics', () => {
       schemaValid: false,
       fallbackReason: 'api_error',
       providerErrorClass: 'http',
+      providerHttpStatus: 400,
       providerErrorCode: 'unsupported_parameter',
     } })).toEqual({
       available: true,
@@ -59,6 +60,7 @@ describe('Jarvis harness diagnostics', () => {
       schemaValid: false,
       fallbackReason: 'api_error',
       providerErrorClass: 'http',
+      providerHttpStatus: 400,
       providerErrorCode: 'unsupported_parameter',
     });
   });

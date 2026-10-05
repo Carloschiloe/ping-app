@@ -19,7 +19,7 @@ import OpenAI from 'openai';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, AgentInteractionMode, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary, AgentDialogueControl, AgentDialogueAct } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, AgentInteractionMode, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary, AgentDialogueControl, AgentDialogueAct, AgentInputProviderErrorClass } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 import type { AgentObjective } from '../types/agentPlan';
@@ -1450,6 +1450,73 @@ const OPENAI_MODEL_NAME = 'gpt-4o-mini'; // modelo económico ya usado en todo e
 // declarado, así que ni una instrucción obedecida por el modelo puede hacer
 // que un ID inventado sobreviva la validación. Esta instrucción es una capa
 // adicional, no la única barrera.
+export interface AgentInputProviderDiagnostics {
+    providerErrorClass: AgentInputProviderErrorClass;
+    providerHttpStatus?: number;
+    providerErrorCode?: string;
+    providerErrorType?: string;
+}
+
+function safeProviderIdentifier(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.trim();
+    return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(normalized) ? normalized : undefined;
+}
+
+function providerStatus(error: unknown): number | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const response = value.response as Record<string, unknown> | undefined;
+    const responseData = response?.data as Record<string, unknown> | undefined;
+    const candidates = [value.status, value.statusCode, response?.status, responseData?.status];
+    return candidates.find((candidate): candidate is number => typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 100 && candidate <= 599);
+}
+
+function providerCode(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const nestedError = value.error as Record<string, unknown> | undefined;
+    const response = value.response as Record<string, unknown> | undefined;
+    const responseData = response?.data as Record<string, unknown> | undefined;
+    const responseError = responseData?.error as Record<string, unknown> | undefined;
+    return safeProviderIdentifier(value.code)
+        ?? safeProviderIdentifier(nestedError?.code)
+        ?? safeProviderIdentifier(responseData?.code)
+        ?? safeProviderIdentifier(responseError?.code);
+}
+
+function providerType(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const nestedError = value.error as Record<string, unknown> | undefined;
+    return safeProviderIdentifier(value.name)
+        ?? safeProviderIdentifier(value.type)
+        ?? safeProviderIdentifier(nestedError?.type);
+}
+
+export function classifyAgentInputProviderError(error: unknown): AgentInputProviderDiagnostics {
+    const status = providerStatus(error);
+    const code = providerCode(error);
+    const type = providerType(error);
+    const value = error as { name?: unknown; message?: unknown } | null;
+    const name = typeof value?.name === 'string' ? value.name : '';
+    const message = typeof value?.message === 'string' ? value.message : '';
+    const signal = `${code ?? ''} ${name} ${message}`.toLowerCase();
+    const providerErrorClass: AgentInputProviderErrorClass = status !== undefined
+        ? 'http'
+        : /(econnreset|etimedout|enotfound|econnrefused|eai_again|und_err|network|connection)/i.test(signal)
+            ? 'network'
+            : /not configured|missing.*(api|key)|api.?key/i.test(signal)
+                ? 'configuration'
+                : type || code || name ? 'sdk' : 'unknown';
+    return {
+        providerErrorClass,
+        ...(status === undefined ? {} : { providerHttpStatus: status }),
+        ...(code ? { providerErrorCode: code } : {}),
+        ...(type ? { providerErrorType: type } : {}),
+    };
+}
+
 function buildInterpreterPrompt(input: string, context: InterpreterContext): string {
     return [
         'You are a text interpreter for Ping, a global, multilingual, domain-agnostic personal/professional assistant. Ping is NOT built for any specific industry, company, or use case.',
@@ -1677,7 +1744,7 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
             raw = await withTimeout(this.model.interpret({ input: truncated, context }), this.timeoutMs);
         } catch (err) {
             const reason = err instanceof Error && err.message === 'llm_timeout' ? 'timeout' : 'api_error';
-            return this.fallbackWith(input, context, reason);
+            return this.fallbackWith(input, context, reason, reason === 'api_error' ? classifyAgentInputProviderError(err) : undefined);
         }
 
         let parsedJson: unknown;
@@ -1695,8 +1762,14 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
         return mapPayloadToInterpretation(validation.data, this.model.modelName, input);
     }
 
-    private async fallbackWith(input: string, context: InterpreterContext, reason: string): Promise<Interpretation> {
+    private async fallbackWith(input: string, context: InterpreterContext, reason: string, providerDiagnostics?: AgentInputProviderDiagnostics): Promise<Interpretation> {
         const result = await this.fallback.interpret(input, context);
-        return { ...result, source: 'llm_fallback', fallbackReason: reason, schemaValid: reason === 'schema_invalid' ? false : result.schemaValid };
+        return {
+            ...result,
+            source: 'llm_fallback',
+            fallbackReason: reason,
+            schemaValid: reason === 'schema_invalid' ? false : result.schemaValid,
+            ...(providerDiagnostics ?? {}),
+        };
     }
 }

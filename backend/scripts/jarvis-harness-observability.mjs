@@ -56,6 +56,7 @@ export function summarizeExposedDiagnostics(payload) {
     schemaValid: typeof diagnostics.schemaValid === 'boolean' ? diagnostics.schemaValid : null,
     fallbackReason: typeof diagnostics.fallbackReason === 'string' ? sanitizeDiagnosticText(diagnostics.fallbackReason) : null,
     providerErrorClass: typeof diagnostics.providerErrorClass === 'string' ? sanitizeDiagnosticText(diagnostics.providerErrorClass) : null,
+    providerHttpStatus: Number.isInteger(diagnostics.providerHttpStatus) ? diagnostics.providerHttpStatus : null,
     providerErrorCode: typeof diagnostics.providerErrorCode === 'string' ? sanitizeDiagnosticText(diagnostics.providerErrorCode) : null,
   };
 }
@@ -66,7 +67,7 @@ export function incrementCounter(map, key) {
 }
 
 const TRACE_DATA_FIELDS = {
-  AGENT_SEMANTIC_INTERPRETATION: ['route', 'inputSource', 'fallbackReason', 'schemaValid', 'objectiveType'],
+  AGENT_SEMANTIC_INTERPRETATION: ['route', 'inputSource', 'fallbackReason', 'providerErrorClass', 'providerHttpStatus', 'providerErrorCode', 'providerErrorType', 'schemaValid', 'objectiveType'],
   AGENT_SEMANTIC_V4_CORE_SHADOW: [
     'model', 'providerFailure', 'timeout', 'schemaValid', 'fallbackReason', 'failure',
     'v4Kind', 'v4Objective', 'mappedKind', 'disposition', 'dispositionReason',

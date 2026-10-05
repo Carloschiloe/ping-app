@@ -157,6 +157,10 @@ export type TemporalIntent =
     | { kind: 'relative_days'; daysAhead: number; futureOnly: true }
     | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true };
 
+// Sanitized provider metadata used only for staging diagnostics. Raw SDK
+// messages, request bodies, headers and credentials never cross this boundary.
+export type AgentInputProviderErrorClass = 'http' | 'network' | 'sdk' | 'configuration' | 'unknown';
+
 export interface Interpretation {
     interactionMode?: AgentInteractionMode;
     intent: AgentIntentType;
@@ -220,6 +224,10 @@ export interface Interpretation {
     // M-1D.1: metadata de diagnóstico únicamente (nunca prompt/input/respuesta cruda) — el builder los traslada a AgentDiagnostics.
     modelUsed?: string;
     schemaValid?: boolean;
+    providerErrorClass?: AgentInputProviderErrorClass;
+    providerHttpStatus?: number;
+    providerErrorCode?: string;
+    providerErrorType?: string;
 }
 
 // ─── Retrieval plan (sección 13) ─────────────────────────────────────────────
