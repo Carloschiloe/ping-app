@@ -835,6 +835,8 @@ export async function runAgentTurn(
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
+        fallbackReason: semantic.interpretation.fallbackReason ?? null,
+        schemaValid: semantic.interpretation.schemaValid ?? null,
         objectiveType: semantic.objective?.objectiveType ?? null,
     });
     // Semantic V4 is observational in Phase 1. It receives only bounded

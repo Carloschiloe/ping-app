@@ -8,6 +8,7 @@ import {
   sanitizeDiagnosticText,
   summarizeExposedDiagnostics,
   summarizeSafeResponseHeaders,
+  summarizeAgentDeviceTraces,
 } from '../scripts/jarvis-harness-observability.mjs';
 
 describe('Jarvis harness diagnostics', () => {
@@ -60,5 +61,21 @@ describe('Jarvis harness diagnostics', () => {
       providerErrorClass: 'http',
       providerErrorCode: 'unsupported_parameter',
     });
+  });
+
+  it('filters device traces by dialogue scope and keeps only structural fields', () => {
+    const traces = summarizeAgentDeviceTraces({ traces: [
+      { traceId: 'other', at: 'now', label: 'AGENT_DIALOGUE_SCOPE', data: { dialogueScopeKey: 'other' } },
+      { traceId: 't1', at: 'now', label: 'AGENT_DIALOGUE_SCOPE', data: { dialogueScopeKey: 'scope-1' } },
+      { traceId: 't1', at: 'now', label: 'AGENT_SEMANTIC_INTERPRETATION', data: { inputSource: 'llm_fallback', fallbackReason: 'api_error', schemaValid: true, rawInput: 'private text' } },
+      { traceId: 't1', at: 'now', label: 'AGENT_SEMANTIC_V4_CORE_SHADOW', data: { providerFailure: true, fallbackReason: 'api_error', answer: 'private text' } },
+      { traceId: 't1', at: 'now', label: 'AGENT_CONTEXT_RESULT', data: { intentType: 'read', rawInput: 'private text' } },
+    ] }, 'scope-1');
+    expect(traces).toEqual([
+      { traceId: 't1', at: 'now', label: 'AGENT_SEMANTIC_INTERPRETATION', data: { inputSource: 'llm_fallback', fallbackReason: 'api_error', schemaValid: true } },
+      { traceId: 't1', at: 'now', label: 'AGENT_SEMANTIC_V4_CORE_SHADOW', data: { providerFailure: true, fallbackReason: 'api_error' } },
+      { traceId: 't1', at: 'now', label: 'AGENT_CONTEXT_RESULT', data: { intentType: 'read' } },
+    ]);
+    expect(JSON.stringify(traces)).not.toContain('private text');
   });
 });

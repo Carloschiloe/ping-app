@@ -64,3 +64,40 @@ export function incrementCounter(map, key) {
   map[key] = (map[key] || 0) + 1;
   return map;
 }
+
+const TRACE_DATA_FIELDS = {
+  AGENT_SEMANTIC_INTERPRETATION: ['route', 'inputSource', 'fallbackReason', 'schemaValid', 'objectiveType'],
+  AGENT_SEMANTIC_V4_CORE_SHADOW: [
+    'model', 'providerFailure', 'timeout', 'schemaValid', 'fallbackReason', 'failure',
+    'v4Kind', 'v4Objective', 'mappedKind', 'disposition', 'dispositionReason',
+    'resolutionStatus', 'resolutionReferenceKind', 'resolutionCandidateCount',
+    'resolutionScopeKind', 'planRoute', 'planObjective',
+  ],
+  AGENT_CONTEXT_RESULT: [
+    'path', 'intentType', 'needsClarification', 'clarificationReason',
+    'isWriteActionRequest', 'contextCapabilityWriteSignal',
+    'resolvedPersonCandidateCount', 'sourceRefCount',
+  ],
+  AGENT_ROUTING_DECISION: ['path'],
+  AGENT_RESPONSE_KIND: ['kind', 'field'],
+  AGENT_DIALOGUE_STATE_BEFORE: ['stateFound', 'lifecycle', 'openObjectiveType', 'pendingClarificationField', 'version', 'lastTurnSequence'],
+  AGENT_DIALOGUE_STATE_WRITE_RESULT: ['lifecycle', 'openObjectiveType', 'pendingClarificationField', 'version', 'lastTurnSequence'],
+  AGENT_PENDING_CLARIFICATION_RESULT: ['outcome', 'candidateCount'],
+};
+
+export function summarizeAgentDeviceTraces(payload, dialogueScopeKey) {
+  const entries = Array.isArray(payload?.traces) ? payload.traces : [];
+  const traceIds = new Set(entries
+    .filter((entry) => entry?.label === 'AGENT_DIALOGUE_SCOPE' && entry?.data?.dialogueScopeKey === dialogueScopeKey)
+    .map((entry) => entry.traceId)
+    .filter((traceId) => typeof traceId === 'string'));
+  return entries
+    .filter((entry) => traceIds.has(entry?.traceId) && TRACE_DATA_FIELDS[entry?.label])
+    .map((entry) => {
+      const allowed = {};
+      for (const field of TRACE_DATA_FIELDS[entry.label]) {
+        if (Object.prototype.hasOwnProperty.call(entry.data || {}, field)) allowed[field] = entry.data[field];
+      }
+      return { traceId: entry.traceId, at: entry.at, label: entry.label, data: allowed };
+    });
+}

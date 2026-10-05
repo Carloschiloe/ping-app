@@ -8,6 +8,7 @@ import {
   incrementCounter,
   sanitizeDiagnosticText,
   summarizeExposedDiagnostics,
+  summarizeAgentDeviceTraces,
   summarizeSafeResponseHeaders,
 } from './jarvis-harness-observability.mjs';
 
@@ -225,11 +226,13 @@ async function run() {
           if (testCase.reconnectBefore === index) token = await login(who.email);
           const body = { input: testCase.turns[index], conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' };
           const result = await http('/agent/turn', { token, method: 'POST', caseId: testCase.id, turnIndex: index + 1, phase: 'agent_turn', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
-          turns.push({ index: index + 1, status: result.status, response: summary(result.payload), request: result.diagnostics.request, elapsedMs: result.diagnostics.elapsedMs, checkpoint: await checkpointSnapshot(who.id, conversationId) });
+          const traceSnapshot = await http('/agent/debug/traces', { token, caseId: testCase.id, turnIndex: index + 1, phase: 'agent_trace_debug' });
+          turns.push({ index: index + 1, status: result.status, response: summary(result.payload), request: result.diagnostics.request, elapsedMs: result.diagnostics.elapsedMs, trace: summarizeAgentDeviceTraces(traceSnapshot.payload, conversationId), checkpoint: await checkpointSnapshot(who.id, conversationId) });
         }
         if (testCase.replayFinal) {
           const replay = await http('/agent/turn', { token, method: 'POST', caseId: testCase.id, turnIndex: testCase.turns.length, phase: 'agent_turn_replay', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
-          turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload), request: replay.diagnostics.request, elapsedMs: replay.diagnostics.elapsedMs, checkpoint: await checkpointSnapshot(who.id, conversationId) });
+          const traceSnapshot = await http('/agent/debug/traces', { token, caseId: testCase.id, turnIndex: testCase.turns.length, phase: 'agent_trace_debug' });
+          turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload), request: replay.diagnostics.request, elapsedMs: replay.diagnostics.elapsedMs, trace: summarizeAgentDeviceTraces(traceSnapshot.payload, conversationId), checkpoint: await checkpointSnapshot(who.id, conversationId) });
         }
         const { data: created } = await admin.from('commitments').select('id').eq('owner_user_id', who.id);
         for (const row of created || []) commitmentIds.add(row.id);
