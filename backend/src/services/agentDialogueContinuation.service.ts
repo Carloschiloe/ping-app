@@ -146,6 +146,25 @@ export function classifyPendingPlanDecision(
     return decisionHint;
 }
 
+export type PendingPlanSemanticRelation =
+    | { kind: 'approve' | 'reject' | 'defer' | 'suspend' }
+    | { kind: 'follow_up'; attribute: 'date' | 'time' | 'responsible' | 'status' | 'details' }
+    | { kind: 'none' };
+
+/** Core precedence for semantic signals already produced by the turn interpreter. */
+export function classifyPendingPlanSemanticRelation(input: {
+    dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
+    dialogueControl?: 'resume_suspended' | 'suspend_current' | null;
+    followUpAttribute?: 'time' | 'date' | 'responsible' | 'status' | 'details' | null;
+}): PendingPlanSemanticRelation {
+    if (input.dialogueAct === 'confirm') return { kind: 'approve' };
+    if (input.dialogueAct === 'reject') return { kind: 'reject' };
+    if (input.dialogueAct === 'defer') return { kind: 'defer' };
+    if (input.dialogueControl === 'suspend_current') return { kind: 'suspend' };
+    if (input.followUpAttribute) return { kind: 'follow_up', attribute: input.followUpAttribute };
+    return { kind: 'none' };
+}
+
 export interface PendingPlanEditResult {
     isEdit: boolean;
     correctedObjective?: AgentObjective;

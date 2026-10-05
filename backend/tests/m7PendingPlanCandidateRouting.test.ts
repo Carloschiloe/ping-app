@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentObjective } from '../src/types/agentPlan';
-import { groundPendingPlanCandidate, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
+import { classifyPendingPlanSemanticRelation, groundPendingPlanCandidate, isSelfContainedPendingPlanCandidate } from '../src/services/agentDialogueContinuation.service';
 import { containsThirdPersonPronoun, hasUnresolvedPersonReference } from '../src/services/agentInputInterpreter.service';
-import { normalizeDialogueReconciliationResult } from '../src/services/agentDialogueReconciler.service';
 
 function candidate(overrides: Partial<AgentObjective> = {}): AgentObjective {
     return {
@@ -71,15 +70,10 @@ describe('M7 pending-plan candidate routing', () => {
         }))).toBe(false);
     });
 
-    it('normalizes semantic reconciliation actions without relying on wording', () => {
-        expect(normalizeDialogueReconciliationResult({
-            action: 'approve', attribute: null, replacementComplete: false,
-        })).toEqual({ action: 'approve', attribute: null, replacementComplete: false });
-        expect(normalizeDialogueReconciliationResult({
-            action: 'follow_up', attribute: 'date', replacementComplete: false,
-        })).toEqual({ action: 'follow_up', attribute: 'date', replacementComplete: false });
-        expect(normalizeDialogueReconciliationResult({
-            action: 'not-a-valid-action', attribute: null, replacementComplete: false,
-        })).toBeNull();
+    it('gives Core semantic dialogue signals precedence over objective proposals', () => {
+        expect(classifyPendingPlanSemanticRelation({ dialogueAct: 'confirm' })).toEqual({ kind: 'approve' });
+        expect(classifyPendingPlanSemanticRelation({ dialogueControl: 'suspend_current' })).toEqual({ kind: 'suspend' });
+        expect(classifyPendingPlanSemanticRelation({ followUpAttribute: 'date' })).toEqual({ kind: 'follow_up', attribute: 'date' });
+        expect(classifyPendingPlanSemanticRelation({ dialogueAct: 'other' })).toEqual({ kind: 'none' });
     });
 });
