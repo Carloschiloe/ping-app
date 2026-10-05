@@ -444,6 +444,12 @@ export async function runAgentTurn(
                 desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
                 timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
             },
+            activeObjective: {
+                lifecycle: existingDialogueState.lifecycle,
+                objectiveType: existingDialogueState.openObjective.objectiveType,
+                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+            },
         };
         const routeCandidate = precomputedSemantic.route === 'write'
             && precomputedSemantic.objective

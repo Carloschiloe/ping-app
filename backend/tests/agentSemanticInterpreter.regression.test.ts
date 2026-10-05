@@ -101,8 +101,15 @@ describe('semantic boundary read/write regression', () => {
 
     it('passes pending-plan context to the objective interpreter before Core classifies confirmation, deferral, or replacement', async () => {
         const objectiveInterpreter = {
-            interpret: vi.fn(async (_input: string, context: { pendingPlan?: { objectiveType: string } }) => {
+            interpret: vi.fn(async (_input: string, context: {
+                pendingPlan?: { objectiveType: string };
+                activeObjective?: { lifecycle: string; objectiveType: string };
+            }) => {
                 expect(context.pendingPlan).toEqual({ objectiveType: 'create_personal_commitment' });
+                expect(context.activeObjective).toMatchObject({
+                    lifecycle: 'plan_pending_authorization',
+                    objectiveType: 'create_personal_commitment',
+                });
                 return rememberFactObjective();
             }),
         };
@@ -112,6 +119,10 @@ describe('semantic boundary read/write regression', () => {
                 actorUserId: ACTOR,
                 conversationId: 'conversation-regression',
                 pendingPlan: { objectiveType: 'create_personal_commitment' },
+                activeObjective: {
+                    lifecycle: 'plan_pending_authorization',
+                    objectiveType: 'create_personal_commitment',
+                },
             },
             {
                 inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },

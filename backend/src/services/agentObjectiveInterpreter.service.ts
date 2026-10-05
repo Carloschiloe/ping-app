@@ -34,6 +34,12 @@ export interface ObjectiveInterpreterContext {
         desiredOutcome?: string | null;
         timeHint?: string | null;
     };
+    activeObjective?: {
+        lifecycle: string;
+        objectiveType: AgentObjectiveType;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
+    };
     dialogueReconciliation?: 'pending_plan' | 'active_objective';
 }
 
@@ -967,6 +973,11 @@ function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContex
         ...(pendingPlanInstruction ? [pendingPlanInstruction] : []),
         ...(context.pendingPlan ? [
             'When a plan is pending, an elliptical confirmation, rejection, deferral, or correction is still a semantic decision about that plan even if it has no standalone object. Express the speech act and decisionHint whenever supported by the meaning; leave entityHints/personHints/timeHint empty unless the current turn introduces a genuinely new target or slot. Use dialogueAct=defer and decisionHint=defer when the user postpones or leaves the plan pending without abandoning it; use dialogueAct=reject and decisionHint=reject only when the user abandons, cancels, or declines the plan. Do not downgrade that turn to unsupported merely because it is short.',
+        ] : []),
+        ...(context.dialogueReconciliation === 'pending_plan' ? [
+            'FINAL CORE RECONCILIATION CONTRACT: the pending plan is already owned by Core. Classify the current utterance first as a decision about that plan or as a genuinely new objective. If it is a decision and introduces no current-turn title, person, date, or time, emit the applicable dialogueAct and decisionHint; never manufacture target slots from the pending plan. If it is a new objective, emit only slots grounded in the current utterance and do not carry the previous plan forward. If the utterance is incomplete or uncertain, use dialogueAct=clarify rather than inventing a write target.',
+        ] : context.dialogueReconciliation === 'active_objective' ? [
+            'FINAL CORE RECONCILIATION CONTRACT: the open objective is already owned by Core. Interpret the current turn relative to it before creating an independent objective; preserve a missing-slot answer, attribute follow-up, correction, suspension, or return as the corresponding semantic act, and never copy omitted slots into the current turn.',
         ] : []),
         'Choose the objective from the user\'s meaning, not from a fixed phrase. A personal commitment is a durable reminder/task for the actor, including indirect formulations about not forgetting, keeping an obligation present, leaving something pending for oneself, or recording something to do later. A shared commitment/proposal is a request to create or name a commitment, or to schedule/organize/coordinate a concrete calendar obligation; an explicit request to “create a commitment”, “make a task”, or “make a reminder” is a creation request even if no other person is named. A retrieval request asks what is already remembered and must never become a write objective. “Recuérdame qué hablamos” retrieves memory; “recuérdame revisar el contrato” creates a personal commitment. Preserve negation: “no quiero olvidarme de enviar esto” creates a reminder, while “no quiero enviar nada” is not a send action.',
         'For creation, prefer create_personal_commitment when the action is clearly for the actor or is framed as remembering/not forgetting/keeping a task pending. A “tarea”, “pendiente”, or “recordatorio” with no named other participant is normally personal. Prefer create_commitment_or_proposal when the user explicitly creates/names a “compromiso” or “propuesta”, or asks to coordinate a shared obligation with another person. For remember_fact, the user asks Ping to retain a fact or preference, not to remind them to perform a future task: “recuérdame que el chequeo es a las nueve” is a reminder because it contains a future event/time, while “recuerda que mi hermano se llama Andrés” is a fact. A request to ask a named person is communicate_message unless it explicitly asks Ping to wait for that person\'s answer; “pregúntale si…” is communicate_and_wait. For lifecycle objectives, distinguish the requested transition (reschedule, complete, respond/reject, cancel) from questions describing a past transition. Colloquial transition formulations such as “dejemos X para el lunes”, “dalo por terminado”, “no sigamos con X”, and “déjala rechazada” still express those lifecycle actions.',

@@ -70,7 +70,7 @@ export async function interpretAgentSemanticTurn(
         channel?: string;
         priorReadSummary?: InterpreterContext['priorReadSummary'];
         pendingPlan?: ObjectiveInterpreterContext['pendingPlan'];
-        activeObjective?: InterpreterContext['activeObjective'];
+        activeObjective?: ObjectiveInterpreterContext['activeObjective'];
         dialogueReconciliation?: InterpreterContext['dialogueReconciliation'];
     },
     options: AgentSemanticInterpreterOptions = {},
@@ -174,6 +174,7 @@ export async function interpretAgentSemanticTurn(
         actorUserId: context.actorUserId,
         conversationId: context.conversationId,
         pendingPlan: context.pendingPlan,
+        activeObjective: context.activeObjective,
         dialogueReconciliation: context.dialogueReconciliation,
     };
     let objective: AgentObjective;
