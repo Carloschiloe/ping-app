@@ -353,6 +353,12 @@ export async function runAgentTurn(
             actorUserId: input.actorUserId,
             conversationId,
             channel,
+            activeObjective: {
+                lifecycle: existingDialogueState.lifecycle,
+                objectiveType: existingDialogueState.openObjective.objectiveType,
+                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+            },
         }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
     }
 
@@ -415,12 +421,20 @@ export async function runAgentTurn(
         precomputedSemantic = await interpretAgentSemanticTurn(content, {
             actorUserId: input.actorUserId,
             conversationId,
-            pendingPlan: { objectiveType: existingDialogueState!.openObjective!.objectiveType },
+            pendingPlan: {
+                objectiveType: existingDialogueState!.openObjective!.objectiveType,
+                desiredOutcome: existingDialogueState!.openObjective!.desiredOutcome,
+                timeHint: existingDialogueState!.openObjective!.timeConstraints.rawHint,
+            },
         }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
         const pendingPlanContext = {
             actorUserId: input.actorUserId,
             conversationId,
-            pendingPlan: { objectiveType: existingDialogueState.openObjective.objectiveType },
+            pendingPlan: {
+                objectiveType: existingDialogueState.openObjective.objectiveType,
+                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+            },
         };
         const routeCandidate = precomputedSemantic.route === 'write'
             && precomputedSemantic.objective
@@ -577,6 +591,12 @@ export async function runAgentTurn(
         conversationId,
         channel,
         priorReadSummary,
+        activeObjective: existingDialogueState?.openObjective ? {
+            lifecycle: existingDialogueState.lifecycle,
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+            timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+        } : undefined,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
 
     // A semantic topic switch without a complete replacement objective must

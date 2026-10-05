@@ -31,6 +31,8 @@ export interface ObjectiveInterpreterContext {
     actorUserId: string;
     pendingPlan?: {
         objectiveType: AgentObjectiveType;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
     };
 }
 
@@ -949,7 +951,7 @@ function getOpenAiObjectiveClient(): OpenAI {
 
 function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContext): string {
     const pendingPlanInstruction = context.pendingPlan
-        ? `An authorization plan is currently pending with objective type "${context.pendingPlan.objectiveType}". Interpret this turn in relation to that existing plan. If the user semantically approves it, set decisionHint to approve; if the user semantically rejects/cancels it, set decisionHint to reject; if the user explicitly defers/leaves it pending without rejecting it, set decisionHint to defer. Keep entityHints, personHints and timeHint empty unless the user introduces a genuinely new target or correction. When the user introduces a new objective, every extracted slot must be grounded only in the current user request: never copy, concatenate, or retain a value from the pending plan. A new objective replaces the pending one structurally; it is not a merge with the previous title/date/time. Do not invent a target and do not execute anything.`
+        ? `An authorization plan is currently pending with objective type "${context.pendingPlan.objectiveType}"${context.pendingPlan.desiredOutcome ? ` and bounded summary "${context.pendingPlan.desiredOutcome.slice(0, 180)}"` : ''}${context.pendingPlan.timeHint ? ` at time "${context.pendingPlan.timeHint}"` : ''}. Interpret this turn in relation to that existing plan. If the user semantically approves it, set dialogueAct=confirm and decisionHint=approve; if the user semantically rejects/cancels it, set dialogueAct=reject and decisionHint=reject; if the user explicitly defers/leaves it pending without rejecting it, set dialogueAct=defer and decisionHint=defer; if the user changes topic without a complete replacement objective, set dialogueAct=new_objective and leave the pending plan for Core to suspend. Keep entityHints, personHints and timeHint empty unless the user introduces a genuinely new target or correction. When the user introduces a new objective, every extracted slot must be grounded only in the current user request: never copy, concatenate, or retain a value from the pending plan. A new objective replaces the pending one structurally; it is not a merge with the previous title/date/time. Do not invent a target and do not execute anything.`
         : null;
     return [
         'You are an intent classifier for Ping, a global, multilingual, domain-agnostic personal/professional assistant.',

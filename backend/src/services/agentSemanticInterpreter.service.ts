@@ -70,6 +70,7 @@ export async function interpretAgentSemanticTurn(
         channel?: string;
         priorReadSummary?: InterpreterContext['priorReadSummary'];
         pendingPlan?: ObjectiveInterpreterContext['pendingPlan'];
+        activeObjective?: InterpreterContext['activeObjective'];
     },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
@@ -78,6 +79,7 @@ export async function interpretAgentSemanticTurn(
         conversationId: context.conversationId,
         channel: context.channel,
         pendingPlan: context.pendingPlan,
+        activeObjective: context.activeObjective,
         priorReadSummary: context.priorReadSummary,
     }, inputInterpreter);
 
