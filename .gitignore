@@ -5,6 +5,7 @@ coverage/
 
 # Ephemeral local Semantic V4 smoke artifacts
 backend/.m7-smoke-artifacts/
+backend/.m8-smoke-artifacts/
 
 # Environment variables - NEVER commit these
 .env

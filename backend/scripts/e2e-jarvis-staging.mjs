@@ -3,12 +3,21 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import {
+  classifyTransportError,
+  incrementCounter,
+  sanitizeDiagnosticText,
+  summarizeExposedDiagnostics,
+  summarizeSafeResponseHeaders,
+} from './jarvis-harness-observability.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
 const BASE_URL = process.env.PING_STAGING_BASE_URL || 'https://ping-backend-staging.onrender.com/api';
 const PROJECT_REF = 'oonijgmddgyymhrlnvuu';
 const EXPECTED_SHA = process.env.PING_EXPECTED_SHA || null;
+const CASE_START = Number.parseInt(process.env.JARVIS_CASE_START || '1', 10);
+const CASE_END = Number.parseInt(process.env.JARVIS_CASE_END || '100', 10);
 const runId = randomUUID();
 const artifactDir = path.resolve(process.cwd(), '.m8-smoke-artifacts', 'jarvis');
 const artifactPath = path.join(artifactDir, `${runId}.json`);
@@ -19,19 +28,66 @@ if (new URL(process.env.SUPABASE_URL).hostname !== `${PROJECT_REF}.supabase.co`)
 
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 const publicClient = () => createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-const report = { runId, expectedSha: EXPECTED_SHA, cases: [], calls: 0, sideEffects: { writers: 0, persistenceMutations: 0, tools: 0 }, cleanup: null, success: false };
+const report = {
+  artifactSchemaVersion: 2,
+  runId,
+  expectedSha: EXPECTED_SHA,
+  selection: { caseStart: CASE_START, caseEnd: CASE_END },
+  cases: [],
+  calls: 0,
+  diagnostics: {
+    casesStarted: 0,
+    casesCompleted: 0,
+    statusCounts: {},
+    timeoutCount: 0,
+    networkErrorCount: 0,
+    httpErrorCount: 0,
+    rateLimitedCount: 0,
+    providerDiagnostics: { available: false, reason: 'public_response_omits_internal_diagnostics' },
+    requests: [],
+  },
+  sideEffects: { writers: 0, persistenceMutations: 0, tools: 0 },
+  cleanup: null,
+  success: false,
+};
 
-async function http(pathname, { token, method = 'GET', body, idempotencyKey } = {}) {
+async function http(pathname, { token, method = 'GET', body, idempotencyKey, caseId = null, turnIndex = null, phase = 'unknown' } = {}) {
+  const startedAt = Date.now();
+  const requestLabel = `${method} ${pathname}`;
   report.calls += 1;
-  const response = await fetch(`${BASE_URL}${pathname}`, {
-    method,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(90_000),
-  });
-  const text = await response.text();
-  let payload = null; try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: text.slice(0, 200) }; }
-  return { status: response.status, payload };
+  const trace = { request: report.calls, caseId, turnIndex, phase, label: requestLabel, startedAt };
+  try {
+    const response = await fetch(`${BASE_URL}${pathname}`, {
+      method,
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(90_000),
+    });
+    const text = await response.text();
+    let payload = null; try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: '[non-json response]' }; }
+    const headers = summarizeSafeResponseHeaders(response.headers);
+    trace.elapsedMs = Date.now() - startedAt;
+    trace.status = response.status;
+    trace.statusText = sanitizeDiagnosticText(response.statusText);
+    trace.headers = headers;
+    trace.exposedDiagnostics = summarizeExposedDiagnostics(payload);
+    incrementCounter(report.diagnostics.statusCounts, String(response.status));
+    if (response.status >= 400) report.diagnostics.httpErrorCount += 1;
+    if (response.status === 429) report.diagnostics.rateLimitedCount += 1;
+    if (!report.diagnostics.providerDiagnostics.available && trace.exposedDiagnostics.available) {
+      report.diagnostics.providerDiagnostics = trace.exposedDiagnostics;
+    }
+    report.diagnostics.requests.push(trace);
+    return { status: response.status, payload, diagnostics: trace };
+  } catch (error) {
+    const transportError = classifyTransportError(error);
+    trace.elapsedMs = Date.now() - startedAt;
+    trace.status = 0;
+    trace.transportError = transportError;
+    report.diagnostics[transportError.class === 'timeout' ? 'timeoutCount' : 'networkErrorCount'] += 1;
+    report.diagnostics.requests.push(trace);
+    return { status: 0, payload: null, diagnostics: trace };
+  }
 }
 
 function summary(payload) {
@@ -44,8 +100,33 @@ function summary(payload) {
     objectiveType: payload?.objectiveType ?? plan?.objectiveType ?? null,
     confirmationRequired: Boolean(payload?.requiresConfirmation || payload?.planForConfirmation),
     answerPresent: typeof payload?.response?.answer === 'string' || typeof payload?.answer === 'string',
-    errorCode: typeof payload?.error === 'string' ? payload.error.slice(0, 120) : null,
+    errorCode: typeof payload?.error === 'string' ? sanitizeDiagnosticText(payload.error.slice(0, 120)) : null,
+    exposedDiagnostics: summarizeExposedDiagnostics(payload),
   };
+}
+
+function summarizeCheckpoint(data) {
+  if (!data) return null;
+  const active = data.active_dialogue?.state;
+  return {
+    lifecycle: data.lifecycle ?? null,
+    version: typeof data.version === 'number' ? data.version : null,
+    turnSequence: data.last_applied_turn_sequence == null ? null : Number(data.last_applied_turn_sequence),
+    expiresAt: data.expires_at ?? null,
+    activeLifecycle: active?.lifecycle ?? null,
+    hasObjective: Boolean(active?.openObjective),
+    hasPendingPlan: Boolean(active?.currentPlanDigestRef),
+    suspendedObjectiveCount: Array.isArray(active?.suspendedObjectives) ? active.suspendedObjectives.length : null,
+    referentCount: Array.isArray(active?.referents) ? active.referents.length : null,
+  };
+}
+
+async function checkpointSnapshot(actorId, conversationId) {
+  const { data, error } = await admin.from('agent_dialogue_checkpoints')
+    .select('lifecycle,version,last_applied_turn_sequence,expires_at,active_dialogue')
+    .eq('actor_user_id', actorId).eq('dialogue_scope_key', conversationId).maybeSingle();
+  if (error) return { available: false, error: sanitizeDiagnosticText(error.message || error.code || 'checkpoint_read_error') };
+  return { available: true, state: summarizeCheckpoint(data) };
 }
 
 async function identity(caseId) {
@@ -125,14 +206,17 @@ async function run() {
   const commitmentIds = new Set();
   let identitiesDeleted = 0;
   try {
-    for (const testCase of cases()) {
+    for (const testCase of cases().filter((_, index) => index + 1 >= CASE_START && index + 1 <= CASE_END)) {
+      const caseStartedAt = Date.now();
+      const caseCallStart = report.calls + 1;
+      report.diagnostics.casesStarted += 1;
       // /agent/turn intentionally has a per-user abuse limit. Each fixture
       // keeps one identity for its complete conversation, but cases use
       // isolated identities so certification cannot consume the product's
       // protection and turn later cases into false 429 failures.
       const who = await identity(testCase.id);
       let token = await login(who.email);
-      const group = await http('/groups', { token, method: 'POST', body: { name: `Jarvis ${testCase.id}`, participantIds: [] } });
+      const group = await http('/groups', { token, method: 'POST', caseId: testCase.id, phase: 'fixture_create', body: { name: `Jarvis ${testCase.id}`, participantIds: [] } });
       try {
         if (group.status !== 201 || !group.payload?.conversationId) throw new Error(`fixture group failed ${testCase.id}`);
         const conversationId = group.payload.conversationId;
@@ -140,12 +224,12 @@ async function run() {
         for (let index = 0; index < testCase.turns.length; index += 1) {
           if (testCase.reconnectBefore === index) token = await login(who.email);
           const body = { input: testCase.turns[index], conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' };
-          const result = await http('/agent/turn', { token, method: 'POST', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
-          turns.push({ index: index + 1, status: result.status, response: summary(result.payload) });
+          const result = await http('/agent/turn', { token, method: 'POST', caseId: testCase.id, turnIndex: index + 1, phase: 'agent_turn', body, idempotencyKey: `${runId}:${testCase.id}:${index + 1}` });
+          turns.push({ index: index + 1, status: result.status, response: summary(result.payload), request: result.diagnostics.request, elapsedMs: result.diagnostics.elapsedMs, checkpoint: await checkpointSnapshot(who.id, conversationId) });
         }
         if (testCase.replayFinal) {
-          const replay = await http('/agent/turn', { token, method: 'POST', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
-          turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload) });
+          const replay = await http('/agent/turn', { token, method: 'POST', caseId: testCase.id, turnIndex: testCase.turns.length, phase: 'agent_turn_replay', body: { input: testCase.turns.at(-1), conversationId, channel: 'mobile', locale: 'es-CL', timezone: 'America/Santiago' }, idempotencyKey: `${runId}:${testCase.id}:${testCase.turns.length}` });
+          turns.push({ index: testCase.turns.length, replay: true, status: replay.status, response: summary(replay.payload), request: replay.diagnostics.request, elapsedMs: replay.diagnostics.elapsedMs, checkpoint: await checkpointSnapshot(who.id, conversationId) });
         }
         const { data: created } = await admin.from('commitments').select('id').eq('owner_user_id', who.id);
         for (const row of created || []) commitmentIds.add(row.id);
@@ -155,8 +239,10 @@ async function run() {
         const allHttpOk = turns.every(turn => turn.status === 200);
         const passed = allHttpOk && hasPlan && final?.answerPresent === true
           && (expectedWrite ? (created?.length ?? 0) > 0 : (created?.length ?? 0) === 0);
-        report.cases.push({ id: testCase.id, family: testCase.family, turns, passed, expectedWrite, observedCommitments: created?.length ?? 0 });
-        const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE' });
+        const caseFinishedAt = Date.now();
+        report.cases.push({ id: testCase.id, family: testCase.family, turns, passed, expectedWrite, observedCommitments: created?.length ?? 0, startedAt: caseStartedAt, finishedAt: caseFinishedAt, elapsedMs: caseFinishedAt - caseStartedAt, calls: { first: caseCallStart, last: report.calls, count: report.calls - caseCallStart + 1 } });
+        report.diagnostics.casesCompleted += 1;
+        const deleted = await http(`/groups/${conversationId}`, { token, method: 'DELETE', caseId: testCase.id, phase: 'fixture_delete' });
         if (deleted.status !== 200) report.cases.at(-1).cleanupError = `group_${deleted.status}`;
       } finally {
         await deleteFixtureData(who.id);
@@ -173,7 +259,15 @@ async function run() {
   }
 }
 
-try { await run(); } catch (error) { report.success = false; report.error = { name: error?.name || 'Error', message: error?.message || String(error) }; }
+try {
+  await run();
+} catch (error) {
+  report.success = false;
+  report.error = {
+    name: sanitizeDiagnosticText(error?.name || 'Error'),
+    message: sanitizeDiagnosticText(error?.message || String(error)),
+  };
+}
 await mkdir(artifactDir, { recursive: true });
 await writeFile(artifactPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 console.log(JSON.stringify({ ...report, artifactPath }, null, 2));
