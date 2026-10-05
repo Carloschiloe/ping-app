@@ -20,6 +20,20 @@ export function recordPlanDigestNonExecutable(input: {
     processInvalidatedDigests.add(processDigestKey(input.actorUserId, input.dialogueScopeKey, input.planDigest));
 }
 
+// A correction may produce a freshly planned digest identical to the
+// superseded digest when the user's new wording preserves the same material
+// execution value (for example, making an implicit default explicit).  The
+// dialogue-state boundary is the authority that distinguishes that safe
+// revalidation from a rejected plan; it uses this narrow removal instead of
+// clearing all process-local invalidations.
+export function clearPlanDigestNonExecutable(input: {
+    actorUserId: string;
+    dialogueScopeKey: string;
+    planDigest: string;
+}): void {
+    processInvalidatedDigests.delete(processDigestKey(input.actorUserId, input.dialogueScopeKey, input.planDigest));
+}
+
 export function clearPlanDigestInvalidationsForTests(): void {
     processInvalidatedDigests.clear();
 }

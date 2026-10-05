@@ -35,6 +35,7 @@ import {
     buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
     groundPendingPlanCandidate,
+    isPendingPlanUnchangedCandidate,
 } from '../src/services/agentDialogueContinuation.service';
 
 const ACTOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -156,6 +157,26 @@ describe('semantic pending-plan reconciliation', () => {
             constraints: { decisionHint: 'approve' },
             targetEntities: { personHints: [], entityHints: ['otro objetivo'] },
         }))).toBeNull();
+    });
+
+    it('keeps a structurally empty same-family proposal pending instead of creating a new plan', () => {
+        expect(isPendingPlanUnchangedCandidate({
+            pendingObjectiveType: 'create_personal_commitment',
+            candidate: objective({
+                dialogueAct: null,
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+                slotDelta: { title: null, date: null, time: null },
+                constraints: {},
+            }),
+        })).toBe(true);
+        expect(isPendingPlanUnchangedCandidate({
+            pendingObjectiveType: 'create_personal_commitment',
+            candidate: objective({
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'el viernes' },
+            }),
+        })).toBe(false);
     });
 
     it('recognizes a structured independent write candidate for replacement', () => {

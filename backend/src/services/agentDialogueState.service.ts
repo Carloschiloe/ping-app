@@ -25,7 +25,11 @@ import type {
 } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveAmbiguity, ClarificationQuestion } from '../types/agentPlan';
 import type { AgentSurface } from '../types/agentInput';
-import { clearPlanDigestInvalidationsForTests, recordPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
+import {
+    clearPlanDigestInvalidationsForTests,
+    clearPlanDigestNonExecutable,
+    recordPlanDigestNonExecutable,
+} from './agentPlanInvalidationGuard.service';
 
 // ADR Q8 — starting defaults, explicitly not measured/tuned figures (ADR
 // is explicit that these need product judgment/telemetry later). Centralized
@@ -632,15 +636,35 @@ export class AgentDialogueStateService {
             ? existing.lifecycle
             : transitionDialogueState(existing.lifecycle, 'ready_to_plan');
         const nextLifecycle = transitionDialogueState(afterReadyToPlan, 'plan_pending_authorization');
+        // A correction invalidates the previously shown digest before the
+        // replacement is planned.  The replacement can legitimately have
+        // the same material digest when the correction only makes an
+        // already-effective value explicit.  Revalidate only tombstones
+        // created by a correction; a rejected plan remains permanently
+        // non-executable and cannot be resurrected by a later confirmation.
+        const revalidatedSuperseded = (existing.nonExecutablePlanDigestRefs ?? [])
+            .some((ref) => ref.digest === input.planDigest && ref.reason === 'superseded');
+        const nonExecutablePlanDigestRefs = revalidatedSuperseded
+            ? existing.nonExecutablePlanDigestRefs!.filter((ref) => ref.digest !== input.planDigest)
+            : existing.nonExecutablePlanDigestRefs ?? [];
         const next: AgentDialogueState = {
             ...existing,
             lifecycle: nextLifecycle,
             currentPlanDigestRef: input.planDigest,
+            nonExecutablePlanDigestRefs,
             lastTurnSequence: input.turnSequence,
             updatedAt: now.toISOString(),
             expiresAt: computeExpiry(nextLifecycle, now),
         };
-        return this.persist(next, existing.version);
+        const persisted = this.persist(next, existing.version);
+        if (revalidatedSuperseded) {
+            clearPlanDigestNonExecutable({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey: input.dialogueScopeKey,
+                planDigest: input.planDigest,
+            });
+        }
+        return persisted;
     }
 
     // ADR Q14 — records that a real AgentAuthorization was issued. Stores

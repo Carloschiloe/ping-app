@@ -71,6 +71,7 @@ import {
     buildPlanDateCorrection,
     buildPendingPlanEdit,
     classifyPendingPlanDecision,
+    isPendingPlanUnchangedCandidate,
     classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
     isCompletePendingPlanReplacement,
@@ -625,6 +626,33 @@ export async function runAgentTurn(
                     answer: language === 'es'
                         ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
                         : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
+                    citations: [],
+                },
+            }, traceId);
+        }
+        if (precomputedSemantic.route === 'write' && isPendingPlanUnchangedCandidate({
+            pendingObjectiveType: existingDialogueState.openObjective.objectiveType,
+            candidate: pendingPlanCandidate,
+        })) {
+            // A structurally empty same-family proposal is not enough
+            // evidence for a new write. Preserve the Core-owned pending
+            // plan and acknowledge the unchanged state without authorizing
+            // or executing anything.
+            const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
+            dialogueService.recordTurn({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: traceId,
+                turnSequence,
+            });
+            const language = detectAgentLanguage(content, locale);
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: language === 'es'
+                        ? 'El plan pendiente sigue sin cambios. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
+                        : 'The pending plan remains unchanged. You can confirm, change, or discard it when you are ready.',
                     citations: [],
                 },
             }, traceId);

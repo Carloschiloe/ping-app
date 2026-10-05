@@ -146,6 +146,29 @@ export function classifyPendingPlanDecision(
     return decisionHint;
 }
 
+/**
+ * Conservative lifecycle fallback for a provider proposal that stays inside
+ * the already-owned objective family but carries no current-turn material
+ * value and no lifecycle act.  Core must not turn that structurally empty
+ * proposal into a fresh plan: doing so can create a second plan from an
+ * utterance that did not supply a title, person, date, or time.  The caller
+ * keeps the existing plan pending and reports no mutation; it does not infer
+ * authorization or execute anything.
+ */
+export function isPendingPlanUnchangedCandidate(input: {
+    pendingObjectiveType: AgentObjectiveType;
+    candidate: AgentObjective | null | undefined;
+}): boolean {
+    const candidate = input.candidate;
+    if (!candidate || candidate.objectiveType !== input.pendingObjectiveType) return false;
+    if (candidate.dialogueAct && candidate.dialogueAct !== 'other' && candidate.dialogueAct !== 'clarify') return false;
+    if (candidate.constraints.decisionHint) return false;
+    if (candidate.targetEntities.entityHints.length > 0 || candidate.targetEntities.personHints.length > 0) return false;
+    if (candidate.timeConstraints.rawHint?.trim()) return false;
+    const slotDelta = candidate.slotDelta;
+    return !slotDelta?.title?.trim() && !slotDelta?.date?.trim() && !slotDelta?.time?.trim();
+}
+
 export type PendingPlanSemanticRelation =
     | { kind: 'approve' | 'reject' | 'defer' | 'suspend' }
     | { kind: 'follow_up'; attribute: 'date' | 'time' | 'responsible' | 'status' | 'details' }

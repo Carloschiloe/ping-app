@@ -356,6 +356,32 @@ describe('correction stack (test areas 12-15, ADR Q6)', () => {
         expect(afterCorrection.currentPlanDigestRef).toBeNull();
         expect(afterCorrection.lifecycle).toBe('collecting');
     });
+
+    it('revalidates an unchanged material digest after a correction, but never resurrects a rejected digest', async () => {
+        const service = new AgentDialogueStateService();
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'same-material-digest', turnId: 't2', turnSequence: 2 });
+
+        service.applyCorrection({
+            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, slotName: 'time',
+            previousValue: null, newValue: 'sábado a las doce', reason: 'user_correction', turnId: 't3', turnSequence: 3,
+        });
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective({ timeConstraints: { rawHint: 'sábado a las doce' } }), turnId: 't3', turnSequence: 4 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'same-material-digest', turnId: 't3', turnSequence: 5 });
+
+        expect(service.getSnapshot(ACTOR_A, CONV_1)?.currentPlanDigestRef).toBe('same-material-digest');
+        await expect(isPlanDigestNonExecutable({
+            actorUserId: ACTOR_A, conversationId: CONV_1, planDigest: 'same-material-digest',
+        })).resolves.toBe(false);
+
+        service.rejectPendingPlan({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, turnId: 't4', turnSequence: 6 });
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective({ timeConstraints: { rawHint: 'sábado a las doce' } }), turnId: 't5', turnSequence: 7 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'same-material-digest', turnId: 't5', turnSequence: 8 });
+
+        await expect(isPlanDigestNonExecutable({
+            actorUserId: ACTOR_A, conversationId: CONV_1, planDigest: 'same-material-digest',
+        })).resolves.toBe(true);
+    });
 });
 
 describe('referent candidates (test areas 16-17, ADR Q7)', () => {
