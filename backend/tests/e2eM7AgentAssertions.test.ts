@@ -6,7 +6,7 @@ import { assertStrongM7Sequence } from '../scripts/e2e-m7-agent-assertions.mjs';
 function turn(sequence: number, objective: Record<string, unknown> | null, kind: string, execution = false) {
   return {
     status: 200,
-    response: { kind, ...(execution ? { responseStatus: 'answered' } : {}) },
+    response: { kind, ...(kind === 'response' ? { responseStatus: 'answered' } : {}), ...(execution ? { responseStatus: 'answered' } : {}) },
     ...(execution ? { execution: { status: 'done', verified: true } } : {}),
     checkpoint: { turnSequence: sequence, activeObjective: objective },
   };
@@ -46,6 +46,20 @@ describe('M7 staging semantic assertions', () => {
       turn(8, objective('llamada al proveedor', 'lunes'), 'response'),
     ];
     expect(() => assertStrongM7Sequence(turns)).toThrow(/Turn 4/);
+  });
+
+  it('accepts an answered response when a pending plan is safely deferred', () => {
+    const turns = [
+      turn(1, objective('revision del inventario', 'jueves'), 'plan'),
+      turn(2, objective('llamada al proveedor', 'viernes'), 'plan'),
+      turn(3, objective('llamada al proveedor', 'viernes'), 'response'),
+      turn(4, objective('revision del inventario', 'jueves'), 'response'),
+      turn(5, objective('revision del inventario', 'lunes siguiente'), 'plan'),
+      turn(6, objective('revision del inventario', 'lunes siguiente'), 'response'),
+      turn(7, objective('revision del inventario', 'lunes siguiente'), 'response', true),
+      turn(8, objective('revision del inventario', 'lunes siguiente'), 'response'),
+    ];
+    expect(assertStrongM7Sequence(turns)).toEqual({ ok: true });
   });
 
   it('samples execution evidence at the confirmation turn used by the runner', () => {

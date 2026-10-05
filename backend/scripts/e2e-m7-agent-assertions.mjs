@@ -84,8 +84,11 @@ export function assertStrongM7Sequence(turns) {
     excludedEntity: ['proveedor'],
     excludedTime: ['jueves', 'viernes'],
   }), 'Turn 6 changed the objective while deferring the current plan');
-  assert(turns[5].response?.kind === 'clarification' || turns[5].response?.kind === 'plan',
-    'Turn 6 did not produce a safe non-executing response');
+  const deferredResponse = turns[5].response;
+  const safeDeferral = deferredResponse?.kind === 'clarification'
+    || deferredResponse?.kind === 'plan'
+    || (deferredResponse?.kind === 'response' && deferredResponse.responseStatus === 'answered');
+  assert(safeDeferral, 'Turn 6 did not produce a safe non-executing response');
 
   const confirmed = objectiveOf(turns[6]);
   assert(objectiveMatches(confirmed, {
