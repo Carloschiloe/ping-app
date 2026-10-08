@@ -5,7 +5,10 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // The shipped app entrypoint is App.tsx. These are unused Expo Router
+    // starter files retained in the repository, but expo-router is not part
+    // of Ping's navigation/runtime dependency graph.
+    ignores: ['dist/*', 'app/**/*', 'components/external-link.tsx'],
   },
   {
     // SDK 57 bump trajo eslint-plugin-react-hooks@7 vía eslint-config-expo,
@@ -22,6 +25,16 @@ module.exports = defineConfig([
       'react-hooks/static-components': 'warn',
       'react-hooks/purity': 'warn',
       'react-hooks/preserve-manual-memoization': 'warn',
+    },
+  },
+  {
+    // These tests invoke the hook with deterministic native-module mocks;
+    // they are not React render functions. Keep the runtime hook contract
+    // covered by the tests while disabling this naming heuristic only for
+    // the test pattern.
+    files: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
     },
   },
 ]);
