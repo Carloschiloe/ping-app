@@ -10,6 +10,12 @@ export interface SemanticOpenAiTransportPolicy {
     timeoutMs: number;
 }
 
+export interface SemanticRuntimeConfig {
+    modelName: string;
+    modelFamily: SemanticModelFamily;
+    policy: SemanticOpenAiTransportPolicy;
+}
+
 export interface SemanticProviderErrorMetadata {
     providerErrorClass: string;
     providerHttpStatus: number | null;
@@ -46,6 +52,22 @@ export function getSemanticOpenAiTransportPolicy(
     family: SemanticModelFamily = resolveSemanticModelFamily(),
 ): SemanticOpenAiTransportPolicy {
     return family === 'modern_reasoning' ? MODERN_REASONING_POLICY : LEGACY_POLICY;
+}
+
+/**
+ * Single runtime selection for the productive semantic boundary.
+ * Absent staging/runtime overrides, production keeps the historical defaults.
+ */
+export function getSemanticRuntimeConfig(overrides: {
+    modelName?: string;
+    modelFamily?: SemanticModelFamily;
+} = {}): SemanticRuntimeConfig {
+    const modelFamily = overrides.modelFamily ?? resolveSemanticModelFamily();
+    return {
+        modelName: overrides.modelName?.trim() || process.env.PING_SEMANTIC_MODEL?.trim() || 'gpt-4o-mini',
+        modelFamily,
+        policy: getSemanticOpenAiTransportPolicy(modelFamily),
+    };
 }
 
 export interface SemanticOpenAiRequestOptions {

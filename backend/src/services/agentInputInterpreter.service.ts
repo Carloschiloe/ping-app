@@ -18,7 +18,7 @@
 import OpenAI from 'openai';
 import {
     buildSemanticOpenAiRequest,
-    getSemanticOpenAiTransportPolicy,
+    getSemanticRuntimeConfig,
     sanitizeSemanticProviderError,
     semanticProviderResponseMetadata,
     type SemanticModelFamily,
@@ -1461,8 +1461,6 @@ export interface AgentInputProviderResponseMetadata {
 
 export type AgentInputProviderErrorMetadata = SemanticProviderErrorMetadata;
 
-const OPENAI_MODEL_NAME = 'gpt-4o-mini'; // modelo económico ya usado en todo el backend (synthesis.service.ts, commitment.service.ts) — no necesitamos razonamiento largo para extracción (sección 24)
-
 // Prompt corto y estable (sección 20). No lleva historial textual del usuario;
 // sólo recibe el resumen estructural acotado que Core deriva de su propio
 // estado. La
@@ -1616,9 +1614,10 @@ export class OpenAiAgentInputModel implements AgentInputModel {
     private readonly onProviderError?: (metadata: AgentInputProviderErrorMetadata) => void;
 
     constructor(options: OpenAiAgentInputModelOptions = {}) {
-        this.modelName = options.modelName?.trim() || OPENAI_MODEL_NAME;
-        this.modelFamily = options.modelFamily ?? getSemanticOpenAiTransportPolicy().family;
-        this.timeoutMs = getSemanticOpenAiTransportPolicy(this.modelFamily).timeoutMs;
+        const runtime = getSemanticRuntimeConfig(options);
+        this.modelName = runtime.modelName;
+        this.modelFamily = runtime.modelFamily;
+        this.timeoutMs = runtime.policy.timeoutMs;
         this.onProviderRequest = options.onProviderRequest;
         this.onProviderResponse = options.onProviderResponse;
         this.onProviderError = options.onProviderError;

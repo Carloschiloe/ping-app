@@ -21,7 +21,7 @@
 import OpenAI from 'openai';
 import {
     buildSemanticOpenAiRequest,
-    getSemanticOpenAiTransportPolicy,
+    getSemanticRuntimeConfig,
     sanitizeSemanticProviderError,
     semanticProviderResponseMetadata,
     type SemanticModelFamily,
@@ -967,7 +967,6 @@ export interface AgentObjectiveProviderResponseMetadata {
 
 export type AgentObjectiveProviderErrorMetadata = SemanticProviderErrorMetadata;
 
-const OBJECTIVE_MODEL_NAME = 'gpt-4o-mini';
 const MAX_OBJECTIVE_INPUT_LENGTH = 500;
 const DEFAULT_OBJECTIVE_LLM_TIMEOUT_MS = 8000;
 
@@ -1039,9 +1038,10 @@ export class OpenAiAgentObjectiveModel implements AgentObjectiveModel {
     private readonly onProviderError?: (metadata: AgentObjectiveProviderErrorMetadata) => void;
 
     constructor(options: OpenAiAgentObjectiveModelOptions = {}) {
-        this.modelName = options.modelName?.trim() || OBJECTIVE_MODEL_NAME;
-        this.modelFamily = options.modelFamily ?? getSemanticOpenAiTransportPolicy().family;
-        this.timeoutMs = getSemanticOpenAiTransportPolicy(this.modelFamily).timeoutMs;
+        const runtime = getSemanticRuntimeConfig(options);
+        this.modelName = runtime.modelName;
+        this.modelFamily = runtime.modelFamily;
+        this.timeoutMs = runtime.policy.timeoutMs;
         this.onProviderRequest = options.onProviderRequest;
         this.onProviderResponse = options.onProviderResponse;
         this.onProviderError = options.onProviderError;
