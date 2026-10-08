@@ -19,6 +19,14 @@
 // objective (sección 1: "LLM may propose... Core validates"), swapping
 // interpreters never changes what the validator will accept.
 import OpenAI from 'openai';
+import {
+    buildSemanticOpenAiRequest,
+    getSemanticOpenAiTransportPolicy,
+    sanitizeSemanticProviderError,
+    semanticProviderResponseMetadata,
+    type SemanticModelFamily,
+    type SemanticProviderErrorMetadata,
+} from './semanticOpenAiTransport.service';
 import type { AgentObjectiveInterpretationPayload } from '../schemas/agentObjectiveInterpretation.schema';
 import { agentObjectiveInterpretationPayloadSchema } from '../schemas/agentObjectiveInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
@@ -943,8 +951,21 @@ export interface AgentObjectiveModelRequest {
 
 export interface AgentObjectiveModel {
     readonly modelName: string;
+    readonly timeoutMs?: number;
     interpret(request: AgentObjectiveModelRequest): Promise<string>; // JSON crudo — parseo/validación vive en LlmObjectiveInterpreter
 }
+
+export interface AgentObjectiveProviderResponseMetadata {
+    modelActual: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    reasoningTokens: number | null;
+    cachedInputTokens: number | null;
+    finishReason: string | null;
+    contentPresent: boolean;
+}
+
+export type AgentObjectiveProviderErrorMetadata = SemanticProviderErrorMetadata;
 
 const OBJECTIVE_MODEL_NAME = 'gpt-4o-mini';
 const MAX_OBJECTIVE_INPUT_LENGTH = 500;
@@ -952,7 +973,12 @@ const DEFAULT_OBJECTIVE_LLM_TIMEOUT_MS = 8000;
 
 let cachedOpenAiClient: OpenAI | null = null;
 function getOpenAiObjectiveClient(): OpenAI {
-    if (!cachedOpenAiClient) cachedOpenAiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    if (!cachedOpenAiClient) {
+        cachedOpenAiClient = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+            maxRetries: process.env.PING_SEMANTIC_CERTIFICATION === '1' ? 0 : undefined,
+        });
+    }
     return cachedOpenAiClient;
 }
 
@@ -996,20 +1022,49 @@ function buildObjectivePrompt(input: string, context: ObjectiveInterpreterContex
     ].join('\n');
 }
 
+export interface OpenAiAgentObjectiveModelOptions {
+    modelName?: string;
+    modelFamily?: SemanticModelFamily;
+    onProviderRequest?: () => void;
+    onProviderResponse?: (metadata: AgentObjectiveProviderResponseMetadata) => void;
+    onProviderError?: (metadata: AgentObjectiveProviderErrorMetadata) => void;
+}
+
 export class OpenAiAgentObjectiveModel implements AgentObjectiveModel {
-    readonly modelName = OBJECTIVE_MODEL_NAME;
+    readonly modelName: string;
+    readonly timeoutMs: number;
+    private readonly modelFamily: SemanticModelFamily;
+    private readonly onProviderRequest?: () => void;
+    private readonly onProviderResponse?: (metadata: AgentObjectiveProviderResponseMetadata) => void;
+    private readonly onProviderError?: (metadata: AgentObjectiveProviderErrorMetadata) => void;
+
+    constructor(options: OpenAiAgentObjectiveModelOptions = {}) {
+        this.modelName = options.modelName?.trim() || OBJECTIVE_MODEL_NAME;
+        this.modelFamily = options.modelFamily ?? getSemanticOpenAiTransportPolicy().family;
+        this.timeoutMs = getSemanticOpenAiTransportPolicy(this.modelFamily).timeoutMs;
+        this.onProviderRequest = options.onProviderRequest;
+        this.onProviderResponse = options.onProviderResponse;
+        this.onProviderError = options.onProviderError;
+    }
 
     async interpret(request: AgentObjectiveModelRequest): Promise<string> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
         const client = getOpenAiObjectiveClient();
-        const response = await client.chat.completions.create({
-            model: this.modelName,
-            messages: [{ role: 'user', content: buildObjectivePrompt(request.input, request.context) }],
-            temperature: 0.1,
-            max_tokens: 300,
-            response_format: { type: 'json_object' },
-        });
-        return response.choices[0]?.message?.content || '{}';
+        try {
+            this.onProviderRequest?.();
+            const response = await client.chat.completions.create(
+                buildSemanticOpenAiRequest({
+                    modelName: this.modelName,
+                    family: this.modelFamily,
+                    messages: [{ role: 'user', content: buildObjectivePrompt(request.input, request.context) }],
+                }) as never,
+            );
+            this.onProviderResponse?.(semanticProviderResponseMetadata(response));
+            return response.choices[0]?.message?.content || '{}';
+        } catch (error) {
+            this.onProviderError?.(sanitizeSemanticProviderError(error));
+            throw error;
+        }
     }
 }
 
@@ -1268,7 +1323,7 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
     constructor(options: LlmObjectiveInterpreterOptions = {}) {
         this.model = options.model ?? new OpenAiAgentObjectiveModel();
         this.fallback = options.fallback ?? new DeterministicObjectiveInterpreter();
-        this.timeoutMs = options.timeoutMs ?? DEFAULT_OBJECTIVE_LLM_TIMEOUT_MS;
+        this.timeoutMs = options.timeoutMs ?? this.model.timeoutMs ?? DEFAULT_OBJECTIVE_LLM_TIMEOUT_MS;
     }
 
     async interpret(input: string, context: ObjectiveInterpreterContext): Promise<AgentObjective> {

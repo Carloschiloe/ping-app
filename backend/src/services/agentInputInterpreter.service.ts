@@ -16,6 +16,14 @@
 // fast-path/fallback"). Estrategia: PRIMARY LlmInputInterpreter, FALLBACK
 // DeterministicInputInterpreter/fallbackInterpretation (sección 3).
 import OpenAI from 'openai';
+import {
+    buildSemanticOpenAiRequest,
+    getSemanticOpenAiTransportPolicy,
+    sanitizeSemanticProviderError,
+    semanticProviderResponseMetadata,
+    type SemanticModelFamily,
+    type SemanticProviderErrorMetadata,
+} from './semanticOpenAiTransport.service';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
@@ -1437,8 +1445,21 @@ export interface AgentInputModelRequest {
 
 export interface AgentInputModel {
     readonly modelName: string;
+    readonly timeoutMs?: number;
     interpret(request: AgentInputModelRequest): Promise<string>; // JSON crudo (string) — el parseo/validación vive en LlmInputInterpreter, no aquí
 }
+
+export interface AgentInputProviderResponseMetadata {
+    modelActual: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    reasoningTokens: number | null;
+    cachedInputTokens: number | null;
+    finishReason: string | null;
+    contentPresent: boolean;
+}
+
+export type AgentInputProviderErrorMetadata = SemanticProviderErrorMetadata;
 
 const OPENAI_MODEL_NAME = 'gpt-4o-mini'; // modelo económico ya usado en todo el backend (synthesis.service.ts, commitment.service.ts) — no necesitamos razonamiento largo para extracción (sección 24)
 
@@ -1565,7 +1586,10 @@ function buildInterpreterPrompt(input: string, context: InterpreterContext): str
 let cachedOpenAiClient: OpenAI | null = null;
 function getOpenAiInterpreterClient(): OpenAI {
     if (!cachedOpenAiClient) {
-        cachedOpenAiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!.trim() });
+        cachedOpenAiClient = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY!.trim(),
+            maxRetries: process.env.PING_SEMANTIC_CERTIFICATION === '1' ? 0 : undefined,
+        });
     }
     return cachedOpenAiClient;
 }
@@ -1575,20 +1599,49 @@ function getOpenAiInterpreterClient(): OpenAI {
 // synthesis.service.ts/commitment.service.ts, sección 4 ("reusar cliente
 // existente cuando sea razonable"). No modifica esos archivos, sólo importa
 // `isAiConfigured` (lectura) para no duplicar ese chequeo.
+export interface OpenAiAgentInputModelOptions {
+    modelName?: string;
+    modelFamily?: SemanticModelFamily;
+    onProviderRequest?: () => void;
+    onProviderResponse?: (metadata: AgentInputProviderResponseMetadata) => void;
+    onProviderError?: (metadata: AgentInputProviderErrorMetadata) => void;
+}
+
 export class OpenAiAgentInputModel implements AgentInputModel {
-    readonly modelName = OPENAI_MODEL_NAME;
+    readonly modelName: string;
+    readonly timeoutMs: number;
+    private readonly modelFamily: SemanticModelFamily;
+    private readonly onProviderRequest?: () => void;
+    private readonly onProviderResponse?: (metadata: AgentInputProviderResponseMetadata) => void;
+    private readonly onProviderError?: (metadata: AgentInputProviderErrorMetadata) => void;
+
+    constructor(options: OpenAiAgentInputModelOptions = {}) {
+        this.modelName = options.modelName?.trim() || OPENAI_MODEL_NAME;
+        this.modelFamily = options.modelFamily ?? getSemanticOpenAiTransportPolicy().family;
+        this.timeoutMs = getSemanticOpenAiTransportPolicy(this.modelFamily).timeoutMs;
+        this.onProviderRequest = options.onProviderRequest;
+        this.onProviderResponse = options.onProviderResponse;
+        this.onProviderError = options.onProviderError;
+    }
 
     async interpret(request: AgentInputModelRequest): Promise<string> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
         const client = getOpenAiInterpreterClient();
-        const response = await client.chat.completions.create({
-            model: this.modelName,
-            messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
-            temperature: 0.1, // extracción determinista, no creatividad (sección 24)
-            max_tokens: 300,  // salida estructurada corta — sin razonamiento largo
-            response_format: { type: 'json_object' },
-        });
-        return response.choices[0]?.message?.content || '{}';
+        try {
+            this.onProviderRequest?.();
+            const response = await client.chat.completions.create(
+                buildSemanticOpenAiRequest({
+                    modelName: this.modelName,
+                    family: this.modelFamily,
+                    messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
+                }) as never,
+            );
+            this.onProviderResponse?.(semanticProviderResponseMetadata(response));
+            return response.choices[0]?.message?.content || '{}';
+        } catch (error) {
+            this.onProviderError?.(sanitizeSemanticProviderError(error));
+            throw error;
+        }
     }
 }
 
@@ -1733,7 +1786,7 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
     constructor(options: LlmInputInterpreterOptions = {}) {
         this.model = options.model ?? new OpenAiAgentInputModel();
         this.fallback = options.fallback ?? new DeterministicInputInterpreter();
-        this.timeoutMs = options.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+        this.timeoutMs = options.timeoutMs ?? this.model.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
     }
 
     async interpret(input: string, context: InterpreterContext): Promise<Interpretation> {
