@@ -25,8 +25,10 @@ describe('shared Semantic OpenAI transport policy', () => {
     it('resolves one configurable model for both semantic interpreters', () => {
         const previousModel = process.env.PING_SEMANTIC_MODEL;
         const previousFamily = process.env.PING_SEMANTIC_MODEL_FAMILY;
+        const previousEnvironment = process.env.PING_ENVIRONMENT;
         process.env.PING_SEMANTIC_MODEL = 'gpt-6-luna';
         process.env.PING_SEMANTIC_MODEL_FAMILY = 'modern_reasoning';
+        process.env.PING_ENVIRONMENT = 'staging';
         try {
             expect(getSemanticRuntimeConfig()).toMatchObject({ modelName: 'gpt-6-luna', modelFamily: 'modern_reasoning', policy: { outputTokenParameter: 'max_completion_tokens', temperature: null } });
             const input = new OpenAiAgentInputModel();
@@ -39,6 +41,23 @@ describe('shared Semantic OpenAI transport policy', () => {
             else process.env.PING_SEMANTIC_MODEL = previousModel;
             if (previousFamily === undefined) delete process.env.PING_SEMANTIC_MODEL_FAMILY;
             else process.env.PING_SEMANTIC_MODEL_FAMILY = previousFamily;
+            if (previousEnvironment === undefined) delete process.env.PING_ENVIRONMENT;
+            else process.env.PING_ENVIRONMENT = previousEnvironment;
+        }
+    });
+    it('uses the certified staging model when Render variables are not synchronized', () => {
+        const previousModel = process.env.PING_SEMANTIC_MODEL;
+        const previousEnvironment = process.env.PING_ENVIRONMENT;
+        delete process.env.PING_SEMANTIC_MODEL;
+        process.env.PING_ENVIRONMENT = 'staging';
+        try {
+            expect(getSemanticRuntimeConfig().modelName).toBe('gpt-6-luna');
+            expect(getSemanticRuntimeConfig().modelFamily).toBe('modern_reasoning');
+        } finally {
+            if (previousModel === undefined) delete process.env.PING_SEMANTIC_MODEL;
+            else process.env.PING_SEMANTIC_MODEL = previousModel;
+            if (previousEnvironment === undefined) delete process.env.PING_ENVIRONMENT;
+            else process.env.PING_ENVIRONMENT = previousEnvironment;
         }
     });
     it('sanitizes provider errors without messages or secrets', () => {
