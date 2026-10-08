@@ -95,7 +95,6 @@ describe('AI route authorization', () => {
 
     it('no analiza un mensaje de una conversación ajena', async () => {
         setSupabaseAdminMock(createSupabaseAdminMock({
-            messages: [{ data: { id: 'm1', conversation_id: 'c1', content: 'privado' }, error: null }],
             conversation_participants: [{ data: null, error: null }],
         }));
         const { analyzeMessage } = await import('../src/controllers/ai.controller');
@@ -105,7 +104,37 @@ describe('AI route authorization', () => {
 
         await analyzeMessage(req, res, next);
 
-        expect(next).toHaveBeenCalledTimes(1);
-        expect((next.mock.calls[0][0] as Error).message).toBe('You do not have access to this conversation');
+        expect(next).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(404);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Message not found' });
+    });
+
+    it('analiza un mensaje sólo después de limitarlo a conversaciones autorizadas', async () => {
+        const message = { id: 'm1', conversation_id: 'c1', content: 'contenido autorizado' };
+        const supabase = createSupabaseAdminMock({
+            conversation_participants: [{ data: [{ conversation_id: 'c1' }], error: null }],
+            messages: [{ data: message, error: null }],
+        });
+        setSupabaseAdminMock(supabase);
+        const messageService = await import('../src/services/message.service');
+        vi.mocked(messageService.analyzeAndSuggestTask).mockResolvedValue({ kind: 'create' } as any);
+        const { analyzeMessage } = await import('../src/controllers/ai.controller');
+        const req: any = { user: { id: 'participant' }, params: { id: 'm1' } };
+        const res = responseMock();
+        const next = vi.fn();
+
+        await analyzeMessage(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(supabase.getCalledTables()).toEqual(['conversation_participants', 'messages']);
+        expect(supabase.getInCalls('messages')).toEqual([['conversation_id', ['c1']]]);
+        expect(messageService.analyzeAndSuggestTask).toHaveBeenCalledWith(
+            'm1',
+            'contenido autorizado',
+            undefined,
+            undefined,
+            'c1'
+        );
+        expect(res.status).toHaveBeenCalledWith(200);
     });
 });

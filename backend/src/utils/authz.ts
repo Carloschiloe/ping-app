@@ -15,6 +15,34 @@ export async function assertConversationParticipant(userId: string, conversation
     return data;
 }
 
+/** Load a message only through conversations in which the user participates. */
+export async function getMessageForParticipant(userId: string, messageId: string) {
+    const { data: participations, error: participationError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+    if (participationError) throw new AppError(participationError.message, 500);
+
+    const conversationIds = Array.from(new Set(
+        (participations || [])
+            .map((row: { conversation_id?: string }) => row.conversation_id)
+            .filter((conversationId): conversationId is string => Boolean(conversationId))
+    ));
+
+    if (conversationIds.length === 0) return null;
+
+    const { data: message, error: messageError } = await supabaseAdmin
+        .from('messages')
+        .select('*')
+        .eq('id', messageId)
+        .in('conversation_id', conversationIds)
+        .maybeSingle();
+
+    if (messageError) throw new AppError(messageError.message, 500);
+    return message || null;
+}
+
 export async function assertMessageInConversation(messageId: string, conversationId: string) {
     const { data: message, error } = await supabaseAdmin
         .from('messages')
