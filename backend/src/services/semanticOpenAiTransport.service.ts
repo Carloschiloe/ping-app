@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { traceAgentDevice } from '../utils/agentDeviceTrace';
 
 export type SemanticModelFamily = 'legacy_chat' | 'modern_reasoning';
 
@@ -14,6 +15,12 @@ export interface SemanticRuntimeConfig {
     modelName: string;
     modelFamily: SemanticModelFamily;
     policy: SemanticOpenAiTransportPolicy;
+}
+
+const SEMANTIC_PROVIDER_TRACE_ID = 'semantic-provider';
+
+export function traceSemanticProvider(label: string, data: Record<string, unknown>): void {
+    traceAgentDevice(SEMANTIC_PROVIDER_TRACE_ID, label, data);
 }
 
 export interface SemanticProviderErrorMetadata {

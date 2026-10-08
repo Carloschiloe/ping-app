@@ -19,6 +19,7 @@ import OpenAI from 'openai';
 import {
     buildSemanticOpenAiRequest,
     getSemanticRuntimeConfig,
+    traceSemanticProvider,
     sanitizeSemanticProviderError,
     semanticProviderResponseMetadata,
     type SemanticModelFamily,
@@ -1618,9 +1619,9 @@ export class OpenAiAgentInputModel implements AgentInputModel {
         this.modelName = runtime.modelName;
         this.modelFamily = runtime.modelFamily;
         this.timeoutMs = runtime.policy.timeoutMs;
-        this.onProviderRequest = options.onProviderRequest;
-        this.onProviderResponse = options.onProviderResponse;
-        this.onProviderError = options.onProviderError;
+        this.onProviderRequest = options.onProviderRequest ?? (() => traceSemanticProvider('SEMANTIC_PROVIDER_REQUEST', { modelRequested: this.modelName, modelFamily: this.modelFamily }));
+        this.onProviderResponse = options.onProviderResponse ?? ((metadata) => traceSemanticProvider('SEMANTIC_PROVIDER_RESPONSE', { modelRequested: this.modelName, ...metadata, fallbackUsed: false, providerError: 'none' }));
+        this.onProviderError = options.onProviderError ?? ((metadata) => traceSemanticProvider('SEMANTIC_PROVIDER_ERROR', { modelRequested: this.modelName, ...metadata, fallbackUsed: true }));
     }
 
     async interpret(request: AgentInputModelRequest): Promise<string> {
@@ -1815,6 +1816,12 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
     }
 
     private async fallbackWith(input: string, context: InterpreterContext, reason: string, providerDiagnostics?: AgentInputProviderDiagnostics): Promise<Interpretation> {
+        traceSemanticProvider('SEMANTIC_PROVIDER_FALLBACK', {
+            modelRequested: this.model.modelName,
+            fallbackUsed: true,
+            fallbackReason: reason,
+            providerError: providerDiagnostics ?? null,
+        });
         const result = await this.fallback.interpret(input, context);
         return {
             ...result,
