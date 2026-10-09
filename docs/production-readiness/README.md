@@ -55,6 +55,7 @@ production. The migration manifest is conservative:
 node scripts/production-readiness/build-migration-manifest.mjs --write
 node scripts/production-readiness/test-offline.mjs
 node scripts/production-readiness/inspect-production-readonly.mjs
+RUN_POST_RESTORE_INSPECT=YES node scripts/production-readiness/production-post-restore-inspect.mjs
 node scripts/production-readiness/reconcile-migrations.mjs --manifest ... --remote-history ... --remote-schema ... --project-ref wbigqhtuzfmpnxservlf
 node scripts/production-readiness/validate-backup-gate.mjs BACKUP_EVIDENCE.json
 node scripts/production-readiness/production-preflight.mjs
@@ -62,3 +63,9 @@ node scripts/production-readiness/production-preflight.mjs
 
 The last four commands require operator-supplied evidence/secret presence and
 do not create or mutate remote resources.
+
+`production-post-restore-inspect.mjs` is the single post-restore read-only
+orchestrator. It requires an explicit `RUN_POST_RESTORE_INSPECT=YES`, rejects
+the staging ref, checks DNS, probes Supabase REST, checks Render health, and
+then runs the database inspector. It never runs DDL, migrations, restore or
+deploy.

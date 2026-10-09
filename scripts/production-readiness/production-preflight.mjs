@@ -12,6 +12,8 @@ const config = {
   supabaseServiceRoleKey: safePresence(process.env.SUPABASE_SERVICE_ROLE_KEY),
   rollbackSha: process.env.ROLLBACK_SHA,
   backupGate: process.env.BACKUP_GATE === 'PASS',
+  backupCreated: process.env.BACKUP_CREATED === 'YES',
+  backupVerified: process.env.BACKUP_VERIFIED === 'YES',
   schemaPlan: process.env.SCHEMA_RECONCILIATION === 'PASS',
   health: process.env.PRODUCTION_READONLY_HEALTH === 'PASS'
 };
@@ -24,6 +26,6 @@ try {
   if (config.expectedSha !== RC_SHA) throw new Error('expected release candidate SHA mismatch');
   if (config.rollbackSha !== ROLLBACK_SHA) throw new Error('rollback SHA mismatch');
   if (!config.openAiKey || !config.supabaseAnonKey || !config.supabaseServiceRoleKey) throw new Error('required secret presence gate failed');
-  if (!config.backupGate || !config.schemaPlan || !config.health) throw new Error('backup/schema/health gates are not PASS');
+  if (!config.backupGate || !config.backupCreated || !config.backupVerified || !config.schemaPlan || !config.health) throw new Error('backup/schema/health gates are not PASS');
   json({ ready: true, checks, projectRef: PRODUCTION_REF, model: config.semanticModel, family: config.semanticFamily, secretsPresent: true, mutationPerformed: false });
 } catch (error) { json({ ready: false, checks, error: redactError(error), mutationPerformed: false }); process.exitCode = 1; }

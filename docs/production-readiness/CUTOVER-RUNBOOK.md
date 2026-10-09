@@ -9,6 +9,8 @@ has been performed.
 - [ ] Historical project `wbigqhtuzfmpnxservlf` restored by its owner.
 - [ ] Read-only inspector confirms URL/ref match and database connectivity.
 - [ ] Encrypted schema, data, and Storage backups exist outside Supabase.
+- [ ] Backup evidence explicitly says `BACKUP_CREATED=YES` and
+      `BACKUP_VERIFIED=YES`; the gate rejects either value when absent.
 - [ ] Backup restore has been verified in a disposable target.
 - [ ] Remote migration history and live schema snapshot are preserved.
 - [ ] Reconciliation report has no `UNKNOWN`, `DIVERGED`, or unreviewed risk.

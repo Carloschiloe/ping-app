@@ -26,8 +26,12 @@ export function safePresence(value) {
   return typeof value === 'string' && value.length > 0;
 }
 
-export function redactError(error) {
-  return String(error?.message ?? error)
+export function redactError(error, secrets = []) {
+  let value = String(error?.message ?? error);
+  for (const secret of secrets) {
+    if (typeof secret === 'string' && secret.length > 0) value = value.split(secret).join('[REDACTED]');
+  }
+  return value
     .replace(/(authorization|apikey|service_role|password|token|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
     .replace(/[A-Za-z0-9_-]{32,}/g, '[REDACTED]');
 }

@@ -11,10 +11,10 @@ if (!manifestPath || !historyPath || !schemaPath || ref !== PRODUCTION_REF) usag
 try {
   const [manifest, history, schema] = await Promise.all([manifestPath, historyPath, schemaPath].map((p) => fs.readFile(p, 'utf8').then(JSON.parse)));
   if (!Array.isArray(manifest.migrations) || !Array.isArray(history.applied)) throw new Error('malformed manifest/history');
-  const applied = new Set(history.applied.map((x) => typeof x === 'string' ? x : x.version));
+  const applied = new Map(history.applied.map((x) => [typeof x === 'string' ? x : x.version, typeof x === 'string' ? null : x]));
   const rows = manifest.migrations.map((m) => ({
     file: m.file,
-    status: applied.has(m.timestamp) ? 'ALREADY_APPLIED_UNKNOWN_SCHEMA_MATCH' : m.classification === 'BASELINE_ONLY' ? 'DO_NOT_APPLY_BASELINE_BLINDLY' : 'PENDING_REQUIRES_REVIEW',
+    status: !applied.has(m.timestamp) ? (m.classification === 'BASELINE_ONLY' ? 'DO_NOT_APPLY_BASELINE_BLINDLY' : 'PENDING_REQUIRES_REVIEW') : applied.get(m.timestamp)?.sha256 && applied.get(m.timestamp).sha256 !== m.sha256 ? 'DIVERGED_HISTORY_HASH' : 'ALREADY_APPLIED_SCHEMA_MATCH_UNVERIFIED',
     classification: m.classification
   }));
   json({ projectRef: ref, schemaSnapshotPresent: Boolean(schema), migrationCount: manifest.migrationCount, appliedCount: applied.size, rows, safeToApply: false, reason: 'No migration is approved from file difference alone.' });

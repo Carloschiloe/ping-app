@@ -38,3 +38,17 @@ test('reconciliation refuses to infer pending migrations from file count', async
     assert.equal(result.rows[0].status, 'DO_NOT_APPLY_BASELINE_BLINDLY');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('backup gate requires both creation and verification evidence', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ping-backup-gate-'));
+  try {
+    const evidence = { projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 's', dataBackupSha256: 'd', storageInventoryId: 'i', restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true, outsideProvider: true };
+    await writeFile(join(dir, 'evidence.json'), JSON.stringify(evidence));
+    const child = spawn(process.execPath, ['scripts/production-readiness/validate-backup-gate.mjs', join(dir, 'evidence.json')], { cwd: process.cwd() });
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    const exitCode = await new Promise((resolve) => child.on('close', resolve));
+    assert.notEqual(exitCode, 0);
+    assert.equal(JSON.parse(output).valid, false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

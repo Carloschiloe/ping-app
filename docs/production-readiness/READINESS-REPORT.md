@@ -49,5 +49,7 @@ approval to apply any file.
 - Real production inspector: NOT EXECUTED; project is inactive and no
   production database credential is present in this environment.
 - Backup gate: PREPARED, not PASS; no backup was created.
+- Post-restore orchestrator: PREPARED, explicit opt-in and production-ref
+  guard; not executed while the project is inactive.
 - Production preflight: BLOCKED by inactive DB, missing read-only evidence,
   missing backup gate, and absent production secret values.
