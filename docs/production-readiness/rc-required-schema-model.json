@@ -1,0 +1,15 @@
+{
+  "source": "RC supabase/migrations and backend contract",
+  "confidence": "CONFIRMED_REPO",
+  "rcSha": "ac7d72af5dfd4a9744a356eca6539bab75609b22",
+  "migrationCount": 33,
+  "requiredCoreTables": ["profiles", "messages", "commitments", "commitment_events", "contacts", "conversations", "conversation_participants", "message_reactions", "user_calendar_accounts", "ai_messages", "calls", "commitment_proposals", "commitment_proposal_events", "commitment_proposal_responses", "commitment_audit_records", "message_receipts", "message_events", "attachments", "audio_transcriptions", "memory_records", "memory_record_evidence", "agent_authorizations", "agent_executions", "agent_turn_admissions", "agent_turn_semantic_checkpoints", "agent_dialogue_checkpoints", "agent_turn_sequence_allocators"],
+  "securityContract": {
+    "rlsRequiredForDomainTables": true,
+    "canonicalCommitmentWrites": "RPC/application boundary",
+    "publicSecurityDefinerExecution": "revoked unless explicitly required",
+    "functionSearchPath": "explicit public or safe fixed path"
+  },
+  "storageContract": "preserve existing buckets/objects; additive policy changes only",
+  "authContract": "preserve auth.users IDs; public profiles reconciled additively"
+}

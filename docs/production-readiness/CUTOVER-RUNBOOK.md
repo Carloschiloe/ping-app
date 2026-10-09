@@ -31,6 +31,19 @@ has been performed.
    recorded.
 6. Run the production smoke plan and inspect sanitized logs.
 
+## Bridge package
+
+The current legacy-to-RC package is a candidate only:
+
+- `supabase/production-reconciliation/production-bridge-precheck.sql`
+- `supabase/production-reconciliation/20261009_production_legacy_to_rc_bridge.sql`
+- `supabase/production-reconciliation/production-bridge-postcheck.sql`
+
+The bridge currently handles only the demonstrated Auth/profile boundary and
+the fixed `handle_new_user` execution/search-path boundary. The 11 public
+tables without RLS remain a manual security review gate; no guessed policies
+are installed. It is therefore not yet authorized for execution.
+
 ## Abort conditions
 
 Abort and do not improvise if the project ref, schema hash, migration history,

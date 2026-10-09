@@ -1,0 +1,13 @@
+{
+  "source": "current-production-schema-model.json vs rc-required-schema-model.json",
+  "status": "PARTIAL_UNTIL_READONLY_SCHEMA_SNAPSHOT",
+  "entries": [
+    {"object":"auth.users","current":"4 users","required":"preserve IDs","action":"KEEP","risk":"high","dataImpact":"preserve","authImpact":"mandatory","storageImpact":"none","securityImpact":"verify FK/profile linkage"},
+    {"object":"storage.buckets/objects","current":"2 buckets / 48 objects","required":"preserve","action":"KEEP","risk":"high","dataImpact":"preserve","authImpact":"none","storageImpact":"mandatory","securityImpact":"verify policies"},
+    {"object":"public.profiles","current":"table present; 0 rows","required":"RC profile contract","action":"BRIDGE_REQUIRED","risk":"medium","dataImpact":"additive profile reconciliation","authImpact":"preserve Auth IDs","storageImpact":"none","securityImpact":"RLS/policy review"},
+    {"object":"public.handle_new_user","current":"SECURITY DEFINER exposed; mutable search_path warning","required":"trigger-only, fixed search_path, no public execute","action":"REPLACE_FUNCTION","risk":"high","dataImpact":"none","authImpact":"signup trigger preserved","storageImpact":"none","securityImpact":"high"},
+    {"object":"11 public tables without RLS","current":"RLS disabled; exact policies not fully captured","required":"RC authorization policies","action":"MANUAL_REVIEW_REQUIRED","risk":"high","dataImpact":"none","authImpact":"indirect","storageImpact":"none","securityImpact":"high"},
+    {"object":"RC tables beyond legacy inventory","current":"schema state not fully captured","required":"27 critical RC tables","action":"UNKNOWN","risk":"high","dataImpact":"unknown","authImpact":"unknown","storageImpact":"none","securityImpact":"unknown"},
+    {"object":"supabase_migrations.schema_migrations","current":"absent","required":"accurate history after schema verification","action":"MARK_HISTORY_ONLY","risk":"high","dataImpact":"none","authImpact":"none","storageImpact":"none","securityImpact":"must not falsify history"}
+  ]
+}

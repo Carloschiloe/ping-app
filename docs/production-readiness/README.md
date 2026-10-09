@@ -69,3 +69,9 @@ orchestrator. It requires an explicit `RUN_POST_RESTORE_INSPECT=YES`, rejects
 the staging ref, checks DNS, probes Supabase REST, checks Render health, and
 then runs the database inspector. It never runs DDL, migrations, restore or
 deploy.
+
+The legacy-to-RC candidate is deliberately outside the migration chain at
+`supabase/production-reconciliation/`. Its precheck and postcheck are
+read-only SQL files; the bridge requires backup/preservation gates and
+explicit authorization. It must never be copied into
+`supabase/migrations/` automatically.

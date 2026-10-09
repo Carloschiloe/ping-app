@@ -1,0 +1,21 @@
+{
+  "source": "external evidence supplied after restore",
+  "confidence": "CONFIRMED_EXTERNAL",
+  "projectRef": "wbigqhtuzfmpnxservlf",
+  "publicTableCount": 18,
+  "publicRowsTotal": 0,
+  "authUsers": 4,
+  "storageBuckets": 2,
+  "storageObjects": 48,
+  "migrationHistoryTableExists": false,
+  "migrationHistoryCount": 0,
+  "rlsEnabled": ["profiles", "messages", "commitments", "message_reactions", "user_calendar_accounts", "ai_messages", "calls"],
+  "rlsDisabled": ["subscriptions", "contacts", "conversations", "conversation_participants", "operation_checklists", "operation_checklist_items", "operation_checklist_runs", "operation_checklist_run_items", "shift_reports", "conversation_operation_focuses", "commitment_operation_progress"],
+  "securityWarnings": {
+    "mutableSearchPathFunctions": ["public.handle_new_user", "public.update_updated_at_column", "public.update_conversation_last_message"],
+    "securityDefinerExposed": ["public.handle_new_user"],
+    "graphqlPublicVisibility": "18 public tables visible to anon/authenticated; row access requires separate verification",
+    "leakedPasswordProtection": "disabled warning"
+  },
+  "unknown": ["columns", "types", "primaryKeys", "foreignKeys", "constraints", "indexes", "fullPolicies", "grants", "storagePolicyDetails", "functionSignatures"]
+}
