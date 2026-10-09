@@ -15,6 +15,8 @@ const config = {
   backupCreated: process.env.BACKUP_CREATED === 'YES',
   backupVerified: process.env.BACKUP_VERIFIED === 'YES',
   schemaPlan: process.env.SCHEMA_RECONCILIATION === 'PASS',
+  migrationAccounting: process.env.MIGRATION_ACCOUNTING === 'PASS',
+  legacyClientAccessReview: process.env.LEGACY_CLIENT_ACCESS_REVIEW === 'PASS',
   health: process.env.PRODUCTION_READONLY_HEALTH === 'PASS'
 };
 const checks = [];
@@ -25,7 +27,8 @@ try {
   checks.push('production-target');
   if (config.expectedSha !== RC_SHA) throw new Error('expected release candidate SHA mismatch');
   if (config.rollbackSha !== ROLLBACK_SHA) throw new Error('rollback SHA mismatch');
+  if (config.semanticModel !== 'gpt-6-luna' || config.semanticFamily !== 'modern_reasoning') throw new Error('production semantic runtime selection mismatch');
   if (!config.openAiKey || !config.supabaseAnonKey || !config.supabaseServiceRoleKey) throw new Error('required secret presence gate failed');
-  if (!config.backupGate || !config.backupCreated || !config.backupVerified || !config.schemaPlan || !config.health) throw new Error('backup/schema/health gates are not PASS');
+  if (!config.backupGate || !config.backupCreated || !config.backupVerified || !config.schemaPlan || !config.migrationAccounting || !config.legacyClientAccessReview || !config.health) throw new Error('backup/schema/migration/security/health gates are not PASS');
   json({ ready: true, checks, projectRef: PRODUCTION_REF, model: config.semanticModel, family: config.semanticFamily, secretsPresent: true, mutationPerformed: false });
 } catch (error) { json({ ready: false, checks, error: redactError(error), mutationPerformed: false }); process.exitCode = 1; }

@@ -12,6 +12,9 @@ test('bridge is outside migration chain and carries explicit gates', async () =>
   assert.match(bridge, /DO NOT AUTO-APPLY/);
   assert.match(bridge, /REQUIRES BACKUP/);
   assert.match(bridge, /ping\.backup_created/);
+  assert.match(bridge, /ping\.legacy_client_access_reviewed/);
+  assert.match(bridge, /enable row level security/);
+  assert.match(bridge, /revoke all privileges on table/);
   assert.doesNotMatch(stripComments(bridge), /\b(delete\s+from|truncate|drop\s+(table|column))\b/i);
   assert.doesNotMatch(stripComments(bridge), /storage\.(objects|buckets)\s+(delete|update|insert)/i);
 });

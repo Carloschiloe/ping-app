@@ -11,5 +11,6 @@
     "functionSearchPath": "explicit public or safe fixed path"
   },
   "storageContract": "preserve existing buckets/objects; additive policy changes only",
-  "authContract": "preserve auth.users IDs; public profiles reconciled additively"
+  "authContract": "preserve auth.users IDs; public profiles reconciled additively",
+  "memoryContract": "RC runtime uses memory_records and memory_record_evidence; the migration headers marked the original work local-only, so production inclusion is an explicit cutover gate and must not be omitted silently"
 }

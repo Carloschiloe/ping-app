@@ -42,7 +42,7 @@ test('reconciliation refuses to infer pending migrations from file count', async
 test('backup gate requires both creation and verification evidence', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ping-backup-gate-'));
   try {
-    const evidence = { projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 's', dataBackupSha256: 'd', storageInventoryId: 'i', restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true, outsideProvider: true };
+    const evidence = { projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 's', dataBackupSha256: 'd', storageInventoryId: 'i', storageBinaryBackupId: 'sb', storageBinaryBackupSha256: 'sbs', restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true, outsideProvider: true };
     await writeFile(join(dir, 'evidence.json'), JSON.stringify(evidence));
     const child = spawn(process.execPath, ['scripts/production-readiness/validate-backup-gate.mjs', join(dir, 'evidence.json')], { cwd: process.cwd() });
     let output = '';

@@ -1,14 +1,15 @@
 # Production cutover runbook — authorization required
 
-Status: **not executable yet**. The historical Supabase project is inactive,
-and no restore, variable change, migration, deployment, or production write
-has been performed.
+Status: **not executable yet**. The historical Supabase project is restored
+and externally reported `ACTIVE_HEALTHY`, but no post-restore inspection,
+variable change, migration, deployment, or production write has been performed
+from this preparation branch.
 
 ## Pre-cutover gates
 
-- [ ] Historical project `wbigqhtuzfmpnxservlf` restored by its owner.
+- [x] Historical project `wbigqhtuzfmpnxservlf` restored by its owner and reported `ACTIVE_HEALTHY`.
 - [ ] Read-only inspector confirms URL/ref match and database connectivity.
-- [ ] Encrypted schema, data, and Storage backups exist outside Supabase.
+- [ ] Encrypted schema, data, Storage metadata, and all 48 Storage binaries exist outside Supabase.
 - [ ] Backup evidence explicitly says `BACKUP_CREATED=YES` and
       `BACKUP_VERIFIED=YES`; the gate rejects either value when absent.
 - [ ] Backup restore has been verified in a disposable target.
@@ -33,16 +34,17 @@ has been performed.
 
 ## Bridge package
 
-The current legacy-to-RC package is a candidate only:
+The current legacy-to-RC package is a guarded candidate only:
 
 - `supabase/production-reconciliation/production-bridge-precheck.sql`
 - `supabase/production-reconciliation/20261009_production_legacy_to_rc_bridge.sql`
 - `supabase/production-reconciliation/production-bridge-postcheck.sql`
 
-The bridge currently handles only the demonstrated Auth/profile boundary and
-the fixed `handle_new_user` execution/search-path boundary. The 11 public
-tables without RLS remain a manual security review gate; no guessed policies
-are installed. It is therefore not yet authorized for execution.
+The bridge handles the demonstrated Auth/profile and function-boundary fixes,
+and contains a gated deny-by-default treatment for the 11 legacy tables that
+currently lack RLS: it enables RLS without guessed policies and revokes direct
+client table privileges. It is still not authorized for execution until the
+external backup and live schema/policy/grant prechecks pass.
 
 ## Abort conditions
 

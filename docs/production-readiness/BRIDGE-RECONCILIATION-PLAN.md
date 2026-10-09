@@ -21,16 +21,21 @@ The candidate bridge is intentionally narrow and forward-only:
 6. Fix the exact no-argument `update_updated_at_column` search path only when
    that function exists.
 
-The bridge does not alter Storage, Auth identities, or public-table RLS. The
-11 RLS-disabled tables need a policy-by-policy authorization review because
-the correct policy predicates cannot be inferred from the current evidence.
+The bridge does not alter Storage or Auth identities. For the 11 legacy tables
+whose current RLS is disabled, the bridge requires an explicit operator review
+gate and then enables RLS with no guessed predicates while revoking direct
+`anon`/`authenticated` table privileges. The RC backend uses `service_role`
+for these reads/writes, so this is a deny-by-default compatibility boundary;
+it does not invent client policies. Any future direct-client access must be
+introduced with a separate reviewed policy migration.
 
 ## Migration handling
 
-The 33 staging migrations are not replayed. The model/diff package classifies
-the current state and identifies follow-up work. Migration history must only
-be reconciled after the final schema passes postcheck; history must never be
-fabricated before that point.
+The 33 staging migrations are not replayed blindly. Every file now has one
+explicit disposition in `MIGRATION-ACCOUNTING.md`: 3 proven blocked, 2
+handled by the bridge, 27 safe-forward candidates gated by the live snapshot,
+and 1 history-only no-op. Migration history is reconciled only after the
+final schema passes postcheck; history is never fabricated before that point.
 
 ## Required gates
 

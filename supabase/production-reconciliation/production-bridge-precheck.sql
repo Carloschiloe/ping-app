@@ -70,9 +70,57 @@ security_checks as (
                         'operation_checklists','operation_checklist_items','operation_checklist_runs',
                         'operation_checklist_run_items','shift_reports','conversation_operation_focuses',
                         'commitment_operation_progress')
+),
+required_rc(table_name) as (
+    values
+      ('profiles'), ('messages'), ('commitments'), ('commitment_events'),
+      ('contacts'), ('conversations'), ('conversation_participants'),
+      ('message_reactions'), ('user_calendar_accounts'), ('ai_messages'),
+      ('calls'), ('commitment_proposals'), ('commitment_proposal_events'),
+      ('commitment_proposal_responses'), ('commitment_audit_records'),
+      ('message_receipts'), ('message_events'), ('attachments'),
+      ('audio_transcriptions'), ('memory_records'), ('memory_record_evidence'),
+      ('agent_authorizations'), ('agent_executions'), ('agent_turn_admissions'),
+      ('agent_turn_semantic_checkpoints'), ('agent_dialogue_checkpoints'),
+      ('agent_turn_sequence_allocators')
+),
+rc_presence as (
+    select 'rc_required_table_inventory' as check_name,
+           case when count(*) = 27 then 'PASS' else 'FAIL' end as status,
+           count(*)::text || ' of 27 RC tables present before bridge' as details
+    from required_rc
+    where to_regclass('public.' || required_rc.table_name) is not null
+),
+legacy_client_access as (
+    select 'legacy_client_access_boundary' as check_name,
+           case when exists (
+               select 1
+               from unnest(array[
+                   'subscriptions', 'contacts', 'conversations',
+                   'conversation_participants', 'operation_checklists',
+                   'operation_checklist_items', 'operation_checklist_runs',
+                   'operation_checklist_run_items', 'shift_reports',
+                   'conversation_operation_focuses', 'commitment_operation_progress'
+               ]) as tables(table_name)
+               where has_table_privilege('anon', 'public.' || tables.table_name, 'SELECT')
+                  or has_table_privilege('authenticated', 'public.' || tables.table_name, 'SELECT')
+           ) then 'REVIEW' else 'PASS' end as status,
+           'backend uses service_role; bridge will deny direct client table access' as details
+),
+function_checks as (
+    select 'security_definer_search_path' as check_name,
+           case when count(*) = 0 then 'PASS' else 'REVIEW' end as status,
+           count(*)::text || ' SECURITY DEFINER functions without explicit search_path' as details
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+      and not (coalesce(p.proconfig, array[]::text[]) @> array['search_path=public'])
 )
 select * from table_checks
 union all select * from row_checks
 union all select * from preservation_checks
 union all select * from security_checks
+union all select * from rc_presence
+union all select * from legacy_client_access
+union all select * from function_checks
 order by check_name;

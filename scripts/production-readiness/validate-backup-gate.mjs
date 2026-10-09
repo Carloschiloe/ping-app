@@ -5,7 +5,7 @@ const file = process.argv[2];
 if (!file) throw new Error('usage: node validate-backup-gate.mjs EVIDENCE.json');
 try {
   const evidence = JSON.parse(await fs.readFile(file, 'utf8'));
-  const required = ['projectRef', 'backupId', 'schemaBackupSha256', 'dataBackupSha256', 'storageInventoryId', 'restoreVerificationId', 'createdAt'];
+  const required = ['projectRef', 'backupId', 'schemaBackupSha256', 'dataBackupSha256', 'storageInventoryId', 'storageBinaryBackupId', 'storageBinaryBackupSha256', 'restoreVerificationId', 'createdAt'];
   const missing = required.filter((k) => !evidence[k]);
   const backupCreated = evidence.BACKUP_CREATED === 'YES';
   const backupVerified = evidence.BACKUP_VERIFIED === 'YES';

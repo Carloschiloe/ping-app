@@ -9,12 +9,12 @@ This report is generated for the isolated preparation branch
 |---|---|
 | RC | `ac7d72af5dfd4a9744a356eca6539bab75609b22` |
 | Production live SHA | `b6b7175f9b87abfa5fda422931f8e4c4fa92f5c8` |
-| Production Supabase | `Ping / wbigqhtuzfmpnxservlf / INACTIVE` |
+| Production Supabase | `Ping / wbigqhtuzfmpnxservlf / ACTIVE_HEALTHY` |
 | Staging Supabase | `Ping Staging V2 / oonijgmddgyymhrlnvuu / ACTIVE_HEALTHY` |
 | RC SQL migration files | 33 |
 | Staging applied migrations | 33 (operator evidence) |
-| Production applied migrations | UNKNOWN until restore/reactivation |
-| Production health | FAIL; historical hostname cannot resolve while project is inactive |
+| Production applied migrations | UNKNOWN until the read-only post-restore catalog is captured |
+| Production health | Not re-verified from this execution context; restored project is externally reported `ACTIVE_HEALTHY` |
 | Database mutation | NONE |
 
 ## Contracts
@@ -34,9 +34,9 @@ status of every file remains unknown until a read-only schema snapshot and
 `supabase_migrations.schema_migrations` history are available. The baseline is
 not a repair migration for the historical database.
 
-Static classification: 1 `BASELINE_ONLY`, 30 `REQUIRES_REVIEW`, 2
-`SAFE_FORWARD` under the conservative classifier. This is triage, not an
-approval to apply any file.
+Static classification: 1 explicit baseline block, 2 bridge-handled entries,
+29 forward candidates gated by the live snapshot, and 1 history-only no-op.
+This is a complete accounting, not an approval to apply any file.
 
 ## Gates
 
@@ -46,10 +46,10 @@ approval to apply any file.
 - Fresh Postgres rehearsal: NOT EXECUTED; Docker is unavailable and the local
   PostgreSQL instance rejects the available authentication. No credentials
   were guessed or requested.
-- Real production inspector: NOT EXECUTED; project is inactive and no
-  production database credential is present in this environment.
-- Backup gate: PREPARED, not PASS; no backup was created.
+- Real production inspector: NOT EXECUTED; no production database URL or
+  password is present in this environment.
+- Backup gate: PREPARED, not PASS; no encrypted external backup was created.
 - Post-restore orchestrator: PREPARED, explicit opt-in and production-ref
-  guard; not executed while the project is inactive.
-- Production preflight: BLOCKED by inactive DB, missing read-only evidence,
-  missing backup gate, and absent production secret values.
+  guard; not executed without the read-only DB connection.
+- Production preflight: BLOCKED by missing read-only schema evidence,
+  missing external backup gate, and absent production runtime secret values.

@@ -8,8 +8,9 @@ certified staging branch, Render configuration, Supabase, or production data.
 - Certified RC: `ac7d72af5dfd4a9744a356eca6539bab75609b22`
 - Historical production service: `ping-app`
 - Historical production project: `Ping`, ref `wbigqhtuzfmpnxservlf`
-- Historical project status: inactive; production health is therefore not
-  recoverable until an explicitly authorized restore/reactivation.
+- Historical project status: `ACTIVE_HEALTHY` after the owner-executed restore;
+  this branch has not run the post-restore database inspection because the
+  production database connection and backup evidence are not present here.
 - Staging project: `Ping Staging V2`, ref `oonijgmddgyymhrlnvuu`, independent
   from production.
 - Current production live SHA: `b6b7175f9b87abfa5fda422931f8e4c4fa92f5c8`
@@ -35,11 +36,11 @@ production. The migration manifest is conservative:
 
 ## Safe sequence after authorization
 
-1. Restore/reactivate the historical Supabase project only through its owner
-   control plane; do not point production at staging.
+1. Keep the restored historical project `wbigqhtuzfmpnxservlf`; do not point
+   production at staging.
 2. Run the read-only inspector and save its aggregate schema/migration output
    outside the repo.
-3. Produce an encrypted schema/data/Storage backup outside Supabase and pass
+3. Produce an encrypted schema/data/Storage metadata plus binary-object backup outside Supabase and pass
    `validate-backup-gate.mjs`.
 4. Reconcile migration history and live schema. Do not apply `baseline_v2`
    blindly. Write a reviewed forward-only transition plan.
