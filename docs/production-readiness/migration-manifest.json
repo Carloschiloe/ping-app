@@ -1,0 +1,333 @@
+{
+  "schemaSource": "supabase/migrations",
+  "generatedFrom": "ac7d72af5dfd4a9744a356eca6539bab75609b22",
+  "migrationCount": 33,
+  "policy": "classification is conservative; live applicability requires read-only schema and migration-history evidence",
+  "migrations": [
+    {
+      "file": "20260712000000_baseline_v2.sql",
+      "timestamp": "20260712000000",
+      "sha256": "27e7af65fff4535a195841ae31ad9709ca2911ee8cd3501a6a710f83017c6c5f",
+      "classification": "BASELINE_ONLY",
+      "reasons": [
+        "fresh-database baseline; never infer applicability to historical production"
+      ]
+    },
+    {
+      "file": "20260713160000_fix_security_definer_execute_grants.sql",
+      "timestamp": "20260713160000",
+      "sha256": "663e1d1cb4afb0beee2431a85bf4b9d3ad0e4186cb8d2f1564f6dc082de64091",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260728020000_add_private_file_references.sql",
+      "timestamp": "20260728020000",
+      "sha256": "1f91ca898d3312909531ff7f875fb58819221f45aac556567cdcdd42f73c1b9f",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260728180000_canonical_commitment_beta.sql",
+      "timestamp": "20260728180000",
+      "sha256": "e3dd9f9b143ef63463beddee1505b94eee625781040b2e4e76301eae0efdb4db",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260728183000_atomic_commitment_evidence.sql",
+      "timestamp": "20260728183000",
+      "sha256": "2ffeb753d4ec0bcae689f42d6c573fb0fad8feee97a20cfc1f859f50bde76e85",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260728190000_message_idempotency_beta.sql",
+      "timestamp": "20260728190000",
+      "sha256": "efe9af88ee25e9dc6dec56b973e34f88d282198d37a6c07d570a295e53a450eb",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260728200000_harden_commitment_beta_permissions.sql",
+      "timestamp": "20260728200000",
+      "sha256": "0ccbe243a2652bd594a7ea466696f6ed42323a3ef2559562bb3160477ef10f97",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260729173000_reconcile_auth_profiles.sql",
+      "timestamp": "20260729173000",
+      "sha256": "616cba73ded4300db986c9a405f1c860ff1d56da16ab616770cf7f3ddf7f3750",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260730123000_shared_commitment_agreements.sql",
+      "timestamp": "20260730123000",
+      "sha256": "7bd0191f4113a3863c220ed6cba86217cb56131f41bf7fa501a3fb9258d0d10f",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260828160000_commitment_core_canonical_writes.sql",
+      "timestamp": "20260828160000",
+      "sha256": "0f4750868965e6191ce23953e47059ec8db9fd2382ef3d5ac1aa68f62c7a7021",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260829010000_harden_commitment_direct_writes.sql",
+      "timestamp": "20260829010000",
+      "sha256": "ced9cb1c33db3bb003e6a1d9951382f51fbe9bc6d656996c69c30383b5c4e053",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260830010000_messaging_core_canonical.sql",
+      "timestamp": "20260830010000",
+      "sha256": "2a479bb68e4e508f0df1e19f2c9d536a1fba2f50533ef48681eb5a132ab9eb2d",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260831010000_message_attachment_core.sql",
+      "timestamp": "20260831010000",
+      "sha256": "c32cb6b218afe6e2856225663045854b9c81c92c1ce9683a5bf1f546076a55ce",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260901010000_audio_attachment_transcription_pipeline.sql",
+      "timestamp": "20260901010000",
+      "sha256": "3a0c79848fcf042e0b4a504ce6c5295d6a98b9afb9357d69190808df0c60054d",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260903120000_conversation_manual_unread.sql",
+      "timestamp": "20260903120000",
+      "sha256": "33a3ca910369962bda62e0903928c2d6111eb9a160a7bfab072b4e60bdfae3ca",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260903150000_full_text_retrieval.sql",
+      "timestamp": "20260903150000",
+      "sha256": "c9393aaaca4acea01f977ec2e34345a55a380846236bef3eb6108a8977980ef0",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260907010000_commitment_proposal_full_text_retrieval.sql",
+      "timestamp": "20260907010000",
+      "sha256": "cb01b580c12920191085321986239a44affb80ef679515699e7c789d9cdd41d1",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260907030000_canonical_memory_records.sql",
+      "timestamp": "20260907030000",
+      "sha256": "46d1405a0f31935cdf95dc4063f152c8e21b433e38132b3a6511de0dcdda359e",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260907040000_memory_record_evidence.sql",
+      "timestamp": "20260907040000",
+      "sha256": "ef58e2aedc7c4bbcea2351970cbd1df4dd46ea51c4a702236fdee6fe404e00ca",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260908010000_agent_authorization_execution.sql",
+      "timestamp": "20260908010000",
+      "sha256": "181eec7a7bf8fc2dfe21926bc246b530b6b61138d46031785365430b0ed5bba1",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260910010000_message_attachment_size_policy.sql",
+      "timestamp": "20260910010000",
+      "sha256": "6901c2cca43a2367f90635309a33f9d541cf6a1a9e644adc31e2382ca66c98a9",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260913010000_commitment_restore_with_evidence.sql",
+      "timestamp": "20260913010000",
+      "sha256": "be5d8a01a76c2900fd1c2ddb18f28f486817ce9d541d5fbb8555b475d27cb03b",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260914010000_commitment_archived_write_guard.sql",
+      "timestamp": "20260914010000",
+      "sha256": "5ef77c2c091b54824671bb6a20ebdb396e471bd3bcc4018d960f64b9f8629e66",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260914020000_agent_turn_admission.sql",
+      "timestamp": "20260914020000",
+      "sha256": "0ecd8ed5565d5c751d587691382237cdeb2a133555e0ca8ef32889a8d2a00920",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260914030000_agent_turn_commit_boundary.sql",
+      "timestamp": "20260914030000",
+      "sha256": "e6bf06235c956719ce88542852b65e085deaca89e3317a9930b282dea1fbd7dd",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20260914040000_agent_turn_semantic_v2.sql",
+      "timestamp": "20260914040000",
+      "sha256": "854caedc24c0255a4f3f1edb9b80c64745b19fa35cfddeaee470a296ad83afd9",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260914050000_agent_turn_semantic_v3.sql",
+      "timestamp": "20260914050000",
+      "sha256": "7fe41347c9b000aef69944351dd643eb6385a88d20349b10d2a7d145189baf9d",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260915010000_agent_turn_reconciliation.sql",
+      "timestamp": "20260915010000",
+      "sha256": "57f0da79ca4071a0a10bfe770f52e1e0c54ea78d4d32bc6169f4dcf8665011e2",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260915020000_agent_turn_semantic_v4.sql",
+      "timestamp": "20260915020000",
+      "sha256": "d19a81b30c74f052edd1ebd494c44e5f435cf22877387f24dd0b4fe16f32b1e1",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review"
+      ]
+    },
+    {
+      "file": "20260916010000_agent_turn_replay_v2.sql",
+      "timestamp": "20260916010000",
+      "sha256": "571afe5038ce0eec7abfce36f08f20dd02884c21dedc07d575bbb3d2cb09bd15",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260916020000_agent_turn_routing_mode.sql",
+      "timestamp": "20260916020000",
+      "sha256": "9c18aaa2c4779e0d97b3a2eeb984e1b90b97db510124f45e22333247c451a33f",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
+      ]
+    },
+    {
+      "file": "20260916030000_agent_turn_routing_mode_postgrest.sql",
+      "timestamp": "20260916030000",
+      "sha256": "4b7ade13f6906e38b5e8241cad11cfcf91df1020978b3334993257a241f328d9",
+      "classification": "SAFE_FORWARD",
+      "reasons": []
+    },
+    {
+      "file": "20260916040000_agent_turn_routing_mode_private.sql",
+      "timestamp": "20260916040000",
+      "sha256": "d9b9a715a4c37928436218d492b8c3ebdc981b94f469d3b9d4905db721469c59",
+      "classification": "SAFE_FORWARD",
+      "reasons": []
+    }
+  ]
+}

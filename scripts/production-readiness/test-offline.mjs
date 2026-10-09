@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import test from 'node:test';
+import { assertProductionTarget, redactError, PRODUCTION_REF, STAGING_REF } from './guards.mjs';
+import { inspectProduction } from './inspect-production-readonly.mjs';
+
+test('production target rejects staging', () => assert.throws(() => assertProductionTarget({ projectRef: STAGING_REF, url: `https://${STAGING_REF}.supabase.co` })));
+test('production target accepts only historical production ref', () => assert.doesNotThrow(() => assertProductionTarget({ projectRef: PRODUCTION_REF, url: `https://${PRODUCTION_REF}.supabase.co` })));
+test('inspector requires database URL and never writes', async () => {
+  const result = await inspectProduction({ projectRef: PRODUCTION_REF, url: `https://${PRODUCTION_REF}.supabase.co`, databaseUrl: 'postgres://redacted', query: async () => ({ public_table_count: 12, public_policy_count: 8, applied_migration_count: 0 }) });
+  assert.equal(result.readOnly, true);
+  assert.equal(result.rows.applied_migration_count, 0);
+});
+test('inspector fails closed without database URL', async () => {
+  await assert.rejects(() => inspectProduction({ projectRef: PRODUCTION_REF, url: `https://${PRODUCTION_REF}.supabase.co`, databaseUrl: '' }));
+});
+test('error redaction removes secret-like values', () => {
+  const value = redactError(new Error('token=super-secret-value-12345678901234567890'));
+  assert.doesNotMatch(value, /super-secret/);
+});
+
+test('reconciliation refuses to infer pending migrations from file count', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ping-readiness-'));
+  try {
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify({ migrationCount: 1, migrations: [{ file: '20260712000000_baseline_v2.sql', timestamp: '20260712000000', classification: 'BASELINE_ONLY' }] }));
+    await writeFile(join(dir, 'history.json'), JSON.stringify({ applied: [] }));
+    await writeFile(join(dir, 'schema.json'), JSON.stringify({ tables: [] }));
+    const child = spawn(process.execPath, ['scripts/production-readiness/reconcile-migrations.mjs', '--manifest', join(dir, 'manifest.json'), '--remote-history', join(dir, 'history.json'), '--remote-schema', join(dir, 'schema.json'), '--project-ref', PRODUCTION_REF], { cwd: process.cwd() });
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    const exitCode = await new Promise((resolve) => child.on('close', resolve));
+    assert.equal(exitCode, 0);
+    const result = JSON.parse(output);
+    assert.equal(result.safeToApply, false);
+    assert.equal(result.rows[0].status, 'DO_NOT_APPLY_BASELINE_BLINDLY');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

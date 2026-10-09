@@ -1,0 +1,17 @@
+{
+  "environment": "production",
+  "required": {
+    "PING_ENVIRONMENT": "production",
+    "PING_SEMANTIC_MODEL": "gpt-6-luna",
+    "PING_SEMANTIC_MODEL_FAMILY": "modern_reasoning",
+    "SUPABASE_URL": "secret; host must be wbigqhtuzfmpnxservlf.supabase.co",
+    "SUPABASE_ANON_KEY": "secret",
+    "SUPABASE_SERVICE_ROLE_KEY": "secret",
+    "OPENAI_API_KEY": "secret",
+    "ENCRYPTION_KEY": "secret",
+    "ALLOWED_ORIGINS": "explicit production origins"
+  },
+  "forbiddenFromStaging": ["oonijgmddgyymhrlnvuu", "PING_M7_DATABASE_URL", "PING_EXPECTED_SUPABASE_PROJECT_REF"],
+  "neverCommitValues": true,
+  "source": "RC runtime config inspected at ac7d72af5dfd4a9744a356eca6539bab75609b22"
+}
