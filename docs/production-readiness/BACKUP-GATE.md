@@ -57,10 +57,12 @@ inference or by the public bucket count alone.
 
 `scripts/production-readiness/run-final-backup-and-precutover.ps1` is the only
 entrypoint for the remaining non-mutating gate. It prompts for the production
-PostgreSQL connection, Supabase service-role key and encryption passphrase
-with hidden input, keeps all three in memory only, creates the database/Auth/
-Storage backup outside the repository, encrypts it, writes non-secret evidence,
-validates the backup gate and runs the read-only bridge precheck. It never
-executes the bridge, migrations, DDL, Render changes or deployment.
+PostgreSQL connection and encryption passphrase with hidden input, keeps both
+in memory only, obtains Auth/Storage metadata through the read-only database
+connection, downloads public Storage objects with GET only, encrypts the
+database/Auth/Storage package outside the repository, writes non-secret
+evidence, validates the backup gate and runs the read-only bridge precheck. It
+never asks for a service-role key and never executes the bridge, migrations,
+DDL, Render changes or deployment.
 
 Use `-ValidateOnly` to check local tools without entering secrets.
