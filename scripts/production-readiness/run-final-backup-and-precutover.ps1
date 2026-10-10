@@ -15,6 +15,7 @@ $ZipPath = Join-Path $RunRoot 'backup.zip'
 $EncryptedPath = Join-Path $RunRoot "ping-production-$Stamp.zip.enc"
 $CryptoMetaPath = Join-Path $RunRoot "ping-production-$Stamp.crypto.json"
 $EvidencePath = Join-Path $RunRoot 'evidence.json'
+$SnapshotPath = Join-Path $RepoRoot 'docs\production-readiness\production-snapshot-20261010.json'
 $PrecheckPath = Join-Path $WorkRoot 'production-bridge-precheck.csv'
 $DbDumpPath = Join-Path $WorkRoot 'database-public-auth-storage.dump'
 $SchemaDumpPath = Join-Path $WorkRoot 'schema-public-auth-storage.dump'
@@ -22,8 +23,16 @@ $DataDumpPath = Join-Path $WorkRoot 'data-public-auth-storage.dump'
 $AuthPath = Join-Path $WorkRoot 'auth-users.json'
 $StorageInventoryPath = Join-Path $WorkRoot 'storage-inventory.json'
 $StorageManifestPath = Join-Path $WorkRoot 'storage-binaries-manifest.json'
+$PublicRowCountsPath = Join-Path $WorkRoot 'public-row-counts.json'
 $RestoreListPath = Join-Path $WorkRoot 'restore-list.txt'
 $RestoreExtractPath = Join-Path $WorkRoot 'restore-extracted.sql'
+$LegacyPublicTables = @(
+  'profiles', 'messages', 'commitments', 'subscriptions', 'contacts', 'conversations',
+  'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages',
+  'calls', 'operation_checklists', 'operation_checklist_items', 'operation_checklist_runs',
+  'operation_checklist_run_items', 'shift_reports', 'conversation_operation_focuses',
+  'commitment_operation_progress'
+)
 
 function Write-Status([string]$Name, [string]$Value) { Write-Output "$Name=$Value" }
 
@@ -170,6 +179,15 @@ function Get-Hash([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Assert-PublicRowCounts([object]$Actual, [object]$Expected) {
+  foreach ($tableName in $LegacyPublicTables) {
+    $actualCount = [int64]$Actual.counts.$tableName
+    $expectedCount = [int64]$Expected.counts.$tableName
+    if ($actualCount -ne $expectedCount) { throw "PUBLIC_ROW_COUNT_MISMATCH:$tableName" }
+  }
+  if ([int64]$Actual.total -ne [int64]$Expected.total) { throw 'PUBLIC_ROW_TOTAL_MISMATCH' }
+}
+
 function Assert-ProductionDatabaseTarget([string]$DbUrl) {
   try { $uri = [Uri]$DbUrl } catch { throw 'DATABASE_URL_INVALID' }
   $dbHost = $uri.DnsSafeHost.ToLowerInvariant()
@@ -211,7 +229,7 @@ function Protect-File([string]$InputPath, [string]$OutputPath, [string]$Metadata
   $aes.Dispose(); $kdf.Dispose(); $hmac.Dispose(); $rng.Dispose()
 }
 
-function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work) {
+function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [object]$ExpectedPublicCounts) {
   $names = @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
   $commands = @{}
   foreach ($name in $names) {
@@ -229,11 +247,40 @@ function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work) {
     $started = $true
     Invoke-Checked $commands.createdb @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED'
     Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED'
-    $countsSql = "select json_build_object('auth', (select count(*) from auth.users), 'storage', (select count(*) from storage.objects), 'public', (select coalesce(sum(row_count),0)::bigint from (select count(*) row_count from public.profiles union all select count(*) from public.messages union all select count(*) from public.commitments union all select count(*) from public.subscriptions union all select count(*) from public.contacts union all select count(*) from public.conversations union all select count(*) from public.conversation_participants union all select count(*) from public.message_reactions union all select count(*) from public.user_calendar_accounts union all select count(*) from public.ai_messages union all select count(*) from public.calls union all select count(*) from public.operation_checklists union all select count(*) from public.operation_checklist_items union all select count(*) from public.operation_checklist_runs union all select count(*) from public.operation_checklist_run_items union all select count(*) from public.shift_reports union all select count(*) from public.conversation_operation_focuses union all select count(*) from public.commitment_operation_progress) counts))::text;"
+    $countsSql = @"
+with counts as (
+  select 'profiles' table_name, count(*)::bigint row_count from public.profiles
+  union all select 'messages', count(*) from public.messages
+  union all select 'commitments', count(*) from public.commitments
+  union all select 'subscriptions', count(*) from public.subscriptions
+  union all select 'contacts', count(*) from public.contacts
+  union all select 'conversations', count(*) from public.conversations
+  union all select 'conversation_participants', count(*) from public.conversation_participants
+  union all select 'message_reactions', count(*) from public.message_reactions
+  union all select 'user_calendar_accounts', count(*) from public.user_calendar_accounts
+  union all select 'ai_messages', count(*) from public.ai_messages
+  union all select 'calls', count(*) from public.calls
+  union all select 'operation_checklists', count(*) from public.operation_checklists
+  union all select 'operation_checklist_items', count(*) from public.operation_checklist_items
+  union all select 'operation_checklist_runs', count(*) from public.operation_checklist_runs
+  union all select 'operation_checklist_run_items', count(*) from public.operation_checklist_run_items
+  union all select 'shift_reports', count(*) from public.shift_reports
+  union all select 'conversation_operation_focuses', count(*) from public.conversation_operation_focuses
+  union all select 'commitment_operation_progress', count(*) from public.commitment_operation_progress
+)
+select json_build_object(
+  'auth', (select count(*) from auth.users),
+  'storage', (select count(*) from storage.objects),
+  'public_counts', (select json_object_agg(table_name, row_count) from counts),
+  'public_total', (select coalesce(sum(row_count), 0)::bigint from counts)
+)::text;
+"@
     $counts = & $Client.Psql '--dbname=ping_restore' '--host=127.0.0.1' "--port=$port" '--quiet' '--tuples-only' '--no-align' '--command' $countsSql 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'LOCAL_RESTORE_COUNTS_FAILED' }
     $parsed = (($counts -join "`n").Trim() | ConvertFrom-Json)
-    if ($parsed.auth -ne 4 -or $parsed.storage -ne 48 -or $parsed.public -ne 0) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
+    if ($parsed.auth -ne 4 -or $parsed.storage -ne 48) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
+    $restoredPublicCounts = [pscustomobject]@{ counts = $parsed.public_counts; total = $parsed.public_total }
+    Assert-PublicRowCounts $restoredPublicCounts $ExpectedPublicCounts
     return 'REAL_LOCAL_RESTORE_PASS'
   } finally {
     if ($started) { & $commands.pg_ctl '-D' $cluster '-m' 'fast' '-w' 'stop' *> $null }
@@ -251,7 +298,7 @@ function Validate-Precheck([string]$Path) {
   $rows = @(Get-Content -LiteralPath $Path | Where-Object { $_.Trim() } | ConvertFrom-Csv -Header check_name,status,details)
   if ($rows.Count -lt 8) { throw 'PRODUCTION_PRECHECK_OUTPUT_INCOMPLETE' }
   foreach ($row in $rows) {
-    if ($row.status -eq 'FAIL') { throw "PRODUCTION_PRECHECK_UNEXPECTED_FAIL:$($row.check_name)" }
+    if ($row.status -eq 'FAIL') { throw "PRODUCTION_PRECHECK_UNEXPECTED_FAIL:$($row.check_name):$($row.details)" }
     if ($row.status -eq 'REVIEW' -and $expectedReview -notcontains $row.check_name) { throw "PRODUCTION_PRECHECK_UNEXPECTED_REVIEW:$($row.check_name)" }
     if ($row.status -notin @('PASS', 'REVIEW')) { throw "PRODUCTION_PRECHECK_UNKNOWN_STATUS:$($row.check_name)" }
   }
@@ -295,6 +342,45 @@ try {
 
   New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
   $created = $true
+
+  $publicCountsSql = @'
+with counts as (
+  select 'profiles' table_name, count(*)::bigint row_count from public.profiles
+  union all select 'messages', count(*) from public.messages
+  union all select 'commitments', count(*) from public.commitments
+  union all select 'subscriptions', count(*) from public.subscriptions
+  union all select 'contacts', count(*) from public.contacts
+  union all select 'conversations', count(*) from public.conversations
+  union all select 'conversation_participants', count(*) from public.conversation_participants
+  union all select 'message_reactions', count(*) from public.message_reactions
+  union all select 'user_calendar_accounts', count(*) from public.user_calendar_accounts
+  union all select 'ai_messages', count(*) from public.ai_messages
+  union all select 'calls', count(*) from public.calls
+  union all select 'operation_checklists', count(*) from public.operation_checklists
+  union all select 'operation_checklist_items', count(*) from public.operation_checklist_items
+  union all select 'operation_checklist_runs', count(*) from public.operation_checklist_runs
+  union all select 'operation_checklist_run_items', count(*) from public.operation_checklist_run_items
+  union all select 'shift_reports', count(*) from public.shift_reports
+  union all select 'conversation_operation_focuses', count(*) from public.conversation_operation_focuses
+  union all select 'commitment_operation_progress', count(*) from public.commitment_operation_progress
+)
+select json_build_object(
+  'counts', (select json_object_agg(table_name, row_count) from counts),
+  'total', (select coalesce(sum(row_count), 0)::bigint from counts)
+)::text;
+'@
+  $publicCounts = Invoke-PsqlScalar $psql $dbUrl $publicCountsSql | ConvertFrom-Json
+  if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total) { throw 'PUBLIC_ROW_COUNTS_INVALID' }
+  if (-not (Test-Path -LiteralPath $SnapshotPath)) { throw 'PRODUCTION_SNAPSHOT_MISSING' }
+  $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json
+  if ($snapshot.projectRef -ne $ProjectRef -or $snapshot.publicTableCount -ne 18) { throw 'PRODUCTION_SNAPSHOT_TARGET_INVALID' }
+  $snapshotPublicRowCount = [int64]$snapshot.publicRowCount
+  $publicCounts | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $PublicRowCountsPath -Encoding UTF8
+  Write-Output 'PUBLIC_ROW_COUNTS:'
+  foreach ($tableName in $LegacyPublicTables) { Write-Status "PUBLIC_ROW_COUNT_$tableName" $publicCounts.counts.$tableName }
+  Write-Status 'PUBLIC_ROW_TOTAL' $publicCounts.total
+  Write-Status 'PUBLIC_ROW_SNAPSHOT_TOTAL' $snapshotPublicRowCount
+  Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
   $dumpArgs = @('--dbname', $dbUrl, '--format=custom', '--schema=public', '--schema=auth', '--schema=storage')
   Invoke-Checked $pgDump ($dumpArgs + "--file=$DbDumpPath") 'DATABASE_BACKUP_FAILED'
@@ -349,7 +435,10 @@ select json_build_object(
   if (@($objectHashes).Count -ne 48) { throw "STORAGE_HASH_COUNT_MISMATCH:$(@($objectHashes).Count)" }
   $objectHashes | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $StorageManifestPath -Encoding UTF8
 
-  & $psql '--dbname' $dbUrl '--set' 'ON_ERROR_STOP=1' '--csv' '--tuples-only' '--quiet' '--file' $bridge 2>$null | Set-Content -LiteralPath $PrecheckPath -Encoding UTF8
+  $precheckArgs = @('--dbname', $dbUrl, '--set', 'ON_ERROR_STOP=1', '--csv', '--tuples-only', '--quiet', '--file', $bridge)
+  $precheckArgs += @('--set', "expected_public_total=$($publicCounts.total)")
+  foreach ($tableName in $LegacyPublicTables) { $precheckArgs += @('--set', "expected_public_$tableName=$($publicCounts.counts.$tableName)") }
+  & $psql @precheckArgs 2>$null | Set-Content -LiteralPath $PrecheckPath -Encoding UTF8
   if ($LASTEXITCODE -ne 0) { throw 'PRODUCTION_PRECHECK_FAILED' }
   Validate-Precheck $PrecheckPath
 
@@ -360,7 +449,7 @@ select json_build_object(
     if (-not (Test-Path -LiteralPath ([string]$client.$property))) { $serverAvailable = $false }
   }
   if ($serverAvailable) {
-    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot
+    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot $publicCounts
   } else {
     $restoreStatus = 'MAXIMUM_VERIFICATION_SERVER_BINARIES_UNAVAILABLE'
   }
@@ -374,6 +463,8 @@ select json_build_object(
     encrypted = $true; outsideProvider = $true; BACKUP_CREATED = 'YES'; BACKUP_VERIFIED = 'YES'
     database = 'PASS'; auth = 'PASS'; storageMetadata = 'PASS'; storageBinaries = '48/48'
     sha256 = 'PASS'; restoreRehearsal = $restoreStatus; productionPrecheck = 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
+    publicRowCounts = $publicCounts.counts; publicRowTotal = $publicCounts.total; historicalSnapshotPublicRowCount = $snapshotPublicRowCount
+    publicRowBaseline = 'CAPTURED_AND_PRESERVED'
   } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Encoding UTF8
   Compress-Archive -Path (Join-Path $WorkRoot '*') -DestinationPath $ZipPath -CompressionLevel Optimal
   Protect-File -InputPath $ZipPath -OutputPath $EncryptedPath -MetadataPath $CryptoMetaPath -Passphrase $passphrase

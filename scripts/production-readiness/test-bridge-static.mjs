@@ -28,6 +28,9 @@ test('precheck/postcheck are read-only and preserve mandatory baselines', async 
   assert.match(pre, /count\(\*\).*4/);
   assert.match(pre, /count\(\*\).*2/);
   assert.match(pre, /count\(\*\).*48/);
+  assert.match(pre, /expected_public_profiles/);
+  assert.match(pre, /captured baseline/);
+  assert.doesNotMatch(pre, /coalesce\(sum\(row_count\),\s*0\)\s*=\s*0/);
   assert.match(post, /auth_users_preserved/);
   assert.match(post, /storage_objects_preserved/);
 });
