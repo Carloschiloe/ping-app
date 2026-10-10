@@ -51,6 +51,121 @@ function Invoke-PsqlScalar([string]$PsqlPath, [string]$DbUrl, [string]$Sql) {
   return (($output -join "`n").Trim())
 }
 
+function Get-PostgresMajorFromVersionNum([string]$VersionNum) {
+  $numeric = 0L
+  if (-not [long]::TryParse($VersionNum.Trim(), [ref]$numeric) -or $numeric -le 0) { throw 'POSTGRES_SERVER_VERSION_INVALID' }
+  if ($numeric -ge 100000) { return [int][math]::Floor($numeric / 10000) }
+  return "{0}.{1}" -f [int][math]::Floor($numeric / 10000), [int][math]::Floor(($numeric % 10000) / 100)
+}
+
+function Get-PostgresMajorRank([string]$Major) {
+  $parts = $Major -split '\.'
+  $majorPart = 0
+  if (-not [int]::TryParse($parts[0], [ref]$majorPart)) { throw 'POSTGRES_CLIENT_VERSION_INVALID' }
+  $minorPart = 0
+  if ($parts.Count -gt 1 -and -not [int]::TryParse($parts[1], [ref]$minorPart)) { throw 'POSTGRES_CLIENT_VERSION_INVALID' }
+  return ($majorPart * 100) + $minorPart
+}
+
+function Get-PostgresSearchRoots {
+  return @(
+    (Join-Path ${env:ProgramFiles} 'PostgreSQL'),
+    (Join-Path ${env:ProgramFiles(x86)} 'PostgreSQL')
+  )
+}
+
+function Get-PostgresBinDirectories {
+  $directories = [System.Collections.Generic.List[string]]::new()
+  $toolNames = @('pg_dump', 'pg_restore', 'psql', 'initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
+  foreach ($toolName in $toolNames) {
+    $pathCommands = @(Get-Command $toolName -All -ErrorAction SilentlyContinue)
+    foreach ($pathCommand in $pathCommands) {
+      if ($pathCommand.Source) { [void]$directories.Add((Split-Path -Parent $pathCommand.Source)) }
+    }
+  }
+  $roots = @(Get-PostgresSearchRoots)
+  foreach ($root in $roots) {
+    if (Test-Path -LiteralPath $root) {
+      Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $bin = Join-Path $_.FullName 'bin'
+        if (Test-Path -LiteralPath $bin) { [void]$directories.Add($bin) }
+      }
+    }
+  }
+  return @($directories | Sort-Object -Unique)
+}
+
+function Find-PostgresToolPath([string]$ToolName) {
+  foreach ($binDir in @(Get-PostgresBinDirectories)) {
+    foreach ($fileName in @("$ToolName.exe", $ToolName)) {
+      $toolPath = Join-Path $binDir $fileName
+      if (Test-Path -LiteralPath $toolPath) { return $toolPath }
+    }
+  }
+  return $null
+}
+
+function Read-PostgresDumpMajor([string]$PgDumpPath) {
+  $versionText = (& $PgDumpPath '--version' 2>$null | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { return $null }
+  $match = [regex]::Match($versionText, 'PostgreSQL\)\s+(\d+)(?:\.(\d+))?')
+  if (-not $match.Success) { return $null }
+  if ($match.Groups[2].Success) { return "$($match.Groups[1].Value).$($match.Groups[2].Value)" }
+  return $match.Groups[1].Value
+}
+
+function Select-PostgresClientCandidate([object[]]$Candidates, [string]$ServerMajor) {
+  $serverRank = Get-PostgresMajorRank $ServerMajor
+  $compatible = @($Candidates | Where-Object { (Get-PostgresMajorRank $_.Major) -ge $serverRank })
+  if ($compatible.Count -eq 0) { return $null }
+  return ($compatible | Sort-Object @{ Expression = { if ((Get-PostgresMajorRank $_.Major) -eq $serverRank) { 0 } else { 1 } } }, @{ Expression = { Get-PostgresMajorRank $_.Major } }, BinDir | Select-Object -First 1)
+}
+
+function Find-PostgresClientCandidate([string]$ServerMajor) {
+  $candidates = [System.Collections.Generic.List[object]]::new()
+  foreach ($binDir in @(Get-PostgresBinDirectories)) {
+    $dump = Join-Path $binDir 'pg_dump.exe'
+    if (-not (Test-Path -LiteralPath $dump)) { $dump = Join-Path $binDir 'pg_dump' }
+    if (-not (Test-Path -LiteralPath $dump)) { continue }
+    $major = Read-PostgresDumpMajor $dump
+    if (-not $major) { continue }
+    $restore = Join-Path $binDir 'pg_restore.exe'
+    if (-not (Test-Path -LiteralPath $restore)) { $restore = Join-Path $binDir 'pg_restore' }
+    $psql = Join-Path $binDir 'psql.exe'
+    if (-not (Test-Path -LiteralPath $psql)) { $psql = Join-Path $binDir 'psql' }
+    if (-not (Test-Path -LiteralPath $restore) -or -not (Test-Path -LiteralPath $psql)) { continue }
+    [void]$candidates.Add([pscustomobject]@{
+      Major = $major; BinDir = $binDir; PgDump = $dump; PgRestore = $restore; Psql = $psql
+      Initdb = (Join-Path $binDir 'initdb.exe'); PgCtl = (Join-Path $binDir 'pg_ctl.exe')
+      Postgres = (Join-Path $binDir 'postgres.exe'); Createdb = (Join-Path $binDir 'createdb.exe'); Dropdb = (Join-Path $binDir 'dropdb.exe')
+    })
+  }
+  return Select-PostgresClientCandidate @($candidates) $ServerMajor
+}
+
+function Install-CompatiblePostgresClient([string]$ServerMajor) {
+  $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
+  if (-not $wingetCommand) { throw 'POSTGRES_CLIENT_INSTALL_UNAVAILABLE' }
+  $packageId = "PostgreSQL.PostgreSQL.$ServerMajor"
+  $output = & $wingetCommand.Source install --id $packageId --exact --source winget --silent --accept-source-agreements --accept-package-agreements 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $safeOutput = ($output -join ' ')
+    if ($safeOutput -match '(?i)elevation|administrator|access is denied|0x80070005|uac') {
+      throw "POSTGRES_CLIENT_INSTALL_REQUIRES_ELEVATION`nRUN_THIS_ONE_COMMAND=winget install --id $packageId --exact --source winget --accept-source-agreements --accept-package-agreements; powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$($PSCommandPath)`""
+    }
+    throw 'POSTGRES_CLIENT_INSTALL_FAILED'
+  }
+}
+
+function Resolve-PostgresClient([string]$ServerMajor) {
+  $candidate = Find-PostgresClientCandidate $ServerMajor
+  if ($candidate) { return $candidate }
+  Install-CompatiblePostgresClient $ServerMajor
+  $candidate = Find-PostgresClientCandidate $ServerMajor
+  if (-not $candidate) { throw 'PG_DUMP_VERSION_INCOMPATIBLE' }
+  return $candidate
+}
+
 function Get-Hash([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
@@ -96,10 +211,15 @@ function Protect-File([string]$InputPath, [string]$OutputPath, [string]$Metadata
   $aes.Dispose(); $kdf.Dispose(); $hmac.Dispose(); $rng.Dispose()
 }
 
-function Invoke-LocalRestore([string]$PgRestore, [string]$Psql, [string]$DbDump, [string]$Work) {
+function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work) {
   $names = @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
   $commands = @{}
-  foreach ($name in $names) { $commands[$name] = Require-Command $name }
+  foreach ($name in $names) {
+    $property = $name.Substring(0, 1).ToUpperInvariant() + $name.Substring(1)
+    $candidatePath = [string]$Client.$property
+    if (-not (Test-Path -LiteralPath $candidatePath)) { throw 'LOCAL_POSTGRES_SERVER_BINARIES_UNAVAILABLE' }
+    $commands[$name] = $candidatePath
+  }
   $cluster = Join-Path $Work 'restore-cluster'
   $port = 55432 + (Get-Random -Minimum 0 -Maximum 400)
   $started = $false
@@ -108,9 +228,9 @@ function Invoke-LocalRestore([string]$PgRestore, [string]$Psql, [string]$DbDump,
     Invoke-Checked $commands.pg_ctl @('-D', $cluster, '-o', "-p $port -h 127.0.0.1", '-w', 'start') 'LOCAL_POSTGRES_START_FAILED'
     $started = $true
     Invoke-Checked $commands.createdb @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED'
-    Invoke-Checked $PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED'
+    Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED'
     $countsSql = "select json_build_object('auth', (select count(*) from auth.users), 'storage', (select count(*) from storage.objects), 'public', (select coalesce(sum(row_count),0)::bigint from (select count(*) row_count from public.profiles union all select count(*) from public.messages union all select count(*) from public.commitments union all select count(*) from public.subscriptions union all select count(*) from public.contacts union all select count(*) from public.conversations union all select count(*) from public.conversation_participants union all select count(*) from public.message_reactions union all select count(*) from public.user_calendar_accounts union all select count(*) from public.ai_messages union all select count(*) from public.calls union all select count(*) from public.operation_checklists union all select count(*) from public.operation_checklist_items union all select count(*) from public.operation_checklist_runs union all select count(*) from public.operation_checklist_run_items union all select count(*) from public.shift_reports union all select count(*) from public.conversation_operation_focuses union all select count(*) from public.commitment_operation_progress) counts))::text;"
-    $counts = & $Psql '--dbname=ping_restore' '--host=127.0.0.1' "--port=$port" '--quiet' '--tuples-only' '--no-align' '--command' $countsSql 2>$null
+    $counts = & $Client.Psql '--dbname=ping_restore' '--host=127.0.0.1' "--port=$port" '--quiet' '--tuples-only' '--no-align' '--command' $countsSql 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'LOCAL_RESTORE_COUNTS_FAILED' }
     $parsed = (($counts -join "`n").Trim() | ConvertFrom-Json)
     if ($parsed.auth -ne 4 -or $parsed.storage -ne 48 -or $parsed.public -ne 0) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
@@ -138,9 +258,9 @@ function Validate-Precheck([string]$Path) {
 }
 
 if ($ValidateOnly) {
-  Require-Command 'pg_dump' | Out-Null
-  Require-Command 'pg_restore' | Out-Null
-  Require-Command 'psql' | Out-Null
+  if (-not (Find-PostgresToolPath 'pg_dump')) { throw 'REQUIRED_TOOL_MISSING:pg_dump' }
+  if (-not (Find-PostgresToolPath 'pg_restore')) { throw 'REQUIRED_TOOL_MISSING:pg_restore' }
+  if (-not (Find-PostgresToolPath 'psql')) { throw 'REQUIRED_TOOL_MISSING:psql' }
   Write-Status 'VALIDATION_ONLY' 'PASS'
   Write-Status 'PROJECT_REF' $ProjectRef
   Write-Status 'SECRET_INPUTS_NEEDED' 'DB_CONNECTION_PLUS_ENCRYPTION_PASSPHRASE'
@@ -152,9 +272,8 @@ $passphrase = $null
 $created = $false
 $restoreStatus = 'NOT_RUN'
 try {
-  $pgDump = Require-Command 'pg_dump'
-  $pgRestore = Require-Command 'pg_restore'
-  $psql = Require-Command 'psql'
+  $bootstrapPsql = Find-PostgresToolPath 'psql'
+  if (-not $bootstrapPsql) { throw 'REQUIRED_TOOL_MISSING:psql' }
   $bridge = Join-Path $RepoRoot 'supabase\production-reconciliation\production-bridge-precheck.sql'
   $validator = Join-Path $RepoRoot 'scripts\production-readiness\validate-backup-gate.mjs'
   if (-not (Test-Path -LiteralPath $bridge)) { throw 'BRIDGE_PRECHECK_MISSING' }
@@ -164,6 +283,15 @@ try {
   $passphrase = Read-SecretText 'Backup encryption passphrase (input hidden)'
   if ([string]::IsNullOrWhiteSpace($dbUrl) -or [string]::IsNullOrWhiteSpace($passphrase)) { throw 'SECRET_INPUT_EMPTY' }
   Assert-ProductionDatabaseTarget $dbUrl | Out-Null
+  $serverVersionNum = Invoke-PsqlScalar $bootstrapPsql $dbUrl 'show server_version_num;'
+  $serverMajor = Get-PostgresMajorFromVersionNum $serverVersionNum
+  $client = Resolve-PostgresClient $serverMajor
+  $pgDump = $client.PgDump
+  $pgRestore = $client.PgRestore
+  $psql = $client.Psql
+  Write-Status 'SERVER_PG_MAJOR' $serverMajor
+  Write-Status 'PG_DUMP_MAJOR' $client.Major
+  if ((Get-PostgresMajorRank $client.Major) -lt (Get-PostgresMajorRank $serverMajor)) { throw 'PG_DUMP_VERSION_INCOMPATIBLE' }
 
   New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
   $created = $true
@@ -227,9 +355,12 @@ select json_build_object(
 
   $serverNames = @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
   $serverAvailable = $true
-  foreach ($name in $serverNames) { if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { $serverAvailable = $false } }
+  foreach ($name in $serverNames) {
+    $property = $name.Substring(0, 1).ToUpperInvariant() + $name.Substring(1)
+    if (-not (Test-Path -LiteralPath ([string]$client.$property))) { $serverAvailable = $false }
+  }
   if ($serverAvailable) {
-    $restoreStatus = Invoke-LocalRestore $pgRestore $psql $DbDumpPath $WorkRoot
+    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot
   } else {
     $restoreStatus = 'MAXIMUM_VERIFICATION_SERVER_BINARIES_UNAVAILABLE'
   }
