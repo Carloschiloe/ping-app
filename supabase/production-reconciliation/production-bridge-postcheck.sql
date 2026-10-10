@@ -21,11 +21,62 @@ table_checks as (
     from required_rc
     where to_regclass('public.' || required_rc.table_name) is not null
 ),
+current_public_rows as (
+    select 'profiles' table_name, count(*)::bigint row_count from public.profiles
+    union all select 'messages', count(*) from public.messages
+    union all select 'commitments', count(*) from public.commitments
+    union all select 'subscriptions', count(*) from public.subscriptions
+    union all select 'contacts', count(*) from public.contacts
+    union all select 'conversations', count(*) from public.conversations
+    union all select 'conversation_participants', count(*) from public.conversation_participants
+    union all select 'message_reactions', count(*) from public.message_reactions
+    union all select 'user_calendar_accounts', count(*) from public.user_calendar_accounts
+    union all select 'ai_messages', count(*) from public.ai_messages
+    union all select 'calls', count(*) from public.calls
+    union all select 'operation_checklists', count(*) from public.operation_checklists
+    union all select 'operation_checklist_items', count(*) from public.operation_checklist_items
+    union all select 'operation_checklist_runs', count(*) from public.operation_checklist_runs
+    union all select 'operation_checklist_run_items', count(*) from public.operation_checklist_run_items
+    union all select 'shift_reports', count(*) from public.shift_reports
+    union all select 'conversation_operation_focuses', count(*) from public.conversation_operation_focuses
+    union all select 'commitment_operation_progress', count(*) from public.commitment_operation_progress
+),
+captured_public_rows(table_name, row_count) as (
+    values
+      ('profiles', (:'expected_public_profiles')::bigint),
+      ('messages', (:'expected_public_messages')::bigint),
+      ('commitments', (:'expected_public_commitments')::bigint),
+      ('subscriptions', (:'expected_public_subscriptions')::bigint),
+      ('contacts', (:'expected_public_contacts')::bigint),
+      ('conversations', (:'expected_public_conversations')::bigint),
+      ('conversation_participants', (:'expected_public_conversation_participants')::bigint),
+      ('message_reactions', (:'expected_public_message_reactions')::bigint),
+      ('user_calendar_accounts', (:'expected_public_user_calendar_accounts')::bigint),
+      ('ai_messages', (:'expected_public_ai_messages')::bigint),
+      ('calls', (:'expected_public_calls')::bigint),
+      ('operation_checklists', (:'expected_public_operation_checklists')::bigint),
+      ('operation_checklist_items', (:'expected_public_operation_checklist_items')::bigint),
+      ('operation_checklist_runs', (:'expected_public_operation_checklist_runs')::bigint),
+      ('operation_checklist_run_items', (:'expected_public_operation_checklist_run_items')::bigint),
+      ('shift_reports', (:'expected_public_shift_reports')::bigint),
+      ('conversation_operation_focuses', (:'expected_public_conversation_operation_focuses')::bigint),
+      ('commitment_operation_progress', (:'expected_public_commitment_operation_progress')::bigint)
+),
+public_row_preservation as (
+    select 'public_rows_preserved' as check_name,
+           case when not exists (
+             select 1 from current_public_rows current_rows
+             join captured_public_rows captured using (table_name)
+             where current_rows.row_count < captured.row_count
+           ) then 'PASS' else 'FAIL' end as status,
+           (select coalesce(string_agg(table_name || '=' || row_count::text, ',' order by table_name), '') from current_public_rows)
+             || ' current public row counts; no captured baseline count may decrease' as details
+),
 preservation_checks as (
-    select 'auth_users_preserved', case when count(*) = 4 then 'PASS' else 'FAIL' end, count(*)::text || ' Auth users'
+    select 'auth_users_preserved', case when count(*) >= (:'expected_auth_users')::bigint then 'PASS' else 'FAIL' end, count(*)::text || ' Auth users; captured=' || (:'expected_auth_users')::text
     from auth.users
-    union all select 'storage_buckets_preserved', case when count(*) = 2 then 'PASS' else 'FAIL' end, count(*)::text || ' buckets' from storage.buckets
-    union all select 'storage_objects_preserved', case when count(*) = 48 then 'PASS' else 'FAIL' end, count(*)::text || ' objects' from storage.objects
+    union all select 'storage_buckets_preserved', case when count(*) >= (:'expected_storage_buckets')::bigint then 'PASS' else 'FAIL' end, count(*)::text || ' buckets; captured=' || (:'expected_storage_buckets')::text from storage.buckets where id in ('chat-media', 'recordings')
+    union all select 'storage_objects_preserved', case when count(*) >= (:'expected_storage_objects')::bigint then 'PASS' else 'FAIL' end, count(*)::text || ' objects; captured=' || (:'expected_storage_objects')::text from storage.objects where bucket_id in ('chat-media', 'recordings')
 ),
 function_checks as (
     select 'handle_new_user_security_definer' as check_name,
@@ -137,6 +188,7 @@ critical_trigger_boundary as (
                        'trg_validate_commitment_consistency','commitments_require_resolution_result')
 )
 select * from table_checks
+union all select * from public_row_preservation
 union all select * from preservation_checks
 union all select * from function_checks
 union all select * from rls_checks

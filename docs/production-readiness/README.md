@@ -12,6 +12,8 @@ certified staging branch, Render configuration, Supabase, or production data.
   The externally supplied read-only snapshot is recorded in
   `production-snapshot-20261010.json` and confirms the legacy 18-table boundary,
   RLS state, direct grants, Auth count and Storage inventory.
+- That snapshot's public-row total is historical and marked stale; the final
+  backup orchestrator captures the authoritative per-table runtime baseline.
 - Staging project: `Ping Staging V2`, ref `oonijgmddgyymhrlnvuu`, independent
   from production.
 - Current production live SHA: `b6b7175f9b87abfa5fda422931f8e4c4fa92f5c8`
@@ -29,7 +31,8 @@ production. The migration manifest is conservative:
 1. `baseline_v2` is `BASELINE_ONLY` and must not be applied to the historical
    project without a schema comparison and an explicit transition plan.
 2. A migration is not approved from a filename or file-count difference.
-3. The supplied snapshot resolves the inventory gate. Exact policy/function
+3. The supplied snapshot resolves the inventory gate, not the live data-count
+   gate. Exact policy/function
    expressions and all forward-created objects remain enforced by the SQL
    precheck/postcheck during an authorized rehearsal.
 4. Any policy, function, trigger, type alteration, data update, or destructive

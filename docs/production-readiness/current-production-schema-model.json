@@ -1,9 +1,12 @@
 {
   "source": "external evidence supplied after restore",
   "confidence": "CONFIRMED_EXTERNAL",
+  "dataStatus": "STALE_FOR_ROW_COUNTS",
+  "dataStatusReason": "Runtime preservation counts must come from the final backup orchestrator, not this historical model.",
   "projectRef": "wbigqhtuzfmpnxservlf",
   "publicTableCount": 18,
   "publicRowsTotal": 0,
+  "publicRowsAuthority": "historical_snapshot_only",
   "authUsers": 4,
   "storageBuckets": 2,
   "storageObjects": 48,

@@ -4,15 +4,18 @@
 
 `baseline_v2` must not run directly on the restored historical project. The
 absence of `supabase_migrations.schema_migrations` is legacy provenance, not
-proof that the schema is empty. Public tables currently have zero rows, but
-four Auth users and 48 Storage objects must be preserved.
+proof that the schema is empty. The supplied historical snapshot reported zero
+public rows, but the final backup run must capture the live per-table public
+row baseline and preserve it; four Auth users and 48 Storage objects remain
+mandatory preservation invariants.
 
 ## Candidate scope
 
 The candidate bridge is intentionally narrow and forward-only:
 
 1. Require backup and preservation gates.
-2. Require the confirmed 18-table inventory and preservation counts.
+2. Require the confirmed 18-table inventory and the runtime per-table
+   preservation baseline captured by the final backup orchestrator.
 3. Reconcile missing `public.profiles` rows additively from `auth.users`,
    preserving Auth IDs.
 4. Replace `public.handle_new_user` with the RC-compatible fixed

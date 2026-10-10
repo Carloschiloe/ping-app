@@ -62,27 +62,31 @@ captured_public_rows(table_name, row_count) as (
       ('conversation_operation_focuses', (:'expected_public_conversation_operation_focuses')::bigint),
       ('commitment_operation_progress', (:'expected_public_commitment_operation_progress')::bigint)
 ),
+captured_public_total(total) as (
+    values ((:'expected_public_total')::bigint)
+),
 row_checks as (
     select 'public_row_baseline' as check_name,
            case when not exists (
              select 1 from current_public_rows current_rows
              join captured_public_rows captured using (table_name)
              where current_rows.row_count <> captured.row_count
-           ) then 'PASS' else 'FAIL' end as status,
+           ) and (select coalesce(sum(row_count), 0)::bigint from current_public_rows) = (select total from captured_public_total)
+             then 'PASS' else 'FAIL' end as status,
            (select coalesce(string_agg(table_name || '=' || row_count::text, ',' order by table_name), '') from current_public_rows)
-             || ' public row counts observed; compared with captured baseline' as details
+             || ' public row counts observed; compared with captured baseline total=' || (select total::text from captured_public_total) as details
 ),
 preservation_checks as (
     select 'auth_preservation_baseline' as check_name,
-           case when count(*) = 4 then 'PASS' else 'FAIL' end as status,
-           count(*)::text || ' Auth users' as details
+           case when count(*) = (:'expected_auth_users')::bigint then 'PASS' else 'FAIL' end as status,
+           count(*)::text || ' Auth users; expected=' || (:'expected_auth_users')::text as details
     from auth.users
     union all
-    select 'storage_bucket_baseline', case when count(*) = 2 then 'PASS' else 'FAIL' end, count(*)::text || ' buckets'
-    from storage.buckets
+    select 'storage_bucket_baseline', case when count(*) = (:'expected_storage_buckets')::bigint then 'PASS' else 'FAIL' end, count(*)::text || ' buckets; expected=' || (:'expected_storage_buckets')::text
+    from storage.buckets where id in ('chat-media', 'recordings')
     union all
-    select 'storage_object_baseline', case when count(*) = 48 then 'PASS' else 'FAIL' end, count(*)::text || ' objects'
-    from storage.objects
+    select 'storage_object_baseline', case when count(*) = (:'expected_storage_objects')::bigint then 'PASS' else 'FAIL' end, count(*)::text || ' objects; expected=' || (:'expected_storage_objects')::text
+    from storage.objects where bucket_id in ('chat-media', 'recordings')
 ),
 security_checks as (
     select c.relname as check_name,
@@ -110,12 +114,32 @@ required_rc(table_name) as (
       ('agent_turn_semantic_checkpoints'), ('agent_dialogue_checkpoints'),
       ('agent_turn_sequence_allocators')
 ),
+legacy_rc_overlap(table_name) as (
+    values
+      ('profiles'), ('messages'), ('commitments'), ('contacts'),
+      ('conversations'), ('conversation_participants'), ('message_reactions'),
+      ('user_calendar_accounts'), ('ai_messages'), ('calls')
+),
+missing_legacy_rc(table_name) as (
+    select overlap.table_name
+    from legacy_rc_overlap overlap
+    where to_regclass('public.' || overlap.table_name) is null
+),
+unexpected_forward_rc(table_name) as (
+    select required.table_name
+    from required_rc required
+    where not exists (select 1 from legacy_rc_overlap overlap where overlap.table_name = required.table_name)
+      and to_regclass('public.' || required.table_name) is not null
+),
 rc_presence as (
-    select 'rc_required_table_inventory' as check_name,
-           case when count(*) = 11 then 'PASS' else 'FAIL' end as status,
-           count(*)::text || ' of 27 RC contract tables present before forward package' as details
-    from required_rc
-    where to_regclass('public.' || required_rc.table_name) is not null
+           select 'rc_required_table_inventory' as check_name,
+           case when not exists (select 1 from missing_legacy_rc)
+                     and not exists (select 1 from unexpected_forward_rc)
+                then 'PASS' else 'FAIL' end as status,
+           'legacy RC overlap expected=' ||
+             (select string_agg(table_name, ',' order by table_name) from legacy_rc_overlap) ||
+           '; missing=' || coalesce((select string_agg(table_name, ',' order by table_name) from missing_legacy_rc), 'none') ||
+           '; unexpected forward-only=' || coalesce((select string_agg(table_name, ',' order by table_name) from unexpected_forward_rc), 'none') as details
 ),
 legacy_client_access as (
     select 'legacy_client_access_boundary' as check_name,

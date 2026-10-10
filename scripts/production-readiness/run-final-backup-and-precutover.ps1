@@ -270,7 +270,8 @@ with counts as (
 )
 select json_build_object(
   'auth', (select count(*) from auth.users),
-  'storage', (select count(*) from storage.objects),
+  'storage_buckets', (select count(*) from storage.buckets where id in ('chat-media', 'recordings')),
+  'storage', (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings')),
   'public_counts', (select json_object_agg(table_name, row_count) from counts),
   'public_total', (select coalesce(sum(row_count), 0)::bigint from counts)
 )::text;
@@ -278,7 +279,7 @@ select json_build_object(
     $counts = & $Client.Psql '--dbname=ping_restore' '--host=127.0.0.1' "--port=$port" '--quiet' '--tuples-only' '--no-align' '--command' $countsSql 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'LOCAL_RESTORE_COUNTS_FAILED' }
     $parsed = (($counts -join "`n").Trim() | ConvertFrom-Json)
-    if ($parsed.auth -ne 4 -or $parsed.storage -ne 48) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
+    if ($parsed.auth -ne $ExpectedPublicCounts.auth_users -or $parsed.storage_buckets -ne $ExpectedPublicCounts.storage_buckets -or $parsed.storage -ne $ExpectedPublicCounts.storage_objects) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
     $restoredPublicCounts = [pscustomobject]@{ counts = $parsed.public_counts; total = $parsed.public_total }
     Assert-PublicRowCounts $restoredPublicCounts $ExpectedPublicCounts
     return 'REAL_LOCAL_RESTORE_PASS'
@@ -366,11 +367,15 @@ with counts as (
 )
 select json_build_object(
   'counts', (select json_object_agg(table_name, row_count) from counts),
-  'total', (select coalesce(sum(row_count), 0)::bigint from counts)
+  'total', (select coalesce(sum(row_count), 0)::bigint from counts),
+  'auth_users', (select count(*) from auth.users),
+  'storage_buckets', (select count(*) from storage.buckets where id in ('chat-media', 'recordings')),
+  'storage_objects', (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings'))
 )::text;
 '@
   $publicCounts = Invoke-PsqlScalar $psql $dbUrl $publicCountsSql | ConvertFrom-Json
-  if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total) { throw 'PUBLIC_ROW_COUNTS_INVALID' }
+  if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total -or $null -eq $publicCounts.auth_users -or $null -eq $publicCounts.storage_buckets -or $null -eq $publicCounts.storage_objects) { throw 'PRODUCTION_BASELINE_INVALID' }
+  if ([int64]$publicCounts.auth_users -lt 0 -or [int64]$publicCounts.storage_buckets -lt 0 -or [int64]$publicCounts.storage_objects -lt 0) { throw "PRODUCTION_BASELINE_INVALID:auth=$($publicCounts.auth_users),buckets=$($publicCounts.storage_buckets),objects=$($publicCounts.storage_objects)" }
   if (-not (Test-Path -LiteralPath $SnapshotPath)) { throw 'PRODUCTION_SNAPSHOT_MISSING' }
   $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json
   if ($snapshot.projectRef -ne $ProjectRef -or $snapshot.publicTableCount -ne 18) { throw 'PRODUCTION_SNAPSHOT_TARGET_INVALID' }
@@ -379,6 +384,9 @@ select json_build_object(
   Write-Output 'PUBLIC_ROW_COUNTS:'
   foreach ($tableName in $LegacyPublicTables) { Write-Status "PUBLIC_ROW_COUNT_$tableName" $publicCounts.counts.$tableName }
   Write-Status 'PUBLIC_ROW_TOTAL' $publicCounts.total
+  Write-Status 'AUTH_USER_BASELINE' $publicCounts.auth_users
+  Write-Status 'STORAGE_BUCKET_BASELINE' $publicCounts.storage_buckets
+  Write-Status 'STORAGE_OBJECT_BASELINE' $publicCounts.storage_objects
   Write-Status 'PUBLIC_ROW_SNAPSHOT_TOTAL' $snapshotPublicRowCount
   Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
@@ -405,7 +413,7 @@ select json_build_object(
 from auth.users;
 '@
   $authJson = Invoke-PsqlScalar $psql $dbUrl $authSql | ConvertFrom-Json
-  if ($authJson.count -ne 4) { throw "AUTH_USER_COUNT_MISMATCH:$($authJson.count)" }
+  if ($authJson.count -ne $publicCounts.auth_users) { throw "AUTH_USER_COUNT_MISMATCH:$($authJson.count):expected=$($publicCounts.auth_users)" }
   $authJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $AuthPath -Encoding UTF8
 
   $storageSql = @'
@@ -416,7 +424,7 @@ select json_build_object(
 )::text;
 '@
   $storageJson = Invoke-PsqlScalar $psql $dbUrl $storageSql | ConvertFrom-Json
-  if ($storageJson.bucket_count -ne 2 -or $storageJson.object_count -ne 48) { throw "STORAGE_BASELINE_MISMATCH:$($storageJson.bucket_count)/$($storageJson.object_count)" }
+  if ($storageJson.bucket_count -ne $publicCounts.storage_buckets -or $storageJson.object_count -ne $publicCounts.storage_objects) { throw "STORAGE_BASELINE_MISMATCH:$($storageJson.bucket_count)/$($storageJson.object_count):expected=$($publicCounts.storage_buckets)/$($publicCounts.storage_objects)" }
   $storageJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StorageInventoryPath -Encoding UTF8
 
   $storageRoot = Join-Path $WorkRoot 'storage'
@@ -432,12 +440,13 @@ select json_build_object(
     Invoke-WebRequest -Uri "$ProjectUrl/storage/v1/object/public/$($object.bucket)/$encodedPath" -Method Get -OutFile $target -UseBasicParsing
     $objectHashes += [ordered]@{ bucket = [string]$object.bucket; path = [string]$object.path; sha256 = Get-Hash $target; bytes = (Get-Item -LiteralPath $target).Length }
   }
-  if (@($objectHashes).Count -ne 48) { throw "STORAGE_HASH_COUNT_MISMATCH:$(@($objectHashes).Count)" }
+  if (@($objectHashes).Count -ne [int64]$publicCounts.storage_objects) { throw "STORAGE_HASH_COUNT_MISMATCH:$(@($objectHashes).Count):expected=$($publicCounts.storage_objects)" }
   $objectHashes | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $StorageManifestPath -Encoding UTF8
 
-  $precheckArgs = @('--dbname', $dbUrl, '--set', 'ON_ERROR_STOP=1', '--csv', '--tuples-only', '--quiet', '--file', $bridge)
-  $precheckArgs += @('--set', "expected_public_total=$($publicCounts.total)")
+  $precheckArgs = @('--dbname', $dbUrl, '--set', 'ON_ERROR_STOP=1', '--csv', '--tuples-only', '--quiet')
+  $precheckArgs += @('--set', "expected_public_total=$($publicCounts.total)", '--set', "expected_auth_users=$($publicCounts.auth_users)", '--set', "expected_storage_buckets=$($publicCounts.storage_buckets)", '--set', "expected_storage_objects=$($publicCounts.storage_objects)")
   foreach ($tableName in $LegacyPublicTables) { $precheckArgs += @('--set', "expected_public_$tableName=$($publicCounts.counts.$tableName)") }
+  $precheckArgs += @('--file', $bridge)
   & $psql @precheckArgs 2>$null | Set-Content -LiteralPath $PrecheckPath -Encoding UTF8
   if ($LASTEXITCODE -ne 0) { throw 'PRODUCTION_PRECHECK_FAILED' }
   Validate-Precheck $PrecheckPath
@@ -461,9 +470,9 @@ select json_build_object(
     storageBinaryBackupId = "storage-binaries-$Stamp"; storageBinaryBackupSha256 = Get-Hash $StorageManifestPath
     restoreVerificationId = "pg-local-restore-$Stamp"; createdAt = (Get-Date).ToUniversalTime().ToString('o')
     encrypted = $true; outsideProvider = $true; BACKUP_CREATED = 'YES'; BACKUP_VERIFIED = 'YES'
-    database = 'PASS'; auth = 'PASS'; storageMetadata = 'PASS'; storageBinaries = '48/48'
+    database = 'PASS'; auth = 'PASS'; storageMetadata = 'PASS'; storageBinaries = "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"
     sha256 = 'PASS'; restoreRehearsal = $restoreStatus; productionPrecheck = 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
-    publicRowCounts = $publicCounts.counts; publicRowTotal = $publicCounts.total; historicalSnapshotPublicRowCount = $snapshotPublicRowCount
+    publicRowCounts = $publicCounts.counts; publicRowTotal = $publicCounts.total; authUserBaseline = $publicCounts.auth_users; storageBucketBaseline = $publicCounts.storage_buckets; storageObjectBaseline = $publicCounts.storage_objects; historicalSnapshotPublicRowCount = $snapshotPublicRowCount
     publicRowBaseline = 'CAPTURED_AND_PRESERVED'
   } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Encoding UTF8
   Compress-Archive -Path (Join-Path $WorkRoot '*') -DestinationPath $ZipPath -CompressionLevel Optimal
@@ -474,7 +483,7 @@ select json_build_object(
   if ($LASTEXITCODE -ne 0) { throw 'BACKUP_GATE_VALIDATION_FAILED' }
   Write-Status 'BACKUP_CREATED' 'YES'; Write-Status 'BACKUP_VERIFIED' 'YES'; Write-Status 'BACKUP_ENCRYPTED' 'YES'
   Write-Status 'BACKUP_DATABASE' 'PASS'; Write-Status 'BACKUP_AUTH' 'PASS'; Write-Status 'BACKUP_STORAGE_METADATA' 'PASS'
-  Write-Status 'BACKUP_STORAGE_BINARIES' '48/48'; Write-Status 'BACKUP_SHA256_VERIFIED' 'PASS'; Write-Status 'RESTORE_REHEARSAL' $restoreStatus
+  Write-Status 'BACKUP_STORAGE_BINARIES' "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"; Write-Status 'BACKUP_SHA256_VERIFIED' 'PASS'; Write-Status 'RESTORE_REHEARSAL' $restoreStatus
   Write-Status 'BACKUP_GATE' 'PASS'; Write-Status 'PRODUCTION_PRECHECK' 'PASS'; Write-Status 'EVIDENCE_PATH' $EvidencePath
   Write-Status 'ENCRYPTED_PACKAGE' $EncryptedPath; Write-Status 'PRODUCTION_CUTOVER_READY_FOR_SINGLE_AUTHORIZATION' 'YES'
 } catch {

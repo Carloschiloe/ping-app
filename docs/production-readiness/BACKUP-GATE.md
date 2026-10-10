@@ -6,6 +6,8 @@ Auth identities and 48 Storage objects; a schema/data dump alone is not enough.
 The operator must produce, outside Supabase and in encrypted storage:
 
 - a custom-format PostgreSQL dump covering the production application schema;
+- per-table public row counts captured at the start of the run and compared
+  exactly after restore rehearsal;
 - the Auth-relevant rows needed to preserve the four UUIDs;
 - Storage bucket/object metadata;
 - the binary backup of all 48 existing Storage objects;
@@ -34,8 +36,9 @@ non-secret fields:
 ```
 
 No secret, URL, token, password, Auth key, or object content belongs in the
-evidence JSON. The bridge refuses to run until this gate and the live
-read-only schema/policy snapshot both pass.
+evidence JSON. The bridge refuses to run until this gate, the runtime
+preservation baseline, and the live read-only schema/policy snapshot both
+pass.
 
 ## Current attempt status (2026-10-10)
 

@@ -14,6 +14,10 @@
 begin;
 
 do $$
+declare
+    expected_auth_users bigint := nullif(current_setting('ping.expected_auth_users', true), '')::bigint;
+    expected_storage_buckets bigint := nullif(current_setting('ping.expected_storage_buckets', true), '')::bigint;
+    expected_storage_objects bigint := nullif(current_setting('ping.expected_storage_objects', true), '')::bigint;
 begin
     if current_setting('ping.backup_created', true) <> 'YES'
         or current_setting('ping.backup_verified', true) <> 'YES'
@@ -23,6 +27,10 @@ begin
         raise exception 'ABORT: backup, preservation, and legacy client-access review gates are required';
     end if;
 
+    if expected_auth_users is null or expected_storage_buckets is null or expected_storage_objects is null then
+        raise exception 'ABORT: runtime preservation baseline settings are required';
+    end if;
+
     if to_regclass('public.profiles') is null
         or to_regclass('auth.users') is null
         or to_regclass('storage.buckets') is null
@@ -30,9 +38,9 @@ begin
         raise exception 'ABORT: expected Auth, Storage, or profiles objects are missing';
     end if;
 
-    if (select count(*) from auth.users) <> 4
-        or (select count(*) from storage.buckets) <> 2
-        or (select count(*) from storage.objects) <> 48 then
+    if (select count(*) from auth.users) <> expected_auth_users
+        or (select count(*) from storage.buckets where id in ('chat-media', 'recordings')) <> expected_storage_buckets
+        or (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings')) <> expected_storage_objects then
         raise exception 'ABORT: preservation baseline changed';
     end if;
 

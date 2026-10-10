@@ -10,6 +10,8 @@ test('production snapshot is the confirmed target and preserves the legacy basel
   assert.equal(snapshot.status, 'ACTIVE_HEALTHY');
   assert.equal(snapshot.publicTableCount, 18);
   assert.equal(snapshot.publicRowCount, 0);
+  assert.equal(snapshot.dataStatus, 'STALE_FOR_ROW_COUNTS');
+  assert.equal(snapshot.publicRowCountAuthority, 'historical_snapshot_only');
   assert.equal(snapshot.authUserCount, 4);
   assert.deepEqual(snapshot.storage.buckets, ['chat-media', 'recordings']);
   assert.equal(snapshot.storage.objectCount, 48);

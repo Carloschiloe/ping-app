@@ -4,8 +4,11 @@
   "project": "Ping",
   "projectRef": "wbigqhtuzfmpnxservlf",
   "status": "ACTIVE_HEALTHY",
+  "dataStatus": "STALE_FOR_ROW_COUNTS",
+  "dataStatusReason": "The supplied snapshot predates the runtime backup baseline; it remains historical evidence only.",
   "publicTableCount": 18,
   "publicRowCount": 0,
+  "publicRowCountAuthority": "historical_snapshot_only",
   "authUserCount": 4,
   "storage": {
     "bucketCount": 2,

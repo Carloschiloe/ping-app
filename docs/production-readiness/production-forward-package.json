@@ -5,13 +5,14 @@
   "snapshot": "production-snapshot-20261010.json",
   "executionMode": "operator-run-after-backup-and-precheck",
   "baselinePolicy": "never-replay-20260712000000_baseline_v2.sql",
+  "dataBaselinePolicy": "capture-runtime-per-table-counts-and-preserve-no-decrease",
   "bridge": "supabase/production-reconciliation/20261009_production_legacy_to_rc_bridge.sql",
   "gates": [
     "target project ref equals wbigqhtuzfmpnxservlf",
     "BACKUP_GATE=PASS",
     "BACKUP_CREATED=YES",
     "BACKUP_VERIFIED=YES",
-    "production-bridge-precheck.sql returns no FAIL/REVIEW",
+    "production-bridge-precheck.sql returns no unexpected FAIL/REVIEW",
     "legacy_client_access_reviewed=YES",
     "operator confirms maintenance window and rollback plan"
   ],
@@ -54,6 +55,7 @@
     {"file": "supabase/migrations/20260729173000_reconcile_auth_profiles.sql", "reason": "covered by guarded bridge"}
   ],
   "dataSafety": {
+    "publicRowBaseline": "runtime-captured-per-table",
     "preserveAuthUserIds": true,
     "preserveStorageObjects": true,
     "noDrop": true,

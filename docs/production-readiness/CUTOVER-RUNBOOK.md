@@ -10,6 +10,8 @@ performed from this preparation branch.
 - [x] Historical project `wbigqhtuzfmpnxservlf` restored by its owner and reported `ACTIVE_HEALTHY`.
 - [x] External read-only snapshot confirms URL/ref, legacy inventory, security
       state, Auth baseline and Storage baseline.
+- [ ] Final backup run captures the live count for each legacy public table;
+      the historical snapshot's public-row total is not authoritative.
 - [ ] Optional live catalog replay confirms exact expressions before execution.
 - [ ] Encrypted schema, data, Storage metadata, and all 48 Storage binaries exist outside Supabase.
 - [ ] Backup evidence explicitly says `BACKUP_CREATED=YES` and
@@ -49,7 +51,9 @@ and contains a gated deny-by-default treatment for the 11 legacy tables that
 currently lack RLS: it enables RLS without guessed policies and revokes direct
 client table privileges. The ordered forward package creates the additive RC
 objects after the bridge. It is still not authorized for execution until the
-external backup and live schema/policy/grant prechecks pass.
+external backup, runtime row-preservation baseline, and live
+schema/policy/grant prechecks pass. The bridge and postcheck receive the
+captured Auth/Storage/public-row baseline as read-only gate variables.
 
 ## Abort conditions
 

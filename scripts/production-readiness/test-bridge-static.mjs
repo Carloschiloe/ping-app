@@ -25,12 +25,22 @@ test('precheck/postcheck are read-only and preserve mandatory baselines', async 
   for (const sql of [pre, post]) {
     assert.doesNotMatch(stripComments(sql), /\b(insert|update|delete|alter|create|drop|truncate|grant|revoke)\b/i);
   }
-  assert.match(pre, /count\(\*\).*4/);
-  assert.match(pre, /count\(\*\).*2/);
-  assert.match(pre, /count\(\*\).*48/);
+  assert.match(pre, /expected_auth_users/);
+  assert.match(pre, /expected_storage_buckets/);
+  assert.match(pre, /expected_storage_objects/);
   assert.match(pre, /expected_public_profiles/);
   assert.match(pre, /captured baseline/);
   assert.doesNotMatch(pre, /coalesce\(sum\(row_count\),\s*0\)\s*=\s*0/);
+  assert.doesNotMatch(pre, /count\(\*\)\s*=\s*11/);
+  for (const table of ['profiles', 'messages', 'commitments', 'contacts', 'conversations', 'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages', 'calls']) {
+    assert.match(pre, new RegExp(`['\\"]${table}['\\"]`));
+  }
+  assert.match(post, /expected_public_profiles/);
+  assert.match(post, /no captured baseline count may decrease/);
+  assert.match(pre, /missing_legacy_rc/);
+  assert.match(pre, /unexpected_forward_rc/);
+  assert.match(pre, /rc_required_table_inventory/);
+  assert.match(post, /public_rows_preserved/);
   assert.match(post, /auth_users_preserved/);
   assert.match(post, /storage_objects_preserved/);
 });
