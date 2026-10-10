@@ -1,13 +1,13 @@
 {
   "source": "current-production-schema-model.json vs rc-required-schema-model.json",
-  "status": "PARTIAL_UNTIL_READONLY_SCHEMA_SNAPSHOT",
+  "status": "SNAPSHOT_CONFIRMED_FORWARD_PACKAGE_REQUIRED",
   "entries": [
     {"object":"auth.users","current":"4 users","required":"preserve IDs","action":"KEEP","risk":"high","dataImpact":"preserve","authImpact":"mandatory","storageImpact":"none","securityImpact":"verify FK/profile linkage"},
     {"object":"storage.buckets/objects","current":"2 buckets / 48 objects","required":"preserve","action":"KEEP","risk":"high","dataImpact":"preserve","authImpact":"none","storageImpact":"mandatory","securityImpact":"verify policies"},
     {"object":"public.profiles","current":"table present; 0 rows","required":"RC profile contract","action":"BRIDGE_REQUIRED","risk":"medium","dataImpact":"additive profile reconciliation","authImpact":"preserve Auth IDs","storageImpact":"none","securityImpact":"RLS/policy review"},
     {"object":"public.handle_new_user","current":"SECURITY DEFINER exposed; mutable search_path warning","required":"trigger-only, fixed search_path, no public execute","action":"REPLACE_FUNCTION","risk":"high","dataImpact":"none","authImpact":"signup trigger preserved","storageImpact":"none","securityImpact":"high"},
     {"object":"11 public tables without RLS","current":"RLS disabled; repo evidence shows backend access uses service_role and mobile has no direct access to these tables","required":"deny-by-default RLS plus revoked anon/authenticated table privileges; future client policies require a separate review","action":"BRIDGE_GATED_DENY_BY_DEFAULT","risk":"high","dataImpact":"none","authImpact":"indirect","storageImpact":"none","securityImpact":"high"},
-    {"object":"RC tables beyond legacy inventory","current":"not present in the confirmed 18-table production inventory; exact live columns/constraints/functions still need a read-only catalog snapshot","required":"27 critical RC tables","action":"MISSING_FROM_CONFIRMED_INVENTORY_REQUIRES_SNAPSHOT","risk":"high","dataImpact":"preserve existing data","authImpact":"verify","storageImpact":"none","securityImpact":"verify RLS/grants"},
+    {"object":"RC tables beyond legacy inventory","current":"not present in the confirmed 18-table production inventory; the supplied snapshot confirms the legacy boundary and the RC contract enumerates the additive target objects","required":"27 critical RC tables","action":"FORWARD_PACKAGE_AFTER_BRIDGE","risk":"high","dataImpact":"preserve existing data","authImpact":"verify with postcheck","storageImpact":"none","securityImpact":"verify RLS/grants"},
     {"object":"supabase_migrations.schema_migrations","current":"absent","required":"accurate history after schema verification","action":"MARK_HISTORY_ONLY","risk":"high","dataImpact":"none","authImpact":"none","storageImpact":"none","securityImpact":"must not falsify history"}
   ]
 }

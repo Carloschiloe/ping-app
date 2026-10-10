@@ -86,8 +86,8 @@ required_rc(table_name) as (
 ),
 rc_presence as (
     select 'rc_required_table_inventory' as check_name,
-           case when count(*) = 27 then 'PASS' else 'FAIL' end as status,
-           count(*)::text || ' of 27 RC tables present before bridge' as details
+           case when count(*) = 11 then 'PASS' else 'FAIL' end as status,
+           count(*)::text || ' of 27 RC contract tables present before forward package' as details
     from required_rc
     where to_regclass('public.' || required_rc.table_name) is not null
 ),

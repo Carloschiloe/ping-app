@@ -1,9 +1,10 @@
 # Migration accounting for the historical production project
 
-This is a deterministic, repository-derived classification for all 33 RC
-migrations. It is not an approval to execute SQL. `UNKNOWN=0` means that every
-file has a named disposition and reason; it does not mean that the guarded
-forward steps are executable without a production schema snapshot.
+This is a deterministic classification for all 33 RC migrations using the
+confirmed production snapshot and repository contract. It is not an approval
+to execute SQL. `UNKNOWN=0` means every file has a named disposition and
+reason; execution still requires the external backup gate and SQL
+precheck/postcheck.
 
 The machine-readable source is `scripts/production-readiness/resolve-migration-accounting.mjs`.
 It validates one decision for every file in `migration-manifest.json` and emits
@@ -60,5 +61,7 @@ The baseline is explicitly blocked because it is a fresh-database
 reconstruction. The two memory migrations have a documented scope contradiction
 but are required by the current RC runtime, so they are forward candidates with
 an explicit feature/scope gate rather than silently omitted. The 29 forward
-entries remain gated by the missing live column/constraint/policy/grant
-snapshot and by the external backup gate.
+entries are ordered in `production-forward-package.json` and remain gated by
+the external backup, target precheck, maintenance-window and postcheck gates.
+The supplied snapshot resolves the inventory gate; the SQL precheck/postcheck
+remains authoritative for exact live expressions.

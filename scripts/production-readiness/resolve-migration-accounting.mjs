@@ -226,8 +226,11 @@ const output = {
   migrationCount: manifest.migrationCount,
   unknownCount: 0,
   counts,
+  snapshot: 'docs/production-readiness/production-snapshot-20261010.json',
+  forwardPackage: 'docs/production-readiness/production-forward-package.json',
+  readyAfterBackupAndPrecheck: true,
   safeToApply: false,
-  safetyReason: 'No bridge step is executable until the production read-only snapshot and verified external backup gates pass.',
+  safetyReason: 'The supplied snapshot resolves inventory; execution remains blocked until verified external backup, target precheck, and operator authorization pass.',
   entries
 };
 // The managed execution environment intentionally treats generated artifacts in

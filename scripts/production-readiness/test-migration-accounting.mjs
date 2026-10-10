@@ -14,6 +14,9 @@ test('all RC migrations have one explicit reconciliation disposition', async () 
   assert.equal(result.migrationCount, 33);
   assert.equal(result.entries.length, 33);
   assert.equal(result.unknownCount, 0);
+  assert.equal(result.readyAfterBackupAndPrecheck, true);
+  assert.equal(result.snapshot, 'docs/production-readiness/production-snapshot-20261010.json');
+  assert.equal(result.forwardPackage, 'docs/production-readiness/production-forward-package.json');
   assert.equal(result.safeToApply, false);
   assert.equal(result.counts.EXPLICITLY_BLOCKED_WITH_PROVEN_REASON, 1);
   assert.equal(result.counts.HANDLED_BY_BRIDGE, 2);

@@ -1,0 +1,70 @@
+{
+  "source": "external Supabase read-only snapshot supplied by operator",
+  "capturedAt": "2026-10-10",
+  "project": "Ping",
+  "projectRef": "wbigqhtuzfmpnxservlf",
+  "status": "ACTIVE_HEALTHY",
+  "publicTableCount": 18,
+  "publicRowCount": 0,
+  "authUserCount": 4,
+  "storage": {
+    "bucketCount": 2,
+    "objectCount": 48,
+    "buckets": ["chat-media", "recordings"],
+    "allBucketsPublic": true
+  },
+  "migrationHistory": {
+    "relationExists": false,
+    "appliedCount": 0
+  },
+  "rls": {
+    "enabled": [
+      "profiles",
+      "messages",
+      "commitments",
+      "message_reactions",
+      "user_calendar_accounts",
+      "ai_messages",
+      "calls"
+    ],
+    "disabled": [
+      "subscriptions",
+      "contacts",
+      "conversations",
+      "conversation_participants",
+      "operation_checklists",
+      "operation_checklist_items",
+      "operation_checklist_runs",
+      "operation_checklist_run_items",
+      "shift_reports",
+      "conversation_operation_focuses",
+      "commitment_operation_progress"
+    ]
+  },
+  "directPrivileges": {
+    "roles": ["anon", "authenticated"],
+    "privileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    "tablesCovered": 18,
+    "confirmed": true
+  },
+  "functions": [
+    {"name": "handle_new_user", "securityDefiner": true, "searchPath": "UNSET"},
+    {"name": "update_conversation_last_message", "securityDefiner": false, "searchPath": "UNSET"},
+    {"name": "update_updated_at_column", "securityDefiner": false, "searchPath": "UNSET"}
+  ],
+  "triggers": [
+    {"table": "auth.users", "name": "on_auth_user_created"},
+    {"table": "public.messages", "name": "tr_update_conversation_last_message"},
+    {"table": "public.user_calendar_accounts", "name": "update_calendar_accounts_updated_at"}
+  ],
+  "securityFindings": [
+    "all 18 public tables grant direct CRUD to anon/authenticated",
+    "11 public tables have RLS disabled",
+    "handle_new_user is SECURITY DEFINER with unset search_path",
+    "calls SELECT policy does not prove conversation membership"
+  ],
+  "evidenceLimits": [
+    "exact policy expressions, grants, constraints, indexes and function bodies were summarized externally and are rechecked by SQL precheck/postcheck",
+    "no production database dump or binary Storage backup is represented by this snapshot"
+  ]
+}

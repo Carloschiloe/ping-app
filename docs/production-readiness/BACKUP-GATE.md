@@ -36,3 +36,19 @@ non-secret fields:
 No secret, URL, token, password, Auth key, or object content belongs in the
 evidence JSON. The bridge refuses to run until this gate and the live
 read-only schema/policy snapshot both pass.
+
+## Current attempt status (2026-10-10)
+
+The preparation environment attempted only read-only local mechanisms:
+
+- Supabase CLI: unavailable in the execution environment.
+- `pg_dump`/`psql`: installed, but no production PostgreSQL connection or
+  password was available; no connection was guessed.
+- Docker/PostgreSQL rehearsal: Docker daemon unavailable.
+- Public Storage listing: the public object-list endpoint did not authorize a
+  listing request; no object was downloaded, deleted, moved or permission-
+  changed.
+
+Therefore `BACKUP_CREATED=NO` and `BACKUP_VERIFIED=NO` remain truthful. The
+snapshot and forward package are ready, but this gate cannot be promoted by
+inference or by the public bucket count alone.
