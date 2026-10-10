@@ -175,6 +175,29 @@ function Resolve-PostgresClient([string]$ServerMajor) {
   return $candidate
 }
 
+function Get-PostgresServerCommandMap([object]$Client) {
+  $map = [ordered]@{}
+  foreach ($toolName in @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')) {
+    $propertyName = switch ($toolName) {
+      'initdb' { 'Initdb' }
+      'pg_ctl' { 'PgCtl' }
+      'postgres' { 'Postgres' }
+      'createdb' { 'Createdb' }
+      'dropdb' { 'Dropdb' }
+      default { throw "POSTGRES_SERVER_TOOL_MAPPING_MISSING:$toolName" }
+    }
+    $map[$toolName] = [string]$Client.$propertyName
+  }
+  return $map
+}
+
+function Test-PostgresServerCommandMap([object]$Commands) {
+  foreach ($toolName in @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')) {
+    if (-not (Test-Path -LiteralPath ([string]$Commands[$toolName]))) { return $false }
+  }
+  return $true
+}
+
 function Get-Hash([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
@@ -229,15 +252,8 @@ function Protect-File([string]$InputPath, [string]$OutputPath, [string]$Metadata
   $aes.Dispose(); $kdf.Dispose(); $hmac.Dispose(); $rng.Dispose()
 }
 
-function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [object]$ExpectedPublicCounts) {
-  $names = @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
-  $commands = @{}
-  foreach ($name in $names) {
-    $property = $name.Substring(0, 1).ToUpperInvariant() + $name.Substring(1)
-    $candidatePath = [string]$Client.$property
-    if (-not (Test-Path -LiteralPath $candidatePath)) { throw 'LOCAL_POSTGRES_SERVER_BINARIES_UNAVAILABLE' }
-    $commands[$name] = $candidatePath
-  }
+function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [object]$ExpectedPublicCounts, [object]$Commands) {
+  if (-not (Test-PostgresServerCommandMap $Commands)) { throw 'LOCAL_POSTGRES_SERVER_BINARIES_UNAVAILABLE' }
   $cluster = Join-Path $Work 'restore-cluster'
   $port = 55432 + (Get-Random -Minimum 0 -Maximum 400)
   $started = $false
@@ -451,14 +467,10 @@ select json_build_object(
   if ($LASTEXITCODE -ne 0) { throw 'PRODUCTION_PRECHECK_FAILED' }
   Validate-Precheck $PrecheckPath
 
-  $serverNames = @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
-  $serverAvailable = $true
-  foreach ($name in $serverNames) {
-    $property = $name.Substring(0, 1).ToUpperInvariant() + $name.Substring(1)
-    if (-not (Test-Path -LiteralPath ([string]$client.$property))) { $serverAvailable = $false }
-  }
+  $serverCommands = Get-PostgresServerCommandMap $client
+  $serverAvailable = Test-PostgresServerCommandMap $serverCommands
   if ($serverAvailable) {
-    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot $publicCounts
+    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot $publicCounts $serverCommands
   } else {
     $restoreStatus = 'MAXIMUM_VERIFICATION_SERVER_BINARIES_UNAVAILABLE'
   }
