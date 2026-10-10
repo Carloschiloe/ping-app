@@ -52,3 +52,15 @@ The preparation environment attempted only read-only local mechanisms:
 Therefore `BACKUP_CREATED=NO` and `BACKUP_VERIFIED=NO` remain truthful. The
 snapshot and forward package are ready, but this gate cannot be promoted by
 inference or by the public bucket count alone.
+
+## Single local orchestrator
+
+`scripts/production-readiness/run-final-backup-and-precutover.ps1` is the only
+entrypoint for the remaining non-mutating gate. It prompts for the production
+PostgreSQL connection, Supabase service-role key and encryption passphrase
+with hidden input, keeps all three in memory only, creates the database/Auth/
+Storage backup outside the repository, encrypts it, writes non-secret evidence,
+validates the backup gate and runs the read-only bridge precheck. It never
+executes the bridge, migrations, DDL, Render changes or deployment.
+
+Use `-ValidateOnly` to check local tools without entering secrets.

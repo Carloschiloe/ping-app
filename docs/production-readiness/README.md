@@ -62,6 +62,7 @@ RUN_POST_RESTORE_INSPECT=YES node scripts/production-readiness/production-post-r
 node scripts/production-readiness/reconcile-migrations.mjs --manifest ... --remote-history ... --remote-schema ... --project-ref wbigqhtuzfmpnxservlf
 node scripts/production-readiness/validate-backup-gate.mjs BACKUP_EVIDENCE.json
 node scripts/production-readiness/production-preflight.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-final-backup-and-precutover.ps1
 ```
 
 The last four commands require operator-supplied evidence/secret presence and
