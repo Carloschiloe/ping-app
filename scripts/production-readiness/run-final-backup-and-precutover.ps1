@@ -57,11 +57,11 @@ function Get-Hash([string]$Path) {
 
 function Assert-ProductionDatabaseTarget([string]$DbUrl) {
   try { $uri = [Uri]$DbUrl } catch { throw 'DATABASE_URL_INVALID' }
-  $host = $uri.DnsSafeHost.ToLowerInvariant()
+  $dbHost = $uri.DnsSafeHost.ToLowerInvariant()
   $user = [Uri]::UnescapeDataString(($uri.UserInfo -split ':')[0])
   $directHost = "db.$ProjectRef.supabase.co"
-  $direct = $host -eq $directHost -and $user -eq 'postgres'
-  $pooler = $host -match '^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$' -and $user -eq "postgres.$ProjectRef"
+  $direct = $dbHost -eq $directHost -and $user -eq 'postgres'
+  $pooler = $dbHost -match '^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$' -and $user -eq "postgres.$ProjectRef"
   if (-not ($direct -or $pooler)) { throw 'DATABASE_TARGET_NOT_EXACT_PRODUCTION_DIRECT_OR_SESSION_POOLER' }
   return $uri
 }
