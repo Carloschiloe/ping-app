@@ -1,0 +1,151 @@
+name: Ping production readiness quality
+
+on:
+  push:
+    branches:
+      - codex/production-readiness-ac7d72
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ping-production-readiness-quality
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SUPABASE_URL: https://supabase-ci.invalid
+      SUPABASE_ANON_KEY: ci-offline-anon-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-offline-placeholder-not-a-secret
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PING_ENVIRONMENT: production
+      M8_LIVE_VOICE_ENABLED: "true"
+      M8_LIVE_VOICE_MODEL: gpt-realtime-2.1
+      PING_SEMANTIC_MODEL: gpt-6-luna
+      PING_SEMANTIC_MODEL_FAMILY: modern_reasoning
+      ENABLE_PRIVATE_FILE_READS: "true"
+      ENABLE_PRIVATE_FILE_UPLOADS: "false"
+      ENABLE_PRIVATE_MESSAGE_UPLOADS: "true"
+      ENABLE_PRIVATE_AVATAR_UPLOADS: "false"
+      ENABLE_NON_MVP_CAPABILITIES: "false"
+      ENABLE_OPERATION_MODULE: "false"
+      ENABLE_CALENDAR_INTEGRATION: "false"
+      ENABLE_CALLS: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Canonical offline quality gate
+        run: |
+          npm exec -- vitest run \
+            tests/agentSemanticInterpreter.regression.test.ts \
+            tests/agentObjectiveInterpreter.test.ts \
+            tests/agentDialogueContinuation.test.ts \
+            tests/e2eM7StagingIdentity.test.ts \
+            tests/e2eM7AgentAssertions.test.ts
+      - name: Production voice and attachment regression gate
+        run: |
+          npm exec -- vitest run \
+            tests/m8LiveVoice.test.ts \
+            tests/m8VoiceConfirmationContract.test.ts \
+            tests/m8VoicePresentation.test.ts \
+            tests/agentVoiceCapture.test.ts \
+            tests/agentVoicePipeline.test.ts \
+            tests/attachmentSchema.test.ts \
+            tests/attachmentService.test.ts \
+            tests/attachmentSizePolicyConsistency.test.ts \
+            tests/audioTranscriptionWorker.test.ts
+
+  mobile:
+    name: Mobile release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      APP_VARIANT: production
+      EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: "true"
+      EXPO_PUBLIC_SUPABASE_URL: https://wbigqhtuzfmpnxservlf.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-public-placeholder
+      EXPO_PUBLIC_API_URL: https://ping-app-con3.onrender.com/api
+      EXPO_PUBLIC_SUPABASE_PROJECT_REF: wbigqhtuzfmpnxservlf
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Production voice/mobile regression gate
+        run: |
+          npm exec -- vitest run \
+            tests/m8LiveVoice.test.ts \
+            tests/agentVoiceInput.test.ts \
+            tests/agentVoiceTranscription.test.ts \
+            tests/audioRecording.test.ts \
+            tests/expoAudioMigration.test.ts
+
+  production-readiness:
+    name: Production readiness static safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Offline production-readiness tests
+        run: |
+          node scripts/production-readiness/test-offline.mjs
+          node scripts/production-readiness/test-migration-accounting.mjs
+          node scripts/production-readiness/test-production-data-safety.mjs
+          node scripts/production-readiness/test-production-snapshot.mjs
+          node scripts/production-readiness/test-bridge-static.mjs
+
+  backup-harness:
+    name: Backup harness static gate
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate backup orchestrator
+        shell: powershell
+        run: |
+          .\scripts\production-readiness\test-final-backup-orchestrator.ps1
