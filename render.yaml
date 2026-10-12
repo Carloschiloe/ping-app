@@ -11,6 +11,16 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PING_ENVIRONMENT
+        value: production
+      - key: PING_SEMANTIC_MODEL
+        value: gpt-6-luna
+      - key: PING_SEMANTIC_MODEL_FAMILY
+        value: modern_reasoning
+      - key: M8_LIVE_VOICE_ENABLED
+        value: "true"
+      - key: M8_LIVE_VOICE_MODEL
+        value: gpt-realtime-2.1
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
@@ -20,6 +30,8 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
       - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
       - key: RUN_CRON_JOBS
         value: "false"

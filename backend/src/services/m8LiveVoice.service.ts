@@ -46,8 +46,8 @@ const telemetryByVoiceSession = new Map<string, StoredTelemetry>();
 const latestTelemetryByActor = new Map<string, string>();
 let latestTelemetryGlobalVoiceSessionId: string | null = null;
 
-function assertStagingLiveVoiceEnabled(): void {
-    if (process.env.PING_ENVIRONMENT !== 'staging' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
+function assertLiveVoiceEnabled(): void {
+    if (!['staging', 'production'].includes(process.env.PING_ENVIRONMENT || '') || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
 }
@@ -61,7 +61,7 @@ function sanitizeTelemetryText(value: string | undefined, maxLength: number): st
         .slice(0, maxLength);
 }
 
-function modelForStaging(): string {
+function modelForLiveVoice(): string {
     const model = process.env.M8_LIVE_VOICE_MODEL?.trim() || DEFAULT_MODEL;
     if (!/^[a-zA-Z0-9._-]{2,80}$/.test(model)) throw new AppError('Invalid live voice model configuration', 500);
     return model;
@@ -103,7 +103,8 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
 }
 
 function safetyIdentifier(actorUserId: string): string {
-    return createHash('sha256').update(`ping-staging:${actorUserId}`).digest('hex');
+    const environment = process.env.PING_ENVIRONMENT === 'production' ? 'production' : 'staging';
+    return createHash('sha256').update(`ping-${environment}:${actorUserId}`).digest('hex');
 }
 
 function telemetryPersistenceEnabled(): boolean {
@@ -228,11 +229,11 @@ export async function createM8LiveVoiceSession(input: {
     actorUserId: string;
     request: M8LiveVoiceSessionRequest;
 }): Promise<{ sessionId: string; sdp: string; model: string; provider: 'openai_realtime_webrtc' }> {
-    assertStagingLiveVoiceEnabled();
+    assertLiveVoiceEnabled();
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) throw new AppError('Live voice provider is not configured', 503);
 
-    const model = modelForStaging();
+    const model = modelForLiveVoice();
     const form = new FormData();
     // The unified WebRTC endpoint expects the SDP offer and serialized
     // session configuration as ordinary multipart fields. Blob parts add
@@ -279,7 +280,7 @@ export async function createM8LiveVoiceSession(input: {
 }
 
 export async function recordM8LiveVoiceTelemetry(actorUserId: string, event: M8LiveVoiceTelemetry): Promise<void> {
-    assertStagingLiveVoiceEnabled();
+    assertLiveVoiceEnabled();
     const now = new Date().toISOString();
     const existing = telemetryByVoiceSession.get(event.voiceSessionId) ?? {
         actorUserId,
@@ -310,7 +311,7 @@ export async function recordM8LiveVoiceTelemetry(actorUserId: string, event: M8L
 }
 
 export async function getM8LiveVoiceTelemetry(actorUserId: string, voiceSessionId: string) {
-    assertStagingLiveVoiceEnabled();
+    assertLiveVoiceEnabled();
     if (telemetryPersistenceEnabled()) {
         await ensureTelemetryBucket();
         const data = await downloadJson(telemetryPath(actorUserId, voiceSessionId));
@@ -323,7 +324,7 @@ export async function getM8LiveVoiceTelemetry(actorUserId: string, voiceSessionI
 }
 
 export async function getLatestM8LiveVoiceTelemetry(actorUserId: string) {
-    assertStagingLiveVoiceEnabled();
+    assertLiveVoiceEnabled();
     if (telemetryPersistenceEnabled()) {
         await ensureTelemetryBucket();
         const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).list(`sessions/${actorTelemetryHash(actorUserId)}`, { limit: 1000, sortBy: { column: 'updated_at', order: 'desc' } });
@@ -338,7 +339,7 @@ export async function getLatestM8LiveVoiceTelemetry(actorUserId: string) {
 }
 
 export async function getLatestM8LiveVoiceTelemetryInternal() {
-    assertStagingLiveVoiceEnabled();
+    assertLiveVoiceEnabled();
     if (telemetryPersistenceEnabled()) {
         await ensureTelemetryBucket();
         const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).list('latest', { limit: 1000, sortBy: { column: 'updated_at', order: 'desc' } });

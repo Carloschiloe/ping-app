@@ -8,7 +8,7 @@ if ($errors.Count -gt 0) { throw "PowerShell parse errors: $($errors.Count)" }
 if ($LASTEXITCODE -ne 0) { throw 'orchestrator validation failed' }
 
 $projectRef = 'wbigqhtuzfmpnxservlf'
-$functionNames = @('Get-SafeStageDetail', 'ConvertTo-WindowsProcessArgument', 'Stop-ProcessTree', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Find-SupabaseCli', 'Invoke-ApplicationDump', 'Assert-ApplicationDumpPortable', 'Invoke-SupabaseLocalStackRehearsal', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Assert-PublicRowCounts')
+$functionNames = @('Get-SafeStageDetail', 'ConvertTo-WindowsProcessArgument', 'Stop-ProcessTree', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Find-SupabaseCli', 'Invoke-ApplicationDump', 'Assert-ApplicationDumpPortable', 'Get-PortableApplicationSchemaPath', 'Invoke-SupabaseLocalStackRehearsal', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Assert-PublicRowCounts')
 foreach ($functionName in $functionNames) {
   $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
   if (-not $functionAst) { throw "missing function: $functionName" }
@@ -37,8 +37,12 @@ if ($source -match 'Invoke-LocalRestore|LOCAL_RESTORE_APPLY|LOCAL_RESTORE_VERIFY
 if ($source -notmatch 'managedSchemasExcludedFromApplicationDump') { throw 'managed-schema boundary missing' }
 if ($source -notmatch 'SUPABASE_MANAGED_RECOVERY_ARTIFACT') { throw 'managed Auth recovery artifact missing' }
 if ($source -notmatch 'SUPABASE_LOCAL_STACK_PASS') { throw 'Supabase local-stack rehearsal missing' }
-if ($source -notmatch "'--schema=auth'") { throw 'Auth recovery schema export missing' }
+if ($source -notmatch "'--table=auth.users'") { throw 'Auth users recovery export missing' }
+if ($source -notmatch "'--table=auth.identities'") { throw 'Auth identities recovery export missing' }
+if ($source -notmatch "'--data-only'") { throw 'Auth recovery local apply must be data-only' }
 if ($source -notmatch "'--role-only'") { throw 'application roles export missing' }
+if ($source -notmatch 'supabase@2\.120\.0') { throw 'Supabase CLI version is not pinned' }
+if ($source -notmatch 'localStackExclusions') { throw 'minimal local stack exclusions missing' }
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 try {
   Invoke-ExternalProcess $powershell @('-NoProfile', '-Command', 'Start-Sleep -Seconds 5') 1 'TEST_PROCESS_TIMEOUT' | Out-Null
@@ -89,6 +93,17 @@ try {
   Remove-Item -LiteralPath $dumpRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Output 'APPLICATION_DUMP_BOUNDARY_TESTS=PASS'
+$portableSchemaRoot = Join-Path ([IO.Path]::GetTempPath()) ("ping-portable-schema-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $portableSchemaRoot -Force | Out-Null
+try {
+  $schemaWithPlatformPublic = Join-Path $portableSchemaRoot 'schema.sql'
+  [IO.File]::WriteAllText($schemaWithPlatformPublic, "CREATE SCHEMA public;`nCREATE TABLE public.example (id integer);`n")
+  $portableSchema = Get-PortableApplicationSchemaPath $schemaWithPlatformPublic $portableSchemaRoot
+  if ((Get-Content -LiteralPath $portableSchema -Raw) -match '(?im)^\s*CREATE\s+SCHEMA\s+public\s*;') { throw 'platform public schema statement was not removed' }
+} finally {
+  Remove-Item -LiteralPath $portableSchemaRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+Write-Output 'PORTABLE_APPLICATION_SCHEMA_TESTS=PASS'
 $server17Candidates = @(
   [pscustomobject]@{ Major = '16'; BinDir = 'C:\Program Files\PostgreSQL\16\bin' },
   [pscustomobject]@{ Major = '17'; BinDir = 'C:\Program Files\PostgreSQL\17\bin' },

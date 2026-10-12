@@ -17,7 +17,7 @@ const actorUserId = '11111111-1111-4111-8111-111111111111';
 const voiceSessionId = '22222222-2222-4222-8222-222222222222';
 const deviceSessionId = '33333333-3333-4333-8333-333333333333';
 
-describe('M8 live voice staging boundary', () => {
+describe('M8 live voice environment boundary', () => {
     beforeEach(() => {
         process.env.PING_ENVIRONMENT = 'staging';
         process.env.M8_LIVE_VOICE_ENABLED = 'true';
@@ -98,8 +98,22 @@ describe('M8 live voice staging boundary', () => {
         });
     });
 
-    it('does not expose the live endpoint outside staging or without its flag', async () => {
+    it('allows the explicitly enabled production live voice broker', async () => {
         process.env.PING_ENVIRONMENT = 'production';
+        const fetchMock = vi.fn().mockResolvedValue(new Response('v=0\\r\\nanswer', {
+            status: 201,
+            headers: { Location: 'https://api.openai.com/v1/realtime/calls/live_production_session' },
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(createM8LiveVoiceSession({
+            actorUserId,
+            request: { sdp: 'v=0\\r\\n' + 'a'.repeat(120), voiceSessionId, deviceSessionId },
+        })).resolves.toMatchObject({ sessionId: 'live_production_session', model: 'gpt-realtime-2.1' });
+    });
+
+    it('keeps live voice disabled when the explicit flag is absent', async () => {
+        process.env.PING_ENVIRONMENT = 'production';
+        delete process.env.M8_LIVE_VOICE_ENABLED;
         await expect(createM8LiveVoiceSession({
             actorUserId,
             request: { sdp: 'v=0\\r\\n' + 'a'.repeat(120), voiceSessionId, deviceSessionId },
@@ -107,7 +121,6 @@ describe('M8 live voice staging boundary', () => {
     });
 
     it('serves a staging client with browser media and barge-in controls', () => {
-        delete process.env.M8_LIVE_VOICE_ENABLED;
         const html = getM8LiveVoiceClientHtml('unit-test-nonce');
         expect(html).toContain('navigator.mediaDevices?.getUserMedia');
         expect(html).toContain('RTCPeerConnection');

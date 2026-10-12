@@ -351,7 +351,7 @@ router.post(
 );
 
 // M-8 measured candidate: provider-backed WebRTC session broker. It is
-// staging-only, keeps the provider credential on the backend, and routes
+// explicitly enabled per environment, keeps the provider credential on the backend, and routes
 // every semantic turn back through the existing /agent/turn Core boundary.
 router.post(
     '/agent/voice/live/session',

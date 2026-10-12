@@ -130,7 +130,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 </script></body></html>`;
 
 export function getM8LiveVoiceClientHtml(scriptNonce = 'm8-test-nonce'): string {
-    if (process.env.PING_ENVIRONMENT !== 'staging') {
+    if (!['staging', 'production'].includes(process.env.PING_ENVIRONMENT || '') || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
     return CLIENT_HTML.replace('__M8_SCRIPT_NONCE__', scriptNonce);

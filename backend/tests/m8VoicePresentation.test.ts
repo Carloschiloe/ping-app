@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     EMPTY_CORE_PRESENTATION,
     buildM8VoiceCorePresentation,
@@ -6,6 +6,15 @@ import {
 import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
 
 describe('M8 Voice ↔ Core presentation boundary', () => {
+    beforeEach(() => {
+        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.M8_LIVE_VOICE_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+        delete process.env.M8_LIVE_VOICE_ENABLED;
+    });
+
     it('preserves a normal Core response without changing its meaning', () => {
         expect(buildM8VoiceCorePresentation({
             kind: 'response',

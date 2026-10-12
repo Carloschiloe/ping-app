@@ -27,7 +27,7 @@ const blockedBetaPermissions = [
 export default ({ config }: ConfigContext): ExpoConfig => {
     const variant = process.env.APP_VARIANT === 'production' ? 'production' : 'staging';
     const isStaging = variant === 'staging';
-    const m8LiveVoiceEnabled = isStaging && process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true';
+    const m8LiveVoiceEnabled = process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true';
     const base = appJson.expo as ExpoConfig;
     const plugins = (base.plugins || []).filter((plugin) => {
         const name = Array.isArray(plugin) ? plugin[0] : plugin;
