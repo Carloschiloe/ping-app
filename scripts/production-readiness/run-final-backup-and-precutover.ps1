@@ -108,13 +108,39 @@ function ConvertTo-WindowsProcessArgument([string]$Value) {
 
 function Stop-ActiveExternalProcesses {
   foreach ($process in @($script:ChildProcesses)) {
+    Stop-ProcessTree $process
+  }
+  $script:ChildProcesses.Clear()
+}
+
+function Stop-ProcessTree([object]$Process) {
+  if ($null -eq $Process) { return }
+  $rootId = 0
+  try { $rootId = [int]$Process.Id } catch { return }
+  $ids = [System.Collections.Generic.List[int]]::new()
+  $pending = [System.Collections.Generic.Queue[int]]::new()
+  [void]$pending.Enqueue($rootId)
+  while ($pending.Count -gt 0) {
+    $parentId = $pending.Dequeue()
     try {
-      if ($process -and -not $process.HasExited) {
-        try { $process.Kill($true) } catch { $process.Kill() }
+      $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$parentId" -ErrorAction SilentlyContinue)
+      foreach ($child in $children) {
+        $childId = [int]$child.ProcessId
+        if (-not $ids.Contains($childId)) {
+          [void]$ids.Add($childId)
+          [void]$pending.Enqueue($childId)
+        }
       }
     } catch { }
   }
-  $script:ChildProcesses.Clear()
+  foreach ($id in @($ids | Sort-Object -Descending)) {
+    try { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } catch { }
+  }
+  try {
+    if (-not $Process.HasExited) {
+      try { $Process.Kill($true) } catch { $Process.Kill() }
+    }
+  } catch { }
 }
 
 function Stop-LocalPostgres {
@@ -127,13 +153,13 @@ function Stop-LocalPostgres {
   $script:LocalPostgresStarted = $false
 }
 
-function Invoke-ExternalProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$StageName) {
+function Invoke-ExternalProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$StageName, [bool]$CaptureOutput = $true) {
   $startInfo = [Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $FilePath
   $startInfo.UseShellExecute = $false
   $startInfo.CreateNoWindow = $true
-  $startInfo.RedirectStandardOutput = $true
-  $startInfo.RedirectStandardError = $true
+  $startInfo.RedirectStandardOutput = $CaptureOutput
+  $startInfo.RedirectStandardError = $CaptureOutput
   $argumentListProperty = $startInfo.PSObject.Properties['ArgumentList']
   if ($null -ne $argumentListProperty) {
     foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add([string]$argument) }
@@ -146,15 +172,30 @@ function Invoke-ExternalProcess([string]$FilePath, [string[]]$Arguments, [int]$T
   try {
     if (-not $process.Start()) { throw "EXTERNAL_PROCESS_START_FAILED:$StageName" }
     [void]$script:ChildProcesses.Add($process)
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-      try { $process.Kill($true) } catch { try { $process.Kill() } catch { } }
+    $stdoutTask = $null
+    $stderrTask = $null
+    if ($CaptureOutput) {
+      $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+      $stderrTask = $process.StandardError.ReadToEndAsync()
+    }
+    $deadlineMs = $TimeoutSeconds * 1000
+    $remainingMs = [math]::Max(1, [int][math]::Floor($deadlineMs - $timer.Elapsed.TotalMilliseconds))
+    if (-not $process.WaitForExit($remainingMs)) {
+      Stop-ProcessTree $process
       throw "TIMEOUT:$StageName"
     }
-    $process.WaitForExit()
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
+    $stdout = ''
+    $stderr = ''
+    if ($CaptureOutput) {
+      $remainingMs = [math]::Max(1, [int][math]::Floor($deadlineMs - $timer.Elapsed.TotalMilliseconds))
+      $outputTasks = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
+      if ($remainingMs -le 0 -or -not [Threading.Tasks.Task]::WaitAll($outputTasks, $remainingMs)) {
+        Stop-ProcessTree $process
+        throw ("TIMEOUT:{0}:OUTPUT_DRAIN" -f $StageName)
+      }
+      $stdout = $stdoutTask.GetAwaiter().GetResult()
+      $stderr = $stderrTask.GetAwaiter().GetResult()
+    }
     if ($process.ExitCode -ne 0) { throw "EXTERNAL_PROCESS_FAILED:$StageName`:$($process.ExitCode)" }
     return [pscustomobject]@{ ExitCode = $process.ExitCode; StdOut = $stdout; StdErr = $stderr; ElapsedSeconds = [math]::Round($timer.Elapsed.TotalSeconds, 1) }
   } finally {
@@ -345,6 +386,22 @@ function Assert-ProductionDatabaseTarget([string]$DbUrl) {
   return $uri
 }
 
+function Wait-LocalPostgresReady([string]$PsqlPath, [int]$Port, [int]$TimeoutSeconds) {
+  if ($TimeoutSeconds -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS' }
+  $timer = [Diagnostics.Stopwatch]::StartNew()
+  while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    $remaining = [int][math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
+    if ($remaining -le 0) { break }
+    $probeTimeout = [math]::Min(5, $remaining)
+    try {
+      $probe = Invoke-ExternalProcess $PsqlPath @('--dbname=postgres', '--host=127.0.0.1', "--port=$Port", '--quiet', '--tuples-only', '--no-align', '--command', 'select 1;') $probeTimeout 'LOCAL_RESTORE_START_READINESS'
+      if ($probe.StdOut.Trim() -eq '1') { return }
+    } catch { }
+    if ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) { Start-Sleep -Milliseconds 200 }
+  }
+  throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS'
+}
+
 function Protect-File([string]$InputPath, [string]$OutputPath, [string]$MetadataPath, [string]$Passphrase) {
   $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider
   $salt = New-Object byte[] 16
@@ -385,8 +442,15 @@ function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [o
   try {
     Invoke-Stage 'LOCAL_RESTORE_INIT' { Invoke-Checked $Commands['initdb'] @('-D', $cluster, '-A', 'trust', '-U', 'ping_rehearsal') 'LOCAL_INITDB_FAILED' 120 }
     Invoke-Stage 'LOCAL_RESTORE_START' {
+      $stageTimer = [Diagnostics.Stopwatch]::StartNew()
+      $postgresLog = Join-Path $cluster 'postgres.log'
       $script:LocalPostgresStarted = $true
-      Invoke-Checked $Commands['pg_ctl'] @('-D', $cluster, '-o', "-p $port -h 127.0.0.1", '-w', 'start') 'LOCAL_POSTGRES_START_FAILED' 120
+      $startRemaining = [int][math]::Floor(120 - $stageTimer.Elapsed.TotalSeconds)
+      if ($startRemaining -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START' }
+      Invoke-ExternalProcess $Commands['pg_ctl'] @('-D', $cluster, '-l', $postgresLog, '-o', "-p $port -h 127.0.0.1", '-w', 'start') $startRemaining 'LOCAL_RESTORE_START' $false | Out-Null
+      $readyRemaining = [int][math]::Floor(120 - $stageTimer.Elapsed.TotalSeconds)
+      if ($readyRemaining -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS' }
+      Wait-LocalPostgresReady $Client.Psql $port $readyRemaining
     }
     Invoke-Stage 'LOCAL_RESTORE_DATABASE_CREATE' { Invoke-Checked $Commands['createdb'] @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED' 120 }
     Invoke-Stage 'LOCAL_RESTORE_APPLY' { Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED' 600 }

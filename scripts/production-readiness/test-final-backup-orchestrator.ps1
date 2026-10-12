@@ -8,7 +8,7 @@ if ($errors.Count -gt 0) { throw "PowerShell parse errors: $($errors.Count)" }
 if ($LASTEXITCODE -ne 0) { throw 'orchestrator validation failed' }
 
 $projectRef = 'wbigqhtuzfmpnxservlf'
-$functionNames = @('ConvertTo-WindowsProcessArgument', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Get-PostgresServerCommandMap', 'Test-PostgresServerCommandMap', 'Assert-PublicRowCounts')
+$functionNames = @('ConvertTo-WindowsProcessArgument', 'Stop-ProcessTree', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Get-PostgresServerCommandMap', 'Test-PostgresServerCommandMap', 'Assert-PublicRowCounts')
 foreach ($functionName in $functionNames) {
   $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
   if (-not $functionAst) { throw "missing function: $functionName" }
@@ -31,6 +31,9 @@ foreach ($stageName in $requiredStages) {
 if ($source -notmatch 'STORAGE_PROGRESS=\$index/\$totalObjects') { throw 'storage progress marker missing' }
 if ($source -notmatch 'TimeoutSec 120') { throw 'storage timeout missing' }
 if ($source -notmatch 'TIMEOUT:STORAGE_BINARY_DOWNLOAD:\$index') { throw 'storage timeout classification missing' }
+if ($source -notmatch [regex]::Escape("'-l', `$postgresLog")) { throw 'postgres logfile argument missing' }
+if ($source -notmatch 'LOCAL_RESTORE_START.*\$false') { throw 'postgres start output capture is not disabled' }
+if ($source -notmatch 'TIMEOUT:\{0\}:OUTPUT_DRAIN') { throw 'output drain timeout classification missing' }
 if ($source -notmatch 'Stop-ActiveExternalProcesses' -or $source -notmatch 'Stop-LocalPostgres') { throw 'failure cleanup hooks missing' }
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 try {
@@ -40,8 +43,31 @@ try {
   if ($_.Exception.Message -notmatch 'TIMEOUT:TEST_PROCESS_TIMEOUT') { throw }
 }
 if ($script:ChildProcesses.Count -ne 0) { throw 'timed out process was not removed from cleanup registry' }
+$pipeHolder = Join-Path ([IO.Path]::GetTempPath()) ("ping-pipe-holder-" + [guid]::NewGuid().ToString('N') + '.ps1')
+@'
+$childInfo = [Diagnostics.ProcessStartInfo]::new()
+$childInfo.FileName = (Get-Command powershell.exe).Source
+$childInfo.UseShellExecute = $false
+$childInfo.CreateNoWindow = $true
+$childInfo.Arguments = '-NoProfile -Command "Start-Sleep -Seconds 5"'
+[void][Diagnostics.Process]::Start($childInfo)
+exit 0
+'@ | Set-Content -LiteralPath $pipeHolder -Encoding UTF8
+try {
+  try {
+    Invoke-ExternalProcess $powershell @('-NoProfile', '-File', $pipeHolder) 2 'TEST_OUTPUT_DRAIN' | Out-Null
+    throw 'inherited output pipe did not trigger timeout'
+  } catch {
+    if ($_.Exception.Message -notmatch 'TIMEOUT:TEST_OUTPUT_DRAIN:OUTPUT_DRAIN') { throw }
+  }
+} finally {
+  Remove-Item -LiteralPath $pipeHolder -Force -ErrorAction SilentlyContinue
+  Stop-ActiveExternalProcesses
+}
+if ($script:ChildProcesses.Count -ne 0) { throw 'output-drain process was not removed from cleanup registry' }
 Write-Output 'STAGE_MARKER_TESTS=PASS'
 Write-Output 'PROCESS_TIMEOUT_TESTS=PASS'
+Write-Output 'OUTPUT_DRAIN_TIMEOUT_TESTS=PASS'
 Write-Output 'STORAGE_TIMEOUT_TESTS=PASS'
 Write-Output 'FAILURE_CLEANUP_TESTS=PASS'
 $server17Candidates = @(
