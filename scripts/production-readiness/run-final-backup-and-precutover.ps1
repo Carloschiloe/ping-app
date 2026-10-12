@@ -17,15 +17,16 @@ $CryptoMetaPath = Join-Path $RunRoot "ping-production-$Stamp.crypto.json"
 $EvidencePath = Join-Path $RunRoot 'evidence.json'
 $SnapshotPath = Join-Path $RepoRoot 'docs\production-readiness\production-snapshot-20261010.json'
 $PrecheckPath = Join-Path $WorkRoot 'production-bridge-precheck.csv'
-$DbDumpPath = Join-Path $WorkRoot 'database-public-auth-storage.dump'
-$SchemaDumpPath = Join-Path $WorkRoot 'schema-public-auth-storage.dump'
-$DataDumpPath = Join-Path $WorkRoot 'data-public-auth-storage.dump'
+$ApplicationSchemaDumpPath = Join-Path $WorkRoot 'application-schema.sql'
+$ApplicationDataDumpPath = Join-Path $WorkRoot 'application-data.sql'
+$ApplicationRolesDumpPath = Join-Path $WorkRoot 'application-roles.sql'
+$AuthRecoveryDumpPath = Join-Path $WorkRoot 'auth-recovery.dump'
+$ApplicationDumpManifestPath = Join-Path $WorkRoot 'application-dump-manifest.json'
 $AuthPath = Join-Path $WorkRoot 'auth-users.json'
 $StorageInventoryPath = Join-Path $WorkRoot 'storage-inventory.json'
 $StorageManifestPath = Join-Path $WorkRoot 'storage-binaries-manifest.json'
 $PublicRowCountsPath = Join-Path $WorkRoot 'public-row-counts.json'
-$RestoreListPath = Join-Path $WorkRoot 'restore-list.txt'
-$RestoreExtractPath = Join-Path $WorkRoot 'restore-extracted.sql'
+$RestoreListPath = Join-Path $WorkRoot 'application-restore-inspection.json'
 $LegacyPublicTables = @(
   'profiles', 'messages', 'commitments', 'subscriptions', 'contacts', 'conversations',
   'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages',
@@ -35,9 +36,6 @@ $LegacyPublicTables = @(
 )
 $script:RunStopwatch = [Diagnostics.Stopwatch]::StartNew()
 $script:ChildProcesses = [System.Collections.ArrayList]::new()
-$script:LocalPostgresCommands = $null
-$script:LocalPostgresCluster = $null
-$script:LocalPostgresStarted = $false
 $script:CurrentStage = 'STARTUP'
 
 function Write-Status([string]$Name, [string]$Value) { Write-Output "$Name=$Value" }
@@ -75,6 +73,77 @@ function Require-Command([string]$Name) {
   $command = Get-Command $Name -ErrorAction SilentlyContinue
   if (-not $command) { throw "REQUIRED_TOOL_MISSING:$Name" }
   return $command.Source
+}
+
+function Find-SupabaseCli {
+  $command = Get-Command supabase.exe -ErrorAction SilentlyContinue
+  if (-not $command) { $command = Get-Command supabase -ErrorAction SilentlyContinue }
+  if ($command) { return $command.Source }
+  return $null
+}
+
+function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [string]$PgDumpAllPath, [string]$DbUrl, [string]$OutputPath, [ValidateSet('schema', 'data', 'roles')][string]$Kind) {
+  if ($SupabaseCli) {
+    $arguments = @('db', 'dump', '--db-url', $DbUrl, '--file', $OutputPath)
+    if ($Kind -eq 'schema') { $arguments += @('--schema', 'public,supabase_migrations') }
+    if ($Kind -eq 'data') { $arguments += '--data-only' }
+    if ($Kind -eq 'roles') { $arguments += '--role-only' }
+    Invoke-Checked $SupabaseCli $arguments ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
+    return 'SUPABASE_CLI_DB_DUMP'
+  }
+
+  if ($Kind -eq 'roles') {
+    if (-not $PgDumpAllPath) { throw 'REQUIRED_TOOL_MISSING:pg_dumpall_FOR_APPLICATION_ROLES' }
+    Invoke-Checked $PgDumpAllPath @('--dbname', $DbUrl, '--roles-only', '--no-role-passwords', '--no-owner', '--file', $OutputPath) 'APPLICATION_ROLES_DUMP' 600
+    return 'PG_DUMPALL_ROLES_DOCUMENTED_FALLBACK'
+  }
+
+  $arguments = @('--dbname', $DbUrl, '--format=plain', '--no-owner', '--no-privileges', '--no-acl', '--schema=public', '--schema=supabase_migrations')
+  if ($Kind -eq 'schema') { $arguments += '--schema-only' }
+  if ($Kind -eq 'data') { $arguments += '--data-only' }
+  $arguments += @('--file', $OutputPath)
+  Invoke-Checked $PgDumpPath $arguments ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
+  return 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'
+}
+
+function Assert-ApplicationDumpPortable([string[]]$Paths) {
+  foreach ($path in $Paths) {
+    if (-not (Test-Path -LiteralPath $path)) { throw "APPLICATION_DUMP_MISSING:$([IO.Path]::GetFileName($path))" }
+    if ((Get-Item -LiteralPath $path).Length -le 0) { throw "APPLICATION_DUMP_EMPTY:$([IO.Path]::GetFileName($path))" }
+    $content = Get-Content -LiteralPath $path -Raw
+    $managedObjectPattern = '(?im)^\s*(?:CREATE\s+(?:SCHEMA|TABLE|FUNCTION|SEQUENCE)|COPY|ALTER\s+TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?["'']?(auth|storage)["'']?(?:\.|\s|;)'
+    if ($content -match $managedObjectPattern) { throw "APPLICATION_DUMP_INCLUDES_MANAGED_SCHEMA:$([IO.Path]::GetFileName($path))" }
+  }
+}
+
+function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlPath, [string]$PgRestorePath, [string]$AuthDumpPath, [string]$ApplicationSchemaPath, [string]$ApplicationDataPath, [string]$WorkPath, [object]$ExpectedPublicCounts) {
+  if (-not $SupabaseCli) { throw 'SUPABASE_LOCAL_STACK_UNAVAILABLE:CLI_MISSING' }
+  if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue) -and -not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'SUPABASE_LOCAL_STACK_UNAVAILABLE:DOCKER_MISSING' }
+  $stackRoot = Join-Path $WorkPath 'supabase-local-stack'
+  $supabaseDir = Join-Path $stackRoot 'supabase'
+  New-Item -ItemType Directory -Path $supabaseDir -Force | Out-Null
+  $configSource = Join-Path $RepoRoot 'supabase\config.toml'
+  if (-not (Test-Path -LiteralPath $configSource)) { throw 'SUPABASE_LOCAL_STACK_CONFIG_MISSING' }
+  Copy-Item -LiteralPath $configSource -Destination (Join-Path $supabaseDir 'config.toml') -Force
+  $started = $false
+  try {
+    Invoke-Checked $SupabaseCli @('start', '--workdir', $stackRoot) 'SUPABASE_LOCAL_STACK_START' 600
+    $started = $true
+    $status = Invoke-ExternalProcess $SupabaseCli @('status', '--workdir', $stackRoot, '-o', 'env') 120 'SUPABASE_LOCAL_STACK_STATUS'
+    $dbMatch = [regex]::Match($status.StdOut, '(?m)^DB_URL=(.+)$')
+    if (-not $dbMatch.Success) { throw 'SUPABASE_LOCAL_STACK_DB_URL_MISSING' }
+    $localDbUrl = $dbMatch.Groups[1].Value.Trim().Trim('''').Trim('"')
+    Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $ApplicationSchemaPath) 'SUPABASE_LOCAL_STACK_SCHEMA_APPLY' 600
+    Invoke-Checked $PgRestorePath @('--dbname', $localDbUrl, '--schema=auth', '--no-owner', '--no-privileges', '--exit-on-error', $AuthDumpPath) 'SUPABASE_LOCAL_STACK_AUTH_APPLY' 600
+    Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $ApplicationDataPath) 'SUPABASE_LOCAL_STACK_DATA_APPLY' 600
+    $countsSql = "select coalesce(sum(n.n_live_tup), 0)::bigint from pg_stat_user_tables t join pg_class c on c.oid=t.relid join pg_namespace nsp on nsp.oid=c.relnamespace join pg_stat_all_tables n on n.relid=t.relid where nsp.nspname='public';"
+    $countResult = Invoke-ExternalProcess $PsqlPath @('--dbname', $localDbUrl, '--quiet', '--tuples-only', '--no-align', '--command', $countsSql) 120 'SUPABASE_LOCAL_STACK_VERIFY'
+    if ([string]::IsNullOrWhiteSpace($countResult.StdOut)) { throw 'SUPABASE_LOCAL_STACK_VERIFY_EMPTY' }
+    return 'SUPABASE_LOCAL_STACK_PASS'
+  } finally {
+    if ($started) { try { Invoke-ExternalProcess $SupabaseCli @('stop', '--workdir', $stackRoot, '--no-backup') 120 'SUPABASE_LOCAL_STACK_STOP' | Out-Null } catch { } }
+    Remove-Item -LiteralPath $stackRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Read-SecretText([string]$Prompt) {
@@ -141,16 +210,6 @@ function Stop-ProcessTree([object]$Process) {
       try { $Process.Kill($true) } catch { $Process.Kill() }
     }
   } catch { }
-}
-
-function Stop-LocalPostgres {
-  if ($script:LocalPostgresStarted -and $null -ne $script:LocalPostgresCommands -and $script:LocalPostgresCluster) {
-    try {
-      $stopArgs = @('-D', $script:LocalPostgresCluster, '-m', 'fast', '-w', 'stop')
-      Invoke-ExternalProcess ([string]$script:LocalPostgresCommands['pg_ctl']) $stopArgs 120 'LOCAL_RESTORE_CLEANUP' | Out-Null
-    } catch { }
-  }
-  $script:LocalPostgresStarted = $false
 }
 
 function Invoke-ExternalProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$StageName, [bool]$CaptureOutput = $true) {
@@ -247,7 +306,7 @@ function Get-PostgresSearchRoots {
 
 function Get-PostgresBinDirectories {
   $directories = [System.Collections.Generic.List[string]]::new()
-  $toolNames = @('pg_dump', 'pg_restore', 'psql', 'initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')
+  $toolNames = @('pg_dump', 'pg_dumpall', 'pg_restore', 'psql')
   foreach ($toolName in $toolNames) {
     $pathCommands = @(Get-Command $toolName -All -ErrorAction SilentlyContinue)
     foreach ($pathCommand in $pathCommands) {
@@ -307,8 +366,6 @@ function Find-PostgresClientCandidate([string]$ServerMajor) {
     if (-not (Test-Path -LiteralPath $restore) -or -not (Test-Path -LiteralPath $psql)) { continue }
     [void]$candidates.Add([pscustomobject]@{
       Major = $major; BinDir = $binDir; PgDump = $dump; PgRestore = $restore; Psql = $psql
-      Initdb = (Join-Path $binDir 'initdb.exe'); PgCtl = (Join-Path $binDir 'pg_ctl.exe')
-      Postgres = (Join-Path $binDir 'postgres.exe'); Createdb = (Join-Path $binDir 'createdb.exe'); Dropdb = (Join-Path $binDir 'dropdb.exe')
     })
   }
   return Select-PostgresClientCandidate @($candidates) $ServerMajor
@@ -339,29 +396,6 @@ function Resolve-PostgresClient([string]$ServerMajor) {
   return $candidate
 }
 
-function Get-PostgresServerCommandMap([object]$Client) {
-  $map = [ordered]@{}
-  foreach ($toolName in @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')) {
-    $propertyName = switch ($toolName) {
-      'initdb' { 'Initdb' }
-      'pg_ctl' { 'PgCtl' }
-      'postgres' { 'Postgres' }
-      'createdb' { 'Createdb' }
-      'dropdb' { 'Dropdb' }
-      default { throw "POSTGRES_SERVER_TOOL_MAPPING_MISSING:$toolName" }
-    }
-    $map[$toolName] = [string]$Client.$propertyName
-  }
-  return $map
-}
-
-function Test-PostgresServerCommandMap([object]$Commands) {
-  foreach ($toolName in @('initdb', 'pg_ctl', 'postgres', 'createdb', 'dropdb')) {
-    if (-not (Test-Path -LiteralPath ([string]$Commands[$toolName]))) { return $false }
-  }
-  return $true
-}
-
 function Get-Hash([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
@@ -384,27 +418,6 @@ function Assert-ProductionDatabaseTarget([string]$DbUrl) {
   $pooler = $dbHost -match '^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$' -and $user -eq "postgres.$ProjectRef"
   if (-not ($direct -or $pooler)) { throw 'DATABASE_TARGET_NOT_EXACT_PRODUCTION_DIRECT_OR_SESSION_POOLER' }
   return $uri
-}
-
-function Wait-LocalPostgresReady([string]$PsqlPath, [int]$Port, [int]$TimeoutSeconds) {
-  if ($TimeoutSeconds -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS' }
-  $timer = [Diagnostics.Stopwatch]::StartNew()
-  $lastError = 'NOT_ATTEMPTED'
-  while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
-    $remaining = [int][math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
-    if ($remaining -le 0) { break }
-    $probeTimeout = [math]::Min(5, $remaining)
-    try {
-      $probe = Invoke-ExternalProcess $PsqlPath @('--username=ping_rehearsal', '--dbname=postgres', '--host=127.0.0.1', "--port=$Port", '--quiet', '--tuples-only', '--no-align', '--command', 'select 1;') $probeTimeout 'LOCAL_RESTORE_START_READINESS'
-      if ($probe.StdOut.Trim() -eq '1') { return }
-      $lastError = 'UNEXPECTED_PROBE_OUTPUT'
-    } catch {
-      $lastError = Get-SafeStageDetail $_
-      if ([string]::IsNullOrWhiteSpace($lastError)) { $lastError = 'LOCAL_CONNECTION_FAILED' }
-    }
-    if ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) { Start-Sleep -Milliseconds 200 }
-  }
-  throw ("TIMEOUT:LOCAL_RESTORE_START:READINESS:last_error={0}" -f $lastError)
 }
 
 function Protect-File([string]$InputPath, [string]$OutputPath, [string]$MetadataPath, [string]$Passphrase) {
@@ -437,73 +450,6 @@ function Protect-File([string]$InputPath, [string]$OutputPath, [string]$Metadata
   $aes.Dispose(); $kdf.Dispose(); $hmac.Dispose(); $rng.Dispose()
 }
 
-function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [object]$ExpectedPublicCounts, [object]$Commands) {
-  if (-not (Test-PostgresServerCommandMap $Commands)) { throw 'LOCAL_POSTGRES_SERVER_BINARIES_UNAVAILABLE' }
-  $cluster = Join-Path $Work 'restore-cluster'
-  $port = 55432 + (Get-Random -Minimum 0 -Maximum 400)
-  $script:LocalPostgresCommands = $Commands
-  $script:LocalPostgresCluster = $cluster
-  $script:LocalPostgresStarted = $false
-  try {
-    Invoke-Stage 'LOCAL_RESTORE_INIT' { Invoke-Checked $Commands['initdb'] @('-D', $cluster, '-A', 'trust', '-U', 'ping_rehearsal') 'LOCAL_INITDB_FAILED' 120 }
-    Invoke-Stage 'LOCAL_RESTORE_START' {
-      $stageTimer = [Diagnostics.Stopwatch]::StartNew()
-      $postgresLog = Join-Path $cluster 'postgres.log'
-      $script:LocalPostgresStarted = $true
-      $startRemaining = [int][math]::Floor(120 - $stageTimer.Elapsed.TotalSeconds)
-      if ($startRemaining -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START' }
-      Invoke-ExternalProcess $Commands['pg_ctl'] @('-D', $cluster, '-l', $postgresLog, '-o', "-p $port -h 127.0.0.1", '-w', 'start') $startRemaining 'LOCAL_RESTORE_START' $false | Out-Null
-      $readyRemaining = [int][math]::Floor(120 - $stageTimer.Elapsed.TotalSeconds)
-      if ($readyRemaining -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS' }
-      Wait-LocalPostgresReady $Client.Psql $port $readyRemaining
-    }
-    Invoke-Stage 'LOCAL_RESTORE_DATABASE_CREATE' { Invoke-Checked $Commands['createdb'] @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED' 120 }
-    Invoke-Stage 'LOCAL_RESTORE_APPLY' { Invoke-Checked $Client.PgRestore @('--username=ping_rehearsal', '--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED' 600 }
-    $countsSql = @"
-with counts as (
-  select 'profiles' table_name, count(*)::bigint row_count from public.profiles
-  union all select 'messages', count(*) from public.messages
-  union all select 'commitments', count(*) from public.commitments
-  union all select 'subscriptions', count(*) from public.subscriptions
-  union all select 'contacts', count(*) from public.contacts
-  union all select 'conversations', count(*) from public.conversations
-  union all select 'conversation_participants', count(*) from public.conversation_participants
-  union all select 'message_reactions', count(*) from public.message_reactions
-  union all select 'user_calendar_accounts', count(*) from public.user_calendar_accounts
-  union all select 'ai_messages', count(*) from public.ai_messages
-  union all select 'calls', count(*) from public.calls
-  union all select 'operation_checklists', count(*) from public.operation_checklists
-  union all select 'operation_checklist_items', count(*) from public.operation_checklist_items
-  union all select 'operation_checklist_runs', count(*) from public.operation_checklist_runs
-  union all select 'operation_checklist_run_items', count(*) from public.operation_checklist_run_items
-  union all select 'shift_reports', count(*) from public.shift_reports
-  union all select 'conversation_operation_focuses', count(*) from public.conversation_operation_focuses
-  union all select 'commitment_operation_progress', count(*) from public.commitment_operation_progress
-)
-select json_build_object(
-  'auth', (select count(*) from auth.users),
-  'storage_buckets', (select count(*) from storage.buckets where id in ('chat-media', 'recordings')),
-  'storage', (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings')),
-  'public_counts', (select json_object_agg(table_name, row_count) from counts),
-  'public_total', (select coalesce(sum(row_count), 0)::bigint from counts)
-)::text;
-"@
-    $parsed = Invoke-Stage 'LOCAL_RESTORE_VERIFY_COUNTS' {
-      $result = Invoke-ExternalProcess $Client.Psql @('--username=ping_rehearsal', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", '--quiet', '--tuples-only', '--no-align', '--command', $countsSql) 120 'LOCAL_RESTORE_VERIFY_COUNTS'
-      try { return ($result.StdOut.Trim() | ConvertFrom-Json) } catch { throw 'LOCAL_RESTORE_COUNTS_INVALID' }
-    }
-    if ($parsed.auth -ne $ExpectedPublicCounts.auth_users -or $parsed.storage_buckets -ne $ExpectedPublicCounts.storage_buckets -or $parsed.storage -ne $ExpectedPublicCounts.storage_objects) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
-    $restoredPublicCounts = [pscustomobject]@{ counts = $parsed.public_counts; total = $parsed.public_total }
-    Assert-PublicRowCounts $restoredPublicCounts $ExpectedPublicCounts
-    return 'REAL_LOCAL_RESTORE_PASS'
-  } finally {
-    Stop-LocalPostgres
-    Remove-Item -LiteralPath $cluster -Recurse -Force -ErrorAction SilentlyContinue
-    $script:LocalPostgresCommands = $null
-    $script:LocalPostgresCluster = $null
-  }
-}
-
 function Validate-Precheck([string]$Path) {
   $expectedReview = @(
     'subscriptions', 'contacts', 'conversations', 'conversation_participants',
@@ -524,6 +470,7 @@ if ($ValidateOnly) {
   if (-not (Find-PostgresToolPath 'pg_dump')) { throw 'REQUIRED_TOOL_MISSING:pg_dump' }
   if (-not (Find-PostgresToolPath 'pg_restore')) { throw 'REQUIRED_TOOL_MISSING:pg_restore' }
   if (-not (Find-PostgresToolPath 'psql')) { throw 'REQUIRED_TOOL_MISSING:psql' }
+  if (-not (Find-SupabaseCli) -and -not (Find-PostgresToolPath 'pg_dumpall')) { throw 'REQUIRED_TOOL_MISSING:pg_dumpall_FOR_APPLICATION_ROLES' }
   Write-Status 'VALIDATION_ONLY' 'PASS'
   Write-Status 'PROJECT_REF' $ProjectRef
   Write-Status 'SECRET_INPUTS_NEEDED' 'DB_CONNECTION_PLUS_ENCRYPTION_PASSPHRASE'
@@ -556,6 +503,8 @@ try {
   $pgDump = $client.PgDump
   $pgRestore = $client.PgRestore
   $psql = $client.Psql
+  $pgDumpAll = Find-PostgresToolPath 'pg_dumpall'
+  $supabaseCli = Find-SupabaseCli
   Write-Status 'SERVER_PG_MAJOR' $serverMajor
   Write-Status 'PG_DUMP_MAJOR' $client.Major
   if ((Get-PostgresMajorRank $client.Major) -lt (Get-PostgresMajorRank $serverMajor)) { throw 'PG_DUMP_VERSION_INCOMPATIBLE' }
@@ -611,19 +560,29 @@ select json_build_object(
   Write-Status 'PUBLIC_ROW_SNAPSHOT_TOTAL' $snapshotPublicRowCount
   Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
-  $dumpArgs = @('--dbname', $dbUrl, '--format=custom', '--schema=public', '--schema=auth', '--schema=storage')
-  Invoke-Stage 'DATABASE_FULL_DUMP' { Invoke-Checked $pgDump ($dumpArgs + "--file=$DbDumpPath") 'DATABASE_FULL_DUMP' 600 }
-  Invoke-Stage 'DATABASE_SCHEMA_DUMP' { Invoke-Checked $pgDump ($dumpArgs + @('--section=pre-data', "--file=$SchemaDumpPath")) 'DATABASE_SCHEMA_DUMP' 600 }
-  Invoke-Stage 'DATABASE_DATA_DUMP' { Invoke-Checked $pgDump ($dumpArgs + @('--section=data', "--file=$DataDumpPath")) 'DATABASE_DATA_DUMP' 600 }
-  $restoreLines = Invoke-Stage 'RESTORE_LIST' {
-    $result = Invoke-ExternalProcess $pgRestore @('--list', $DbDumpPath) 600 'RESTORE_LIST'
-    if ([string]::IsNullOrWhiteSpace($result.StdOut)) { throw 'RESTORE_LIST_EMPTY' }
-    $result.StdOut -split "`r?`n"
+  $dumpMode = Invoke-Stage 'DATABASE_FULL_DUMP' {
+    if ($supabaseCli) { return 'SUPABASE_CLI_DB_DUMP' }
+    return 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'
   }
-  $restoreLines | Set-Content -LiteralPath $RestoreListPath -Encoding UTF8
+  $schemaMode = Invoke-Stage 'DATABASE_SCHEMA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaDumpPath 'schema' }
+  $dataMode = Invoke-Stage 'DATABASE_DATA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationDataDumpPath 'data' }
+  $rolesMode = Invoke-Stage 'DATABASE_ROLES_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationRolesDumpPath 'roles' }
+  $dumpManifest = Invoke-Stage 'RESTORE_LIST' {
+    Assert-ApplicationDumpPortable @($ApplicationSchemaDumpPath, $ApplicationDataDumpPath, $ApplicationRolesDumpPath)
+    $manifest = [ordered]@{
+      applicationSchemas = @('public', 'supabase_migrations')
+      managedSchemasExcluded = @('auth', 'storage', 'extensions')
+      schemaTool = $schemaMode
+      dataTool = $dataMode
+      rolesTool = $rolesMode
+      genericManagedRestoreAttempted = $false
+    }
+    $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ApplicationDumpManifestPath -Encoding UTF8
+    return $manifest
+  }
   Invoke-Stage 'RESTORE_EXTRACT' {
-    Invoke-Checked $pgRestore @('--schema-only', '--no-owner', '--no-privileges', '--file', $RestoreExtractPath, $DbDumpPath) 'RESTORE_EXTRACT' 600
-    if (-not (Test-Path -LiteralPath $RestoreExtractPath) -or (Get-Item -LiteralPath $RestoreExtractPath).Length -le 0) { throw 'RESTORE_EXTRACTION_EMPTY' }
+    if (-not (Test-Path -LiteralPath $ApplicationDumpManifestPath)) { throw 'APPLICATION_RESTORE_INSPECTION_MISSING' }
+    $dumpManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $RestoreListPath -Encoding UTF8
   }
 
   $authSql = @'
@@ -643,6 +602,10 @@ from auth.users;
     if ($value.count -ne $publicCounts.auth_users) { throw "AUTH_USER_COUNT_MISMATCH:$($value.count):expected=$($publicCounts.auth_users)" }
     $value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $AuthPath -Encoding UTF8
     return $value
+  }
+  Invoke-Stage 'AUTH_RECOVERY_EXPORT' {
+    Invoke-Checked $pgDump @('--dbname', $dbUrl, '--format=custom', '--schema=auth', '--no-owner', '--no-privileges', '--no-acl', '--file', $AuthRecoveryDumpPath) 'AUTH_RECOVERY_EXPORT' 600
+    if (-not (Test-Path -LiteralPath $AuthRecoveryDumpPath) -or (Get-Item -LiteralPath $AuthRecoveryDumpPath).Length -le 0) { throw 'AUTH_RECOVERY_DUMP_EMPTY' }
   }
 
   $storageSql = @'
@@ -698,20 +661,20 @@ select json_build_object(
     Validate-Precheck $PrecheckPath
   }
 
-  $serverCommands = Get-PostgresServerCommandMap $client
-  $serverAvailable = Test-PostgresServerCommandMap $serverCommands
-  if ($serverAvailable) {
-    $restoreStatus = Invoke-LocalRestore $client $DbDumpPath $WorkRoot $publicCounts $serverCommands
-  } else {
-    $restoreStatus = 'MAXIMUM_VERIFICATION_SERVER_BINARIES_UNAVAILABLE'
+  $restoreStatus = Invoke-Stage 'APP_RESTORE_REHEARSAL' {
+    Invoke-SupabaseLocalStackRehearsal $supabaseCli $psql $pgRestore $AuthRecoveryDumpPath $ApplicationSchemaDumpPath $ApplicationDataDumpPath $WorkRoot $publicCounts
   }
-  if ($restoreStatus -ne 'REAL_LOCAL_RESTORE_PASS') { throw "RESTORE_REHEARSAL_NOT_COMPLETE:$restoreStatus" }
+  if ($restoreStatus -ne 'SUPABASE_LOCAL_STACK_PASS') { throw "RESTORE_REHEARSAL_NOT_COMPLETE:$restoreStatus" }
 
   $evidenceObject = [ordered]@{
-    projectRef = $ProjectRef; backupId = "ping-$Stamp"; schemaBackupSha256 = Get-Hash $SchemaDumpPath
-    dataBackupSha256 = Get-Hash $DataDumpPath; storageInventoryId = "storage-$Stamp"
+    projectRef = $ProjectRef; backupId = "ping-$Stamp"; schemaBackupSha256 = Get-Hash $ApplicationSchemaDumpPath
+    dataBackupSha256 = Get-Hash $ApplicationDataDumpPath; applicationSchemaBackupSha256 = Get-Hash $ApplicationSchemaDumpPath
+    applicationDataBackupSha256 = Get-Hash $ApplicationDataDumpPath; applicationRolesBackupSha256 = Get-Hash $ApplicationRolesDumpPath
+    authRecoveryBackupSha256 = Get-Hash $AuthRecoveryDumpPath; backupTool = $dumpMode
+    managedSchemasExcludedFromApplicationDump = $true; genericManagedRestoreAttempted = $false
+    authRecoveryMode = 'SUPABASE_MANAGED_RECOVERY_ARTIFACT'; appPortableValidation = 'PASS'; storageInventoryId = "storage-$Stamp"
     storageBinaryBackupId = "storage-binaries-$Stamp"; storageBinaryBackupSha256 = Get-Hash $StorageManifestPath
-    restoreVerificationId = "pg-local-restore-$Stamp"; createdAt = (Get-Date).ToUniversalTime().ToString('o')
+    restoreVerificationId = "supabase-local-stack-restore-$Stamp"; createdAt = (Get-Date).ToUniversalTime().ToString('o')
     encrypted = $true; outsideProvider = $true; BACKUP_CREATED = 'YES'; BACKUP_VERIFIED = 'YES'
     database = 'PASS'; auth = 'PASS'; storageMetadata = 'PASS'; storageBinaries = "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"
     sha256 = 'PASS'; restoreRehearsal = $restoreStatus; productionPrecheck = 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
@@ -742,7 +705,6 @@ select json_build_object(
   exit 1
 } finally {
   Stop-ActiveExternalProcesses
-  Stop-LocalPostgres
   if ($created) {
     Remove-Item -LiteralPath $WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue

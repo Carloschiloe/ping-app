@@ -45,8 +45,11 @@ production. The migration manifest is conservative:
    production at staging.
 2. Verify the supplied snapshot against the target and save any live catalog
    output outside the repo when the authorized operator has DB access.
-3. Produce an encrypted schema/data/Storage metadata plus binary-object backup outside Supabase and pass
-   `validate-backup-gate.mjs`.
+3. Produce the encrypted Supabase-compatible backup outside the repository:
+   application schema/data/roles, a separate managed Auth recovery artifact,
+   Storage metadata plus all binary objects, and pass `validate-backup-gate.mjs`.
+   The application dump must exclude `auth` and `storage`; the rehearsal is
+   valid only on Supabase local stack, never on raw PostgreSQL.
 4. Reconcile migration history and live schema. Do not apply `baseline_v2`
    blindly. Write a reviewed forward-only transition plan.
 5. Apply only approved migrations in a maintenance window, with a rollback

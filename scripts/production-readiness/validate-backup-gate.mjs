@@ -3,11 +3,28 @@ import { json, redactError, PRODUCTION_REF } from './guards.mjs';
 
 const file = process.argv[2];
 if (!file) throw new Error('usage: node validate-backup-gate.mjs EVIDENCE.json');
+
+const publicTables = [
+  'profiles', 'messages', 'commitments', 'subscriptions', 'contacts', 'conversations',
+  'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages',
+  'calls', 'operation_checklists', 'operation_checklist_items', 'operation_checklist_runs',
+  'operation_checklist_run_items', 'shift_reports', 'conversation_operation_focuses',
+  'commitment_operation_progress',
+];
+const sha256 = /^[a-f0-9]{64}$/;
+
 try {
   const evidence = JSON.parse(await fs.readFile(file, 'utf8'));
-  const required = ['projectRef', 'backupId', 'schemaBackupSha256', 'dataBackupSha256', 'storageInventoryId', 'storageBinaryBackupId', 'storageBinaryBackupSha256', 'restoreVerificationId', 'createdAt', 'publicRowCounts', 'publicRowTotal', 'authUserBaseline', 'storageBucketBaseline', 'storageObjectBaseline', 'publicRowBaseline'];
-  const publicTables = ['profiles', 'messages', 'commitments', 'subscriptions', 'contacts', 'conversations', 'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages', 'calls', 'operation_checklists', 'operation_checklist_items', 'operation_checklist_runs', 'operation_checklist_run_items', 'shift_reports', 'conversation_operation_focuses', 'commitment_operation_progress'];
-  const missing = required.filter((k) => evidence[k] === undefined || evidence[k] === null || evidence[k] === '');
+  const required = [
+    'projectRef', 'backupId', 'schemaBackupSha256', 'dataBackupSha256',
+    'applicationSchemaBackupSha256', 'applicationDataBackupSha256', 'applicationRolesBackupSha256',
+    'authRecoveryBackupSha256', 'storageInventoryId', 'storageBinaryBackupId',
+    'storageBinaryBackupSha256', 'restoreVerificationId', 'createdAt', 'publicRowCounts',
+    'publicRowTotal', 'authUserBaseline', 'storageBucketBaseline', 'storageObjectBaseline',
+    'publicRowBaseline', 'backupTool', 'authRecoveryMode', 'restoreRehearsal',
+    'appPortableValidation', 'managedSchemasExcludedFromApplicationDump', 'genericManagedRestoreAttempted',
+  ];
+  const missing = required.filter((key) => evidence[key] === undefined || evidence[key] === null || evidence[key] === '');
   const backupCreated = evidence.BACKUP_CREATED === 'YES';
   const backupVerified = evidence.BACKUP_VERIFIED === 'YES';
   const publicCountsValid = evidence.publicRowCounts && typeof evidence.publicRowCounts === 'object'
@@ -19,7 +36,44 @@ try {
     && Number.isInteger(evidence.authUserBaseline) && evidence.authUserBaseline >= 0
     && Number.isInteger(evidence.storageBucketBaseline) && evidence.storageBucketBaseline >= 0
     && Number.isInteger(evidence.storageObjectBaseline) && evidence.storageObjectBaseline >= 0;
-  const valid = evidence.projectRef === PRODUCTION_REF && missing.length === 0 && publicBaselineValid && evidence.encrypted === true && evidence.outsideProvider === true && backupCreated && backupVerified;
-  json({ valid, projectRef: evidence.projectRef, missing, publicBaselineValid, backupCreated, backupVerified, encrypted: evidence.encrypted === true, outsideProvider: evidence.outsideProvider === true, mutationPerformed: false });
+  const hashesValid = [
+    evidence.schemaBackupSha256, evidence.dataBackupSha256, evidence.applicationSchemaBackupSha256,
+    evidence.applicationDataBackupSha256, evidence.applicationRolesBackupSha256,
+    evidence.authRecoveryBackupSha256, evidence.storageBinaryBackupSha256,
+  ].every((value) => typeof value === 'string' && sha256.test(value));
+  const supportedTool = ['SUPABASE_CLI_DB_DUMP', 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'].includes(evidence.backupTool);
+  const supportedRestore = evidence.restoreRehearsal === 'SUPABASE_LOCAL_STACK_PASS';
+  const managedBoundaryValid = evidence.managedSchemasExcludedFromApplicationDump === true
+    && evidence.genericManagedRestoreAttempted === false
+    && evidence.authRecoveryMode === 'SUPABASE_MANAGED_RECOVERY_ARTIFACT'
+    && evidence.appPortableValidation === 'PASS';
+  const componentPass = evidence.database === 'PASS' && evidence.auth === 'PASS'
+    && evidence.storageMetadata === 'PASS' && evidence.sha256 === 'PASS'
+    && evidence.productionPrecheck === 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
+    && evidence.storageBinaries === `${evidence.storageObjectBaseline}/${evidence.storageObjectBaseline}`;
+  const valid = evidence.projectRef === PRODUCTION_REF
+    && missing.length === 0 && publicBaselineValid && hashesValid && supportedTool
+    && supportedRestore && managedBoundaryValid && componentPass
+    && evidence.encrypted === true && evidence.outsideProvider === true
+    && backupCreated && backupVerified;
+  json({
+    valid,
+    projectRef: evidence.projectRef,
+    missing,
+    publicBaselineValid,
+    hashesValid,
+    supportedTool,
+    supportedRestore,
+    managedBoundaryValid,
+    componentPass,
+    backupCreated,
+    backupVerified,
+    encrypted: evidence.encrypted === true,
+    outsideProvider: evidence.outsideProvider === true,
+    mutationPerformed: false,
+  });
   if (!valid) process.exitCode = 1;
-} catch (error) { json({ valid: false, error: redactError(error) }); process.exitCode = 1; }
+} catch (error) {
+  json({ valid: false, error: redactError(error) });
+  process.exitCode = 1;
+}

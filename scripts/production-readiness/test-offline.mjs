@@ -64,12 +64,19 @@ test('backup gate accepts a complete runtime public-row baseline', async () => {
       'commitment_operation_progress',
     ].map((table) => [table, 0]));
     const evidence = {
-      projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 's', dataBackupSha256: 'd',
-      storageInventoryId: 'i', storageBinaryBackupId: 'sb', storageBinaryBackupSha256: 'sbs',
+      projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 'e'.repeat(64), dataBackupSha256: 'f'.repeat(64),
+      applicationSchemaBackupSha256: 'a'.repeat(64), applicationDataBackupSha256: 'b'.repeat(64),
+      applicationRolesBackupSha256: 'c'.repeat(64), authRecoveryBackupSha256: 'd'.repeat(64),
+      storageInventoryId: 'i', storageBinaryBackupId: 'sb', storageBinaryBackupSha256: '1'.repeat(64),
       restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true,
       outsideProvider: true, BACKUP_CREATED: 'YES', BACKUP_VERIFIED: 'YES', publicRowCounts,
       publicRowTotal: 0, authUserBaseline: 0, storageBucketBaseline: 0,
       storageObjectBaseline: 0, publicRowBaseline: 'CAPTURED_AND_PRESERVED',
+      backupTool: 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK',
+      authRecoveryMode: 'SUPABASE_MANAGED_RECOVERY_ARTIFACT', restoreRehearsal: 'SUPABASE_LOCAL_STACK_PASS',
+      appPortableValidation: 'PASS', managedSchemasExcludedFromApplicationDump: true,
+      genericManagedRestoreAttempted: false, database: 'PASS', auth: 'PASS', storageMetadata: 'PASS',
+      storageBinaries: '0/0', sha256: 'PASS', productionPrecheck: 'PASS_WITH_EXPECTED_LEGACY_REVIEW',
     };
     await writeFile(join(dir, 'evidence.json'), JSON.stringify(evidence));
     const child = spawn(process.execPath, ['scripts/production-readiness/validate-backup-gate.mjs', join(dir, 'evidence.json')], { cwd: process.cwd() });

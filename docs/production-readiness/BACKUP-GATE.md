@@ -1,71 +1,46 @@
 # Production backup gate
 
-The gate is intentionally stronger than a database dump. Production has four
-Auth identities and 48 Storage objects; a schema/data dump alone is not enough.
+This gate follows the Supabase backup boundary. The orchestrator never treats
+the managed `auth` or `storage` schemas as ordinary PostgreSQL application
+schemas and never restores them into a clean generic PostgreSQL server.
 
-The operator must produce, outside Supabase and in encrypted storage:
+The encrypted package is written outside the repository and contains:
 
-- a custom-format PostgreSQL dump covering the production application schema;
-- per-table public row counts captured at the start of the run and compared
-  exactly after restore rehearsal;
-- the Auth-relevant rows needed to preserve the four UUIDs;
-- Storage bucket/object metadata;
-- the binary backup of all 48 existing Storage objects;
-- a restore verification in a disposable target;
-- SHA-256 evidence for each artifact and the restore verification.
+- application schema/data for `public` and `supabase_migrations`, produced by
+  `supabase db dump` when available, or by the documented application-only
+  `pg_dump` fallback;
+- application roles without role passwords;
+- a separate `auth-recovery.dump` plus a non-secret Auth count/identity
+  baseline. The Auth dump is a managed-recovery artifact and may only be used
+  against a Supabase-compatible recovery target;
+- Storage bucket/object metadata and every binary object from `chat-media` and
+  `recordings`, each with SHA-256;
+- non-secret evidence and the read-only production precheck.
 
-The evidence file consumed by `validate-backup-gate.mjs` must contain these
-non-secret fields:
+The evidence validator requires:
 
-```json
-{
-  "projectRef": "wbigqhtuzfmpnxservlf",
-  "backupId": "operator-generated-id",
-  "schemaBackupSha256": "sha256",
-  "dataBackupSha256": "sha256",
-  "storageInventoryId": "operator-generated-id",
-  "storageBinaryBackupId": "operator-generated-id",
-  "storageBinaryBackupSha256": "sha256",
-  "restoreVerificationId": "operator-generated-id",
-  "createdAt": "2026-10-09T00:00:00Z",
-  "encrypted": true,
-  "outsideProvider": true,
-  "BACKUP_CREATED": "YES",
-  "BACKUP_VERIFIED": "YES"
-}
+```text
+managedSchemasExcludedFromApplicationDump=true
+genericManagedRestoreAttempted=false
+authRecoveryMode=SUPABASE_MANAGED_RECOVERY_ARTIFACT
+restoreRehearsal=SUPABASE_LOCAL_STACK_PASS
 ```
 
-No secret, URL, token, password, Auth key, or object content belongs in the
-evidence JSON. The bridge refuses to run until this gate, the runtime
-preservation baseline, and the live read-only schema/policy snapshot both
-pass.
+The restore rehearsal therefore uses Supabase local stack only. If the
+Supabase CLI or Docker is unavailable, the orchestrator fails closed after
+the portable application-dump inspection; it does not silently fall back to
+raw `pg_restore` against PostgreSQL.
 
-## Current attempt status (2026-10-10)
+No secret, URL, password, Auth hash, user PII, or object content is written to
+`evidence.json`, Git, or logs. The encrypted payload may contain the recovery
+artifacts and remains outside the repository.
 
-The preparation environment attempted only read-only local mechanisms:
+## Current status
 
-- Supabase CLI: unavailable in the execution environment.
-- `pg_dump`/`psql`: installed, but no production PostgreSQL connection or
-  password was available; no connection was guessed.
-- Docker/PostgreSQL rehearsal: Docker daemon unavailable.
-- Public Storage listing: the public object-list endpoint did not authorize a
-  listing request; no object was downloaded, deleted, moved or permission-
-  changed.
+The preparation branch contains the audited orchestrator and validator. A
+real gate pass still requires operator-supplied production DB access and a
+local Supabase stack capable of the rehearsal. No production mutation,
+bridge, migration, DDL, Render change, or deployment is performed.
 
-Therefore `BACKUP_CREATED=NO` and `BACKUP_VERIFIED=NO` remain truthful. The
-snapshot and forward package are ready, but this gate cannot be promoted by
-inference or by the public bucket count alone.
-
-## Single local orchestrator
-
-`scripts/production-readiness/run-final-backup-and-precutover.ps1` is the only
-entrypoint for the remaining non-mutating gate. It prompts for the production
-PostgreSQL connection and encryption passphrase with hidden input, keeps both
-in memory only, obtains Auth/Storage metadata through the read-only database
-connection, downloads public Storage objects with GET only, encrypts the
-database/Auth/Storage package outside the repository, writes non-secret
-evidence, validates the backup gate and runs the read-only bridge precheck. It
-never asks for a service-role key and never executes the bridge, migrations,
-DDL, Render changes or deployment.
-
-Use `-ValidateOnly` to check local tools without entering secrets.
+Use `-ValidateOnly` for local tool checks. The normal entrypoint prompts for
+the production connection and encryption passphrase without printing them.
