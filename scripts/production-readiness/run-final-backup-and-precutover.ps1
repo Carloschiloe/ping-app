@@ -93,27 +93,27 @@ function Get-SupabaseCliArguments([string]$SupabaseCli, [string[]]$Arguments) {
 }
 
 function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [string]$PgDumpAllPath, [string]$DbUrl, [string]$OutputPath, [ValidateSet('schema', 'data', 'roles')][string]$Kind) {
-  if ($SupabaseCli) {
-    $arguments = @('db', 'dump', '--db-url', $DbUrl, '--file', $OutputPath)
-    if ($Kind -eq 'schema') { $arguments += @('--schema', 'public,supabase_migrations') }
-    if ($Kind -eq 'data') { $arguments += @('--data-only', '--schema', 'public,supabase_migrations') }
-    if ($Kind -eq 'roles') { $arguments += '--role-only' }
-    Invoke-Checked $SupabaseCli (Get-SupabaseCliArguments $SupabaseCli $arguments) ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
-    return 'SUPABASE_CLI_DB_DUMP'
-  }
-
   if ($Kind -eq 'roles') {
-    if (-not $PgDumpAllPath) { throw 'REQUIRED_TOOL_MISSING:pg_dumpall_FOR_APPLICATION_ROLES' }
-    Invoke-Checked $PgDumpAllPath @('--dbname', $DbUrl, '--roles-only', '--no-role-passwords', '--no-owner', '--file', $OutputPath) 'APPLICATION_ROLES_DUMP' 600
-    return 'PG_DUMPALL_ROLES_DOCUMENTED_FALLBACK'
+    if ($PgDumpAllPath) {
+      Invoke-Checked $PgDumpAllPath @('--dbname', $DbUrl, '--roles-only', '--no-role-passwords', '--no-owner', '--file', $OutputPath) 'APPLICATION_ROLES_DUMP' 600
+      return 'PG_DUMPALL_ROLES'
+    }
+    if ($SupabaseCli) {
+      Invoke-Checked $SupabaseCli (Get-SupabaseCliArguments $SupabaseCli @('db', 'dump', '--db-url', $DbUrl, '--file', $OutputPath, '--role-only')) 'APPLICATION_ROLES_DUMP' 600
+      return 'SUPABASE_CLI_ROLE_DUMP_FALLBACK'
+    }
+    throw 'REQUIRED_TOOL_MISSING:pg_dumpall_FOR_APPLICATION_ROLES'
   }
 
+  # Use the native PostgreSQL client for application schema/data dumps.
+  # The Supabase CLI remains reserved for the local-stack rehearsal. This avoids
+  # wrapper-specific exit-code/output behavior and makes the schema boundary explicit.
   $arguments = @('--dbname', $DbUrl, '--format=plain', '--no-owner', '--no-privileges', '--no-acl', '--schema=public', '--schema=supabase_migrations')
   if ($Kind -eq 'schema') { $arguments += '--schema-only' }
   if ($Kind -eq 'data') { $arguments += '--data-only' }
   $arguments += @('--file', $OutputPath)
   Invoke-Checked $PgDumpPath $arguments ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
-  return 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'
+  return 'PG_DUMP_APPLICATION_ONLY'
 }
 
 function Assert-ApplicationDumpPortable([string[]]$Paths) {
