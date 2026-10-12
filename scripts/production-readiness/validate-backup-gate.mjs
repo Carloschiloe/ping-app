@@ -14,7 +14,11 @@ const publicTables = [
 const sha256 = /^[a-f0-9]{64}$/;
 
 try {
-  const evidence = JSON.parse(await fs.readFile(file, 'utf8'));
+  const evidenceText = await fs.readFile(file, 'utf8');
+  // Windows PowerShell's UTF-8 writer emits a leading BOM. Accept it at the
+  // evidence boundary so a valid completed backup is not rejected by Node's
+  // strict JSON parser.
+  const evidence = JSON.parse(evidenceText.replace(/^\uFEFF/, ''));
   const required = [
     'projectRef', 'backupId', 'schemaBackupSha256', 'dataBackupSha256',
     'applicationSchemaBackupSha256', 'applicationDataBackupSha256', 'applicationRolesBackupSha256',

@@ -43,7 +43,7 @@ test('backup gate requires both creation and verification evidence', async () =>
   const dir = await mkdtemp(join(tmpdir(), 'ping-backup-gate-'));
   try {
     const evidence = { projectRef: PRODUCTION_REF, backupId: 'b', schemaBackupSha256: 's', dataBackupSha256: 'd', storageInventoryId: 'i', storageBinaryBackupId: 'sb', storageBinaryBackupSha256: 'sbs', restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true, outsideProvider: true, publicRowCounts: { profiles: 1 }, publicRowTotal: 1, authUserBaseline: 1, storageBucketBaseline: 1, storageObjectBaseline: 1, publicRowBaseline: 'CAPTURED_AND_PRESERVED' };
-    await writeFile(join(dir, 'evidence.json'), JSON.stringify(evidence));
+    await writeFile(join(dir, 'evidence.json'), `\uFEFF${JSON.stringify(evidence)}`);
     const child = spawn(process.execPath, ['scripts/production-readiness/validate-backup-gate.mjs', join(dir, 'evidence.json')], { cwd: process.cwd() });
     let output = '';
     child.stdout.on('data', (chunk) => { output += chunk; });
