@@ -21,7 +21,9 @@ try {
     'authRecoveryBackupSha256', 'storageInventoryId', 'storageBinaryBackupId',
     'storageBinaryBackupSha256', 'restoreVerificationId', 'createdAt', 'publicRowCounts',
     'publicRowTotal', 'authUserBaseline', 'storageBucketBaseline', 'storageObjectBaseline',
-    'publicRowBaseline', 'backupTool', 'authRecoveryMode', 'restoreRehearsal',
+    'authUserIdsSha256', 'authIdentityBaseline', 'authIdentityIdsSha256', 'storageInventoryValidation',
+    'encryptedPackageRoundTrip',
+    'publicRowBaseline', 'backupTool', 'applicationDumpTool', 'rolesDumpTool', 'authRecoveryMode', 'restoreRehearsal',
     'appPortableValidation', 'managedSchemasExcludedFromApplicationDump', 'genericManagedRestoreAttempted',
   ];
   const missing = required.filter((key) => evidence[key] === undefined || evidence[key] === null || evidence[key] === '');
@@ -34,6 +36,7 @@ try {
     && publicCountsValid
     && Number.isInteger(evidence.publicRowTotal) && evidence.publicRowTotal >= 0
     && Number.isInteger(evidence.authUserBaseline) && evidence.authUserBaseline >= 0
+    && Number.isInteger(evidence.authIdentityBaseline) && evidence.authIdentityBaseline >= 0
     && Number.isInteger(evidence.storageBucketBaseline) && evidence.storageBucketBaseline >= 0
     && Number.isInteger(evidence.storageObjectBaseline) && evidence.storageObjectBaseline >= 0;
   const hashesValid = [
@@ -41,18 +44,22 @@ try {
     evidence.applicationDataBackupSha256, evidence.applicationRolesBackupSha256,
     evidence.authRecoveryBackupSha256, evidence.storageBinaryBackupSha256,
   ].every((value) => typeof value === 'string' && sha256.test(value));
-  const supportedTool = ['SUPABASE_CLI_DB_DUMP', 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'].includes(evidence.backupTool);
+  const supportedTool = evidence.backupTool === 'PG_DUMP_APPLICATION_ONLY'
+    && evidence.applicationDumpTool === 'PG_DUMP_APPLICATION_ONLY';
+  const authBaselineValid = typeof evidence.authUserIdsSha256 === 'string' && sha256.test(evidence.authUserIdsSha256)
+    && typeof evidence.authIdentityIdsSha256 === 'string' && sha256.test(evidence.authIdentityIdsSha256);
   const supportedRestore = evidence.restoreRehearsal === 'SUPABASE_LOCAL_STACK_PASS';
   const managedBoundaryValid = evidence.managedSchemasExcludedFromApplicationDump === true
     && evidence.genericManagedRestoreAttempted === false
     && evidence.authRecoveryMode === 'SUPABASE_MANAGED_RECOVERY_ARTIFACT'
     && evidence.appPortableValidation === 'PASS';
   const componentPass = evidence.database === 'PASS' && evidence.auth === 'PASS'
-    && evidence.storageMetadata === 'PASS' && evidence.sha256 === 'PASS'
+    && evidence.storageMetadata === 'PASS' && evidence.storageInventoryValidation === 'PASS'
+    && evidence.encryptedPackageRoundTrip === 'PASS' && evidence.sha256 === 'PASS'
     && evidence.productionPrecheck === 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
     && evidence.storageBinaries === `${evidence.storageObjectBaseline}/${evidence.storageObjectBaseline}`;
   const valid = evidence.projectRef === PRODUCTION_REF
-    && missing.length === 0 && publicBaselineValid && hashesValid && supportedTool
+    && missing.length === 0 && publicBaselineValid && hashesValid && supportedTool && authBaselineValid
     && supportedRestore && managedBoundaryValid && componentPass
     && evidence.encrypted === true && evidence.outsideProvider === true
     && backupCreated && backupVerified;
