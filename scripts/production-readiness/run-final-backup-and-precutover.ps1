@@ -389,17 +389,22 @@ function Assert-ProductionDatabaseTarget([string]$DbUrl) {
 function Wait-LocalPostgresReady([string]$PsqlPath, [int]$Port, [int]$TimeoutSeconds) {
   if ($TimeoutSeconds -le 0) { throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS' }
   $timer = [Diagnostics.Stopwatch]::StartNew()
+  $lastError = 'NOT_ATTEMPTED'
   while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
     $remaining = [int][math]::Floor($TimeoutSeconds - $timer.Elapsed.TotalSeconds)
     if ($remaining -le 0) { break }
     $probeTimeout = [math]::Min(5, $remaining)
     try {
-      $probe = Invoke-ExternalProcess $PsqlPath @('--dbname=postgres', '--host=127.0.0.1', "--port=$Port", '--quiet', '--tuples-only', '--no-align', '--command', 'select 1;') $probeTimeout 'LOCAL_RESTORE_START_READINESS'
+      $probe = Invoke-ExternalProcess $PsqlPath @('--username=ping_rehearsal', '--dbname=postgres', '--host=127.0.0.1', "--port=$Port", '--quiet', '--tuples-only', '--no-align', '--command', 'select 1;') $probeTimeout 'LOCAL_RESTORE_START_READINESS'
       if ($probe.StdOut.Trim() -eq '1') { return }
-    } catch { }
+      $lastError = 'UNEXPECTED_PROBE_OUTPUT'
+    } catch {
+      $lastError = Get-SafeStageDetail $_
+      if ([string]::IsNullOrWhiteSpace($lastError)) { $lastError = 'LOCAL_CONNECTION_FAILED' }
+    }
     if ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) { Start-Sleep -Milliseconds 200 }
   }
-  throw 'TIMEOUT:LOCAL_RESTORE_START:READINESS'
+  throw ("TIMEOUT:LOCAL_RESTORE_START:READINESS:last_error={0}" -f $lastError)
 }
 
 function Protect-File([string]$InputPath, [string]$OutputPath, [string]$MetadataPath, [string]$Passphrase) {
@@ -453,7 +458,7 @@ function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [o
       Wait-LocalPostgresReady $Client.Psql $port $readyRemaining
     }
     Invoke-Stage 'LOCAL_RESTORE_DATABASE_CREATE' { Invoke-Checked $Commands['createdb'] @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED' 120 }
-    Invoke-Stage 'LOCAL_RESTORE_APPLY' { Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED' 600 }
+    Invoke-Stage 'LOCAL_RESTORE_APPLY' { Invoke-Checked $Client.PgRestore @('--username=ping_rehearsal', '--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED' 600 }
     $countsSql = @"
 with counts as (
   select 'profiles' table_name, count(*)::bigint row_count from public.profiles
@@ -484,7 +489,7 @@ select json_build_object(
 )::text;
 "@
     $parsed = Invoke-Stage 'LOCAL_RESTORE_VERIFY_COUNTS' {
-      $result = Invoke-ExternalProcess $Client.Psql @('--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", '--quiet', '--tuples-only', '--no-align', '--command', $countsSql) 120 'LOCAL_RESTORE_VERIFY_COUNTS'
+      $result = Invoke-ExternalProcess $Client.Psql @('--username=ping_rehearsal', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", '--quiet', '--tuples-only', '--no-align', '--command', $countsSql) 120 'LOCAL_RESTORE_VERIFY_COUNTS'
       try { return ($result.StdOut.Trim() | ConvertFrom-Json) } catch { throw 'LOCAL_RESTORE_COUNTS_INVALID' }
     }
     if ($parsed.auth -ne $ExpectedPublicCounts.auth_users -or $parsed.storage_buckets -ne $ExpectedPublicCounts.storage_buckets -or $parsed.storage -ne $ExpectedPublicCounts.storage_objects) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
