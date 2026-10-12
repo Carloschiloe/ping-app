@@ -46,6 +46,8 @@ services:
       - key: ENABLE_CALLS
         value: "false"
       - key: ENABLE_PRIVATE_FILE_READS
-        value: "false"
+        value: "true"
       - key: ENABLE_PRIVATE_FILE_UPLOADS
         value: "false"
+      - key: ENABLE_PRIVATE_MESSAGE_UPLOADS
+        value: "true"

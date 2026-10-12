@@ -11,7 +11,11 @@
     "SUPABASE_SERVICE_ROLE_KEY": "secret",
     "OPENAI_API_KEY": "secret",
     "ENCRYPTION_KEY": "secret",
-    "ALLOWED_ORIGINS": "explicit production origins"
+    "ALLOWED_ORIGINS": "explicit production origins",
+    "ENABLE_PRIVATE_FILE_READS": "true",
+    "ENABLE_PRIVATE_FILE_UPLOADS": "false",
+    "ENABLE_PRIVATE_MESSAGE_UPLOADS": "true",
+    "ENABLE_PRIVATE_AVATAR_UPLOADS": "false"
   },
   "gatesBeforeProductionPreflight": ["BACKUP_GATE=PASS", "BACKUP_CREATED=YES", "BACKUP_VERIFIED=YES", "SCHEMA_RECONCILIATION=PASS", "MIGRATION_ACCOUNTING=PASS", "LEGACY_CLIENT_ACCESS_REVIEW=PASS", "PRODUCTION_READONLY_HEALTH=PASS"],
   "forbiddenFromStaging": ["oonijgmddgyymhrlnvuu", "PING_M7_DATABASE_URL", "PING_EXPECTED_SUPABASE_PROJECT_REF"],
