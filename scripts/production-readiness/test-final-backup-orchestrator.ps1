@@ -41,7 +41,9 @@ if ($source -notmatch "'--table=auth.users'") { throw 'Auth users recovery expor
 if ($source -notmatch "'--table=auth.identities'") { throw 'Auth identities recovery export missing' }
 if ($source -notmatch "'--data-only'") { throw 'Auth recovery local apply must be data-only' }
 if ($source -notmatch "'--role-only'") { throw 'application roles export missing' }
-if ($source -notmatch 'if \(\$Kind -eq ''data''\) \{ \$arguments \+= @\(''--data-only'', ''--schema'', ''public,supabase_migrations''\) \}') { throw 'application data dump is not scoped to public/supabase_migrations' }
+if ($source -notmatch "'--schema=public'") { throw 'application dump public schema scope missing' }
+if ($source -notmatch "'--schema=supabase_migrations'") { throw 'application dump migration schema scope missing' }
+if ($source -notmatch "return 'PG_DUMP_APPLICATION_ONLY'") { throw 'application schema/data dump is not using native pg_dump' }
 if ($source -notmatch 'supabase@2\.120\.0') { throw 'Supabase CLI version is not pinned' }
 if ($source -notmatch 'localStackExclusions') { throw 'minimal local stack exclusions missing' }
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
