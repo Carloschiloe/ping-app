@@ -330,8 +330,8 @@
       "reasons": []
     },
     {
-      "file": "20261012010000_production_legacy_compatibility_and_api_hardening.sql",
-      "timestamp": "20261012010000",
+      "file": "20261012235001_production_legacy_compatibility_and_api_hardening.sql",
+      "timestamp": "20261012235001",
       "sha256": "95daae6c3217167fb181af6b608d782b59479bbce87463a11989aa17938e3fa0",
       "classification": "REQUIRES_REVIEW",
       "reasons": [
