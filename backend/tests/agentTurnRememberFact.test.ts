@@ -2,11 +2,36 @@
 // authorization-ready plan through the exact same runAgentTurn pipeline
 // every other write request uses, via the REAL deterministic verb path
 // (REMEMBER_FACT_VERB matches "recuerda que"/"acuérdate que"/"remember
-// that") -- no LLM interpreter mock needed, mirroring
-// agentDialogueTargetEntityClarification.test.ts's/
-// agentDialoguePlanDateCorrection.test.ts's own pattern for this session's
-// other new write-shaped mechanisms.
+// that"). The provider boundary is mocked to the deterministic implementation
+// so CI remains offline while the real turn/planner pipeline is exercised.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOfflineInputInterpreter, createOfflineObjectiveInterpreter } from './helpers/offlineAgentSemantics';
+
+vi.mock('../src/services/agentInputInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentInputInterpreter.service')>();
+    return { ...actual, LlmInputInterpreter: createOfflineInputInterpreter(actual) };
+});
+
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return { ...actual, LlmObjectiveInterpreter: createOfflineObjectiveInterpreter(actual) };
+});
+
+vi.mock('../src/services/retrieval.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/retrieval.service')>();
+    return {
+        ...actual,
+        retrieveCommitments: vi.fn(async () => []),
+        retrieveCommitmentProposals: vi.fn(async () => []),
+        retrieveCommitmentEvents: vi.fn(async () => []),
+        retrieveMessages: vi.fn(async () => []),
+        retrieveTranscriptions: vi.fn(async () => []),
+        retrieveAttachments: vi.fn(async () => []),
+        resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
+        retrieveVisibleCommitmentById: vi.fn(async () => null),
+        dedupeProvenance: (items: unknown[]) => items,
+    };
+});
 
 const { ingestMemoryFromEventMock } = vi.hoisted(() => ({ ingestMemoryFromEventMock: vi.fn() }));
 
@@ -14,6 +39,7 @@ vi.mock('../src/services/memory.service', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../src/services/memory.service')>();
     return {
         ...actual,
+        retrieveMemory: vi.fn(async () => []),
         ingestMemoryFromEvent: (...args: unknown[]) => ingestMemoryFromEventMock(...args),
     };
 });
