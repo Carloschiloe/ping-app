@@ -111,7 +111,13 @@ function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [stri
   # wrapper-specific exit-code/output behavior and makes the schema boundary explicit.
   $arguments = @('--dbname', $DbUrl, '--format=plain', '--no-owner', '--no-privileges', '--no-acl', '--schema=public', '--schema=supabase_migrations')
   if ($Kind -eq 'schema') { $arguments += '--schema-only' }
-  if ($Kind -eq 'data') { $arguments += '--data-only' }
+  if ($Kind -eq 'data') {
+    # A plain data-only dump is replayed through psql during the Supabase
+    # local-stack rehearsal. Disable user triggers while loading it so
+    # foreign-key checks do not depend on pg_dump's table order; PostgreSQL
+    # re-enables them after each table and the rehearsal verifies final counts.
+    $arguments += @('--data-only', '--disable-triggers')
+  }
   $arguments += @('--file', $OutputPath)
   Invoke-Checked $PgDumpPath $arguments ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
   return 'PG_DUMP_APPLICATION_ONLY'

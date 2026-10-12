@@ -46,6 +46,7 @@ if ($source -notmatch "'--data-only'") { throw 'Auth recovery local apply must b
 if ($source -notmatch "'--role-only'") { throw 'application roles export missing' }
 if ($source -notmatch "'--schema=public'") { throw 'application dump public schema scope missing' }
 if ($source -notmatch "'--schema=supabase_migrations'") { throw 'application dump migration schema scope missing' }
+if ($source -notmatch "'--disable-triggers'") { throw 'data-only application dump must disable triggers during local replay' }
 if ($source -notmatch "return 'PG_DUMP_APPLICATION_ONLY'") { throw 'application schema/data dump is not using native pg_dump' }
 if ($source -notmatch "\$dumpMode = 'PG_DUMP_APPLICATION_ONLY'") { throw 'backup evidence does not use actual application dump mode' }
 if ($source -notmatch '\$pgDumpAll = \$client\.PgDumpAll') { throw 'pg_dumpall is not paired with the selected PostgreSQL client' }
