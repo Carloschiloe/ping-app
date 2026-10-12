@@ -140,7 +140,7 @@ column_inventory as (
         ('messages','conversation_id'), ('commitments','owner_user_id'),
         ('commitments','due_at'), ('commitment_events','commitment_id'),
         ('attachments','message_id'), ('audio_transcriptions','attachment_id'),
-        ('agent_authorizations','authorization_id'), ('agent_executions','authorization_id'),
+        ('agent_authorizations','id'), ('agent_executions','authorization_id'),
         ('agent_turn_admissions','turn_id')
       )
 ),
@@ -167,7 +167,14 @@ security_definer_boundary as (
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prosecdef
-      and not (coalesce(p.proconfig, array[]::text[]) @> array['search_path=public'])
+      and not exists (
+          select 1
+          from unnest(coalesce(p.proconfig, array[]::text[])) as config(setting)
+          where replace(config.setting, ' ', '') in (
+              'search_path=public',
+              'search_path=pg_catalog,public'
+          )
+      )
 ),
 auth_profile_boundary as (
     select 'auth_profiles_reconciled' as check_name,
@@ -185,6 +192,7 @@ critical_trigger_boundary as (
     join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and not t.tgisinternal
       and t.tgname in ('on_auth_user_created','trg_update_conversation_last_message',
+                       'tr_update_conversation_last_message',
                        'trg_validate_commitment_consistency','commitments_require_resolution_result')
 )
 select * from table_checks

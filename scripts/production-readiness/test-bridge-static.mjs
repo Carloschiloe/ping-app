@@ -5,6 +5,7 @@ import test from 'node:test';
 const bridgePath = 'supabase/production-reconciliation/20261009_production_legacy_to_rc_bridge.sql';
 const precheckPath = 'supabase/production-reconciliation/production-bridge-precheck.sql';
 const postcheckPath = 'supabase/production-reconciliation/production-bridge-postcheck.sql';
+const compatibilityMigrationPath = 'supabase/migrations/20261012010000_production_legacy_compatibility_and_api_hardening.sql';
 const stripComments = (value) => value.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*--.*$/gm, '');
 
 test('bridge is outside migration chain and carries explicit gates', async () => {
@@ -43,4 +44,17 @@ test('precheck/postcheck are read-only and preserve mandatory baselines', async 
   assert.match(post, /public_rows_preserved/);
   assert.match(post, /auth_users_preserved/);
   assert.match(post, /storage_objects_preserved/);
+  assert.match(post, /agent_authorizations','id/);
+  assert.match(post, /tr_update_conversation_last_message/);
+  assert.match(post, /search_path=pg_catalog,public/);
+  assert.match(pre, /search_path=pg_catalog,public/);
+});
+
+test('production compatibility migration is additive and hardens anonymous access', async () => {
+  const migration = await fs.readFile(compatibilityMigrationPath, 'utf8');
+  assert.match(migration, /add column if not exists conversation_id/);
+  assert.match(migration, /create table if not exists public\.commitment_events/);
+  assert.match(migration, /revoke all on table public\.agent_authorizations/);
+  assert.match(migration, /to authenticated/);
+  assert.doesNotMatch(stripComments(migration), /\b(drop\s+(table|column)|truncate|delete\s+from)\b/i);
 });

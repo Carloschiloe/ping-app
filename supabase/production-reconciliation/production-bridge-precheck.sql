@@ -164,7 +164,14 @@ function_checks as (
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prosecdef
-      and not (coalesce(p.proconfig, array[]::text[]) @> array['search_path=public'])
+      and not exists (
+          select 1
+          from unnest(coalesce(p.proconfig, array[]::text[])) as config(setting)
+          where replace(config.setting, ' ', '') in (
+              'search_path=public',
+              'search_path=pg_catalog,public'
+          )
+      )
 )
 select * from table_checks
 union all select * from row_checks
