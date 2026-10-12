@@ -41,6 +41,7 @@ if ($source -notmatch "'--table=auth.users'") { throw 'Auth users recovery expor
 if ($source -notmatch "'--table=auth.identities'") { throw 'Auth identities recovery export missing' }
 if ($source -notmatch "'--data-only'") { throw 'Auth recovery local apply must be data-only' }
 if ($source -notmatch "'--role-only'") { throw 'application roles export missing' }
+if ($source -notmatch "if \(\$Kind -eq 'data'\) \{ \$arguments \+= @\('--data-only', '--schema', 'public,supabase_migrations'\) \}") { throw 'application data dump is not scoped to public/supabase_migrations' }
 if ($source -notmatch 'supabase@2\.120\.0') { throw 'Supabase CLI version is not pinned' }
 if ($source -notmatch 'localStackExclusions') { throw 'minimal local stack exclusions missing' }
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -89,6 +90,9 @@ try {
   $managed = Join-Path $dumpRoot 'managed.sql'
   'CREATE TABLE auth.users (id uuid);' | Set-Content -LiteralPath $managed -Encoding UTF8
   try { Assert-ApplicationDumpPortable @($managed); throw 'managed schema was accepted' } catch { if ($_.Exception.Message -notmatch 'APPLICATION_DUMP_INCLUDES_MANAGED_SCHEMA') { throw } }
+  $managedData = Join-Path $dumpRoot 'managed-data.sql'
+  'INSERT INTO auth.users (id) VALUES (''11111111-1111-1111-1111-111111111111'');' | Set-Content -LiteralPath $managedData -Encoding UTF8
+  try { Assert-ApplicationDumpPortable @($managedData); throw 'managed data insert was accepted' } catch { if ($_.Exception.Message -notmatch 'APPLICATION_DUMP_INCLUDES_MANAGED_SCHEMA') { throw } }
 } finally {
   Remove-Item -LiteralPath $dumpRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
