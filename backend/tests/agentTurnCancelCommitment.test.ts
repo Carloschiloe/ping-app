@@ -1,14 +1,26 @@
 // M-9 — end-to-end proof that "Cancela X" reaches a real, authorization-ready
 // cancel_commitment plan through the exact same runAgentTurn pipeline every
 // other write request uses, via the REAL deterministic verb path
-// (CANCEL_VERB matches "cancela"/"cancelar"/"cancel") -- no LLM interpreter
-// mock needed, mirroring this session's other new write-shaped mechanisms.
+// (CANCEL_VERB matches "cancela"/"cancelar"/"cancel"). The provider
+// boundary is mocked to the deterministic implementation so CI remains
+// offline while this suite exercises the real turn/planner pipeline.
 // Also directly certifies the historical-form safety property this feature
 // depends on: "Cancelamos X" must still be forced to 'unsupported', never
 // treated as a real write action and never silently narrated as a different
 // transition (the exact bug this whole CANCEL_VERB mechanism exists to
 // prevent, now verified end to end after cancel became a real capability).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOfflineInputInterpreter, createOfflineObjectiveInterpreter } from './helpers/offlineAgentSemantics';
+
+vi.mock('../src/services/agentInputInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentInputInterpreter.service')>();
+    return { ...actual, LlmInputInterpreter: createOfflineInputInterpreter(actual) };
+});
+
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return { ...actual, LlmObjectiveInterpreter: createOfflineObjectiveInterpreter(actual) };
+});
 
 function commitment(id: string, title: string, ownerUserId: string, status: string = 'accepted') {
     return {
@@ -34,6 +46,7 @@ vi.mock('../src/services/retrieval.service', async (importOriginal) => {
         retrieveTranscriptions: vi.fn(async () => []),
         retrieveAttachments: vi.fn(async () => []),
         resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
+        retrieveVisibleCommitmentById: vi.fn(async () => null),
         dedupeProvenance: (items: unknown[]) => items,
     };
 });
@@ -49,11 +62,15 @@ let clearAgentDialogueStateForTests: typeof import('../src/services/agentDialogu
 const ACTOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER_OWNER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENTRENAR_ID = 'c0000000-0000-4000-8000-000000000005';
+const TEST_NOW = new Date('2026-09-20T00:00:00.000Z');
 
 beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_NOW);
     vi.resetModules();
     const turnModule = await import('../src/services/agentTurn.service');
-    runAgentTurn = turnModule.runAgentTurn;
+    const runAgentTurnCore = turnModule.runAgentTurn;
+    runAgentTurn = (input, options) => runAgentTurnCore(input, { now: TEST_NOW, ...options });
     const dialogueModule = await import('../src/services/agentDialogueState.service');
     clearAgentDialogueStateForTests = dialogueModule.clearAgentDialogueStateForTests;
     clearAgentDialogueStateForTests();
@@ -62,6 +79,7 @@ beforeEach(async () => {
 
 afterEach(() => {
     clearAgentDialogueStateForTests();
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
