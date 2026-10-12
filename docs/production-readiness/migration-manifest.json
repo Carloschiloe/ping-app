@@ -1,7 +1,7 @@
 {
   "schemaSource": "supabase/migrations",
   "generatedFrom": "ac7d72af5dfd4a9744a356eca6539bab75609b22",
-  "migrationCount": 33,
+  "migrationCount": 34,
   "policy": "classification is conservative; live applicability requires read-only schema and migration-history evidence",
   "migrations": [
     {
@@ -328,6 +328,17 @@
       "sha256": "d9b9a715a4c37928436218d492b8c3ebdc981b94f469d3b9d4905db721469c59",
       "classification": "SAFE_FORWARD",
       "reasons": []
+    },
+    {
+      "file": "20261012010000_production_legacy_compatibility_and_api_hardening.sql",
+      "timestamp": "20261012010000",
+      "sha256": "95daae6c3217167fb181af6b608d782b59479bbce87463a11989aa17938e3fa0",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review",
+        "creates executable/database objects"
+      ]
     }
   ]
 }
