@@ -397,8 +397,11 @@ function Find-PostgresClientCandidate([string]$ServerMajor) {
     $psql = Join-Path $binDir 'psql.exe'
     if (-not (Test-Path -LiteralPath $psql)) { $psql = Join-Path $binDir 'psql' }
     if (-not (Test-Path -LiteralPath $restore) -or -not (Test-Path -LiteralPath $psql)) { continue }
+    $dumpAll = Join-Path $binDir 'pg_dumpall.exe'
+    if (-not (Test-Path -LiteralPath $dumpAll)) { $dumpAll = Join-Path $binDir 'pg_dumpall' }
+    if (-not (Test-Path -LiteralPath $dumpAll)) { $dumpAll = $null }
     [void]$candidates.Add([pscustomobject]@{
-      Major = $major; BinDir = $binDir; PgDump = $dump; PgRestore = $restore; Psql = $psql
+      Major = $major; BinDir = $binDir; PgDump = $dump; PgDumpAll = $dumpAll; PgRestore = $restore; Psql = $psql
     })
   }
   return Select-PostgresClientCandidate @($candidates) $ServerMajor
@@ -536,7 +539,7 @@ try {
   $pgDump = $client.PgDump
   $pgRestore = $client.PgRestore
   $psql = $client.Psql
-  $pgDumpAll = Find-PostgresToolPath 'pg_dumpall'
+  $pgDumpAll = $client.PgDumpAll
   $supabaseCli = Find-SupabaseCli
   Write-Status 'SERVER_PG_MAJOR' $serverMajor
   Write-Status 'PG_DUMP_MAJOR' $client.Major
