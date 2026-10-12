@@ -96,7 +96,7 @@ function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [stri
   if ($SupabaseCli) {
     $arguments = @('db', 'dump', '--db-url', $DbUrl, '--file', $OutputPath)
     if ($Kind -eq 'schema') { $arguments += @('--schema', 'public,supabase_migrations') }
-    if ($Kind -eq 'data') { $arguments += '--data-only' }
+    if ($Kind -eq 'data') { $arguments += @('--data-only', '--schema', 'public,supabase_migrations') }
     if ($Kind -eq 'roles') { $arguments += '--role-only' }
     Invoke-Checked $SupabaseCli (Get-SupabaseCliArguments $SupabaseCli $arguments) ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
     return 'SUPABASE_CLI_DB_DUMP'
@@ -121,7 +121,7 @@ function Assert-ApplicationDumpPortable([string[]]$Paths) {
     if (-not (Test-Path -LiteralPath $path)) { throw "APPLICATION_DUMP_MISSING:$([IO.Path]::GetFileName($path))" }
     if ((Get-Item -LiteralPath $path).Length -le 0) { throw "APPLICATION_DUMP_EMPTY:$([IO.Path]::GetFileName($path))" }
     $content = Get-Content -LiteralPath $path -Raw
-    $managedObjectPattern = '(?im)^\s*(?:CREATE\s+(?:SCHEMA|TABLE|FUNCTION|SEQUENCE)|COPY|ALTER\s+TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?["'']?(auth|storage)["'']?(?:\.|\s|;)'
+    $managedObjectPattern = '(?im)^\s*(?:CREATE\s+(?:SCHEMA|TABLE|FUNCTION|SEQUENCE)|COPY|INSERT\s+INTO|ALTER\s+TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?["'']?(auth|storage)["'']?(?:\.|\s|;)'
     if ($content -match $managedObjectPattern) { throw "APPLICATION_DUMP_INCLUDES_MANAGED_SCHEMA:$([IO.Path]::GetFileName($path))" }
   }
 }
