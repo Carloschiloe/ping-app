@@ -33,8 +33,43 @@ $LegacyPublicTables = @(
   'operation_checklist_run_items', 'shift_reports', 'conversation_operation_focuses',
   'commitment_operation_progress'
 )
+$script:RunStopwatch = [Diagnostics.Stopwatch]::StartNew()
+$script:ChildProcesses = [System.Collections.ArrayList]::new()
+$script:LocalPostgresCommands = $null
+$script:LocalPostgresCluster = $null
+$script:LocalPostgresStarted = $false
+$script:CurrentStage = 'STARTUP'
 
 function Write-Status([string]$Name, [string]$Value) { Write-Output "$Name=$Value" }
+
+function Write-Stage([string]$Name, [ValidateSet('START', 'PASS', 'FAIL')][string]$State, [string]$Detail = '') {
+  $suffix = if ($State -eq 'FAIL' -and $Detail) { ":$Detail" } else { '' }
+  Write-Host "STAGE=$Name`:$State$suffix"
+  Write-Host "ELAPSED_SECONDS=$([math]::Round($script:RunStopwatch.Elapsed.TotalSeconds, 1))"
+}
+
+function Get-SafeStageDetail([object]$ErrorRecord) {
+  $detail = if ($null -ne $ErrorRecord.Exception) { $ErrorRecord.Exception.Message } else { [string]$ErrorRecord }
+  $detail = ($detail -replace '[\r\n]+', ' ') -replace '[^A-Za-z0-9_.:/=-]', '_'
+  if ($detail.Length -gt 160) { return $detail.Substring(0, 160) }
+  return $detail
+}
+
+function Invoke-Stage([string]$Name, [scriptblock]$Action) {
+  $previousStage = $script:CurrentStage
+  $script:CurrentStage = $Name
+  Write-Stage $Name 'START'
+  try {
+    $result = & $Action
+    Write-Stage $Name 'PASS'
+    return $result
+  } catch {
+    Write-Stage $Name 'FAIL' (Get-SafeStageDetail $_)
+    throw
+  } finally {
+    $script:CurrentStage = $previousStage
+  }
+}
 
 function Require-Command([string]$Name) {
   $command = Get-Command $Name -ErrorAction SilentlyContinue
@@ -49,15 +84,101 @@ function Read-SecretText([string]$Prompt) {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
-function Invoke-Checked([string]$FilePath, [string[]]$Arguments, [string]$FailureCode) {
-  & $FilePath @Arguments *> $null
-  if ($LASTEXITCODE -ne 0) { throw "$FailureCode`:$LASTEXITCODE" }
+function ConvertTo-WindowsProcessArgument([string]$Value) {
+  if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+  $builder = [Text.StringBuilder]::new()
+  [void]$builder.Append('"')
+  $slashes = 0
+  foreach ($character in $Value.ToCharArray()) {
+    if ($character -eq '\') { $slashes++; continue }
+    if ($character -eq '"') {
+      for ($i = 0; $i -lt (($slashes * 2) + 1); $i++) { [void]$builder.Append('\') }
+      [void]$builder.Append('"')
+      $slashes = 0
+      continue
+    }
+    for ($i = 0; $i -lt $slashes; $i++) { [void]$builder.Append('\') }
+    $slashes = 0
+    [void]$builder.Append($character)
+  }
+  for ($i = 0; $i -lt ($slashes * 2); $i++) { [void]$builder.Append('\') }
+  [void]$builder.Append('"')
+  return $builder.ToString()
 }
 
-function Invoke-PsqlScalar([string]$PsqlPath, [string]$DbUrl, [string]$Sql) {
-  $output = & $PsqlPath '--dbname' $DbUrl '--quiet' '--tuples-only' '--no-align' '--command' $Sql 2>$null
-  if ($LASTEXITCODE -ne 0) { throw 'POSTGRES_READONLY_QUERY_FAILED' }
-  return (($output -join "`n").Trim())
+function Stop-ActiveExternalProcesses {
+  foreach ($process in @($script:ChildProcesses)) {
+    try {
+      if ($process -and -not $process.HasExited) {
+        try { $process.Kill($true) } catch { $process.Kill() }
+      }
+    } catch { }
+  }
+  $script:ChildProcesses.Clear()
+}
+
+function Stop-LocalPostgres {
+  if ($script:LocalPostgresStarted -and $null -ne $script:LocalPostgresCommands -and $script:LocalPostgresCluster) {
+    try {
+      $stopArgs = @('-D', $script:LocalPostgresCluster, '-m', 'fast', '-w', 'stop')
+      Invoke-ExternalProcess ([string]$script:LocalPostgresCommands['pg_ctl']) $stopArgs 120 'LOCAL_RESTORE_CLEANUP' | Out-Null
+    } catch { }
+  }
+  $script:LocalPostgresStarted = $false
+}
+
+function Invoke-ExternalProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$StageName) {
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $argumentListProperty = $startInfo.PSObject.Properties['ArgumentList']
+  if ($null -ne $argumentListProperty) {
+    foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add([string]$argument) }
+  } else {
+    $startInfo.Arguments = (($Arguments | ForEach-Object { ConvertTo-WindowsProcessArgument ([string]$_) }) -join ' ')
+  }
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  $timer = [Diagnostics.Stopwatch]::StartNew()
+  try {
+    if (-not $process.Start()) { throw "EXTERNAL_PROCESS_START_FAILED:$StageName" }
+    [void]$script:ChildProcesses.Add($process)
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      try { $process.Kill($true) } catch { try { $process.Kill() } catch { } }
+      throw "TIMEOUT:$StageName"
+    }
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) { throw "EXTERNAL_PROCESS_FAILED:$StageName`:$($process.ExitCode)" }
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; StdOut = $stdout; StdErr = $stderr; ElapsedSeconds = [math]::Round($timer.Elapsed.TotalSeconds, 1) }
+  } finally {
+    [void]$script:ChildProcesses.Remove($process)
+    $process.Dispose()
+  }
+}
+
+function Invoke-Checked([string]$FilePath, [string[]]$Arguments, [string]$FailureCode, [int]$TimeoutSeconds = 120) {
+  try { Invoke-ExternalProcess $FilePath $Arguments $TimeoutSeconds $FailureCode | Out-Null }
+  catch {
+    if ($_.Exception.Message -like "TIMEOUT:$FailureCode*") { throw }
+    throw "$FailureCode`:$($_.Exception.Message)"
+  }
+}
+
+function Invoke-PsqlScalar([string]$PsqlPath, [string]$DbUrl, [string]$Sql, [string]$StageName = 'PSQL') {
+  try {
+    $result = Invoke-ExternalProcess $PsqlPath @('--dbname', $DbUrl, '--quiet', '--tuples-only', '--no-align', '--command', $Sql) 120 $StageName
+    return $result.StdOut.Trim()
+  } catch {
+    if ($_.Exception.Message -like "TIMEOUT:$StageName*") { throw }
+    throw 'POSTGRES_READONLY_QUERY_FAILED'
+  }
 }
 
 function Get-PostgresMajorFromVersionNum([string]$VersionNum) {
@@ -115,8 +236,8 @@ function Find-PostgresToolPath([string]$ToolName) {
 }
 
 function Read-PostgresDumpMajor([string]$PgDumpPath) {
-  $versionText = (& $PgDumpPath '--version' 2>$null | Out-String).Trim()
-  if ($LASTEXITCODE -ne 0) { return $null }
+  try { $versionText = (Invoke-ExternalProcess $PgDumpPath @('--version') 120 'POSTGRES_CLIENT_VERSION').StdOut.Trim() }
+  catch { return $null }
   $match = [regex]::Match($versionText, 'PostgreSQL\)\s+(\d+)(?:\.(\d+))?')
   if (-not $match.Success) { return $null }
   if ($match.Groups[2].Success) { return "$($match.Groups[1].Value).$($match.Groups[2].Value)" }
@@ -156,12 +277,14 @@ function Install-CompatiblePostgresClient([string]$ServerMajor) {
   $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
   if (-not $wingetCommand) { throw 'POSTGRES_CLIENT_INSTALL_UNAVAILABLE' }
   $packageId = "PostgreSQL.PostgreSQL.$ServerMajor"
-  $output = & $wingetCommand.Source install --id $packageId --exact --source winget --silent --accept-source-agreements --accept-package-agreements 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $safeOutput = ($output -join ' ')
+  try {
+    Invoke-ExternalProcess $wingetCommand.Source @('install', '--id', $packageId, '--exact', '--source', 'winget', '--silent', '--accept-source-agreements', '--accept-package-agreements') 600 'POSTGRES_CLIENT_INSTALL' | Out-Null
+  } catch {
+    $safeOutput = $_.Exception.Message
     if ($safeOutput -match '(?i)elevation|administrator|access is denied|0x80070005|uac') {
       throw "POSTGRES_CLIENT_INSTALL_REQUIRES_ELEVATION`nRUN_THIS_ONE_COMMAND=winget install --id $packageId --exact --source winget --accept-source-agreements --accept-package-agreements; powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$($PSCommandPath)`""
     }
+    if ($safeOutput -like 'TIMEOUT:*') { throw }
     throw 'POSTGRES_CLIENT_INSTALL_FAILED'
   }
 }
@@ -256,13 +379,17 @@ function Invoke-LocalRestore([object]$Client, [string]$DbDump, [string]$Work, [o
   if (-not (Test-PostgresServerCommandMap $Commands)) { throw 'LOCAL_POSTGRES_SERVER_BINARIES_UNAVAILABLE' }
   $cluster = Join-Path $Work 'restore-cluster'
   $port = 55432 + (Get-Random -Minimum 0 -Maximum 400)
-  $started = $false
+  $script:LocalPostgresCommands = $Commands
+  $script:LocalPostgresCluster = $cluster
+  $script:LocalPostgresStarted = $false
   try {
-    Invoke-Checked $commands.initdb @('-D', $cluster, '-A', 'trust', '-U', 'ping_rehearsal') 'LOCAL_INITDB_FAILED'
-    Invoke-Checked $commands.pg_ctl @('-D', $cluster, '-o', "-p $port -h 127.0.0.1", '-w', 'start') 'LOCAL_POSTGRES_START_FAILED'
-    $started = $true
-    Invoke-Checked $commands.createdb @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED'
-    Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED'
+    Invoke-Stage 'LOCAL_RESTORE_INIT' { Invoke-Checked $Commands['initdb'] @('-D', $cluster, '-A', 'trust', '-U', 'ping_rehearsal') 'LOCAL_INITDB_FAILED' 120 }
+    Invoke-Stage 'LOCAL_RESTORE_START' {
+      $script:LocalPostgresStarted = $true
+      Invoke-Checked $Commands['pg_ctl'] @('-D', $cluster, '-o', "-p $port -h 127.0.0.1", '-w', 'start') 'LOCAL_POSTGRES_START_FAILED' 120
+    }
+    Invoke-Stage 'LOCAL_RESTORE_DATABASE_CREATE' { Invoke-Checked $Commands['createdb'] @('-h', '127.0.0.1', '-p', "$port", '-U', 'ping_rehearsal', 'ping_restore') 'LOCAL_CREATEDB_FAILED' 120 }
+    Invoke-Stage 'LOCAL_RESTORE_APPLY' { Invoke-Checked $Client.PgRestore @('--exit-on-error', '--no-owner', '--no-privileges', '--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", $DbDump) 'LOCAL_RESTORE_FAILED' 600 }
     $countsSql = @"
 with counts as (
   select 'profiles' table_name, count(*)::bigint row_count from public.profiles
@@ -292,16 +419,19 @@ select json_build_object(
   'public_total', (select coalesce(sum(row_count), 0)::bigint from counts)
 )::text;
 "@
-    $counts = & $Client.Psql '--dbname=ping_restore' '--host=127.0.0.1' "--port=$port" '--quiet' '--tuples-only' '--no-align' '--command' $countsSql 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'LOCAL_RESTORE_COUNTS_FAILED' }
-    $parsed = (($counts -join "`n").Trim() | ConvertFrom-Json)
+    $parsed = Invoke-Stage 'LOCAL_RESTORE_VERIFY_COUNTS' {
+      $result = Invoke-ExternalProcess $Client.Psql @('--dbname=ping_restore', '--host=127.0.0.1', "--port=$port", '--quiet', '--tuples-only', '--no-align', '--command', $countsSql) 120 'LOCAL_RESTORE_VERIFY_COUNTS'
+      try { return ($result.StdOut.Trim() | ConvertFrom-Json) } catch { throw 'LOCAL_RESTORE_COUNTS_INVALID' }
+    }
     if ($parsed.auth -ne $ExpectedPublicCounts.auth_users -or $parsed.storage_buckets -ne $ExpectedPublicCounts.storage_buckets -or $parsed.storage -ne $ExpectedPublicCounts.storage_objects) { throw 'LOCAL_RESTORE_COUNTS_MISMATCH' }
     $restoredPublicCounts = [pscustomobject]@{ counts = $parsed.public_counts; total = $parsed.public_total }
     Assert-PublicRowCounts $restoredPublicCounts $ExpectedPublicCounts
     return 'REAL_LOCAL_RESTORE_PASS'
   } finally {
-    if ($started) { & $commands.pg_ctl '-D' $cluster '-m' 'fast' '-w' 'stop' *> $null }
+    Stop-LocalPostgres
     Remove-Item -LiteralPath $cluster -Recurse -Force -ErrorAction SilentlyContinue
+    $script:LocalPostgresCommands = $null
+    $script:LocalPostgresCluster = $null
   }
 }
 
@@ -347,9 +477,13 @@ try {
   $passphrase = Read-SecretText 'Backup encryption passphrase (input hidden)'
   if ([string]::IsNullOrWhiteSpace($dbUrl) -or [string]::IsNullOrWhiteSpace($passphrase)) { throw 'SECRET_INPUT_EMPTY' }
   Assert-ProductionDatabaseTarget $dbUrl | Out-Null
-  $serverVersionNum = Invoke-PsqlScalar $bootstrapPsql $dbUrl 'show server_version_num;'
-  $serverMajor = Get-PostgresMajorFromVersionNum $serverVersionNum
-  $client = Resolve-PostgresClient $serverMajor
+  $clientInfo = Invoke-Stage 'CLIENT_DISCOVERY' {
+    $versionNum = Invoke-PsqlScalar $bootstrapPsql $dbUrl 'show server_version_num;' 'SERVER_VERSION_QUERY'
+    $major = Get-PostgresMajorFromVersionNum $versionNum
+    [pscustomobject]@{ ServerMajor = $major; Client = (Resolve-PostgresClient $major) }
+  }
+  $serverMajor = $clientInfo.ServerMajor
+  $client = $clientInfo.Client
   $pgDump = $client.PgDump
   $pgRestore = $client.PgRestore
   $psql = $client.Psql
@@ -389,7 +523,9 @@ select json_build_object(
   'storage_objects', (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings'))
 )::text;
 '@
-  $publicCounts = Invoke-PsqlScalar $psql $dbUrl $publicCountsSql | ConvertFrom-Json
+  $publicCounts = Invoke-Stage 'CAPTURE_BASELINE' {
+    return (Invoke-PsqlScalar $psql $dbUrl $publicCountsSql 'CAPTURE_BASELINE' | ConvertFrom-Json)
+  }
   if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total -or $null -eq $publicCounts.auth_users -or $null -eq $publicCounts.storage_buckets -or $null -eq $publicCounts.storage_objects) { throw 'PRODUCTION_BASELINE_INVALID' }
   if ([int64]$publicCounts.auth_users -lt 0 -or [int64]$publicCounts.storage_buckets -lt 0 -or [int64]$publicCounts.storage_objects -lt 0) { throw "PRODUCTION_BASELINE_INVALID:auth=$($publicCounts.auth_users),buckets=$($publicCounts.storage_buckets),objects=$($publicCounts.storage_objects)" }
   if (-not (Test-Path -LiteralPath $SnapshotPath)) { throw 'PRODUCTION_SNAPSHOT_MISSING' }
@@ -407,14 +543,19 @@ select json_build_object(
   Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
   $dumpArgs = @('--dbname', $dbUrl, '--format=custom', '--schema=public', '--schema=auth', '--schema=storage')
-  Invoke-Checked $pgDump ($dumpArgs + "--file=$DbDumpPath") 'DATABASE_BACKUP_FAILED'
-  Invoke-Checked $pgDump ($dumpArgs + @('--section=pre-data', "--file=$SchemaDumpPath")) 'SCHEMA_BACKUP_FAILED'
-  Invoke-Checked $pgDump ($dumpArgs + @('--section=data', "--file=$DataDumpPath")) 'DATA_BACKUP_FAILED'
-  $restoreLines = & $pgRestore '--list' $DbDumpPath 2>$null
-  if ($LASTEXITCODE -ne 0 -or @($restoreLines).Count -eq 0) { throw 'RESTORE_LIST_FAILED' }
+  Invoke-Stage 'DATABASE_FULL_DUMP' { Invoke-Checked $pgDump ($dumpArgs + "--file=$DbDumpPath") 'DATABASE_FULL_DUMP' 600 }
+  Invoke-Stage 'DATABASE_SCHEMA_DUMP' { Invoke-Checked $pgDump ($dumpArgs + @('--section=pre-data', "--file=$SchemaDumpPath")) 'DATABASE_SCHEMA_DUMP' 600 }
+  Invoke-Stage 'DATABASE_DATA_DUMP' { Invoke-Checked $pgDump ($dumpArgs + @('--section=data', "--file=$DataDumpPath")) 'DATABASE_DATA_DUMP' 600 }
+  $restoreLines = Invoke-Stage 'RESTORE_LIST' {
+    $result = Invoke-ExternalProcess $pgRestore @('--list', $DbDumpPath) 600 'RESTORE_LIST'
+    if ([string]::IsNullOrWhiteSpace($result.StdOut)) { throw 'RESTORE_LIST_EMPTY' }
+    $result.StdOut -split "`r?`n"
+  }
   $restoreLines | Set-Content -LiteralPath $RestoreListPath -Encoding UTF8
-  & $pgRestore '--schema-only' '--no-owner' '--no-privileges' '--file' $RestoreExtractPath $DbDumpPath *> $null
-  if ($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $RestoreExtractPath).Length -le 0) { throw 'RESTORE_EXTRACTION_FAILED' }
+  Invoke-Stage 'RESTORE_EXTRACT' {
+    Invoke-Checked $pgRestore @('--schema-only', '--no-owner', '--no-privileges', '--file', $RestoreExtractPath, $DbDumpPath) 'RESTORE_EXTRACT' 600
+    if (-not (Test-Path -LiteralPath $RestoreExtractPath) -or (Get-Item -LiteralPath $RestoreExtractPath).Length -le 0) { throw 'RESTORE_EXTRACTION_EMPTY' }
+  }
 
   $authSql = @'
 select json_build_object(
@@ -428,9 +569,12 @@ select json_build_object(
 )::text
 from auth.users;
 '@
-  $authJson = Invoke-PsqlScalar $psql $dbUrl $authSql | ConvertFrom-Json
-  if ($authJson.count -ne $publicCounts.auth_users) { throw "AUTH_USER_COUNT_MISMATCH:$($authJson.count):expected=$($publicCounts.auth_users)" }
-  $authJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $AuthPath -Encoding UTF8
+  $authJson = Invoke-Stage 'AUTH_EXPORT' {
+    $value = Invoke-PsqlScalar $psql $dbUrl $authSql 'AUTH_EXPORT' | ConvertFrom-Json
+    if ($value.count -ne $publicCounts.auth_users) { throw "AUTH_USER_COUNT_MISMATCH:$($value.count):expected=$($publicCounts.auth_users)" }
+    $value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $AuthPath -Encoding UTF8
+    return $value
+  }
 
   $storageSql = @'
 select json_build_object(
@@ -439,22 +583,38 @@ select json_build_object(
   'objects', coalesce((select json_agg(json_build_object('bucket', bucket_id, 'path', name) order by bucket_id, name) from storage.objects where bucket_id in ('chat-media','recordings')), '[]'::json)
 )::text;
 '@
-  $storageJson = Invoke-PsqlScalar $psql $dbUrl $storageSql | ConvertFrom-Json
-  if ($storageJson.bucket_count -ne $publicCounts.storage_buckets -or $storageJson.object_count -ne $publicCounts.storage_objects) { throw "STORAGE_BASELINE_MISMATCH:$($storageJson.bucket_count)/$($storageJson.object_count):expected=$($publicCounts.storage_buckets)/$($publicCounts.storage_objects)" }
-  $storageJson | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StorageInventoryPath -Encoding UTF8
+  $storageJson = Invoke-Stage 'STORAGE_METADATA' {
+    $value = Invoke-PsqlScalar $psql $dbUrl $storageSql 'STORAGE_METADATA' | ConvertFrom-Json
+    if ($value.bucket_count -ne $publicCounts.storage_buckets -or $value.object_count -ne $publicCounts.storage_objects) { throw "STORAGE_BASELINE_MISMATCH:$($value.bucket_count)/$($value.object_count):expected=$($publicCounts.storage_buckets)/$($publicCounts.storage_objects)" }
+    $value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StorageInventoryPath -Encoding UTF8
+    return $value
+  }
 
   $storageRoot = Join-Path $WorkRoot 'storage'
-  $objectHashes = @()
-  foreach ($object in @($storageJson.objects)) {
-    $bucketRoot = Join-Path $storageRoot ([string]$object.bucket)
-    $target = Join-Path $bucketRoot (([string]$object.path) -replace '/', '\')
-    New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-    $bucketRootFull = (Resolve-Path -LiteralPath $bucketRoot).Path
-    $targetFull = [IO.Path]::GetFullPath($target)
-    if (-not $targetFull.StartsWith($bucketRootFull, [StringComparison]::OrdinalIgnoreCase)) { throw 'STORAGE_PATH_ESCAPE' }
-    $encodedPath = [Uri]::EscapeDataString([string]$object.path).Replace('%2F', '/')
-    Invoke-WebRequest -Uri "$ProjectUrl/storage/v1/object/public/$($object.bucket)/$encodedPath" -Method Get -OutFile $target -UseBasicParsing
-    $objectHashes += [ordered]@{ bucket = [string]$object.bucket; path = [string]$object.path; sha256 = Get-Hash $target; bytes = (Get-Item -LiteralPath $target).Length }
+  $objectHashes = Invoke-Stage 'STORAGE_BINARY_DOWNLOAD' {
+    $hashes = @()
+    $objects = @($storageJson.objects)
+    $totalObjects = $objects.Count
+    $index = 0
+    foreach ($object in $objects) {
+      $index++
+      Write-Host "STORAGE_PROGRESS=$index/$totalObjects"
+      $bucketRoot = Join-Path $storageRoot ([string]$object.bucket)
+      $target = Join-Path $bucketRoot (([string]$object.path) -replace '/', '\')
+      New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+      $bucketRootFull = (Resolve-Path -LiteralPath $bucketRoot).Path
+      $targetFull = [IO.Path]::GetFullPath($target)
+      if (-not $targetFull.StartsWith($bucketRootFull, [StringComparison]::OrdinalIgnoreCase)) { throw 'STORAGE_PATH_ESCAPE' }
+      $encodedPath = [Uri]::EscapeDataString([string]$object.path).Replace('%2F', '/')
+      try {
+        Invoke-WebRequest -Uri "$ProjectUrl/storage/v1/object/public/$($object.bucket)/$encodedPath" -Method Get -OutFile $target -UseBasicParsing -TimeoutSec 120 -ErrorAction Stop
+      } catch {
+        if ($_.Exception.Message -match '(?i)timeout|timed out|operation has timed out') { throw "TIMEOUT:STORAGE_BINARY_DOWNLOAD:$index" }
+        throw "STORAGE_BINARY_DOWNLOAD_FAILED:$index"
+      }
+      $hashes += [ordered]@{ bucket = [string]$object.bucket; path = [string]$object.path; sha256 = Get-Hash $target; bytes = (Get-Item -LiteralPath $target).Length }
+    }
+    return $hashes
   }
   if (@($objectHashes).Count -ne [int64]$publicCounts.storage_objects) { throw "STORAGE_HASH_COUNT_MISMATCH:$(@($objectHashes).Count):expected=$($publicCounts.storage_objects)" }
   $objectHashes | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $StorageManifestPath -Encoding UTF8
@@ -463,9 +623,11 @@ select json_build_object(
   $precheckArgs += @('--set', "expected_public_total=$($publicCounts.total)", '--set', "expected_auth_users=$($publicCounts.auth_users)", '--set', "expected_storage_buckets=$($publicCounts.storage_buckets)", '--set', "expected_storage_objects=$($publicCounts.storage_objects)")
   foreach ($tableName in $LegacyPublicTables) { $precheckArgs += @('--set', "expected_public_$tableName=$($publicCounts.counts.$tableName)") }
   $precheckArgs += @('--file', $bridge)
-  & $psql @precheckArgs 2>$null | Set-Content -LiteralPath $PrecheckPath -Encoding UTF8
-  if ($LASTEXITCODE -ne 0) { throw 'PRODUCTION_PRECHECK_FAILED' }
-  Validate-Precheck $PrecheckPath
+  Invoke-Stage 'PRODUCTION_PRECHECK' {
+    $result = Invoke-ExternalProcess $psql $precheckArgs 120 'PRODUCTION_PRECHECK'
+    $result.StdOut | Set-Content -LiteralPath $PrecheckPath -Encoding UTF8
+    Validate-Precheck $PrecheckPath
+  }
 
   $serverCommands = Get-PostgresServerCommandMap $client
   $serverAvailable = Test-PostgresServerCommandMap $serverCommands
@@ -476,7 +638,7 @@ select json_build_object(
   }
   if ($restoreStatus -ne 'REAL_LOCAL_RESTORE_PASS') { throw "RESTORE_REHEARSAL_NOT_COMPLETE:$restoreStatus" }
 
-  [ordered]@{
+  $evidenceObject = [ordered]@{
     projectRef = $ProjectRef; backupId = "ping-$Stamp"; schemaBackupSha256 = Get-Hash $SchemaDumpPath
     dataBackupSha256 = Get-Hash $DataDumpPath; storageInventoryId = "storage-$Stamp"
     storageBinaryBackupId = "storage-binaries-$Stamp"; storageBinaryBackupSha256 = Get-Hash $StorageManifestPath
@@ -486,24 +648,32 @@ select json_build_object(
     sha256 = 'PASS'; restoreRehearsal = $restoreStatus; productionPrecheck = 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
     publicRowCounts = $publicCounts.counts; publicRowTotal = $publicCounts.total; authUserBaseline = $publicCounts.auth_users; storageBucketBaseline = $publicCounts.storage_buckets; storageObjectBaseline = $publicCounts.storage_objects; historicalSnapshotPublicRowCount = $snapshotPublicRowCount
     publicRowBaseline = 'CAPTURED_AND_PRESERVED'
-  } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Encoding UTF8
-  Compress-Archive -Path (Join-Path $WorkRoot '*') -DestinationPath $ZipPath -CompressionLevel Optimal
-  Protect-File -InputPath $ZipPath -OutputPath $EncryptedPath -MetadataPath $CryptoMetaPath -Passphrase $passphrase
-  $evidence = Get-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Raw
-  $evidence | Set-Content -LiteralPath $EvidencePath -Encoding UTF8
-  & node $validator $EvidencePath *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'BACKUP_GATE_VALIDATION_FAILED' }
-  Write-Status 'BACKUP_CREATED' 'YES'; Write-Status 'BACKUP_VERIFIED' 'YES'; Write-Status 'BACKUP_ENCRYPTED' 'YES'
-  Write-Status 'BACKUP_DATABASE' 'PASS'; Write-Status 'BACKUP_AUTH' 'PASS'; Write-Status 'BACKUP_STORAGE_METADATA' 'PASS'
-  Write-Status 'BACKUP_STORAGE_BINARIES' "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"; Write-Status 'BACKUP_SHA256_VERIFIED' 'PASS'; Write-Status 'RESTORE_REHEARSAL' $restoreStatus
-  Write-Status 'BACKUP_GATE' 'PASS'; Write-Status 'PRODUCTION_PRECHECK' 'PASS'; Write-Status 'EVIDENCE_PATH' $EvidencePath
-  Write-Status 'ENCRYPTED_PACKAGE' $EncryptedPath; Write-Status 'PRODUCTION_CUTOVER_READY_FOR_SINGLE_AUTHORIZATION' 'YES'
+  }
+  Invoke-Stage 'BACKUP_COMPRESS' {
+    $evidenceObject | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Encoding UTF8
+    Compress-Archive -Path (Join-Path $WorkRoot '*') -DestinationPath $ZipPath -CompressionLevel Optimal
+  }
+  Invoke-Stage 'BACKUP_ENCRYPT' { Protect-File -InputPath $ZipPath -OutputPath $EncryptedPath -MetadataPath $CryptoMetaPath -Passphrase $passphrase }
+  Invoke-Stage 'BACKUP_VALIDATE' {
+    $evidence = Get-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Raw
+    $evidence | Set-Content -LiteralPath $EvidencePath -Encoding UTF8
+    Invoke-Checked (Require-Command 'node') @($validator, $EvidencePath) 'BACKUP_VALIDATE' 120
+  }
+  Invoke-Stage 'FINALIZE' {
+    Write-Status 'BACKUP_CREATED' 'YES'; Write-Status 'BACKUP_VERIFIED' 'YES'; Write-Status 'BACKUP_ENCRYPTED' 'YES'
+    Write-Status 'BACKUP_DATABASE' 'PASS'; Write-Status 'BACKUP_AUTH' 'PASS'; Write-Status 'BACKUP_STORAGE_METADATA' 'PASS'
+    Write-Status 'BACKUP_STORAGE_BINARIES' "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"; Write-Status 'BACKUP_SHA256_VERIFIED' 'PASS'; Write-Status 'RESTORE_REHEARSAL' $restoreStatus
+    Write-Status 'BACKUP_GATE' 'PASS'; Write-Status 'PRODUCTION_PRECHECK' 'PASS'; Write-Status 'EVIDENCE_PATH' $EvidencePath
+    Write-Status 'ENCRYPTED_PACKAGE' $EncryptedPath; Write-Status 'PRODUCTION_CUTOVER_READY_FOR_SINGLE_AUTHORIZATION' 'YES'
+  }
 } catch {
   Write-Status 'BACKUP_CREATED' 'NO'; Write-Status 'BACKUP_VERIFIED' 'NO'; Write-Status 'BACKUP_GATE' 'FAIL'
   Write-Status 'RESTORE_REHEARSAL' $restoreStatus; Write-Status 'PRODUCTION_CUTOVER_READY_FOR_SINGLE_AUTHORIZATION' 'NO'
   Write-Status 'FAILURE' $_.Exception.Message
   exit 1
 } finally {
+  Stop-ActiveExternalProcesses
+  Stop-LocalPostgres
   if ($created) {
     Remove-Item -LiteralPath $WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue

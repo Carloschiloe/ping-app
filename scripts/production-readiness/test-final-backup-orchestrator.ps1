@@ -8,12 +8,42 @@ if ($errors.Count -gt 0) { throw "PowerShell parse errors: $($errors.Count)" }
 if ($LASTEXITCODE -ne 0) { throw 'orchestrator validation failed' }
 
 $projectRef = 'wbigqhtuzfmpnxservlf'
-$functionNames = @('Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Get-PostgresServerCommandMap', 'Test-PostgresServerCommandMap', 'Assert-PublicRowCounts')
+$functionNames = @('ConvertTo-WindowsProcessArgument', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Get-PostgresServerCommandMap', 'Test-PostgresServerCommandMap', 'Assert-PublicRowCounts')
 foreach ($functionName in $functionNames) {
   $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
   if (-not $functionAst) { throw "missing function: $functionName" }
   Invoke-Expression $functionAst.Extent.Text
 }
+$script:RunStopwatch = [Diagnostics.Stopwatch]::StartNew()
+$script:ChildProcesses = [System.Collections.ArrayList]::new()
+$script:CurrentStage = 'TEST'
+$source = Get-Content -LiteralPath $scriptPath -Raw
+$requiredStages = @(
+  'CAPTURE_BASELINE', 'DATABASE_FULL_DUMP', 'DATABASE_SCHEMA_DUMP', 'DATABASE_DATA_DUMP',
+  'RESTORE_LIST', 'RESTORE_EXTRACT', 'AUTH_EXPORT', 'STORAGE_METADATA', 'STORAGE_BINARY_DOWNLOAD',
+  'PRODUCTION_PRECHECK', 'LOCAL_RESTORE_INIT', 'LOCAL_RESTORE_START', 'LOCAL_RESTORE_DATABASE_CREATE',
+  'LOCAL_RESTORE_APPLY', 'LOCAL_RESTORE_VERIFY_COUNTS', 'BACKUP_COMPRESS', 'BACKUP_ENCRYPT',
+  'BACKUP_VALIDATE', 'FINALIZE'
+)
+foreach ($stageName in $requiredStages) {
+  if ($source -notmatch [regex]::Escape("Invoke-Stage '$stageName'")) { throw "stage marker missing: $stageName" }
+}
+if ($source -notmatch 'STORAGE_PROGRESS=\$index/\$totalObjects') { throw 'storage progress marker missing' }
+if ($source -notmatch 'TimeoutSec 120') { throw 'storage timeout missing' }
+if ($source -notmatch 'TIMEOUT:STORAGE_BINARY_DOWNLOAD:\$index') { throw 'storage timeout classification missing' }
+if ($source -notmatch 'Stop-ActiveExternalProcesses' -or $source -notmatch 'Stop-LocalPostgres') { throw 'failure cleanup hooks missing' }
+$powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+try {
+  Invoke-ExternalProcess $powershell @('-NoProfile', '-Command', 'Start-Sleep -Seconds 5') 1 'TEST_PROCESS_TIMEOUT' | Out-Null
+  throw 'external process timeout was not enforced'
+} catch {
+  if ($_.Exception.Message -notmatch 'TIMEOUT:TEST_PROCESS_TIMEOUT') { throw }
+}
+if ($script:ChildProcesses.Count -ne 0) { throw 'timed out process was not removed from cleanup registry' }
+Write-Output 'STAGE_MARKER_TESTS=PASS'
+Write-Output 'PROCESS_TIMEOUT_TESTS=PASS'
+Write-Output 'STORAGE_TIMEOUT_TESTS=PASS'
+Write-Output 'FAILURE_CLEANUP_TESTS=PASS'
 $server17Candidates = @(
   [pscustomobject]@{ Major = '16'; BinDir = 'C:\Program Files\PostgreSQL\16\bin' },
   [pscustomobject]@{ Major = '17'; BinDir = 'C:\Program Files\PostgreSQL\17\bin' },
