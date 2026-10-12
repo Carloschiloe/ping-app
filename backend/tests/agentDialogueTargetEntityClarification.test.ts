@@ -6,14 +6,21 @@
 // naming or picking one must complete the ORIGINAL objective, never be
 // treated as an unrelated new turn.
 //
-// Unlike agentDialoguePendingClarification.test.ts (which mocks the LLM
-// interpreters because "Tengo que llamar a Pedro" matches no deterministic
-// write verb), this uses the REAL deterministic verb path ("Completa" is a
-// COMPLETE_VERB match in agentObjectiveInterpreter.service.ts) end to end --
-// no LLM interpreter mock needed at all -- and mocks only retrieval.service.ts
-// to control which candidate commitments exist, exactly like
-// agentDialogueContinuation.test.ts's own retrieval-mocking pattern.
+// "Completa" is a COMPLETE_VERB match in agentObjectiveInterpreter.service.ts.
+// The provider boundary is mocked to its deterministic implementation so
+// this suite stays offline while the real Core/planner/dialogue machinery runs.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOfflineInputInterpreter, createOfflineObjectiveInterpreter } from './helpers/offlineAgentSemantics';
+
+vi.mock('../src/services/agentInputInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentInputInterpreter.service')>();
+    return { ...actual, LlmInputInterpreter: createOfflineInputInterpreter(actual) };
+});
+
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return { ...actual, LlmObjectiveInterpreter: createOfflineObjectiveInterpreter(actual) };
+});
 
 function commitment(id: string, title: string, dueAt: string | null = null) {
     return {
@@ -34,8 +41,20 @@ vi.mock('../src/services/retrieval.service', async (importOriginal) => {
         ...actual,
         retrieveCommitments: (...args: unknown[]) => retrieveCommitmentsMock(...args),
         retrieveCommitmentProposals: vi.fn(async () => []),
+        retrieveCommitmentEvents: vi.fn(async () => []),
+        retrieveMessages: vi.fn(async () => []),
+        retrieveTranscriptions: vi.fn(async () => []),
+        retrieveAttachments: vi.fn(async () => []),
+        resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
+        retrieveVisibleCommitmentById: vi.fn(async () => null),
+        dedupeProvenance: (items: unknown[]) => items,
     };
 });
+
+vi.mock('../src/services/memory.service', () => ({
+    retrieveMemory: vi.fn(async () => []),
+    ingestMemoryFromEvent: vi.fn(async () => undefined),
+}));
 
 let runAgentTurn: typeof import('../src/services/agentTurn.service').runAgentTurn;
 let clearAgentDialogueStateForTests: typeof import('../src/services/agentDialogueState.service').clearAgentDialogueStateForTests;
@@ -52,11 +71,15 @@ const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111';
 const ENTRENAR_THURSDAY_ID = 'c0000000-0000-4000-8000-000000000001';
 const ENTRENAR_FRIDAY_ID = 'c0000000-0000-4000-8000-000000000002';
 const ENTRENAR_ONLY_ID = 'c0000000-0000-4000-8000-000000000003';
+const TEST_NOW = new Date('2026-09-20T00:00:00.000Z');
 
 beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_NOW);
     vi.resetModules();
     const turnModule = await import('../src/services/agentTurn.service');
-    runAgentTurn = turnModule.runAgentTurn;
+    const runAgentTurnCore = turnModule.runAgentTurn;
+    runAgentTurn = (input, options) => runAgentTurnCore(input, { now: TEST_NOW, ...options });
     const dialogueModule = await import('../src/services/agentDialogueState.service');
     clearAgentDialogueStateForTests = dialogueModule.clearAgentDialogueStateForTests;
     AgentDialogueStateService = dialogueModule.AgentDialogueStateService;
@@ -67,11 +90,12 @@ beforeEach(async () => {
 
 afterEach(() => {
     clearAgentDialogueStateForTests();
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
 async function askWhichEntrenar(actorUserId: string = ACTOR, conversationId: string = CONVERSATION_ID) {
-    retrieveCommitmentsMock.mockResolvedValueOnce([
+    retrieveCommitmentsMock.mockImplementation(async () => [
         commitment(ENTRENAR_THURSDAY_ID, 'Entrenar', '2026-09-24T09:00:00.000Z'),
         commitment(ENTRENAR_FRIDAY_ID, 'Entrenar', '2026-09-25T09:00:00.000Z'),
     ]);

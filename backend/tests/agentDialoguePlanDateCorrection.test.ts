@@ -6,10 +6,21 @@
 // letting the OLD plan/digest remain confirmable.
 //
 // Uses the REAL deterministic verb path end to end ("Mueve" matches
-// RESCHEDULE_VERB in agentObjectiveInterpreter.service.ts) -- no LLM
-// interpreter mock needed -- mocking only retrieval.service.ts, exactly like
-// agentDialogueTargetEntityClarification.test.ts's own pattern.
+// RESCHEDULE_VERB in agentObjectiveInterpreter.service.ts). The provider
+// boundary is mocked to its deterministic implementation so this suite never
+// depends on OpenAI availability in CI; Core/planner behavior remains real.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOfflineInputInterpreter, createOfflineObjectiveInterpreter } from './helpers/offlineAgentSemantics';
+
+vi.mock('../src/services/agentInputInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentInputInterpreter.service')>();
+    return { ...actual, LlmInputInterpreter: createOfflineInputInterpreter(actual) };
+});
+
+vi.mock('../src/services/agentObjectiveInterpreter.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/agentObjectiveInterpreter.service')>();
+    return { ...actual, LlmObjectiveInterpreter: createOfflineObjectiveInterpreter(actual) };
+});
 
 function commitment(id: string, title: string, dueAt: string | null = null) {
     return {
@@ -40,6 +51,7 @@ vi.mock('../src/services/retrieval.service', async (importOriginal) => {
         retrieveMessages: vi.fn(async () => []),
         retrieveTranscriptions: vi.fn(async () => []),
         retrieveAttachments: vi.fn(async () => []),
+        retrieveVisibleCommitmentById: vi.fn(async () => null),
         resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
         dedupeProvenance: (items: unknown[]) => items,
     };
