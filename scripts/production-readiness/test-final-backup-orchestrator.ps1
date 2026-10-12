@@ -51,6 +51,11 @@ if ($source -notmatch 'pre-data') { throw 'pre-data schema dump section missing'
 if ($source -notmatch 'post-data') { throw 'post-data schema dump section missing' }
 if ($source -notmatch 'SUPABASE_LOCAL_STACK_SCHEMA_PRE_DATA_APPLY') { throw 'pre-data schema restore stage missing' }
 if ($source -notmatch 'SUPABASE_LOCAL_STACK_SCHEMA_POST_DATA_APPLY') { throw 'post-data schema restore stage missing' }
+$preDataStage = $source.IndexOf('SUPABASE_LOCAL_STACK_SCHEMA_PRE_DATA_APPLY', [StringComparison]::Ordinal)
+$authStage = $source.IndexOf('SUPABASE_LOCAL_STACK_AUTH_APPLY', [StringComparison]::Ordinal)
+$dataStage = $source.IndexOf('SUPABASE_LOCAL_STACK_DATA_APPLY', [StringComparison]::Ordinal)
+$postDataStage = $source.IndexOf('SUPABASE_LOCAL_STACK_SCHEMA_POST_DATA_APPLY', [StringComparison]::Ordinal)
+if ($preDataStage -lt 0 -or $authStage -lt 0 -or $dataStage -lt 0 -or $postDataStage -lt 0 -or -not ($preDataStage -lt $authStage -and $authStage -lt $dataStage -and $dataStage -lt $postDataStage)) { throw 'restore phase order is invalid' }
 if ($source -notmatch "return 'PG_DUMP_APPLICATION_ONLY'") { throw 'application schema/data dump is not using native pg_dump' }
 if ($source -notmatch "\$dumpMode = 'PG_DUMP_APPLICATION_ONLY'") { throw 'backup evidence does not use actual application dump mode' }
 if ($source -notmatch '\$pgDumpAll = \$client\.PgDumpAll') { throw 'pg_dumpall is not paired with the selected PostgreSQL client' }
