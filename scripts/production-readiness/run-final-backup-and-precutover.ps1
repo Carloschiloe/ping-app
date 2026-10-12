@@ -27,6 +27,7 @@ $StorageInventoryPath = Join-Path $WorkRoot 'storage-inventory.json'
 $StorageManifestPath = Join-Path $WorkRoot 'storage-binaries-manifest.json'
 $PublicRowCountsPath = Join-Path $WorkRoot 'public-row-counts.json'
 $RestoreListPath = Join-Path $WorkRoot 'application-restore-inspection.json'
+$EncryptionVerificationPath = Join-Path $RunRoot 'backup-encryption-verification.zip'
 $LegacyPublicTables = @(
   'profiles', 'messages', 'commitments', 'subscriptions', 'contacts', 'conversations',
   'conversation_participants', 'message_reactions', 'user_calendar_accounts', 'ai_messages',
@@ -159,7 +160,7 @@ function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlP
     Invoke-Checked $PgRestorePath @('--dbname', $localDbUrl, '--data-only', '--no-owner', '--no-privileges', '--exit-on-error', $AuthDumpPath) 'SUPABASE_LOCAL_STACK_AUTH_APPLY' 600
     Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $ApplicationDataPath) 'SUPABASE_LOCAL_STACK_DATA_APPLY' 600
     $countQueries = foreach ($tableName in $LegacyPublicTables) { "select '$tableName' table_name, count(*)::bigint row_count from public.$tableName" }
-    $countsSql = "with counts as ($($countQueries -join ' union all ')) select json_build_object('counts', (select json_object_agg(table_name, row_count) from counts), 'total', (select coalesce(sum(row_count), 0)::bigint from counts), 'auth_users', (select count(*) from auth.users))::text;"
+    $countsSql = "with counts as ($($countQueries -join ' union all ')) select json_build_object('counts', (select json_object_agg(table_name, row_count) from counts), 'total', (select coalesce(sum(row_count), 0)::bigint from counts), 'auth_users', (select count(*) from auth.users), 'auth_user_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.users), 'auth_identities', (select count(*) from auth.identities), 'auth_identity_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.identities))::text;"
     $countsSqlPath = Join-Path $WorkPath 'restore-counts.sql'
     [IO.File]::WriteAllText($countsSqlPath, $countsSql, [Text.UTF8Encoding]::new($false))
     $countResult = Invoke-ExternalProcess $PsqlPath @('--dbname', $localDbUrl, '--quiet', '--tuples-only', '--no-align', '--file', $countsSqlPath) 120 'SUPABASE_LOCAL_STACK_VERIFY'
@@ -167,6 +168,9 @@ function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlP
     $rehearsalCounts = $countResult.StdOut.Trim() | ConvertFrom-Json
     Assert-PublicRowCounts $rehearsalCounts $ExpectedPublicCounts
     if ([int64]$rehearsalCounts.auth_users -ne [int64]$ExpectedPublicCounts.auth_users) { throw 'SUPABASE_LOCAL_STACK_AUTH_COUNT_MISMATCH' }
+    if ((Get-StringArrayHash $rehearsalCounts.auth_user_ids) -ne (Get-StringArrayHash $ExpectedPublicCounts.auth_user_ids)) { throw 'SUPABASE_LOCAL_STACK_AUTH_USER_ID_MISMATCH' }
+    if ([int64]$rehearsalCounts.auth_identities -ne [int64]$ExpectedPublicCounts.auth_identities) { throw 'SUPABASE_LOCAL_STACK_AUTH_IDENTITY_COUNT_MISMATCH' }
+    if ((Get-StringArrayHash $rehearsalCounts.auth_identity_ids) -ne (Get-StringArrayHash $ExpectedPublicCounts.auth_identity_ids)) { throw 'SUPABASE_LOCAL_STACK_AUTH_IDENTITY_ID_MISMATCH' }
     return 'SUPABASE_LOCAL_STACK_PASS'
   } finally {
     if ($started) { try { Invoke-ExternalProcess $SupabaseCli (Get-SupabaseCliArguments $SupabaseCli @('stop', '--workdir', $stackRoot, '--no-backup')) 120 'SUPABASE_LOCAL_STACK_STOP' | Out-Null } catch { } }
@@ -436,6 +440,17 @@ function Get-Hash([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-BytesHash([byte[]]$Bytes) {
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return ([BitConverter]::ToString($sha.ComputeHash($Bytes)) -replace '-', '').ToLowerInvariant() }
+  finally { $sha.Dispose() }
+}
+
+function Get-StringArrayHash([object]$Values) {
+  $canonical = (@($Values | ForEach-Object { [string]$_ } | Sort-Object) -join "`n")
+  return Get-BytesHash ([Text.Encoding]::UTF8.GetBytes($canonical))
+}
+
 function Assert-PublicRowCounts([object]$Actual, [object]$Expected) {
   foreach ($tableName in $LegacyPublicTables) {
     $actualCount = [int64]$Actual.counts.$tableName
@@ -443,6 +458,22 @@ function Assert-PublicRowCounts([object]$Actual, [object]$Expected) {
     if ($actualCount -ne $expectedCount) { throw "PUBLIC_ROW_COUNT_MISMATCH:$tableName" }
   }
   if ([int64]$Actual.total -ne [int64]$Expected.total) { throw 'PUBLIC_ROW_TOTAL_MISMATCH' }
+}
+
+function Assert-StorageInventory([object]$Inventory, [object]$ExpectedCounts) {
+  if ($null -eq $Inventory.buckets -or $null -eq $Inventory.objects) { throw 'STORAGE_INVENTORY_METADATA_INCOMPLETE' }
+  $buckets = @($Inventory.buckets)
+  $objects = @($Inventory.objects)
+  if ($buckets.Count -ne [int64]$ExpectedCounts.storage_buckets) { throw 'STORAGE_BUCKET_METADATA_COUNT_MISMATCH' }
+  if ($objects.Count -ne [int64]$ExpectedCounts.storage_objects) { throw 'STORAGE_OBJECT_METADATA_COUNT_MISMATCH' }
+  foreach ($bucket in $buckets) {
+    $bucketProperties = @($bucket.PSObject.Properties.Name)
+    if ([string]::IsNullOrWhiteSpace([string]$bucket.id) -or [string]::IsNullOrWhiteSpace([string]$bucket.name) -or $bucketProperties -notcontains 'public' -or $bucketProperties -notcontains 'file_size_limit' -or $bucketProperties -notcontains 'allowed_mime_types') { throw 'STORAGE_BUCKET_METADATA_INCOMPLETE' }
+  }
+  foreach ($object in $objects) {
+    $objectProperties = @($object.PSObject.Properties.Name)
+    if ([string]::IsNullOrWhiteSpace([string]$object.bucket) -or [string]::IsNullOrWhiteSpace([string]$object.path) -or $objectProperties -notcontains 'metadata' -or $objectProperties -notcontains 'created_at' -or $objectProperties -notcontains 'updated_at') { throw 'STORAGE_OBJECT_METADATA_INCOMPLETE' }
+  }
 }
 
 function Assert-ProductionDatabaseTarget([string]$DbUrl) {
@@ -457,20 +488,20 @@ function Assert-ProductionDatabaseTarget([string]$DbUrl) {
 }
 
 function Protect-File([string]$InputPath, [string]$OutputPath, [string]$MetadataPath, [string]$Passphrase) {
-  $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider
+  $rng = [Security.Cryptography.RNGCryptoServiceProvider]::new()
   $salt = New-Object byte[] 16
   $rng.GetBytes($salt)
   $aes = [Security.Cryptography.Aes]::Create()
   $aes.KeySize = 256
   $aes.Mode = [Security.Cryptography.CipherMode]::CBC
   $aes.Padding = [Security.Cryptography.PaddingMode]::PKCS7
-  $kdf = New-Object Security.Cryptography.Rfc2898DeriveBytes($Passphrase, $salt, 210000)
+  $kdf = [Security.Cryptography.Rfc2898DeriveBytes]::new($Passphrase, $salt, 210000)
   $aes.Key = $kdf.GetBytes(32)
   $iv = $aes.IV
   $plain = [IO.File]::ReadAllBytes($InputPath)
   $cipher = $aes.CreateEncryptor().TransformFinalBlock($plain, 0, $plain.Length)
   $hmacKey = $kdf.GetBytes(32)
-  $hmac = New-Object Security.Cryptography.HMACSHA256($hmacKey)
+  $hmac = [Security.Cryptography.HMACSHA256]::new($hmacKey)
   $authInput = New-Object byte[] ($salt.Length + $iv.Length + $cipher.Length)
   [Buffer]::BlockCopy($salt, 0, $authInput, 0, $salt.Length)
   [Buffer]::BlockCopy($iv, 0, $authInput, $salt.Length, $iv.Length)
@@ -484,6 +515,36 @@ function Protect-File([string]$InputPath, [string]$OutputPath, [string]$Metadata
     hmacCovers = 'salt+iv+ciphertext'
   } | ConvertTo-Json | Set-Content -LiteralPath $MetadataPath -Encoding UTF8
   $aes.Dispose(); $kdf.Dispose(); $hmac.Dispose(); $rng.Dispose()
+}
+
+function Assert-ProtectedFile([string]$EncryptedPath, [string]$MetadataPath, [string]$Passphrase, [string]$ExpectedPlainSha256, [string]$VerificationPath) {
+  $metadata = Get-Content -LiteralPath $MetadataPath -Raw | ConvertFrom-Json
+  if ($metadata.format -ne 'PING-AES-CBC-HMAC-SHA256-v1' -or [int]$metadata.iterations -ne 210000) { throw 'BACKUP_ENCRYPTION_METADATA_INVALID' }
+  if ((Get-Hash $EncryptedPath) -ne [string]$metadata.ciphertextSha256) { throw 'BACKUP_ENCRYPTION_CIPHERTEXT_HASH_MISMATCH' }
+  $salt = [Convert]::FromBase64String([string]$metadata.salt)
+  $iv = [Convert]::FromBase64String([string]$metadata.iv)
+  $cipher = [IO.File]::ReadAllBytes($EncryptedPath)
+  $kdf = [Security.Cryptography.Rfc2898DeriveBytes]::new($Passphrase, $salt, [int]$metadata.iterations)
+  $aes = [Security.Cryptography.Aes]::Create()
+  $hmac = $null
+  try {
+    $aes.KeySize = 256; $aes.Mode = [Security.Cryptography.CipherMode]::CBC; $aes.Padding = [Security.Cryptography.PaddingMode]::PKCS7
+    $aes.Key = $kdf.GetBytes(32); $aes.IV = $iv
+    $hmac = [Security.Cryptography.HMACSHA256]::new($kdf.GetBytes(32))
+    $authInput = New-Object byte[] ($salt.Length + $iv.Length + $cipher.Length)
+    [Buffer]::BlockCopy($salt, 0, $authInput, 0, $salt.Length)
+    [Buffer]::BlockCopy($iv, 0, $authInput, $salt.Length, $iv.Length)
+    [Buffer]::BlockCopy($cipher, 0, $authInput, $salt.Length + $iv.Length, $cipher.Length)
+    $actualTag = $hmac.ComputeHash($authInput)
+    $expectedTag = [Convert]::FromBase64String([string]$metadata.hmacSha256)
+    if (([BitConverter]::ToString($actualTag) -replace '-', '') -ne ([BitConverter]::ToString($expectedTag) -replace '-', '')) { throw 'BACKUP_ENCRYPTION_HMAC_MISMATCH' }
+    $plain = $aes.CreateDecryptor().TransformFinalBlock($cipher, 0, $cipher.Length)
+    [IO.File]::WriteAllBytes($VerificationPath, $plain)
+    if ((Get-Hash $VerificationPath) -ne $ExpectedPlainSha256) { throw 'BACKUP_ENCRYPTION_ROUNDTRIP_HASH_MISMATCH' }
+  } finally {
+    if ($null -ne $hmac) { $hmac.Dispose() }
+    $aes.Dispose(); $kdf.Dispose()
+  }
 }
 
 function Validate-Precheck([string]$Path) {
@@ -573,6 +634,9 @@ select json_build_object(
   'counts', (select json_object_agg(table_name, row_count) from counts),
   'total', (select coalesce(sum(row_count), 0)::bigint from counts),
   'auth_users', (select count(*) from auth.users),
+  'auth_user_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.users),
+  'auth_identities', (select count(*) from auth.identities),
+  'auth_identity_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.identities),
   'storage_buckets', (select count(*) from storage.buckets where id in ('chat-media', 'recordings')),
   'storage_objects', (select count(*) from storage.objects where bucket_id in ('chat-media', 'recordings'))
 )::text;
@@ -580,8 +644,9 @@ select json_build_object(
   $publicCounts = Invoke-Stage 'CAPTURE_BASELINE' {
     return (Invoke-PsqlScalar $psql $dbUrl $publicCountsSql 'CAPTURE_BASELINE' | ConvertFrom-Json)
   }
-  if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total -or $null -eq $publicCounts.auth_users -or $null -eq $publicCounts.storage_buckets -or $null -eq $publicCounts.storage_objects) { throw 'PRODUCTION_BASELINE_INVALID' }
-  if ([int64]$publicCounts.auth_users -lt 0 -or [int64]$publicCounts.storage_buckets -lt 0 -or [int64]$publicCounts.storage_objects -lt 0) { throw "PRODUCTION_BASELINE_INVALID:auth=$($publicCounts.auth_users),buckets=$($publicCounts.storage_buckets),objects=$($publicCounts.storage_objects)" }
+  if ($null -eq $publicCounts.counts -or $null -eq $publicCounts.total -or $null -eq $publicCounts.auth_users -or $null -eq $publicCounts.auth_user_ids -or $null -eq $publicCounts.auth_identities -or $null -eq $publicCounts.auth_identity_ids -or $null -eq $publicCounts.storage_buckets -or $null -eq $publicCounts.storage_objects) { throw 'PRODUCTION_BASELINE_INVALID' }
+  if ([int64]$publicCounts.auth_users -lt 0 -or [int64]$publicCounts.auth_identities -lt 0 -or [int64]$publicCounts.storage_buckets -lt 0 -or [int64]$publicCounts.storage_objects -lt 0) { throw "PRODUCTION_BASELINE_INVALID:auth=$($publicCounts.auth_users),identities=$($publicCounts.auth_identities),buckets=$($publicCounts.storage_buckets),objects=$($publicCounts.storage_objects)" }
+  $authIdentityIdsSha256 = Get-StringArrayHash $publicCounts.auth_identity_ids
   if (-not (Test-Path -LiteralPath $SnapshotPath)) { throw 'PRODUCTION_SNAPSHOT_MISSING' }
   $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json
   if ($snapshot.projectRef -ne $ProjectRef -or $snapshot.publicTableCount -ne 18) { throw 'PRODUCTION_SNAPSHOT_TARGET_INVALID' }
@@ -596,13 +661,12 @@ select json_build_object(
   Write-Status 'PUBLIC_ROW_SNAPSHOT_TOTAL' $snapshotPublicRowCount
   Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
-  $dumpMode = Invoke-Stage 'DATABASE_FULL_DUMP' {
-    if ($supabaseCli) { return 'SUPABASE_CLI_DB_DUMP' }
-    return 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK'
-  }
+  $dumpMode = Invoke-Stage 'DATABASE_FULL_DUMP' { return 'NATIVE_PG_DUMP_APPLICATION_ONLY' }
   $schemaMode = Invoke-Stage 'DATABASE_SCHEMA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaDumpPath 'schema' }
   $dataMode = Invoke-Stage 'DATABASE_DATA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationDataDumpPath 'data' }
   $rolesMode = Invoke-Stage 'DATABASE_ROLES_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationRolesDumpPath 'roles' }
+  if ($schemaMode -ne 'PG_DUMP_APPLICATION_ONLY' -or $dataMode -ne 'PG_DUMP_APPLICATION_ONLY') { throw 'APPLICATION_DUMP_TOOL_MISMATCH' }
+  $dumpMode = 'PG_DUMP_APPLICATION_ONLY'
   $dumpManifest = Invoke-Stage 'RESTORE_LIST' {
     Assert-ApplicationDumpPortable @($ApplicationSchemaDumpPath, $ApplicationDataDumpPath, $ApplicationRolesDumpPath)
     $manifest = [ordered]@{
@@ -648,12 +712,14 @@ from auth.users;
 select json_build_object(
   'bucket_count', (select count(*) from storage.buckets where id in ('chat-media','recordings')),
   'object_count', (select count(*) from storage.objects where bucket_id in ('chat-media','recordings')),
-  'objects', coalesce((select json_agg(json_build_object('bucket', bucket_id, 'path', name) order by bucket_id, name) from storage.objects where bucket_id in ('chat-media','recordings')), '[]'::json)
+  'buckets', coalesce((select json_agg(json_build_object('id', id, 'name', name, 'public', public, 'file_size_limit', file_size_limit, 'allowed_mime_types', allowed_mime_types) order by id) from storage.buckets where id in ('chat-media','recordings')), '[]'::json),
+  'objects', coalesce((select json_agg(json_build_object('bucket', bucket_id, 'path', name, 'metadata', metadata, 'created_at', created_at, 'updated_at', updated_at) order by bucket_id, name) from storage.objects where bucket_id in ('chat-media','recordings')), '[]'::json)
 )::text;
 '@
   $storageJson = Invoke-Stage 'STORAGE_METADATA' {
     $value = Invoke-PsqlScalar $psql $dbUrl $storageSql 'STORAGE_METADATA' | ConvertFrom-Json
     if ($value.bucket_count -ne $publicCounts.storage_buckets -or $value.object_count -ne $publicCounts.storage_objects) { throw "STORAGE_BASELINE_MISMATCH:$($value.bucket_count)/$($value.object_count):expected=$($publicCounts.storage_buckets)/$($publicCounts.storage_objects)" }
+    Assert-StorageInventory $value $publicCounts
     $value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StorageInventoryPath -Encoding UTF8
     return $value
   }
@@ -706,14 +772,15 @@ select json_build_object(
     projectRef = $ProjectRef; backupId = "ping-$Stamp"; schemaBackupSha256 = Get-Hash $ApplicationSchemaDumpPath
     dataBackupSha256 = Get-Hash $ApplicationDataDumpPath; applicationSchemaBackupSha256 = Get-Hash $ApplicationSchemaDumpPath
     applicationDataBackupSha256 = Get-Hash $ApplicationDataDumpPath; applicationRolesBackupSha256 = Get-Hash $ApplicationRolesDumpPath
-    authRecoveryBackupSha256 = Get-Hash $AuthRecoveryDumpPath; backupTool = $dumpMode
+    authRecoveryBackupSha256 = Get-Hash $AuthRecoveryDumpPath; backupTool = $dumpMode; applicationDumpTool = $dumpMode; rolesDumpTool = $rolesMode
     managedSchemasExcludedFromApplicationDump = $true; genericManagedRestoreAttempted = $false
     authRecoveryMode = 'SUPABASE_MANAGED_RECOVERY_ARTIFACT'; appPortableValidation = 'PASS'; storageInventoryId = "storage-$Stamp"
     storageBinaryBackupId = "storage-binaries-$Stamp"; storageBinaryBackupSha256 = Get-Hash $StorageManifestPath
     restoreVerificationId = "supabase-local-stack-restore-$Stamp"; createdAt = (Get-Date).ToUniversalTime().ToString('o')
     encrypted = $true; outsideProvider = $true; BACKUP_CREATED = 'YES'; BACKUP_VERIFIED = 'YES'
-    database = 'PASS'; auth = 'PASS'; storageMetadata = 'PASS'; storageBinaries = "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"
+    database = 'PASS'; auth = 'PASS'; authUserIdsSha256 = (Get-StringArrayHash $publicCounts.auth_user_ids); authIdentityBaseline = $publicCounts.auth_identities; authIdentityIdsSha256 = $authIdentityIdsSha256; storageMetadata = 'PASS'; storageInventoryValidation = 'PASS'; storageBinaries = "$(@($objectHashes).Count)/$($publicCounts.storage_objects)"
     sha256 = 'PASS'; restoreRehearsal = $restoreStatus; productionPrecheck = 'PASS_WITH_EXPECTED_LEGACY_REVIEW'
+    encryptedPackageRoundTrip = 'PASS'
     publicRowCounts = $publicCounts.counts; publicRowTotal = $publicCounts.total; authUserBaseline = $publicCounts.auth_users; storageBucketBaseline = $publicCounts.storage_buckets; storageObjectBaseline = $publicCounts.storage_objects; historicalSnapshotPublicRowCount = $snapshotPublicRowCount
     publicRowBaseline = 'CAPTURED_AND_PRESERVED'
   }
@@ -722,6 +789,10 @@ select json_build_object(
     Compress-Archive -Path (Join-Path $WorkRoot '*') -DestinationPath $ZipPath -CompressionLevel Optimal
   }
   Invoke-Stage 'BACKUP_ENCRYPT' { Protect-File -InputPath $ZipPath -OutputPath $EncryptedPath -MetadataPath $CryptoMetaPath -Passphrase $passphrase }
+  Invoke-Stage 'BACKUP_ENCRYPT_VERIFY' {
+    Assert-ProtectedFile $EncryptedPath $CryptoMetaPath $passphrase (Get-Hash $ZipPath) $EncryptionVerificationPath
+    Remove-Item -LiteralPath $EncryptionVerificationPath -Force -ErrorAction SilentlyContinue
+  }
   Invoke-Stage 'BACKUP_VALIDATE' {
     $evidence = Get-Content -LiteralPath (Join-Path $WorkRoot 'evidence.json') -Raw
     $evidence | Set-Content -LiteralPath $EvidencePath -Encoding UTF8
@@ -744,6 +815,7 @@ select json_build_object(
   if ($created) {
     Remove-Item -LiteralPath $WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $EncryptionVerificationPath -Force -ErrorAction SilentlyContinue
   }
   $dbUrl = $null; $passphrase = $null
 }

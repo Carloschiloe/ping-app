@@ -8,7 +8,7 @@ if ($errors.Count -gt 0) { throw "PowerShell parse errors: $($errors.Count)" }
 if ($LASTEXITCODE -ne 0) { throw 'orchestrator validation failed' }
 
 $projectRef = 'wbigqhtuzfmpnxservlf'
-$functionNames = @('Get-SafeStageDetail', 'ConvertTo-WindowsProcessArgument', 'Stop-ProcessTree', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Find-SupabaseCli', 'Invoke-ApplicationDump', 'Assert-ApplicationDumpPortable', 'Get-PortableApplicationSchemaPath', 'Invoke-SupabaseLocalStackRehearsal', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Assert-PublicRowCounts')
+$functionNames = @('Get-SafeStageDetail', 'ConvertTo-WindowsProcessArgument', 'Stop-ProcessTree', 'Invoke-ExternalProcess', 'Stop-ActiveExternalProcesses', 'Find-SupabaseCli', 'Invoke-ApplicationDump', 'Assert-ApplicationDumpPortable', 'Get-PortableApplicationSchemaPath', 'Invoke-SupabaseLocalStackRehearsal', 'Get-PostgresMajorRank', 'Get-PostgresSearchRoots', 'Select-PostgresClientCandidate', 'Get-Hash', 'Assert-PublicRowCounts', 'Get-BytesHash', 'Get-StringArrayHash', 'Assert-StorageInventory', 'Protect-File', 'Assert-ProtectedFile')
 foreach ($functionName in $functionNames) {
   $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
   if (-not $functionAst) { throw "missing function: $functionName" }
@@ -23,7 +23,7 @@ $requiredStages = @(
   'DATABASE_ROLES_DUMP', 'RESTORE_LIST', 'RESTORE_EXTRACT', 'AUTH_EXPORT', 'AUTH_RECOVERY_EXPORT',
   'STORAGE_METADATA', 'STORAGE_BINARY_DOWNLOAD', 'PRODUCTION_PRECHECK', 'APP_RESTORE_REHEARSAL',
   'BACKUP_COMPRESS', 'BACKUP_ENCRYPT',
-  'BACKUP_VALIDATE', 'FINALIZE'
+  'BACKUP_VALIDATE', 'FINALIZE', 'BACKUP_ENCRYPT_VERIFY'
 )
 foreach ($stageName in $requiredStages) {
   if ($source -notmatch [regex]::Escape("Invoke-Stage '$stageName'")) { throw "stage marker missing: $stageName" }
@@ -39,15 +39,21 @@ if ($source -notmatch 'SUPABASE_MANAGED_RECOVERY_ARTIFACT') { throw 'managed Aut
 if ($source -notmatch 'SUPABASE_LOCAL_STACK_PASS') { throw 'Supabase local-stack rehearsal missing' }
 if ($source -notmatch "'--table=auth.users'") { throw 'Auth users recovery export missing' }
 if ($source -notmatch "'--table=auth.identities'") { throw 'Auth identities recovery export missing' }
+if ($source -notmatch "'auth_identities'") { throw 'Auth identity baseline missing' }
+if ($source -notmatch 'SUPABASE_LOCAL_STACK_AUTH_USER_ID_MISMATCH') { throw 'Auth user ID preservation check missing' }
+if ($source -notmatch 'SUPABASE_LOCAL_STACK_AUTH_IDENTITY_ID_MISMATCH') { throw 'Auth identity ID preservation check missing' }
 if ($source -notmatch "'--data-only'") { throw 'Auth recovery local apply must be data-only' }
 if ($source -notmatch "'--role-only'") { throw 'application roles export missing' }
 if ($source -notmatch "'--schema=public'") { throw 'application dump public schema scope missing' }
 if ($source -notmatch "'--schema=supabase_migrations'") { throw 'application dump migration schema scope missing' }
 if ($source -notmatch "return 'PG_DUMP_APPLICATION_ONLY'") { throw 'application schema/data dump is not using native pg_dump' }
+if ($source -notmatch "\$dumpMode = 'PG_DUMP_APPLICATION_ONLY'") { throw 'backup evidence does not use actual application dump mode' }
 if ($source -notmatch '\$pgDumpAll = \$client\.PgDumpAll') { throw 'pg_dumpall is not paired with the selected PostgreSQL client' }
 if ($source -notmatch 'PgDumpAll = \$dumpAll') { throw 'selected PostgreSQL client does not carry pg_dumpall from the same bin directory' }
 if ($source -notmatch 'supabase@2\.120\.0') { throw 'Supabase CLI version is not pinned' }
 if ($source -notmatch 'localStackExclusions') { throw 'minimal local stack exclusions missing' }
+if ($source -notmatch 'Assert-StorageInventory') { throw 'storage metadata validation missing' }
+if ($source -notmatch 'Assert-ProtectedFile') { throw 'encrypted package round-trip validation missing' }
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 try {
   Invoke-ExternalProcess $powershell @('-NoProfile', '-Command', 'Start-Sleep -Seconds 5') 1 'TEST_PROCESS_TIMEOUT' | Out-Null
@@ -112,6 +118,24 @@ try {
   Remove-Item -LiteralPath $portableSchemaRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Output 'PORTABLE_APPLICATION_SCHEMA_TESTS=PASS'
+$storageFixture = '{"buckets":[{"id":"chat-media","name":"chat-media","public":true,"file_size_limit":null,"allowed_mime_types":null}],"objects":[{"bucket":"chat-media","path":"sample.bin","metadata":null,"created_at":null,"updated_at":null}]}' | ConvertFrom-Json
+Assert-StorageInventory $storageFixture ([pscustomobject]@{ storage_buckets = 1; storage_objects = 1 })
+Write-Output 'STORAGE_METADATA_TESTS=PASS'
+$cryptoRoot = Join-Path ([IO.Path]::GetTempPath()) ("ping-crypto-roundtrip-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $cryptoRoot -Force | Out-Null
+try {
+  $plainPath = Join-Path $cryptoRoot 'plain.bin'
+  $encryptedPath = Join-Path $cryptoRoot 'plain.bin.enc'
+  $metadataPath = Join-Path $cryptoRoot 'plain.bin.crypto.json'
+  $verificationPath = Join-Path $cryptoRoot 'verified.bin'
+  [IO.File]::WriteAllBytes($plainPath, [Text.Encoding]::UTF8.GetBytes('Ping backup encryption round-trip'))
+  Protect-File $plainPath $encryptedPath $metadataPath 'offline-test-passphrase'
+  Assert-ProtectedFile $encryptedPath $metadataPath 'offline-test-passphrase' (Get-Hash $plainPath) $verificationPath
+  if ((Get-Hash $verificationPath) -ne (Get-Hash $plainPath)) { throw 'encrypted round-trip output mismatch' }
+} finally {
+  Remove-Item -LiteralPath $cryptoRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+Write-Output 'ENCRYPTION_ROUNDTRIP_TESTS=PASS'
 $server17Candidates = @(
   [pscustomobject]@{ Major = '16'; BinDir = 'C:\Program Files\PostgreSQL\16\bin' },
   [pscustomobject]@{ Major = '17'; BinDir = 'C:\Program Files\PostgreSQL\17\bin' },

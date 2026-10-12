@@ -71,12 +71,14 @@ test('backup gate accepts a complete runtime public-row baseline', async () => {
       restoreVerificationId: 'r', createdAt: '2026-10-09T00:00:00Z', encrypted: true,
       outsideProvider: true, BACKUP_CREATED: 'YES', BACKUP_VERIFIED: 'YES', publicRowCounts,
       publicRowTotal: 0, authUserBaseline: 0, storageBucketBaseline: 0,
-      storageObjectBaseline: 0, publicRowBaseline: 'CAPTURED_AND_PRESERVED',
-      backupTool: 'PG_DUMP_APPLICATION_ONLY_DOCUMENTED_FALLBACK',
+      storageObjectBaseline: 0, authUserIdsSha256: '3'.repeat(64), authIdentityBaseline: 0, authIdentityIdsSha256: '2'.repeat(64),
+      publicRowBaseline: 'CAPTURED_AND_PRESERVED',
+      backupTool: 'PG_DUMP_APPLICATION_ONLY', applicationDumpTool: 'PG_DUMP_APPLICATION_ONLY', rolesDumpTool: 'PG_DUMPALL_ROLES',
       authRecoveryMode: 'SUPABASE_MANAGED_RECOVERY_ARTIFACT', restoreRehearsal: 'SUPABASE_LOCAL_STACK_PASS',
       appPortableValidation: 'PASS', managedSchemasExcludedFromApplicationDump: true,
       genericManagedRestoreAttempted: false, database: 'PASS', auth: 'PASS', storageMetadata: 'PASS',
-      storageBinaries: '0/0', sha256: 'PASS', productionPrecheck: 'PASS_WITH_EXPECTED_LEGACY_REVIEW',
+      storageInventoryValidation: 'PASS', storageBinaries: '0/0', sha256: 'PASS',
+      encryptedPackageRoundTrip: 'PASS', productionPrecheck: 'PASS_WITH_EXPECTED_LEGACY_REVIEW',
     };
     await writeFile(join(dir, 'evidence.json'), JSON.stringify(evidence));
     const child = spawn(process.execPath, ['scripts/production-readiness/validate-backup-gate.mjs', join(dir, 'evidence.json')], { cwd: process.cwd() });
