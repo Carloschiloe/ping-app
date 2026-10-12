@@ -18,6 +18,8 @@ $EvidencePath = Join-Path $RunRoot 'evidence.json'
 $SnapshotPath = Join-Path $RepoRoot 'docs\production-readiness\production-snapshot-20261010.json'
 $PrecheckPath = Join-Path $WorkRoot 'production-bridge-precheck.csv'
 $ApplicationSchemaDumpPath = Join-Path $WorkRoot 'application-schema.sql'
+$ApplicationSchemaPreDataDumpPath = Join-Path $WorkRoot 'application-schema-pre-data.sql'
+$ApplicationSchemaPostDataDumpPath = Join-Path $WorkRoot 'application-schema-post-data.sql'
 $ApplicationDataDumpPath = Join-Path $WorkRoot 'application-data.sql'
 $ApplicationRolesDumpPath = Join-Path $WorkRoot 'application-roles.sql'
 $AuthRecoveryDumpPath = Join-Path $WorkRoot 'auth-recovery.dump'
@@ -93,7 +95,7 @@ function Get-SupabaseCliArguments([string]$SupabaseCli, [string[]]$Arguments) {
   return $Arguments
 }
 
-function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [string]$PgDumpAllPath, [string]$DbUrl, [string]$OutputPath, [ValidateSet('schema', 'data', 'roles')][string]$Kind) {
+function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [string]$PgDumpAllPath, [string]$DbUrl, [string]$OutputPath, [ValidateSet('schema', 'data', 'roles')][string]$Kind, [ValidateSet('', 'pre-data', 'post-data')][string]$SchemaSection = '') {
   if ($Kind -eq 'roles') {
     if ($PgDumpAllPath) {
       Invoke-Checked $PgDumpAllPath @('--dbname', $DbUrl, '--roles-only', '--no-role-passwords', '--no-owner', '--file', $OutputPath) 'APPLICATION_ROLES_DUMP' 600
@@ -110,14 +112,11 @@ function Invoke-ApplicationDump([string]$SupabaseCli, [string]$PgDumpPath, [stri
   # The Supabase CLI remains reserved for the local-stack rehearsal. This avoids
   # wrapper-specific exit-code/output behavior and makes the schema boundary explicit.
   $arguments = @('--dbname', $DbUrl, '--format=plain', '--no-owner', '--no-privileges', '--no-acl', '--schema=public', '--schema=supabase_migrations')
-  if ($Kind -eq 'schema') { $arguments += '--schema-only' }
-  if ($Kind -eq 'data') {
-    # A plain data-only dump is replayed through psql during the Supabase
-    # local-stack rehearsal. Disable user triggers while loading it so
-    # foreign-key checks do not depend on pg_dump's table order; PostgreSQL
-    # re-enables them after each table and the rehearsal verifies final counts.
-    $arguments += @('--data-only', '--disable-triggers')
+  if ($Kind -eq 'schema') {
+    $arguments += '--schema-only'
+    if ($SchemaSection) { $arguments += "--section=$SchemaSection" }
   }
+  if ($Kind -eq 'data') { $arguments += '--data-only' }
   $arguments += @('--file', $OutputPath)
   Invoke-Checked $PgDumpPath $arguments ("APPLICATION_{0}_DUMP" -f $Kind.ToUpperInvariant()) 600
   return 'PG_DUMP_APPLICATION_ONLY'
@@ -143,7 +142,7 @@ function Get-PortableApplicationSchemaPath([string]$ApplicationSchemaPath, [stri
   return $portablePath
 }
 
-function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlPath, [string]$PgRestorePath, [string]$AuthDumpPath, [string]$ApplicationSchemaPath, [string]$ApplicationDataPath, [string]$WorkPath, [object]$ExpectedPublicCounts) {
+function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlPath, [string]$PgRestorePath, [string]$AuthDumpPath, [string]$ApplicationSchemaPreDataPath, [string]$ApplicationSchemaPostDataPath, [string]$ApplicationDataPath, [string]$WorkPath, [object]$ExpectedPublicCounts) {
   if (-not $SupabaseCli) { throw 'SUPABASE_LOCAL_STACK_UNAVAILABLE:CLI_MISSING' }
   if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue) -and -not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'SUPABASE_LOCAL_STACK_UNAVAILABLE:DOCKER_MISSING' }
   $stackRoot = Join-Path $WorkPath 'supabase-local-stack'
@@ -161,10 +160,12 @@ function Invoke-SupabaseLocalStackRehearsal([string]$SupabaseCli, [string]$PsqlP
     $dbMatch = [regex]::Match($status.StdOut, '(?m)^DB_URL=(.+)$')
     if (-not $dbMatch.Success) { throw 'SUPABASE_LOCAL_STACK_DB_URL_MISSING' }
     $localDbUrl = $dbMatch.Groups[1].Value.Trim().Trim('''').Trim('"')
-    $portableSchemaPath = Get-PortableApplicationSchemaPath $ApplicationSchemaPath $WorkPath
-    Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $portableSchemaPath) 'SUPABASE_LOCAL_STACK_SCHEMA_APPLY' 600
+    $portableSchemaPreDataPath = Get-PortableApplicationSchemaPath $ApplicationSchemaPreDataPath $WorkPath
+    $portableSchemaPostDataPath = Get-PortableApplicationSchemaPath $ApplicationSchemaPostDataPath $WorkPath
+    Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $portableSchemaPreDataPath) 'SUPABASE_LOCAL_STACK_SCHEMA_PRE_DATA_APPLY' 600
     Invoke-Checked $PgRestorePath @('--dbname', $localDbUrl, '--data-only', '--no-owner', '--no-privileges', '--exit-on-error', $AuthDumpPath) 'SUPABASE_LOCAL_STACK_AUTH_APPLY' 600
     Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $ApplicationDataPath) 'SUPABASE_LOCAL_STACK_DATA_APPLY' 600
+    Invoke-Checked $PsqlPath @('--dbname', $localDbUrl, '--set', 'ON_ERROR_STOP=1', '--file', $portableSchemaPostDataPath) 'SUPABASE_LOCAL_STACK_SCHEMA_POST_DATA_APPLY' 600
     $countQueries = foreach ($tableName in $LegacyPublicTables) { "select '$tableName' table_name, count(*)::bigint row_count from public.$tableName" }
     $countsSql = "with counts as ($($countQueries -join ' union all ')) select json_build_object('counts', (select json_object_agg(table_name, row_count) from counts), 'total', (select coalesce(sum(row_count), 0)::bigint from counts), 'auth_users', (select count(*) from auth.users), 'auth_user_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.users), 'auth_identities', (select count(*) from auth.identities), 'auth_identity_ids', (select coalesce(json_agg(id::text order by id), '[]'::json) from auth.identities))::text;"
     $countsSqlPath = Join-Path $WorkPath 'restore-counts.sql'
@@ -668,13 +669,18 @@ select json_build_object(
   Write-Status 'PUBLIC_ROW_DELTA_FROM_SNAPSHOT' ([int64]$publicCounts.total - $snapshotPublicRowCount)
 
   $dumpMode = Invoke-Stage 'DATABASE_FULL_DUMP' { return 'NATIVE_PG_DUMP_APPLICATION_ONLY' }
-  $schemaMode = Invoke-Stage 'DATABASE_SCHEMA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaDumpPath 'schema' }
+  $schemaMode = Invoke-Stage 'DATABASE_SCHEMA_DUMP' {
+    $mode = Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaDumpPath 'schema'
+    Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaPreDataDumpPath 'schema' 'pre-data' | Out-Null
+    Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationSchemaPostDataDumpPath 'schema' 'post-data' | Out-Null
+    return $mode
+  }
   $dataMode = Invoke-Stage 'DATABASE_DATA_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationDataDumpPath 'data' }
   $rolesMode = Invoke-Stage 'DATABASE_ROLES_DUMP' { Invoke-ApplicationDump $supabaseCli $pgDump $pgDumpAll $dbUrl $ApplicationRolesDumpPath 'roles' }
   if ($schemaMode -ne 'PG_DUMP_APPLICATION_ONLY' -or $dataMode -ne 'PG_DUMP_APPLICATION_ONLY') { throw 'APPLICATION_DUMP_TOOL_MISMATCH' }
   $dumpMode = 'PG_DUMP_APPLICATION_ONLY'
   $dumpManifest = Invoke-Stage 'RESTORE_LIST' {
-    Assert-ApplicationDumpPortable @($ApplicationSchemaDumpPath, $ApplicationDataDumpPath, $ApplicationRolesDumpPath)
+    Assert-ApplicationDumpPortable @($ApplicationSchemaDumpPath, $ApplicationSchemaPreDataDumpPath, $ApplicationSchemaPostDataDumpPath, $ApplicationDataDumpPath, $ApplicationRolesDumpPath)
     $manifest = [ordered]@{
       applicationSchemas = @('public', 'supabase_migrations')
       managedSchemasExcluded = @('auth', 'storage', 'extensions')
@@ -770,7 +776,7 @@ select json_build_object(
   }
 
   $restoreStatus = Invoke-Stage 'APP_RESTORE_REHEARSAL' {
-    Invoke-SupabaseLocalStackRehearsal $supabaseCli $psql $pgRestore $AuthRecoveryDumpPath $ApplicationSchemaDumpPath $ApplicationDataDumpPath $WorkRoot $publicCounts
+    Invoke-SupabaseLocalStackRehearsal $supabaseCli $psql $pgRestore $AuthRecoveryDumpPath $ApplicationSchemaPreDataDumpPath $ApplicationSchemaPostDataDumpPath $ApplicationDataDumpPath $WorkRoot $publicCounts
   }
   if ($restoreStatus -ne 'SUPABASE_LOCAL_STACK_PASS') { throw "RESTORE_REHEARSAL_NOT_COMPLETE:$restoreStatus" }
 
