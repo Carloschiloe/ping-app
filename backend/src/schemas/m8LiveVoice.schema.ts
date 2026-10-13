@@ -38,6 +38,9 @@ export const m8LiveVoiceTelemetrySchema = z.object({
             'core_request_started',
             'core_response_received',
             'reconnect_attempt',
+            'confirmation_received',
+            'plan_pending_confirmation',
+            'input_ignored',
         ]),
         atMs: z.number().int().min(0).max(86_400_000),
         sessionId: z.string().trim().min(1).max(160).optional(),
@@ -71,6 +74,10 @@ export const m8LiveVoiceTelemetrySchema = z.object({
         iceState: z.string().trim().max(40).optional(),
         audioState: z.string().trim().max(40).optional(),
         conversationPresent: z.boolean().optional(),
+        responseHasAudio: z.boolean().optional(),
+        confirmationState: z.enum(['required', 'received']).optional(),
+        planDigestPresent: z.boolean().optional(),
+        stepCount: z.number().int().min(0).max(100).optional(),
     }).strict(),
 });
 

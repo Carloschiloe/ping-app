@@ -159,7 +159,13 @@ async function failBestEffort(
 
 function defaultDependencies(): AgentTurnDurableBoundaryDeps {
     return {
-        admission: createPrivateAgentTurnAdmissionService(),
+        // Staging keeps the direct Session Pooler transport used by the M7
+        // rehearsal. Production does not receive that staging-only secret:
+        // its backend service_role client is already restricted to server
+        // code and can invoke the same locked-down SECURITY DEFINER RPCs.
+        admission: process.env.PING_M7_DATABASE_URL
+            ? createPrivateAgentTurnAdmissionService()
+            : new AgentTurnAdmissionService(),
         checkpoint: new AgentDialogueCheckpointService(),
         commit: new AgentTurnCommitService(),
     };

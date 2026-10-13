@@ -9,6 +9,11 @@ const MAX_TELEMETRY_EVENTS = 500;
 const TELEMETRY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TELEMETRY_BUCKET = 'm8-live-voice-telemetry';
 
+function realtimeLanguage(locale: string | undefined): string {
+    const language = (locale || 'es-CL').trim().split(/[-_]/)[0]?.toLowerCase() ?? '';
+    return /^[a-z]{2}$/.test(language) ? language : 'es';
+}
+
 function providerError(response: Response, bodyText: string): AppError {
     let body: any = null;
     try { body = JSON.parse(bodyText); } catch { /* keep a generic sanitized diagnostic */ }
@@ -82,20 +87,32 @@ function coreToolDefinition() {
 }
 
 function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
+    const language = realtimeLanguage(input.locale);
     return {
         type: 'realtime',
         model,
         instructions: [
             'Eres la interfaz de voz de Ping, no un agente separado.',
+            'Habla siempre en español de Chile, con una dicción natural, cálida y clara. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
             'Para cada turno del usuario debes llamar a ping_core_turn con la transcripción exacta que entendiste.',
             'Antes de recibir el resultado de Ping Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
             'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
             'Una propuesta nunca es una ejecución: conserva siempre la confirmación explícita requerida por el Core.',
-            `Idioma preferido: ${input.locale || 'es-CL'}. Zona horaria: ${input.timezone || 'America/Santiago'}.`,
+            `Idioma de transcripción y respuesta: ${language}. Zona horaria: ${input.timezone || 'America/Santiago'}.`,
         ].join(' '),
         audio: {
-            input: { turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false, interrupt_response: true } },
-            output: { voice: process.env.M8_LIVE_VOICE_OUTPUT_VOICE?.trim() || 'marin' },
+            input: {
+                transcription: {
+                    model: process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-mini-transcribe',
+                    language,
+                    prompt: 'Transcribe en español de Chile. Conserva nombres propios, fechas, horas y números; no traduzcas ni agregues palabras.',
+                },
+                turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false, interrupt_response: true },
+            },
+            // OpenAI currently recommends marin or cedar for highest quality;
+            // cedar is the default here because the previous marin baseline
+            // was reported as unnatural in the physical production probe.
+            output: { voice: process.env.M8_LIVE_VOICE_OUTPUT_VOICE?.trim() || 'cedar' },
         },
         tools: [coreToolDefinition()],
         tool_choice: 'required',

@@ -3,7 +3,7 @@ import { M8_VOICE_PROTOCOL_VERSION } from './m8VoiceBootstrapProtocol';
 import { M8_VOICE_CONFIRMATION_BROWSER_SOURCE } from './m8VoiceConfirmationContract.service';
 import { M8_VOICE_PRESENTATION_BROWSER_SOURCE } from './m8VoicePresentation.service';
 
-// Credential-free WebView client served by the HTTPS staging origin. The
+// Credential-free WebView client served by the configured HTTPS Ping origin. The
 // native shell injects the authenticated session envelope; this document
 // never contains a provider key, SDP in telemetry, or raw conversation text.
 // The bootstrap is a bounded, idempotent protocol: every wait has a timeout,
@@ -113,8 +113,8 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
       remote.onplaying=()=>{if(!firstAudioSent){firstAudioSent=true;telemetry('first_useful_audio',{sideEffects:0})}};
       mic.getTracks().forEach(track=>pc.addTrack(track,mic));stage('peer_created','Preparando conexión de voz','Creando oferta segura.');
       dc=pc.createDataChannel('oai-events');dc.onmessage=onEvent;dc.onopen=()=>{telemetry('audio_transport',{detailCode:'data_channel_open',sideEffects:0})};dc.onclose=()=>{telemetry('audio_transport',{detailCode:'data_channel_closed',sideEffects:0})};dc.onerror=()=>{telemetry('error',{detailCode:'data_channel_error',sideEffects:0});fail('data_channel_error',new Error('data_channel_error'))};
-      const offer=await withTimeout(pc.createOffer(),10000,'offer_timeout');stage('offer_created','Oferta creada','Negociando la sesión.');await withTimeout(pc.setLocalDescription(offer),10000,'local_description_timeout');stage('ice_gathering','Preparando red de voz','Esperando los candidatos de conexión.');await waitForIceGathering();const negotiatedSdp=pc.localDescription?.sdp;if(!negotiatedSdp)throw new Error('local_description_missing_after_ice');stage('rtc_negotiating','Negociando sesión','Contactando al backend de staging.');
-      stage('voice_session_requested','Autenticando voz','Abriendo sesión segura en staging.');
+      const offer=await withTimeout(pc.createOffer(),10000,'offer_timeout');stage('offer_created','Oferta creada','Negociando la sesión.');await withTimeout(pc.setLocalDescription(offer),10000,'local_description_timeout');stage('ice_gathering','Preparando red de voz','Esperando los candidatos de conexión.');await waitForIceGathering();const negotiatedSdp=pc.localDescription?.sdp;if(!negotiatedSdp)throw new Error('local_description_missing_after_ice');stage('rtc_negotiating','Negociando sesión','Contactando al servidor de Ping.');
+      stage('voice_session_requested','Autenticando voz','Abriendo una sesión segura con Ping.');
       const response=await withTimeout(fetch(cfg.apiUrl+'/agent/voice/live/session',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json'},body:JSON.stringify({sdp:negotiatedSdp,voiceSessionId:cfg.voiceSessionId,deviceSessionId:cfg.deviceSessionId,conversationId:cfg.conversationId,locale:cfg.locale,timezone:cfg.timezone})}),20000,'session_request_timeout');
       stage('voice_session_received',response.ok?'Sesión aceptada':'Sesión rechazada','Finalizando conexión.',{httpStatus:response.status});
       const body=await response.text();let result=null;try{result=JSON.parse(body)}catch{}
