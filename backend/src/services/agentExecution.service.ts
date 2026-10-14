@@ -213,11 +213,35 @@ export function buildResult(authorizationId: string, stepResults: AgentExecution
 
     // Sección 69/70: prosa determinística derivada del registro real de
     // ejecución -- nunca "Hecho" salvo verificación real, nunca prosa
-    // independientemente alucinada.
+    // independientemente alucinada. No expongas `toolId` aquí: es un
+    // identificador técnico en inglés (`create_commitment`, etc.) y esta
+    // cadena se entrega directamente al usuario y al sintetizador de voz.
+    // La respuesta de Core debe ser lenguaje humano, no el nombre interno
+    // del executor.
+    const actionDescription = (toolId: string): { success: string; waiting: string; failure: string } => {
+        switch (toolId) {
+            case 'send_message':
+                return { success: 'El mensaje fue enviado y verificado.', waiting: 'El envío del mensaje queda pendiente', failure: 'No se pudo enviar el mensaje' };
+            case 'create_commitment':
+                return { success: 'El compromiso fue creado y verificado.', waiting: 'La creación del compromiso queda pendiente', failure: 'No se pudo crear el compromiso' };
+            case 'remember_fact':
+                return { success: 'El dato fue guardado y verificado.', waiting: 'El guardado del dato queda pendiente', failure: 'No se pudo guardar el dato' };
+            case 'respond_to_proposal':
+                return { success: 'La respuesta a la propuesta fue registrada y verificada.', waiting: 'La respuesta a la propuesta queda pendiente', failure: 'No se pudo registrar la respuesta a la propuesta' };
+            case 'reschedule_commitment':
+                return { success: 'La fecha del compromiso fue actualizada y verificada.', waiting: 'La actualización de la fecha queda pendiente', failure: 'No se pudo actualizar la fecha del compromiso' };
+            case 'complete_commitment':
+                return { success: 'El compromiso fue completado y verificado.', waiting: 'La finalización del compromiso queda pendiente', failure: 'No se pudo completar el compromiso' };
+            case 'cancel_commitment':
+                return { success: 'El compromiso fue cancelado y verificado.', waiting: 'La cancelación del compromiso queda pendiente', failure: 'No se pudo cancelar el compromiso' };
+            default:
+                return { success: 'La acción fue completada y verificada.', waiting: 'La acción queda pendiente', failure: 'No se pudo ejecutar la acción' };
+        }
+    };
     const lines: string[] = [];
-    for (const s of executedSteps) lines.push(`✓ ${s.toolId} completado y verificado.`);
-    for (const s of waitingSteps) lines.push(`⏳ ${s.toolId} queda pendiente${s.waitingOn ? `: ${s.waitingOn}` : ' de una condición futura'} (requiere nueva autorización cuando se resuelva).`);
-    for (const s of failedSteps) lines.push(`✗ ${s.toolId} no se ejecutó (${s.failureCode ?? 'motivo desconocido'}).`);
+    for (const s of executedSteps) lines.push(`✓ ${actionDescription(s.toolId).success}`);
+    for (const s of waitingSteps) lines.push(`⏳ ${actionDescription(s.toolId).waiting}${s.waitingOn ? `: ${s.waitingOn}` : ' de una condición futura'} (requiere nueva autorización cuando se resuelva).`);
+    for (const s of failedSteps) lines.push(`✗ ${actionDescription(s.toolId).failure} (${s.failureCode ?? 'motivo desconocido'}).`);
     const humanReadableSummary = lines.length > 0 ? lines.join('\n') : 'No se ejecutó ningún paso.';
 
     return {
