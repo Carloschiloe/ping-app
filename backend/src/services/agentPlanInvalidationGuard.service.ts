@@ -1,5 +1,6 @@
 import { agentDialogueCheckpointService } from './agentDialogueCheckpoint.service';
 import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
+import { resolveTextSurface } from './agentInputEnvelope.service';
 import type { AgentObjective } from '../types/agentPlan';
 
 // Process-local defense for the default in-memory dialogue boundary. Staging
@@ -38,19 +39,14 @@ export function clearPlanDigestInvalidationsForTests(): void {
     processInvalidatedDigests.clear();
 }
 
-function resolveSurface(channel?: string): 'mobile_text' | 'mobile_voice' | 'web' | 'desktop' | 'tablet' | 'car' | 'device' {
-    return channel === 'web' ? 'web'
-        : channel === 'desktop' ? 'desktop'
-            : channel === 'mobile_voice' ? 'mobile_voice'
-            : channel === 'tablet' ? 'tablet'
-                : channel === 'car' ? 'car'
-                    : channel === 'device' ? 'device'
-                        : 'mobile_text';
-}
-
-function buildScope(conversationId: string | null | undefined, surface: ReturnType<typeof resolveSurface>): string {
+// Keep this scope projection identical to buildDialogueScopeKey's canonical
+// mobile rule: text and live voice without a conversationId are the same Ping
+// Agent dialogue. The authorization boundary must read the same checkpoint
+// that the durable turn boundary just committed.
+function buildScope(conversationId: string | null | undefined, channel?: string): string {
+    const surface = resolveTextSurface(channel);
     if (conversationId) return conversationId;
-    return `agent:${surface === 'mobile_text' ? 'mobile' : surface}`;
+    return `agent:${surface === 'mobile_text' || surface === 'mobile_voice' ? 'mobile' : surface}`;
 }
 
 export async function isPlanDigestNonExecutable(input: {
@@ -62,7 +58,7 @@ export async function isPlanDigestNonExecutable(input: {
 }): Promise<boolean> {
     const dialogueScopeKey = buildScope(
         input.inputEnvelope?.conversationId ?? input.conversationId,
-        resolveSurface(input.inputEnvelope?.surface ?? input.channel),
+        input.inputEnvelope?.surface ?? input.channel,
     );
     if (processInvalidatedDigests.has(processDigestKey(input.actorUserId, dialogueScopeKey, input.planDigest))) return true;
     if (!isCanonicalDurableAgentRuntimeEnabled()) return false;
@@ -92,7 +88,7 @@ export async function loadPendingDialogueObjective(input: {
     if (!isCanonicalDurableAgentRuntimeEnabled()) return null;
     const dialogueScopeKey = buildScope(
         input.inputEnvelope?.conversationId ?? input.conversationId,
-        resolveSurface(input.inputEnvelope?.surface ?? input.channel),
+        input.inputEnvelope?.surface ?? input.channel,
     );
     const checkpoint = await agentDialogueCheckpointService.loadDialogueCheckpoint({
         actorUserId: input.actorUserId,
