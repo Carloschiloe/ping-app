@@ -7,14 +7,34 @@ import { Request, Response } from 'express';
 import { executeAuthorization } from '../services/agentExecution.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
+import {
+    isAgentConversationTurnPersistenceEnabled,
+    persistAgentExecutionConversationEvent,
+} from '../services/agentConversationTurn.service';
 
 export const execute = async (req: Request, res: Response): Promise<void> => {
     try {
         const actorUserId = req.user!.id;
-        const { authorizationId } = req.body;
+        const { authorizationId, conversationId, sourceTurnKey } = req.body;
         const traceId = generateTraceId();
 
         const result = await executeAuthorization({ authorizationId, actorUserId, traceId });
+        if (isAgentConversationTurnPersistenceEnabled() && conversationId && sourceTurnKey) {
+            try {
+                await persistAgentExecutionConversationEvent({
+                    actorUserId,
+                    conversationId,
+                    sourceTurnKey,
+                    execution: result,
+                });
+            } catch (historyError: any) {
+                // Execution is canonical. A projection failure must not hide
+                // the already-completed domain result from the client.
+                console.warn('[AgentHistory] execution projection skipped', {
+                    code: historyError instanceof AppError ? historyError.statusCode : 'unknown',
+                });
+            }
+        }
         res.status(200).json(result);
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;

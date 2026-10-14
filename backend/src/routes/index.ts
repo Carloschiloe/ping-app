@@ -18,6 +18,7 @@ import * as attachmentController from '../controllers/attachment.controller';
 import * as agentController from '../controllers/agent.controller';
 import * as agentPlanController from '../controllers/agentPlan.controller';
 import * as agentTurnController from '../controllers/agentTurn.controller';
+import * as agentConversationTurnController from '../controllers/agentConversationTurn.controller';
 import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
@@ -189,6 +190,7 @@ router.post(
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
+router.get('/conversations/:id/agent-turns', requireAuth, agentConversationTurnController.list);
 router.get(
     '/conversations/:id/shared-content',
     requireAuth,

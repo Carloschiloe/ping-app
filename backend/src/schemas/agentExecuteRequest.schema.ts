@@ -8,5 +8,11 @@ import { z } from 'zod';
 export const agentExecuteRequestSchema = z.object({
     body: z.object({
         authorizationId: z.string().uuid(),
+        conversationId: z.string().uuid().optional(),
+        sourceTurnKey: z.string().trim().min(1).max(240).optional(),
+    }).superRefine((body, context) => {
+        if ((body.conversationId && !body.sourceTurnKey) || (!body.conversationId && body.sourceTurnKey)) {
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'conversationId and sourceTurnKey must be provided together' });
+        }
     }),
 });

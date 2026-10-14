@@ -8,6 +8,11 @@ import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
 import { isDurableGeneralAgentTurnEnabled } from '../services/agentTurnDurableBoundary.service';
+import {
+    isAgentConversationTurnPersistenceEnabled,
+    persistAgentConversationTurn,
+} from '../services/agentConversationTurn.service';
+import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
@@ -22,6 +27,16 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 readCapability: req.body.readCapability, conversationId: req.body.conversationId,
                 locale: req.body.locale, timezone: req.body.timezone,
             });
+            if (isAgentConversationTurnPersistenceEnabled() && req.body.conversationId) {
+                await persistAgentConversationTurn({
+                    actorUserId,
+                    conversationId: req.body.conversationId,
+                    clientTurnKey: idempotencyKey,
+                    inputText: req.body.input,
+                    inputMode: 'text',
+                    result,
+                });
+            }
             res.status(200).json(result);
             return;
         }
@@ -42,9 +57,31 @@ export async function turn(req: Request, res: Response): Promise<void> {
             timezone: req.body.timezone,
             traceId,
         };
+        // When durable history is enabled, signed voice envelopes are the
+        // authoritative source for the conversation and transcript. Never
+        // persist client copies of those values.
+        const historyInput = isAgentConversationTurnPersistenceEnabled()
+            ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
+            : null;
         const result = durableEnabled
             ? await runCanonicalAgentTurn(turnInput, {}, idempotencyKey!)
             : await runAgentTurn(turnInput);
+
+        const historyConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
+        if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
+            await persistAgentConversationTurn({
+                actorUserId,
+                conversationId: historyConversationId,
+                clientTurnKey: idempotencyKey ?? traceId,
+                inputText: historyInput.envelope.content,
+                inputMode: req.body.reviewedVoiceInputToken
+                    ? 'reviewed_voice_text'
+                    : req.body.voiceInputToken
+                        ? 'voice'
+                        : 'text',
+                result,
+            });
+        }
 
         // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render
         res.status(200).json(result);
