@@ -76,6 +76,10 @@ describe('M8 live voice environment boundary', () => {
         expect(session).toContain('gpt-realtime-2.1');
         expect(session).toContain('"create_response":false');
         expect(session).toContain('"interrupt_response":true');
+        expect(session).toContain('"language":"es"');
+        expect(session).toContain('gpt-4o-mini-transcribe');
+        expect(session).toContain('español de Chile');
+        expect(session).toContain('"voice":"cedar"');
         expect(result.sdp).toBe('v=0\\r\\nanswer');
     });
 
@@ -189,6 +193,9 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("m8_diagnostic_error");
         expect(html).toContain("fail(currentStage,error,error?.httpStatus)");
         expect(html).toContain('Configurando la conversación segura.');
+        expect(html).toContain('Contactando al servidor de Ping.');
+        expect(html).not.toContain('backend de staging');
+        expect(html).not.toContain('sesión segura en staging');
         expect(html).not.toMatch(/[ÃÂ�]/);
         expect(html).toContain('<script nonce="unit-test-nonce">');
         expect(html).not.toContain('__M8_SCRIPT_NONCE__');

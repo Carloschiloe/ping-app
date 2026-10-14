@@ -22,8 +22,11 @@ performed from this preparation branch.
 - [ ] Reconciliation report has no `UNKNOWN`, `DIVERGED`, or unreviewed risk.
 - [ ] Production env manifest is configured with production-only values; no
       staging ref, staging key, `PING_M7_DATABASE_URL`, or staging origin.
-- [ ] `PING_ENVIRONMENT=production`, `PING_SEMANTIC_MODEL=gpt-6-luna`, and
-      `PING_SEMANTIC_MODEL_FAMILY=modern_reasoning` are explicitly configured.
+- [ ] `PING_ENVIRONMENT=production`, `PING_SEMANTIC_MODEL=gpt-6-luna`,
+      `PING_SEMANTIC_MODEL_FAMILY=modern_reasoning`, and
+      `PING_ENABLE_DURABLE_AGENT_TURN=true` are explicitly configured. The
+      durable gate uses the existing backend Supabase service-role transport;
+      `PING_M7_DATABASE_URL` remains staging-only and must not be copied.
 - [ ] RC SHA is verified as `ac7d72af5dfd4a9744a356eca6539bab75609b22`.
 
 ## Execution order

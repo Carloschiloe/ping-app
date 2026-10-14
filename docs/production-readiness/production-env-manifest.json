@@ -4,6 +4,7 @@
     "PING_ENVIRONMENT": "production",
     "PING_SEMANTIC_MODEL": "gpt-6-luna",
     "PING_SEMANTIC_MODEL_FAMILY": "modern_reasoning",
+    "PING_ENABLE_DURABLE_AGENT_TURN": "true",
     "M8_LIVE_VOICE_ENABLED": "true",
     "M8_LIVE_VOICE_MODEL": "gpt-realtime-2.1",
     "SUPABASE_URL": "secret; host must be wbigqhtuzfmpnxservlf.supabase.co",

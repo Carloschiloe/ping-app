@@ -24,11 +24,15 @@ type LiveConfig = {
     timezone: string;
 };
 
-function deviceLocale(): string {
+function voiceLocale(): string {
     try {
         const locale = Localization.getLocales?.()[0];
-        if (locale?.languageTag) return locale.languageTag;
-        if (locale?.languageCode) return locale.regionCode ? `${locale.languageCode}-${locale.regionCode}` : locale.languageCode;
+        const candidate = locale?.languageTag
+            || (locale?.languageCode ? (locale.regionCode ? `${locale.languageCode}-${locale.regionCode}` : locale.languageCode) : null);
+        // Ping's current voice experience is Spanish-first. Do not let an
+        // English device locale make the realtime agent answer half in
+        // English; a future language selector can make this explicit.
+        if (candidate && /^es(?:-|$)/i.test(candidate)) return candidate;
     } catch { /* fallback below */ }
     return 'es-CL';
 }
@@ -47,7 +51,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         conversationId,
         voiceSessionId: createEphemeralUuid(),
         deviceSessionId: createEphemeralUuid(),
-        locale: deviceLocale(),
+        locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
     } : null, [authorization, conversationId]);
 
