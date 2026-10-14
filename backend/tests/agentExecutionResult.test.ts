@@ -27,14 +27,14 @@ describe('buildResult — status priority (M-4 sección 7, "STAGING PUBLICATION"
         expect(result.status).toBe('done');
         expect(result.executedSteps).toHaveLength(2);
         expect(result.failedSteps).toHaveLength(0);
-        expect(result.humanReadableSummary).toBe('✓ send_message completado y verificado.\n✓ create_commitment completado y verificado.');
+        expect(result.humanReadableSummary).toBe('✓ El mensaje fue enviado y verificado.\n✓ El compromiso fue creado y verificado.');
     });
 
     it('un paso failed_terminal, sin ningún succeeded -> status="failed"', () => {
         const result = buildResult('auth-1', [step({ status: 'failed_terminal', failureCode: 'not_authorized', verified: false })]);
         expect(result.status).toBe('failed');
         expect(result.executedSteps).toHaveLength(0);
-        expect(result.humanReadableSummary).toMatch(/✗ send_message no se ejecutó \(not_authorized\)\./);
+        expect(result.humanReadableSummary).toMatch(/✗ No se pudo enviar el mensaje \(not_authorized\)\./);
     });
 
     it('un paso succeeded + un paso failed_terminal -> status="partially_done" (nunca "done" pese a que algo sí se ejecutó)', () => {
@@ -58,7 +58,7 @@ describe('buildResult — status priority (M-4 sección 7, "STAGING PUBLICATION"
         ]);
         expect(result.status).toBe('waiting');
         expect(result.requiresFurtherAuthorization).toBe(true);
-        expect(result.humanReadableSummary).toMatch(/⏳ create_commitment queda pendiente: respuesta de Alejandra/);
+        expect(result.humanReadableSummary).toMatch(/⏳ La creación del compromiso queda pendiente: respuesta de Alejandra/);
     });
 
     it('un paso skipped_condition Y un paso failed_terminal (fallo real presente) -> el fallo real degrada a "partially_done" incluso con un paso waiting, nunca se queda en "waiting"', () => {
