@@ -13,11 +13,23 @@ import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agen
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
 import { isPlanDigestNonExecutable, loadPendingDialogueObjective } from './agentPlanInvalidationGuard.service';
+import { detectAgentLanguage } from '../utils/agentLanguage';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
 // mockeando Date global.
 export const AUTHORIZATION_TTL_MS = 5 * 60 * 1000;
+
+function planChangedMessage(input: AuthorizePlanInput, kind: 'unavailable' | 'changed'): string {
+    if (detectAgentLanguage(input.input, input.locale) === 'es') {
+        return kind === 'unavailable'
+            ? 'No pude reconstruir el compromiso pendiente para confirmarlo. No se creó ni modificó nada.'
+            : 'El plan cambió desde que te lo mostré. Revísalo nuevamente antes de confirmarlo.';
+    }
+    return kind === 'unavailable'
+        ? 'The pending request could not be rebuilt for confirmation. Nothing was created or changed.'
+        : 'The plan changed since it was shown to you. Please review it again before authorizing.';
+}
 
 export interface AuthorizePlanInput {
     actorUserId: string;
@@ -123,7 +135,7 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     });
 
     if (freshPlan.status !== 'ready_for_authorization' || !freshPlan.planDigest) {
-        return { ok: false, failureCode: 'plan_changed', message: 'The request can no longer be planned the way it was described — nothing was authorized.' };
+        return { ok: false, failureCode: 'plan_changed', message: planChangedMessage(input, 'unavailable') };
     }
 
     // El corazón del binding (sección 5/9/62 adversarial C): si CUALQUIER
@@ -133,7 +145,7 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // exactamente el caso adversarial que el ticket exige cerrar.
     if (freshPlan.planDigest !== input.planDigest) {
         traceAuth(input.traceId, 'DIGEST_MISMATCH', { freshDigest: freshPlan.planDigest, claimedDigest: input.planDigest });
-        return { ok: false, failureCode: 'plan_changed', message: 'The plan has changed since it was shown to you — please review it again before authorizing.' };
+        return { ok: false, failureCode: 'plan_changed', message: planChangedMessage(input, 'changed') };
     }
 
     const policy = canAuthorize({
