@@ -1168,7 +1168,15 @@ function buildTemporalCommitmentListResponse(context: AgentContext, language: 'e
         const due = commitment.dueAt
             ? formatEventTimestampInZone(commitment.dueAt, context.timezone, locale)
             : (language === 'es' ? 'sin fecha' : 'no date');
-        return language === 'es' ? `${title}, ${due}.` : `${title}, ${due}.`;
+        const overdue = isCommitmentOverdue(
+            commitment.dueAt,
+            commitment.status,
+            context.now,
+            context.timezone,
+            commitment.entityType,
+        );
+        if (language === 'es') return `${title}, ${due}${overdue ? ' (vencido)' : ''}.`;
+        return `${title}, ${due}${overdue ? ' (overdue)' : ''}.`;
     });
     const scope = language === 'es'
         ? /\bhoy\b/i.test(context.input)

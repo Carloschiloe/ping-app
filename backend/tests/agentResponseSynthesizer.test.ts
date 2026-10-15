@@ -533,6 +533,34 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
+    it('una lista temporal marca como vencido lo que Core ya calculó como vencido', async () => {
+        const ctx = baseContext({
+            input: '¿Qué compromisos tengo hoy?',
+            now: '2026-09-23T20:00:00.000Z',
+            evidenceFound: true,
+            commitments: [
+                commitment('cm-vencido', { title: 'Llamar a Juan', dueAt: '2026-09-22T15:00:00Z' }),
+                commitment('cm-futuro', { title: 'Enviar el informe', dueAt: '2026-09-23T22:00:00Z' }),
+            ] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T00:00:00.000Z', to: '2026-09-24T00:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel(JSON.stringify({ claims: [] }));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.answer).toContain('Llamar a Juan');
+        expect(response.answer).toContain('(vencido)');
+        expect(response.answer).toContain('Enviar el informe');
+        expect(response.answer).not.toMatch(/Enviar el informe[^.]*\(vencido\)/);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
     it('una consulta temporal sin compromisos responde sólo sobre compromisos, aunque exista otra evidencia', async () => {
         const ctx = baseContext({
             input: '¿Qué compromisos tengo mañana?',
