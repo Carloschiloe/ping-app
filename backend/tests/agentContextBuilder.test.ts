@@ -388,6 +388,38 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(mockRetrieveCommitments).toHaveBeenCalled();
     });
 
+    it('una consulta temporal conserva modo tarea aunque el LLM la etiquete como conversación', async () => {
+        mockRetrieveCommitments.mockResolvedValue([
+            commitmentFixture({ id: 'cm-tomorrow', title: 'Llamar a Juan', dueAt: '2026-09-23T15:00:00Z' }),
+        ] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            interactionMode: 'conversation',
+            intent: 'general_context',
+            timeExpression: null,
+            temporalIntent: null,
+            wantsCommitments: false,
+            wantsMessages: false,
+        }));
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: '¿Qué tengo para mañana?', now: '2026-09-22T12:00:00Z', timezone: 'UTC' },
+            { interpreter },
+        );
+
+        expect(ctx.interactionMode).toBe('task');
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.entities.timeRange).toEqual({
+            from: '2026-09-23T00:00:00.000Z',
+            to: '2026-09-24T00:00:00.000Z',
+        });
+        expect(ctx.commitments.map((item) => item.title)).toEqual(['Llamar a Juan']);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(
+            expect.objectContaining({ timeRange: ctx.entities.timeRange }),
+            expect.any(Number),
+        );
+    });
+
     it('una comparativa reutiliza sólo la ventana temporal derivada del turno anterior', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-tomorrow', title: 'probar la voz de Ping' })] as any);
         const priorTimeRange = {

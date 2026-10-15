@@ -504,6 +504,55 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(response.answer).not.toContain('documentos');
         expect(model.synthesize).not.toHaveBeenCalled();
     });
+
+    it('una consulta temporal con compromisos responde desde Core, sin pedir detalles ni confiar en el modelo', async () => {
+        const ctx = baseContext({
+            input: '¿Qué tengo para mañana?',
+            evidenceFound: true,
+            commitments: [
+                commitment('cm-juan', { title: 'Llamar a Juan', dueAt: '2026-09-23T15:00:00Z' }),
+                commitment('cm-informe', { title: 'Enviar el informe', dueAt: '2026-09-23T18:00:00Z' }),
+            ] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T00:00:00.000Z', to: '2026-09-24T00:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel(JSON.stringify({ claims: [] }));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.status).toBe('answered');
+        expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
+        expect(response.answer).toContain('Llamar a Juan');
+        expect(response.answer).toContain('Enviar el informe');
+        expect(response.answer).not.toContain('más detalles');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
+    it('una consulta temporal sin compromisos responde sólo sobre compromisos, aunque exista otra evidencia', async () => {
+        const ctx = baseContext({
+            input: '¿Qué compromisos tengo mañana?',
+            evidenceFound: true,
+            messages: [message('msg-1', 'Mañana hablamos del presupuesto')] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T03:00:00.000Z', to: '2026-09-24T03:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel(JSON.stringify({ claims: [] }));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.answer).toBe('No tienes compromisos en el período solicitado.');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
 });
 
 describe('M-1G.1: write_action_not_supported — nunca afirma haber creado/enviado/cancelado nada', () => {

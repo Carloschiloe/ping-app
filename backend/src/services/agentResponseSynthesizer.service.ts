@@ -1141,6 +1141,56 @@ function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): Age
     return { status: 'answered', answer, claims, citations: references };
 }
 
+// A bounded temporal collection is a read over a Core-owned set, not an open
+// ended writing task for the model. Answer it from the canonical rows so a
+// synthesis model cannot replace an existing result with a generic
+// "nothing found" response or ask for a scope that the user already gave.
+function buildTemporalCommitmentListResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const commitments = context.commitments.filter((item) => item.entityType === 'commitment');
+    const references: AgentCitation[] = commitments.map((item) => ({
+        sourceType: item.provenance.sourceType,
+        sourceId: item.provenance.sourceId,
+    }));
+    if (commitments.length === 0) {
+        return {
+            status: 'answered',
+            answer: language === 'es'
+                ? 'No tienes compromisos en el período solicitado.'
+                : 'You have no commitments in the requested period.',
+            claims: [],
+            citations: [],
+        };
+    }
+
+    const locale = language === 'es' ? 'es-CL' : 'en-US';
+    const items = commitments.map((commitment) => {
+        const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+        const due = commitment.dueAt
+            ? formatEventTimestampInZone(commitment.dueAt, context.timezone, locale)
+            : (language === 'es' ? 'sin fecha' : 'no date');
+        return language === 'es' ? `${title}, ${due}.` : `${title}, ${due}.`;
+    });
+    const scope = language === 'es'
+        ? /\bhoy\b/i.test(context.input)
+            ? 'Para hoy'
+            : /\bmañana\b/i.test(context.input)
+                ? 'Para mañana'
+                : 'En el período solicitado'
+        : /\btoday\b/i.test(context.input)
+            ? 'For today'
+            : /\btomorrow\b/i.test(context.input)
+                ? 'For tomorrow'
+                : 'In the requested period';
+    const answer = language === 'es'
+        ? `${scope} tienes ${commitments.length} compromiso${commitments.length === 1 ? '' : 's'}: ${items.join(' ')}`
+        : `${scope} you have ${commitments.length} commitment${commitments.length === 1 ? '' : 's'}: ${items.join(' ')}`;
+    const claims: AgentClaim[] = commitments.map((commitment, index) => ({
+        text: items[index],
+        sourceRefs: [references[index]],
+    }));
+    return { status: 'answered', answer, claims, citations: references };
+}
+
 // A semantic follow-up is answered from the single canonical referent already
 // re-authorized by the Core. It must not fall back to the general retrieval or
 // synthesis path: that would allow unrelated commitments to contaminate a
@@ -1609,6 +1659,20 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             if (urgencyResponse) {
                 return this.withDiagnostics(urgencyResponse, 'deterministic', startedAt, sourceCount);
             }
+        }
+        if (status === 'answered'
+            && context.intent.type === 'commitment_query'
+            && context.queryCardinality === 'exhaustive_list'
+            && !!context.entities.timeRange
+            && !context.followUpAttribute
+            && !context.temporalComparison
+            && context.urgencyComparison !== 'most_urgent') {
+            return this.withDiagnostics(
+                buildTemporalCommitmentListResponse(context, language),
+                'deterministic',
+                startedAt,
+                sourceCount,
+            );
         }
 
         // status === 'answered': única rama que invoca al modelo. La

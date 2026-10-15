@@ -678,6 +678,22 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         : 'general_context';
     const normalizedWantsOverdueFocus = deterministicSignals.wantsOverdueFocus
         || (!ungroundedRawTemporalClaim && rawInterpretation.wantsOverdueFocus && hasExplicitOverdueCue(input.input));
+    // Core owns the boundary between social conversation and a domain task.
+    // A provider may label a temporal question as `conversation`, but a
+    // request such as "¿qué tengo para mañana?" still requires retrieval and
+    // a domain answer. Keep genuinely social turns conversational while
+    // forcing task mode whenever the input carries a verifiable read/write
+    // signal that must reach the corresponding pipeline.
+    const coreTaskSignal = normalizedIntent === 'commitment_query'
+        || normalizedTimeExpression !== null
+        || temporalIntent !== null
+        || normalizedWantsOverdueFocus
+        || temporalComparison !== null
+        || urgencyComparison !== null
+        || deterministicSignals.proposalFocus !== null
+        || rawInterpretation.isWriteActionRequest === true
+        || deterministicSignals.requestedTransition !== null;
+    const normalizedInteractionMode = coreTaskSignal ? 'task' : rawInterpretation.interactionMode;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -1483,7 +1499,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
-        interactionMode: interpretation.interactionMode ?? 'task',
+        interactionMode: normalizedInteractionMode ?? 'task',
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,
