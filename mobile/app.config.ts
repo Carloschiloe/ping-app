@@ -57,7 +57,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: isStaging ? 'Ping Staging' : 'Ping',
-        version: isStaging ? '1.0.3' : base.version,
+        // Production OTA updates currently target the installed 1.0.1
+        // runtime. Keep this explicit until the next native build advances
+        // the runtime deliberately; otherwise EAS would publish a bundle
+        // the installed app cannot select.
+        version: isStaging ? '1.0.3' : '1.0.1',
         // Preserve the slug bound to extra.eas.projectId. Staging and
         // production remain separate Android applications through package ID.
         slug: base.slug,
