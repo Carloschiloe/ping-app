@@ -621,6 +621,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         || urgencyComparison !== null
         || temporalIntent !== null
         || priorSingleReferent !== null;
+    // A neutral temporal collection such as "¿Qué compromisos tengo para
+    // hoy?" must not inherit an open-status filter invented by the advisory
+    // LLM. The date range is the user's complete query; Core keeps every
+    // commitment in that range so the answer can faithfully report overdue,
+    // open, completed, or cancelled items as applicable.
+    const neutralTemporalCollection = deterministicSignals.intent === 'commitment_query'
+        && deterministicSignals.timeExpression !== null
+        && deterministicSignals.statusHints === null
+        && !deterministicSignals.wantsOverdueFocus;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -676,7 +685,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // that semantics (not even the deterministic value, since the
         // requested transition itself is what the answer must verify
         // against, never a retrieval-narrowing status filter).
-        statusHints: isHistoricalLifecycleQuery(input.input) ? null : rawInterpretation.statusHints,
+        statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection
+            ? null
+            : rawInterpretation.statusHints,
         topicHints: commitmentSignalConfident
             ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
             : rawInterpretation.topicHints,
