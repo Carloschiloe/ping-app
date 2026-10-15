@@ -68,7 +68,7 @@ function wb(alternatives: string): RegExp {
 
 const ACCEPT_VERB = wb('acept[oa]\\w*|aprueba\\w*|apruebo|approve[sd]?|accept(?:s|ed)?');
 const REJECT_VERB = wb('rechaz\\w*|reject(?:s|ed)?');
-const RESCHEDULE_VERB = wb('mueve\\w*|cambia\\w*|reprogram\\w*|posp\\w*|reschedule[sd]?|move[sd]?');
+const RESCHEDULE_VERB = wb('mueve\\w*|cambia\\w*|cámbi\\w*|reprogram\\w*|posp\\w*|reschedule[sd]?|move[sd]?');
 const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|resuelve\\w*|complete[sd]?|finish(?:es|ed)?|resolve[sd]?');
 // PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY (root cause fix):
 // cancel_commitment/cancel_proposal have NEVER been WRITE tools
@@ -754,6 +754,21 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             return baseObjective('unsupported', input, context.actorUserId, 'deterministic');
         }
 
+        // A short companion correction such as "es con Juan" refers to the
+        // commitment currently held by the authorized voice/session context.
+        // It is an edit of the existing commitment, never a new commitment
+        // and never an assignment to Juan. Pending creation plans are handled
+        // earlier by dialogue reconciliation; this objective is the
+        // post-creation path.
+        const companionPersonHint = extractCompanionPersonHint(text);
+        if (companionPersonHint) {
+            const obj = baseObjective('edit_existing_commitment', input, context.actorUserId, 'deterministic');
+            obj.targetEntities.entityHints = ['la'];
+            obj.targetEntities.personHints = [companionPersonHint];
+            obj.confidence = 0.9;
+            return obj;
+        }
+
         // A refusal of an active reminder is still a state-changing request,
         // but the missing target must be clarified before Core can cancel
         // anything. It must not fall into a read/no-evidence response.
@@ -794,7 +809,8 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             // removed (it would wrongly re-truncate a title that itself
             // legitimately contains "para", e.g. "comprar comida para
             // perro").
-            const entityHint = extractRescheduleTargetHint(afterVerb);
+            const attachedReferent = text.match(/(?:cambia|cámbia)(la|lo)\b/iu)?.[1] ?? null;
+            const entityHint = extractRescheduleTargetHint(afterVerb) ?? attachedReferent;
             const obj = baseObjective('reschedule_existing_commitment', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
             obj.timeConstraints.rawHint = timeHint;
@@ -1438,6 +1454,7 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
         const structuralLifecycleTypes: AgentObjectiveType[] = [
             'respond_to_existing_proposal',
             'reschedule_existing_commitment',
+            'edit_existing_commitment',
             'complete_existing_commitment',
             'cancel_existing_commitment',
         ];

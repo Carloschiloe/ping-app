@@ -63,6 +63,10 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
         commitmentId: UUID,
         newDueAt: z.string().datetime(),
     }).strict(),
+    edit_commitment: z.object({
+        commitmentId: UUID,
+        title: z.string().trim().min(1).max(120).optional(),
+    }).strict(),
     complete_commitment: z.object({
         commitmentId: UUID,
         resolutionResult: z.string().trim().min(1).max(500),
@@ -179,6 +183,13 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         description: 'Counter-proposes a new date on an existing, already-canonical commitment.',
         argumentNames: ['commitmentId', 'newDueAt'], sideEffectClass: 'state_change',
         authorizationRequirement: 'commitment_owner_or_assignee', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
+    },
+    edit_commitment: {
+        toolId: 'edit_commitment', version: 1, category: 'WRITE', domain: 'commitment',
+        description: 'Edits a descriptive field on an existing canonical commitment through the audited Commitment application boundary.',
+        argumentNames: ['commitmentId', 'title'], sideEffectClass: 'state_change', authorizationRequirement: 'commitment_owner', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },

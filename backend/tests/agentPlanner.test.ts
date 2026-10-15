@@ -12,13 +12,14 @@ const alejandraPerson: RetrievalPerson = { kind: 'user', id: ALEJANDRA_ID, displ
 
 // Use vi.hoisted to make mocks available during hoisting
 const { resolvePersonMock, retrieveCommitmentsMock, retrieveCommitmentProposalsMock,
-    parseDateFromTextMock, retrieveMemoryMock, resolveDirectConversationMock } = vi.hoisted(() => ({
+    parseDateFromTextMock, retrieveMemoryMock, resolveDirectConversationMock, retrieveVisibleCommitmentByIdMock } = vi.hoisted(() => ({
     resolvePersonMock: vi.fn(),
     retrieveCommitmentsMock: vi.fn(async () => []),
     retrieveCommitmentProposalsMock: vi.fn(async () => []),
     parseDateFromTextMock: vi.fn(() => null),
     retrieveMemoryMock: vi.fn(async () => []),
     resolveDirectConversationMock: vi.fn(),
+    retrieveVisibleCommitmentByIdMock: vi.fn(),
 }));
 
 vi.mock('../src/services/retrieval.service', () => ({
@@ -26,6 +27,7 @@ vi.mock('../src/services/retrieval.service', () => ({
     retrieveCommitments: (...args: any[]) => retrieveCommitmentsMock(...args),
     retrieveCommitmentProposals: (...args: any[]) => retrieveCommitmentProposalsMock(...args),
     resolveDirectConversation: (...args: any[]) => resolveDirectConversationMock(...args),
+    retrieveVisibleCommitmentById: (...args: any[]) => retrieveVisibleCommitmentByIdMock(...args),
 }));
 vi.mock('../src/services/date-parser.service', () => ({
     parseDateFromText: (...args: any[]) => parseDateFromTextMock(...args),
@@ -96,6 +98,7 @@ beforeEach(() => {
     parseDateFromTextMock.mockReset().mockReturnValue(null);
     retrieveMemoryMock.mockReset().mockResolvedValue([]);
     resolveDirectConversationMock.mockReset();
+    retrieveVisibleCommitmentByIdMock.mockReset();
 });
 
 import { planObjective } from '../src/services/agentPlanner.service';
@@ -1085,5 +1088,57 @@ describe('M-8: planObjective — remember_fact (Core-verified verbatim content, 
         expect(result.steps[0].authorizationRequirement).toBe('actor_identity');
         expect(result.steps[0].confirmationRequirement).toBe('explicit');
         expect(result.steps[0].sideEffectClass).toBe('state_change');
+    });
+});
+
+describe('Post-creation commitment edits', () => {
+    it('reprograma el mismo compromiso cuando la nueva fecha llega como "cámbiala para el viernes"', async () => {
+        const current = commitmentFixture({ title: 'Reunión', ownerUserId: CARLOS, assignedToUserId: CARLOS });
+        retrieveVisibleCommitmentByIdMock.mockResolvedValue(current);
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-10-16T12:00:00.000Z'), textRef: 'el viernes' });
+        const objective = baseObjective({
+            objectiveType: 'reschedule_existing_commitment',
+            targetEntities: { personHints: [], entityHints: ['la'] },
+            sourceUtterance: 'Cámbiala para el viernes',
+            timeConstraints: { rawHint: 'el viernes' },
+        });
+        const result = await planObjective({
+            objective,
+            actorUserId: CARLOS,
+            now: new Date('2026-10-15T12:00:00.000Z'),
+            contextReferents: [{
+                referentType: 'current_entity', canonicalEntityType: 'commitment', canonicalEntityId: ENTRENAR_ID,
+                sourceTurnId: 'turn-1', confidence: 1, expiresAt: '2026-10-15T12:05:00.000Z', actorScope: CARLOS,
+                resolvedFromSignal: 'current_commitment',
+            }],
+        });
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('reschedule_commitment');
+        expect(result.steps[0].arguments).toMatchObject({ commitmentId: ENTRENAR_ID, newDueAt: '2026-10-16T12:00:00.000Z' });
+    });
+
+    it('updates the same commitment title for a companion correction instead of planning a new commitment', async () => {
+        const current = commitmentFixture({ title: 'Reunión', ownerUserId: CARLOS, assignedToUserId: CARLOS });
+        retrieveVisibleCommitmentByIdMock.mockResolvedValue(current);
+        const objective = baseObjective({
+            objectiveType: 'edit_existing_commitment',
+            targetEntities: { personHints: ['Juan'], entityHints: ['la'] },
+            sourceUtterance: 'es con Juan',
+        });
+        const result = await planObjective({
+            objective,
+            actorUserId: CARLOS,
+            now: new Date('2026-10-15T12:00:00.000Z'),
+            contextReferents: [{
+                referentType: 'current_entity', canonicalEntityType: 'commitment', canonicalEntityId: ENTRENAR_ID,
+                sourceTurnId: 'turn-1', confidence: 1, expiresAt: '2026-10-15T12:05:00.000Z', actorScope: CARLOS,
+                resolvedFromSignal: 'current_commitment',
+            }],
+        });
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps).toHaveLength(1);
+        expect(result.steps[0].toolId).toBe('edit_commitment');
+        expect(result.steps[0].arguments).toEqual({ commitmentId: ENTRENAR_ID, title: 'Reunión con Juan' });
     });
 });

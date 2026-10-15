@@ -514,7 +514,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     </View>
                 </Pressable>
             </Modal>
-            <LiveVoiceSession visible={liveVoiceVisible} conversationId={conversationId} onClose={() => setLiveVoiceVisible(false)} />
+            <LiveVoiceSession
+                visible={liveVoiceVisible}
+                conversationId={conversationId}
+                currentCommitmentId={route.params?.currentCommitmentId}
+                onClose={() => setLiveVoiceVisible(false)}
+            />
         </SafeAreaView>
     );
 }

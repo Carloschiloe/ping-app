@@ -6,6 +6,7 @@ export const m8LiveVoiceSessionSchema = z.object({
         voiceSessionId: z.string().uuid(),
         deviceSessionId: z.string().uuid(),
         conversationId: z.string().uuid().optional(),
+        currentCommitmentId: z.string().uuid().optional(),
         locale: z.string().trim().min(2).max(20).optional(),
         timezone: z.string().trim().min(1).max(60).optional(),
     }).strict(),

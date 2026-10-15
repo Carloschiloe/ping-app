@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as Localization from 'expo-localization';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import { createEphemeralUuid } from '../../utils/voiceSession';
@@ -9,6 +10,7 @@ import { createEphemeralUuid } from '../../utils/voiceSession';
 interface LiveVoiceSessionProps {
     visible: boolean;
     conversationId?: string;
+    currentCommitmentId?: string;
     onClose: () => void;
 }
 
@@ -18,6 +20,7 @@ type LiveConfig = {
     protocolVersion: number;
     handshakeId: string;
     conversationId?: string;
+    currentCommitmentId?: string;
     voiceSessionId: string;
     deviceSessionId: string;
     locale: string;
@@ -37,7 +40,9 @@ function voiceLocale(): string {
     return 'es-CL';
 }
 
-export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
+const LIVE_VOICE_KEEP_AWAKE_TAG = 'ping-live-voice';
+
+export function LiveVoiceSession({ visible, conversationId, currentCommitmentId, onClose }: LiveVoiceSessionProps) {
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [sessionKey, setSessionKey] = useState(0);
@@ -49,11 +54,23 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         protocolVersion: 1,
         handshakeId: createEphemeralUuid(),
         conversationId,
+        currentCommitmentId,
         voiceSessionId: createEphemeralUuid(),
         deviceSessionId: createEphemeralUuid(),
         locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
-    } : null, [authorization, conversationId]);
+    } : null, [authorization, conversationId, currentCommitmentId]);
+
+    useEffect(() => {
+        if (visible) {
+            void activateKeepAwakeAsync(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        } else {
+            void deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        }
+        return () => {
+            void deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        };
+    }, [visible]);
 
     useEffect(() => {
         if (!visible) return;

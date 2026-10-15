@@ -19,6 +19,9 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("injectJavaScript(\"document.getElementById('stop')?.click();true;\")");
         expect(source).toContain("onRequestClose={requestClose}");
         expect(source).toContain("if (message.type === 'closed') scheduleClose()");
+        expect(source).toContain("activateKeepAwakeAsync(LIVE_VOICE_KEEP_AWAKE_TAG)");
+        expect(source).toContain("deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG)");
+        expect(source).toContain('currentCommitmentId?: string');
         expect(source).toContain("originWhitelist={['https://*']}");
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");

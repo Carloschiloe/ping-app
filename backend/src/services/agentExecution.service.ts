@@ -230,6 +230,8 @@ export function buildResult(authorizationId: string, stepResults: AgentExecution
                 return { success: 'La respuesta a la propuesta fue registrada y verificada.', waiting: 'La respuesta a la propuesta queda pendiente', failure: 'No se pudo registrar la respuesta a la propuesta' };
             case 'reschedule_commitment':
                 return { success: 'La fecha del compromiso fue actualizada y verificada.', waiting: 'La actualización de la fecha queda pendiente', failure: 'No se pudo actualizar la fecha del compromiso' };
+            case 'edit_commitment':
+                return { success: 'El compromiso fue actualizado y verificado.', waiting: 'La actualización del compromiso queda pendiente', failure: 'No se pudo actualizar el compromiso' };
             case 'complete_commitment':
                 return { success: 'El compromiso fue completado y verificado.', waiting: 'La finalización del compromiso queda pendiente', failure: 'No se pudo completar el compromiso' };
             case 'cancel_commitment':

@@ -156,7 +156,8 @@ export async function interpretAgentSemanticTurn(
             || (structuralObjective.objectiveType === 'create_commitment_or_proposal'
                 && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
-            || structuralObjective.objectiveType === 'cancel_existing_commitment';
+            || structuralObjective.objectiveType === 'cancel_existing_commitment'
+            || structuralObjective.objectiveType === 'edit_existing_commitment';
         if (safeWriteObjective && structuralObjective.confidence >= 0.7) {
             const structuralInput = await new DeterministicInputInterpreter().interpret(input);
             if (structuralInput.isWriteActionRequest) {

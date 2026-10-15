@@ -87,6 +87,7 @@ export const AGENT_OBJECTIVE_TYPE_VALUES = [
     'create_commitment_or_proposal',
     'create_personal_commitment',
     'reschedule_existing_commitment',
+    'edit_existing_commitment',
     'complete_existing_commitment',
     'respond_to_existing_proposal',
     'remember_fact',

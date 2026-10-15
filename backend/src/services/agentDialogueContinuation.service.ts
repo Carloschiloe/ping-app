@@ -74,6 +74,7 @@ export function isContinuationEligibleObjectiveType(objectiveType: AgentObjectiv
 // with a direct end-to-end reproduction before this fix.
 const TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES: ReadonlySet<AgentObjectiveType> = new Set([
     'reschedule_existing_commitment',
+    'edit_existing_commitment',
     'complete_existing_commitment',
     'respond_to_existing_proposal',
     'cancel_existing_commitment',

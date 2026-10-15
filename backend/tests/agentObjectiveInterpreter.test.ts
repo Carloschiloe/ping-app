@@ -39,6 +39,20 @@ describe('DeterministicObjectiveInterpreter: clasificación (sección 7 del tick
         expect(obj.timeConstraints.rawHint).toMatch(/viernes/i);
     });
 
+    it('"Cámbiala para el viernes." conserva la referencia al compromiso actual y la nueva fecha', async () => {
+        const obj = await interpreter.interpret('Cámbiala para el viernes.', CTX);
+        expect(obj.objectiveType).toBe('reschedule_existing_commitment');
+        expect(obj.targetEntities.entityHints[0]).toMatch(/la/i);
+        expect(obj.timeConstraints.rawHint).toMatch(/viernes/i);
+    });
+
+    it('"es con Juan" -> edits the current commitment and never creates a second one', async () => {
+        const obj = await interpreter.interpret('es con Juan', CTX);
+        expect(obj.objectiveType).toBe('edit_existing_commitment');
+        expect(obj.targetEntities.entityHints).toEqual(['la']);
+        expect(obj.targetEntities.personHints).toEqual(['Juan']);
+    });
+
     it('"Recuérdame comprar pan" -> create_personal_commitment', async () => {
         const obj = await interpreter.interpret('Recuérdame comprar pan', CTX);
         expect(obj.objectiveType).toBe('create_personal_commitment');

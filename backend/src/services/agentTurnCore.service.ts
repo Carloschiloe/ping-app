@@ -1562,6 +1562,18 @@ export function buildStepPresentation(
                 ...shared,
             };
         }
+        case 'edit_commitment': {
+            const title = extractQuoted(step.operation) ?? 'el compromiso';
+            const nextTitle = typeof args.title === 'string' ? args.title : title;
+            return {
+                stepId: step.stepId, toolId,
+                headline: `Actualizar "${title}"`,
+                effectDescription: `Se actualizará el mismo compromiso a "${nextTitle}".`,
+                targetLabel: nextTitle,
+                confirmationLabel: 'Actualizar', cancelLabel: 'Cancelar',
+                ...shared,
+            };
+        }
         case 'complete_commitment': {
             const title = extractQuoted(step.operation) ?? 'el compromiso';
             return {
