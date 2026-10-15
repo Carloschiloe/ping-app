@@ -28,6 +28,7 @@ vi.mock('../src/services/retrieval.service', () => ({
     retrieveCommitments: vi.fn(),
     retrieveCommitmentProposals: vi.fn(),
     retrieveCommitmentEvents: vi.fn(),
+    retrieveVisibleCommitmentById: vi.fn(),
     retrieveMessages: vi.fn(),
     retrieveTranscriptions: vi.fn(),
     retrieveAttachments: vi.fn(),
@@ -61,6 +62,7 @@ const mockResolvePerson = vi.mocked(retrievalService.resolvePerson);
 const mockRetrieveCommitments = vi.mocked(retrievalService.retrieveCommitments);
 const mockRetrieveCommitmentProposals = vi.mocked(retrievalService.retrieveCommitmentProposals);
 const mockRetrieveCommitmentEvents = vi.mocked(retrievalService.retrieveCommitmentEvents);
+const mockRetrieveVisibleCommitmentById = vi.mocked(retrievalService.retrieveVisibleCommitmentById);
 const mockRetrieveMessages = vi.mocked(retrievalService.retrieveMessages);
 const mockRetrieveTranscriptions = vi.mocked(retrievalService.retrieveTranscriptions);
 const mockRetrieveAttachments = vi.mocked(retrievalService.retrieveAttachments);
@@ -71,6 +73,7 @@ function resetMocks() {
     mockRetrieveCommitments.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentProposals.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentEvents.mockReset().mockResolvedValue([]);
+    mockRetrieveVisibleCommitmentById.mockReset().mockResolvedValue(null);
     mockRetrieveMessages.mockReset().mockResolvedValue([]);
     mockRetrieveTranscriptions.mockReset().mockResolvedValue([]);
     mockRetrieveAttachments.mockReset().mockResolvedValue([]);
@@ -457,6 +460,73 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
             expect.objectContaining({ timeRange: priorTimeRange }),
             expect.any(Number),
         );
+    });
+
+    it('resuelve "la de Juan" contra un único candidato del resultado anterior', async () => {
+        const target = commitmentFixture({ id: 'cm-juan', title: 'Reunión con Juan' });
+        mockRetrieveVisibleCommitmentById.mockResolvedValue(target as any);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Y la de Juan?',
+            priorReadContext: {
+                kind: 'commitment_query',
+                timeRange: null,
+                sourceTurnId: 'prior-turn',
+                commitmentReferents: [
+                    { rawText: 'Reunión con Juan', entityType: 'commitment', canonicalId: 'cm-juan' },
+                    { rawText: 'Reunión con María', entityType: 'commitment', canonicalId: 'cm-maria' },
+                ],
+            },
+        });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments.map((commitment) => commitment.id)).toEqual(['cm-juan']);
+        expect(mockRetrieveVisibleCommitmentById).toHaveBeenCalledWith('u1', 'cm-juan');
+    });
+
+    it('mantiene la aclaración cuando el calificador coincide con dos candidatos', async () => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Y la de Juan?',
+            priorReadContext: {
+                kind: 'commitment_query',
+                timeRange: null,
+                sourceTurnId: 'prior-turn',
+                commitmentReferents: [
+                    { rawText: 'Reunión con Juan', entityType: 'commitment', canonicalId: 'cm-juan-1' },
+                    { rawText: 'Llamar a Juan', entityType: 'commitment', canonicalId: 'cm-juan-2' },
+                ],
+            },
+        });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('entity_ambiguous');
+    });
+
+    it('resuelve una referencia ordinal como "la segunda" sin volver a preguntar', async () => {
+        const target = commitmentFixture({ id: 'cm-second', title: 'Llamar a María' });
+        mockRetrieveVisibleCommitmentById.mockResolvedValue(target as any);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Y la segunda?',
+            priorReadContext: {
+                kind: 'commitment_query',
+                timeRange: null,
+                sourceTurnId: 'prior-turn',
+                commitmentReferents: [
+                    { rawText: 'Llamar a Juan', entityType: 'commitment', canonicalId: 'cm-first' },
+                    { rawText: 'Llamar a María', entityType: 'commitment', canonicalId: 'cm-second' },
+                ],
+            },
+        });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments.map((commitment) => commitment.id)).toEqual(['cm-second']);
     });
 
     it('una fecha determinista gana al LLM y no dispara aclaración para un seguimiento elíptico', async () => {

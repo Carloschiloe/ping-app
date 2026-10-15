@@ -111,6 +111,59 @@ function normalizeSignalText(value: string): string {
         .trim();
 }
 
+// A spoken qualifier such as "la de Juan" is not a new person scope when it
+// can identify exactly one item from the immediately preceding read. Match
+// only meaningful word overlap and require a unique winner; ties remain a
+// clarification so the Core never guesses between two commitments.
+const PRIOR_ENTITY_QUALIFIER = /\b(?:el|la|ese|esa|este|esta)\s+(?:de|del|con|para)\s+[\p{L}\p{N}]/iu;
+const PRIOR_ORDINAL_REFERENCE = /\b(?:el|la|ese|esa)?\s*(prim(?:ero|era)|segund[oa]|tercer[oa]|cuart[oa]|últim[oa]|ultim[oa]|first|second|third|last)\b/iu;
+const PRIOR_ENTITY_QUALIFIER_STOPWORDS = new Set([
+    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'ese', 'esa', 'esos', 'esas', 'este', 'esta',
+    'estos', 'estas', 'de', 'del', 'con', 'para', 'por', 'que', 'compromiso', 'compromisos', 'reunion', 'reunión',
+]);
+
+function meaningfulReferenceTokens(value: string): string[] {
+    return Array.from(new Set(
+        normalizeSignalText(value)
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .split(/\s+/)
+            .filter((token) => token.length >= 2 && !PRIOR_ENTITY_QUALIFIER_STOPWORDS.has(token)),
+    ));
+}
+
+function resolvePriorQualifiedReferent(
+    input: string,
+    referents: NonNullable<AgentReadContext['commitmentReferents']>,
+): NonNullable<AgentReadContext['commitmentReferents']>[number] | null {
+    if (referents.length < 2 || !PRIOR_ENTITY_QUALIFIER.test(input)) return null;
+    const queryTokens = new Set(meaningfulReferenceTokens(input));
+    if (queryTokens.size === 0) return null;
+    const scored = referents.map((referent) => {
+        const score = meaningfulReferenceTokens(referent.rawText).filter((token) => queryTokens.has(token)).length;
+        return { referent, score };
+    }).filter((candidate) => candidate.score > 0);
+    if (scored.length === 0) return null;
+    const highest = Math.max(...scored.map((candidate) => candidate.score));
+    const winners = scored.filter((candidate) => candidate.score === highest);
+    return winners.length === 1 ? winners[0].referent : null;
+}
+
+function resolvePriorOrdinalReferent(
+    input: string,
+    referents: NonNullable<AgentReadContext['commitmentReferents']>,
+): NonNullable<AgentReadContext['commitmentReferents']>[number] | null {
+    if (referents.length < 2) return null;
+    const match = input.match(PRIOR_ORDINAL_REFERENCE);
+    if (!match) return null;
+    const ordinal = normalizeSignalText(match[1]);
+    const index = ordinal.startsWith('prim') || ordinal === 'first' ? 0
+        : ordinal.startsWith('segund') || ordinal === 'second' ? 1
+            : ordinal.startsWith('tercer') || ordinal === 'third' ? 2
+                : ordinal.startsWith('cuart') ? 3
+                    : referents.length - 1;
+    return referents[index] ?? null;
+}
+
 function isTemporalExpressionGroundedInInput(expression: string | null, input: string): boolean {
     if (!expression) return false;
     return normalizeSignalText(input).includes(normalizeSignalText(expression));
@@ -656,20 +709,27 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const currentTurnIntroducesScope = rawInterpretation.textQuery !== null
         || rawInterpretation.topicHints.length > 0
         || deterministicSignals.personHints.length > 0;
+    const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
+    const priorQualifiedReferent = resolvePriorQualifiedReferent(input.input, priorCommitmentReferents)
+        ?? resolvePriorOrdinalReferent(input.input, priorCommitmentReferents);
+    const priorQualifierPresent = PRIOR_ENTITY_QUALIFIER.test(input.input) || PRIOR_ORDINAL_REFERENCE.test(input.input);
     const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
-        ?? (currentTurnIntroducesScope ? null
+        ?? (priorQualifiedReferent ? 'single_entity'
+            : priorQualifierPresent && priorCommitmentReferents.length === 1 ? 'single_entity'
+            : priorQualifierPresent ? 'result_set'
+            : currentTurnIntroducesScope ? null
             : deterministicFollowUpAttribute != null || rawInterpretation.followUpAttribute != null
                 ? 'single_entity'
                 : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
-    const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
-    const priorSingleReferent = priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
-        ? priorCommitmentReferents[0]
-        : null;
+    const priorSingleReferent = priorQualifiedReferent
+        ?? (priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
+            ? priorCommitmentReferents[0]
+            : null);
     const priorCanonicalCommitmentId = priorSingleReferent?.entityType === 'commitment'
         ? priorSingleReferent.canonicalId
         : undefined;
     const priorProposalReferent = priorSingleReferent?.entityType === 'commitment_proposal';
-    const priorReferenceAmbiguous = priorReferenceIntent !== null && priorCommitmentReferents.length !== 1;
+    const priorReferenceAmbiguous = priorReferenceIntent !== null && !priorQualifiedReferent && priorCommitmentReferents.length !== 1;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -903,7 +963,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const semanticActionPersonHints = rawInterpretation.isWriteActionRequest === true
         ? advisoryPersonHints
         : [];
-    const canonicalPersonScope: string[] = Array.from(new Set([
+    const canonicalPersonScope: string[] = priorQualifiedReferent ? [] : Array.from(new Set([
         ...(!isWritePlanning || writeKeepsIdentityScope ? deterministicSignals.personHints : []),
         ...(!isWritePlanning || writeKeepsIdentityScope ? semanticActionPersonHints : []),
         ...objectiveResponsibleHint,
