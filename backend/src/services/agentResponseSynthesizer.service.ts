@@ -1060,6 +1060,87 @@ function buildCountResponse(context: AgentContext, language: 'es' | 'en'): Agent
     return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
 }
 
+// Una consulta explícita por vencidos no es una petición de prioridad. Es un
+// filtro de estado derivado del compromiso canónico. Mantenerla fuera de la
+// síntesis libre evita que el modelo sustituya la respuesta por "el más
+// urgente" o que mezcle un compromiso futuro con uno atrasado.
+function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const overdue = context.commitments
+        .filter((commitment) => isCommitmentOverdue(
+            commitment.dueAt,
+            commitment.status,
+            context.now,
+            context.timezone,
+            commitment.entityType,
+        ))
+        .sort((left, right) => {
+            const leftDue = left.dueAt ? Date.parse(left.dueAt) : Number.POSITIVE_INFINITY;
+            const rightDue = right.dueAt ? Date.parse(right.dueAt) : Number.POSITIVE_INFINITY;
+            return leftDue - rightDue || left.id.localeCompare(right.id);
+        });
+    const passedProposals = context.commitments.filter((commitment) =>
+        commitment.entityType === 'commitment_proposal' && commitment.proposalDatePassed === true,
+    );
+    const proposalNotes = passedProposals.map((proposal) => {
+        const title = proposal.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+        const waitingNames = proposal.pendingResponderNamesSafe?.filter(Boolean) ?? [];
+        if (language === 'es') {
+            const waiting = waitingNames.length > 0
+                ? `sigue esperando la respuesta de ${waitingNames.join(', ')}`
+                : proposal.actorCanRespond
+                    ? 'sigue pendiente de tu respuesta'
+                    : 'sigue pendiente de aprobación';
+            return `La propuesta "${title}" ${waiting}. La fecha propuesta ya pasó.`;
+        }
+        const waiting = waitingNames.length > 0
+            ? `is still waiting for ${waitingNames.join(', ')} to respond`
+            : proposal.actorCanRespond
+                ? 'is still waiting for your response'
+                : 'is still waiting for approval';
+        return `The proposal "${title}" ${waiting}. Its proposed date has passed.`;
+    });
+    const proposalReferences: AgentCitation[] = passedProposals.map((proposal) => ({
+        sourceType: proposal.provenance.sourceType,
+        sourceId: proposal.provenance.sourceId,
+    }));
+
+    if (overdue.length === 0) {
+        const proposalText = proposalNotes.length > 0 ? ` ${proposalNotes.join(' ')}` : '';
+        return {
+            status: 'answered',
+            answer: language === 'es'
+                ? `No tienes compromisos vencidos.${proposalText}`
+                : `You have no overdue commitments.${proposalText}`,
+            claims: proposalNotes.map((text, index) => ({ text, sourceRefs: [proposalReferences[index]] })),
+            citations: proposalReferences,
+        };
+    }
+
+    const locale = language === 'es' ? 'es-CL' : 'en-US';
+    const references: AgentCitation[] = overdue.map((commitment) => ({
+        sourceType: commitment.provenance.sourceType,
+        sourceId: commitment.provenance.sourceId,
+    }));
+    const items = overdue.map((commitment) => {
+        const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+        const due = commitment.dueAt
+            ? formatEventTimestampInZone(commitment.dueAt, context.timezone, locale)
+            : (language === 'es' ? 'sin fecha' : 'no date');
+        return language === 'es' ? `${title} está vencido. Venció ${due}.` : `${title} is overdue. It was due ${due}.`;
+    });
+    // Si existe al menos un compromiso confirmado vencido, la respuesta debe
+    // mantenerse enfocada en ese conjunto. Las proposals con fecha pasada no
+    // se mezclan en la misma respuesta, porque todavía no son obligaciones.
+    const answer = language === 'es'
+        ? `Tienes ${overdue.length} compromiso${overdue.length === 1 ? '' : 's'} vencido${overdue.length === 1 ? '' : 's'}: ${items.join(' ')}`
+        : `You have ${overdue.length} overdue commitment${overdue.length === 1 ? '' : 's'}: ${items.join(' ')}`;
+    const claims: AgentClaim[] = overdue.map((commitment, index) => ({
+        text: items[index],
+        sourceRefs: [references[index]],
+    }));
+    return { status: 'answered', answer, claims, citations: references };
+}
+
 // A semantic follow-up is answered from the single canonical referent already
 // re-authorized by the Core. It must not fall back to the general retrieval or
 // synthesis path: that would allow unrelated commitments to contaminate a
@@ -1318,6 +1399,14 @@ function buildClarificationResponse(context: AgentContext, language: 'es' | 'en'
 }
 
 function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    if (context.wantsOverdueFocus) {
+        return {
+            status: 'no_evidence',
+            answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
+            claims: [],
+            citations: [],
+        };
+    }
     const isTemporalCommitmentRead = context.intent.type === 'commitment_query' && !!context.entities.timeRange;
     const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
     const answer = isTemporalCommitmentRead
@@ -1499,6 +1588,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // manualmente, el Core ya conoce el número con certeza estructural.
         if (status === 'answered' && context.queryCardinality === 'count') {
             return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && context.wantsOverdueFocus) {
+            return this.withDiagnostics(buildOverdueResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.followUpAttribute) {
             const referentResponse = buildReadReferentAttributeResponse(context, language, context.timezone, input.locale);

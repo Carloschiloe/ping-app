@@ -721,16 +721,15 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         expect(response.citations).toEqual(expect.arrayContaining([{ sourceType: 'commitment', sourceId: 'cm-entrenar' }]));
     });
 
-    it('el prompt enviado al modelo incluye isOverdue:true para un commitment vencido', async () => {
+    it('una consulta por vencidos se resuelve desde el Core y no llama al modelo', async () => {
         const overdueCommitment = commitment('cm-entrenar', { title: 'Entrenar', status: 'accepted', dueAt: '2026-07-31T00:00:00Z' });
         const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [overdueCommitment] as any, provenance: [overdueCommitment.provenance] });
         const model = fakeModel(claimPayload([{ text: 'Tienes un compromiso.', sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-entrenar' }] }]));
         const synthesizer = new LlmResponseSynthesizer({ model });
-        await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
-        expect(promptSent).toContain('"isOverdue":true');
-        expect(promptSent).toMatch(/TRUST it exactly, never compute overdue status yourself/i);
+        expect(response.answer).toContain('Entrenar está vencido.');
+        expect(model.synthesize).not.toHaveBeenCalled();
     });
 
     it('un commitment con dueAt futuro NUNCA se marca isOverdue, aunque wantsOverdueFocus sea true', async () => {
@@ -740,7 +739,8 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         const synthesizer = new LlmResponseSynthesizer({ model });
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toBe('No tienes compromisos vencidos.');
+        expect(model.synthesize).not.toHaveBeenCalled();
     });
 
     it('un commitment resuelto/cancelado/rechazado con dueAt pasado NUNCA se marca isOverdue', async () => {
@@ -750,7 +750,8 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         const synthesizer = new LlmResponseSynthesizer({ model });
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toBe('No tienes compromisos vencidos.');
+        expect(model.synthesize).not.toHaveBeenCalled();
     });
 
     it('wantsOverdueFocus=false (pregunta no es sobre vencidos) -> el guard NUNCA se activa, aunque haya un commitment vencido', async () => {
@@ -787,12 +788,9 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         expect(response.answer).not.toContain('Tarea D');
         expect(response.answer).not.toContain('Tarea E');
 
-        const promptSent = (model.synthesize as any).mock.calls[0][0].prompt as string;
-        expect(promptSent).toMatch(/"id":"cm-a"[^}]*"isOverdue":true/);
-        expect(promptSent).toMatch(/"id":"cm-b"[^}]*"isOverdue":true/);
-        expect(promptSent).toMatch(/"id":"cm-c"[^}]*"isOverdue":false/);
-        expect(promptSent).toMatch(/"id":"cm-d"[^}]*"isOverdue":false/);
-        expect(promptSent).toMatch(/"id":"cm-e"[^}]*"isOverdue":false/);
+        expect(response.answer).toContain('Tarea A está vencido.');
+        expect(response.answer).toContain('Tarea B está vencido.');
+        expect(model.synthesize).not.toHaveBeenCalled();
     });
 
     // M-1G.2 — sección 12 del ticket: "no tienes vencidos" sólo es válido
@@ -959,7 +957,8 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
 
         expect(response.answer).toContain('Entrenar');
         expect(response.answer).toContain('Alejandra');
-        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toContain('La propuesta "Entrenar"');
+        expect(response.answer.toLowerCase()).not.toContain('está vencido');
     });
 
     // M-1H v6 (GAP B, sección 15 del ticket final) — ejemplo EXACTO de
@@ -980,7 +979,8 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
         const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
 
         expect(response.answer).toBe(permitted);
-        expect(response.answer.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).toContain('La propuesta "Revisar propuesta"');
+        expect(response.answer.toLowerCase()).not.toContain('está vencido');
     });
 
 });
@@ -1060,19 +1060,15 @@ describe('M-1H v7: enforceProposalLifecycleTruth — guarda determinística cont
         const synthesizer = new LlmResponseSynthesizer({ model });
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        // La oración mixta original se descarta entera (no se puede editar
-        // en caliente cuál mitad corresponde a cuál cita); Ver Spiderman
-        // conserva su disclosure real vía enforceOverdueDisclosure, Entrenar
-        // recibe el reemplazo canónico de esta guarda.
+        // La consulta queda enfocada únicamente en compromisos canónicos
+        // vencidos: una proposal con fecha pasada no se mezcla en la lista.
         expect(response.answer).not.toContain('Entrenar y Ver Spiderman están vencidos.');
         expect(response.answer).toMatch(/Ver Spiderman.*vencido/);
-        expect(response.answer).toContain('Alejandra');
-        const entrenarSentences = response.answer.split(/(?<=\.)\s+/).filter((s) => s.includes('Entrenar'));
-        for (const sentence of entrenarSentences) expect(sentence.toLowerCase()).not.toContain('vencido');
+        expect(response.answer).not.toContain('Alejandra');
         expect(response.citations).toEqual(expect.arrayContaining([
-            { sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' },
             { sourceType: 'commitment', sourceId: 'cm-spiderman' },
         ]));
+        expect(response.citations).not.toContainEqual({ sourceType: 'commitment_proposal', sourceId: 'pr-entrenar' });
     });
 
     it('E) proposalDatePassed se expresa siempre sin la palabra "vencido", incluso cuando el modelo se comporta honestamente desde el inicio (no sólo en el camino adversarial)', async () => {
