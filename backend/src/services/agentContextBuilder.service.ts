@@ -154,6 +154,16 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
     }
+    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d[ií]as?\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
+    if (upcomingDaysMatch) {
+        // "los próximos días" is intentionally bounded: seven calendar days
+        // starting today, or the explicit count when the user gives one. This
+        // keeps a natural request useful without silently turning it into an
+        // unbounded database scan.
+        const spanDays = Math.min(Math.max(Number(upcomingDaysMatch[1] || upcomingDaysMatch[2] || 7), 1), 30);
+        const from = startOfDayInZone(now, timezone);
+        return { from: from.toISOString(), to: addDays(from, spanDays).toISOString() };
+    }
     if (isUpcomingTimeExpression(expression)) {
         // "Próximos días" is a future-only horizon: start at this instant
         // (so an item due earlier today is not presented as upcoming) and end
@@ -1377,7 +1387,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // propio todavía -- fuera de alcance de este ticket.
     const ambiguityHints = interpretation.ambiguityHints ?? []; // defensivo: un intérprete mal formado no debe crashear el builder
     if (!isWritePlanning && !needsClarification) {
-        if (ambiguityHints.includes('time_ambiguous')) {
+        if (ambiguityHints.includes('time_ambiguous') && deterministicSignals.timeExpression === null) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
         } else if (interpretation.interactionMode !== 'conversation' && ambiguityHints.includes('topic_too_broad')) {

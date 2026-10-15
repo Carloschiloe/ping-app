@@ -969,6 +969,7 @@ const TIME_EXPRESSIONS: RegExp[] = [
     /\bayer\b|\byesterday\b/i,
     /\bhoy\b|\btoday\b/i,
     /\b(?:mañana|manana)\b|\btomorrow\b/i,
+    /\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:\d+\s+)?d[ií]as?\b|\bnext\s+(?:\d+\s+)?days?\b/i,
 ];
 
 function classifyIntent(input: string): { type: AgentIntentType; confidence: number } {
