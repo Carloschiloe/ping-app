@@ -66,6 +66,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         // production remain separate Android applications through package ID.
         slug: base.slug,
         scheme: isStaging ? 'ping-staging' : 'ping',
+        updates: {
+            url: 'https://u.expo.dev/0baf032d-de1a-49e7-9181-a5897927fb11',
+        },
+        runtimeVersion: {
+            policy: 'appVersion',
+        },
         plugins: isStaging ? [...plugins, 'expo-web-browser'] : plugins,
         android: {
             ...base.android,
