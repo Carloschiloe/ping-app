@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
     generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition, classifyAgentInputProviderError,
+    inferDeterministicFollowUpAttribute,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -33,6 +34,27 @@ function hangingModel(delayMs: number, finalResponse: string): AgentInputModel {
         interpret: vi.fn(() => new Promise<string>((resolve) => setTimeout(() => resolve(finalResponse), delayMs))),
     };
 }
+
+describe('deterministic read follow-up safety net', () => {
+    it.each([
+        ['¿Y a qué hora?', 'time'],
+        ['¿Para qué día?', 'date'],
+        ['¿Y con quién?', 'responsible'],
+        ['¿Sigue pendiente?', 'status'],
+        ['¿Me das más detalles?', 'details'],
+    ] as const)('reconoce una pregunta corta de atributo sin crear una entidad: %s', (input, attribute) => {
+        expect(inferDeterministicFollowUpAttribute(input)).toBe(attribute);
+    });
+
+    it.each(['¿Qué hora tiene la reunión?', '¿Qué sabes del viaje?', 'Recuérdame llamar a Juan'])('no roba el alcance de una consulta nueva: %s', (input) => {
+        expect(inferDeterministicFollowUpAttribute(input)).toBeNull();
+    });
+
+    it('propaga el atributo al intérprete determinístico', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Y a qué hora?', {});
+        expect(result.followUpAttribute).toBe('time');
+    });
+});
 
 const validPayload = (overrides: Partial<Record<string, any>> = {}) => JSON.stringify({
     intent: 'recall',

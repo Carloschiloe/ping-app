@@ -1151,6 +1151,29 @@ function extractTimeExpression(input: string): string | null {
     return null;
 }
 
+// Deterministic safety net for short read follow-ups. The LLM remains the
+// primary semantic interpreter; this only recognizes an entity-free question
+// whose grammatical shape is an attribute request. Core still requires a
+// previously verified single referent before using the attribute, so these
+// patterns can never invent which commitment the user means.
+export function inferDeterministicFollowUpAttribute(input: string): Interpretation['followUpAttribute'] {
+    const normalized = input
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('es-CL')
+        .replace(/[¿?¡!.,;:]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const connector = '(?:y|pero|and|but)?\\s*';
+    const end = '(?:es|queda|sera|esta|estaba)?\\s*$';
+    if (new RegExp(`^${connector}(?:a que hora|que hora|hora)\\s*${end}`, 'iu').test(normalized)) return 'time';
+    if (new RegExp(`^${connector}(?:para que dia|que dia|cuando|en que fecha)\\s*${end}`, 'iu').test(normalized)) return 'date';
+    if (new RegExp(`^${connector}(?:con quien|a quien le toca|quien lo lleva|quien se encarga)\\s*${end}`, 'iu').test(normalized)) return 'responsible';
+    if (new RegExp(`^${connector}(?:sigue pendiente|como va|cual es su estado|esta confirmado)\\s*${end}`, 'iu').test(normalized)) return 'status';
+    if (new RegExp(`^${connector}(?:de que se trata|que incluye|cuales son los detalles|mas detalles|me das mas detalles|que era)\\s*${end}`, 'iu').test(normalized)) return 'details';
+    return null;
+}
+
 const NUMBER_WORDS: Record<string, number> = {
     uno: 1, una: 1, one: 1, dos: 2, two: 2, tres: 3, three: 3,
     cuatro: 4, four: 4, cinco: 5, five: 5, seis: 6, six: 6,
@@ -1358,6 +1381,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const requestedTransition = extractRequestedTransition(trimmed);
         const temporalComparison = extractTemporalComparison(trimmed);
         const urgencyComparison = extractUrgencyComparison(trimmed);
+        const followUpAttribute = inferDeterministicFollowUpAttribute(trimmed);
 
         return {
             interactionMode: 'task',
@@ -1369,7 +1393,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             timeExpression,
             temporalIntent,
             priorReferenceIntent,
-            followUpAttribute: null,
+            followUpAttribute,
             temporalComparison,
             urgencyComparison,
             statusHints,

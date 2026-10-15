@@ -627,6 +627,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
+    const deterministicFollowUpAttribute = deterministicSignals.followUpAttribute ?? null;
     const temporalIntent = deterministicSignals.temporalIntent
         ?? (ungroundedRawTemporalClaim ? null : rawInterpretation.temporalIntent)
         ?? inferTemporalIntent(input.input);
@@ -640,7 +641,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         || deterministicSignals.personHints.length > 0;
     const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
         ?? (currentTurnIntroducesScope ? null
-            : rawInterpretation.followUpAttribute != null
+            : deterministicFollowUpAttribute != null || rawInterpretation.followUpAttribute != null
                 ? 'single_entity'
                 : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
     const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
@@ -719,7 +720,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             : priorSingleReferent?.rawText
                 ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
-        followUpAttribute: rawInterpretation.followUpAttribute ?? null,
+        followUpAttribute: deterministicFollowUpAttribute ?? rawInterpretation.followUpAttribute ?? null,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
