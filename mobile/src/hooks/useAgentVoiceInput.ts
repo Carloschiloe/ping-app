@@ -9,6 +9,7 @@ import {
     useAudioRecorderState,
 } from 'expo-audio';
 import { File } from 'expo-file-system';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { transcribeAgentVoice, type AgentAdapterSurface, type AgentVoiceTranscriptResult } from '../api/query-modules/agent';
 import { resolveRecordingDurationMs } from '../utils/audioRecording';
 import {
@@ -19,6 +20,8 @@ import {
     type VoiceSessionEvent,
     type VoiceSessionState,
 } from '../utils/voiceSession';
+
+const VOICE_KEEP_AWAKE_TAG = 'ping-agent-voice';
 
 interface UseAgentVoiceInputOptions {
     conversationId?: string;
@@ -51,6 +54,18 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
     const optionsRef = useRef(options);
     const requestAbortRef = useRef<AbortController | null>(null);
     optionsRef.current = options;
+    const voiceIsActive = ['listening', 'capturing', 'transcribing', 'interpreting', 'responding'].includes(state);
+
+    useEffect(() => {
+        if (voiceIsActive) {
+            void activateKeepAwakeAsync(VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        } else {
+            void deactivateKeepAwake(VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        }
+        return () => {
+            void deactivateKeepAwake(VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
+        };
+    }, [voiceIsActive]);
 
     const applyEvent = useCallback((event: VoiceSessionEvent) => {
         const next = transitionVoiceSession(stateRef.current, event);
