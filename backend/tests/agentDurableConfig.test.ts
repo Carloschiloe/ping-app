@@ -38,9 +38,17 @@ describe('canonical durable runtime configuration', () => {
 
     it('enables production durability only with the explicit gate and backend transport', () => {
         process.env.PING_ENVIRONMENT = 'production';
-        delete process.env.PING_M7_DATABASE_URL;
+        process.env.PING_M7_DATABASE_URL = 'postgres://production';
         process.env.SUPABASE_SERVICE_ROLE_KEY = 'production-backend-only';
         process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
         expect(isCanonicalDurableAgentRuntimeEnabled()).toBe(true);
+    });
+
+    it('does not mistake the Supabase service-role key for the private durable transport', () => {
+        process.env.PING_ENVIRONMENT = 'production';
+        delete process.env.PING_M7_DATABASE_URL;
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'production-backend-only';
+        process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
+        expect(isCanonicalDurableAgentRuntimeEnabled()).toBe(false);
     });
 });
