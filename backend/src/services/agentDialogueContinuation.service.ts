@@ -32,6 +32,7 @@ import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import {
     DeterministicObjectiveInterpreter,
     LlmObjectiveInterpreter,
+    extractCompanionPersonHint,
     extractTimeHint,
     stripTrailingDateSpan,
 } from './agentObjectiveInterpreter.service';
@@ -365,6 +366,11 @@ export function classifyContinuation(
     // any LLM-side continuation claim -- the objective type mismatch alone
     // is structural proof of a different request.
     if (newTurnObjective.objectiveType !== openType) {
+        if (extractCompanionPersonHint(newTurnObjective.sourceUtterance)
+            && newTurnObjective.targetEntities.entityHints.length === 0
+            && newTurnObjective.targetEntities.personHints.length === 1) {
+            return { isContinuation: true, reason: 'companion_fragment_continuation' };
+        }
         return { isContinuation: false, reason: 'new_turn_different_objective_type' };
     }
 
@@ -414,6 +420,13 @@ export function reconcileContinuationObjective(
     const personHints = priorObjective.targetEntities.personHints.length > 0
         ? priorObjective.targetEntities.personHints
         : newTurnObjective.targetEntities.personHints;
+    const companionPersonHint = extractCompanionPersonHint(newTurnObjective.sourceUtterance);
+    const priorTitle = entityHints[0] ?? null;
+    const enrichedTitle = companionPersonHint && priorTitle
+        && !priorTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
+        ? `${priorTitle} con ${companionPersonHint}`
+        : priorTitle;
+    const companionFilled = Boolean(companionPersonHint && enrichedTitle && enrichedTitle !== priorTitle);
 
     // The new turn's own timeConstraints.rawHint (LLM-extracted semantic
     // time phrase) or, failing that, its raw sourceUtterance fragment, is
@@ -422,20 +435,25 @@ export function reconcileContinuationObjective(
     // caller will simply re-ask the same clarification.
     const newTimeText = newTurnObjective.timeConstraints.rawHint ?? newTurnObjective.sourceUtterance.trim();
     const priorHadNoDate = !priorObjective.timeConstraints.rawHint && !hasExplicitDateWord(priorObjective.sourceUtterance);
-    const filledField: ReconciledObjectiveResult['filledField'] = priorHadNoDate && newTimeText.length > 0 ? 'time' : 'none';
+    const filledField: ReconciledObjectiveResult['filledField'] = companionFilled
+        ? 'title'
+        : priorHadNoDate && newTimeText.length > 0 ? 'time' : 'none';
 
-    const reconciledSourceUtterance = filledField === 'time'
+    const reconciledSourceUtterance = companionFilled
+        ? `${priorObjective.sourceUtterance.trim()} ${newTurnObjective.sourceUtterance.trim()}`.trim()
+        : filledField === 'time'
         ? `${priorObjective.sourceUtterance.trim()} ${newTimeText}`.trim()
         : priorObjective.sourceUtterance;
 
     const reconciled: AgentObjective = {
         ...priorObjective,
-        targetEntities: { entityHints, personHints },
+        targetEntities: { entityHints: enrichedTitle ? [enrichedTitle] : entityHints, personHints },
         timeConstraints: { rawHint: priorObjective.timeConstraints.rawHint ?? newTurnObjective.timeConstraints.rawHint },
         sourceUtterance: reconciledSourceUtterance,
         // Ambiguities are always re-derived fresh by the planner from the
         // reconciled objective -- never carried forward stale.
         ambiguities: [],
+        desiredOutcome: enrichedTitle ?? priorObjective.desiredOutcome,
         confidence: Math.max(priorObjective.confidence, newTurnObjective.confidence),
     };
 
@@ -867,7 +885,8 @@ export async function classifyPlanCorrection(
         return { isCorrection: false, reason: 'empty_turn' };
     }
     const newTimeHint = extractTimeHint(trimmed);
-    if (!newTimeHint) {
+    const companionPersonHint = extractCompanionPersonHint(trimmed);
+    if (!newTimeHint && !companionPersonHint) {
         return { isCorrection: false, reason: 'no_date_expression' };
     }
     // Once the user has explicitly returned to an open create objective, a
@@ -895,7 +914,10 @@ export async function classifyPlanCorrection(
     if (escape.escaped && !targetlessDateCorrection) {
         return { isCorrection: false, reason: 'explicit_escape' };
     }
-    return { isCorrection: true, reason: pendingPlan ? 'date_correction' : 'open_objective_date_correction' };
+    return {
+        isCorrection: true,
+        reason: companionPersonHint ? 'title_correction' : (pendingPlan ? 'date_correction' : 'open_objective_date_correction'),
+    };
 }
 
 /**
@@ -1012,4 +1034,41 @@ export function buildPlanDateCorrection(
     };
 
     return { correctedObjective, turnSequence };
+}
+
+export function buildPlanTitleCorrection(
+    dialogueService: { applyCorrection: (input: {
+        actorUserId: string; dialogueScopeKey: string; slotName: string;
+        previousValue: string | null; newValue: string; reason: 'user_correction';
+        turnId: string; turnSequence: number;
+    }) => unknown },
+    dialogueState: AgentDialogueState,
+    dialogueScopeKey: string,
+    actorUserId: string,
+    companionPersonHint: string,
+    turnId: string,
+): PlanCorrectionResult {
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const previousTitle = priorObjective.targetEntities.entityHints[0] ?? null;
+    const newTitle = previousTitle && !previousTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
+        ? `${previousTitle} con ${companionPersonHint}`
+        : previousTitle ?? companionPersonHint;
+    const turnSequence = dialogueState.lastTurnSequence + 1;
+
+    dialogueService.applyCorrection({
+        actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints',
+        previousValue: previousTitle, newValue: newTitle,
+        reason: 'user_correction', turnId, turnSequence,
+    });
+
+    return {
+        correctedObjective: {
+            ...priorObjective,
+            targetEntities: { ...priorObjective.targetEntities, entityHints: [newTitle] },
+            desiredOutcome: newTitle,
+            sourceUtterance: `${priorObjective.sourceUtterance.trim()} ${companionPersonHint}`.trim(),
+            ambiguities: [],
+        },
+        turnSequence,
+    };
 }

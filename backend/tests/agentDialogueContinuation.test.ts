@@ -34,6 +34,7 @@ import {
     buildPendingPlanEdit,
     buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
+    buildPlanTitleCorrection,
     groundPendingPlanCandidate,
     isPendingPlanUnchangedCandidate,
 } from '../src/services/agentDialogueContinuation.service';
@@ -77,6 +78,46 @@ function dialogueState(overrides: Partial<AgentDialogueState> = {}): AgentDialog
         ...overrides,
     };
 }
+
+describe('pending plan companion correction', () => {
+    it('recognizes "es con Juan" without treating it as a new message', async () => {
+        await expect(classifyPlanCorrection(
+            dialogueState({
+                lifecycle: 'plan_pending_authorization',
+                currentPlanDigestRef: 'digest-1',
+                openObjective: objective({
+                    sourceUtterance: 'Crea una reunión para mañana',
+                    targetEntities: { personHints: [], entityHints: ['reunión'] },
+                    timeConstraints: { rawHint: 'mañana' },
+                }),
+            }),
+            'es con Juan', ACTOR_A, CONV_1,
+        )).resolves.toEqual({ isCorrection: true, reason: 'title_correction' });
+    });
+
+    it('enriches the same title and preserves the original date', () => {
+        const corrections: Array<Record<string, unknown>> = [];
+        const state = dialogueState({
+            lifecycle: 'plan_pending_authorization',
+            currentPlanDigestRef: 'digest-1',
+            openObjective: objective({
+                sourceUtterance: 'Crea una reunión para mañana',
+                targetEntities: { personHints: [], entityHints: ['reunión'] },
+                timeConstraints: { rawHint: 'mañana' },
+            }),
+        });
+        const result = buildPlanTitleCorrection(
+            { applyCorrection: (input) => corrections.push(input as Record<string, unknown>) },
+            state, CONV_1, ACTOR_A, 'Juan', 'turn-title-correction',
+        );
+        expect(result.correctedObjective.targetEntities.entityHints).toEqual(['reunión con Juan']);
+        expect(result.correctedObjective.timeConstraints.rawHint).toBe('mañana');
+        expect(corrections[0]).toMatchObject({
+            slotName: 'targetEntities.entityHints', previousValue: 'reunión',
+            newValue: 'reunión con Juan', reason: 'user_correction',
+        });
+    });
+});
 
 describe('isContinuationEligibleObjectiveType', () => {
     it('create_personal_commitment and create_commitment_or_proposal are eligible', () => {

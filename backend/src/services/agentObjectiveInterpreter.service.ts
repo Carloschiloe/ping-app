@@ -164,6 +164,16 @@ function extractPersonHints(text: string): { primary: string | null; additional:
     return { primary: match?.[1] ?? null, additional: match?.[2] ?? null };
 }
 
+// A short follow-up such as "es con Juan" supplies the companion for an
+// already-open commitment. Keep this structural and narrow: it only accepts
+// a proper-name fragment, so an unrelated sentence cannot silently become a
+// correction of the pending plan.
+export function extractCompanionPersonHint(text: string): string | null {
+    const match = text.match(/^\s*(?:es|ser[aá]|será)\s+(?:con|junto\s+a)\s+([\p{Lu}][\p{L}]*)\b/iu)
+        ?? text.match(/^\s*(?:con|junto\s+a)\s+([\p{Lu}][\p{L}]*)\b/iu);
+    return match?.[1] ?? null;
+}
+
 // ─── send_message payload candidate PROPOSAL (sección 1/36: "LLM/
 // interpreter suggests; Core decides") — this interpreter never decides
 // what becomes executable message content, and it never proposes a

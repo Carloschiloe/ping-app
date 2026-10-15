@@ -30,7 +30,7 @@ import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AUTHORIZATION_TTL_MS } from './agentAuthorization.service';
-import { LlmObjectiveInterpreter, extractTimeHint } from './agentObjectiveInterpreter.service';
+import { LlmObjectiveInterpreter, extractCompanionPersonHint, extractTimeHint } from './agentObjectiveInterpreter.service';
 import { resolveTimeZone } from './date-parser.service';
 import type { AgentPlan, AgentPlanStep, AgentObjective } from '../types/agentPlan';
 import type {
@@ -69,6 +69,7 @@ import {
     buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
     buildPlanDateCorrection,
+    buildPlanTitleCorrection,
     buildPendingPlanEdit,
     classifyPendingPlanDecision,
     isPendingPlanUnchangedCandidate,
@@ -409,6 +410,28 @@ export async function runAgentTurn(
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: correctedObjective,
+                admittedTurnSequence: options.dialogueTurnSequence,
+            }), traceId);
+        }
+        const companionPersonHint = extractCompanionPersonHint(content.trim());
+        if (correctionClassification.reason === 'title_correction' && companionPersonHint) {
+            const turnId = `${traceId}:${Date.now()}`;
+            const { correctedObjective, turnSequence } = buildPlanTitleCorrection(
+                dialogueService, existingDialogueState!, dialogueScopeKey, input.actorUserId,
+                companionPersonHint, turnId,
+            );
+            dialogueService.openObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                objective: correctedObjective,
+                turnId,
+                turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
+            });
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_title_correction', dialogueScopeKey });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: correctedObjective,
                 admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
