@@ -792,6 +792,32 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
         expect(ctx.wantsOverdueFocus).toBe(true);
     });
 
+    it('descarta una fecha/estado/texto inventados cuando la transcripción no contiene esa consulta', async () => {
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query',
+            textQuery: 'está mal porque sí día',
+            timeExpression: 'hoy',
+            temporalIntent: { kind: 'calendar_day', offsetDays: 0, futureOnly: false },
+            statusHints: ['proposed', 'accepted', 'counter_proposal'],
+            wantsOverdueFocus: true,
+            wantsMessages: false,
+        }));
+
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: 'está mal porque sí día',
+            now: '2026-09-05T12:00:00.000Z',
+            timezone: 'UTC',
+        }, { interpreter });
+
+        expect(ctx.intent.type).toBe('general_context');
+        expect(ctx.wantsOverdueFocus).toBe(false);
+        expect(ctx.entities.timeRange).toBeNull();
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification?.reason).toBe('topic_too_broad');
+        expect(mockRetrieveCommitments).not.toHaveBeenCalled();
+    });
+
     // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: requestedTransition debe
     // llegar intacto al AgentContext de salida, exactamente como
     // wantsOverdueFocus arriba -- síntesis no puede verificar la transición

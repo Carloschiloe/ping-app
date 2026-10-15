@@ -98,6 +98,28 @@ function endOfDayInZone(date: Date, timeZone: string): Date {
     return addDays(startOfDayInZone(date, timeZone), 1);
 }
 
+// LLM interpretation fields are advisory. Temporal claims are only allowed
+// to influence retrieval when they are grounded in the user's actual words.
+// This prevents a contaminated/incorrect transcript from becoming a date
+// filter such as "hoy" and hiding real commitments behind a false no-results
+// answer.
+function normalizeSignalText(value: string): string {
+    return value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function isTemporalExpressionGroundedInInput(expression: string | null, input: string): boolean {
+    if (!expression) return false;
+    return normalizeSignalText(input).includes(normalizeSignalText(expression));
+}
+
+function hasExplicitOverdueCue(input: string): boolean {
+    return /\b(vencid[oa]s?|atrasad[oa]s?|overdue|late)\b/i.test(normalizeSignalText(input));
+}
+
 // Semana ISO (lunes primer día) — convención neutral documentada, no ligada
 // a un idioma/región específico (sección 29).
 function startOfWeekInZone(date: Date, timeZone: string): Date {
@@ -541,6 +563,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    const rawTimeExpression = rawInterpretation.timeExpression?.trim() || null;
+    const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
+        ? rawTimeExpression
+        : null;
+    const rawTemporalClaimPresent = rawTimeExpression !== null || rawInterpretation.temporalIntent != null;
+    const ungroundedRawTemporalClaim = rawTemporalClaimPresent
+        && deterministicSignals.temporalIntent === null
+        && groundedRawTimeExpression === null;
+    const normalizedTimeExpression = deterministicSignals.timeExpression ?? groundedRawTimeExpression;
     // LLM suggestions do not grant identity or authorization. They can,
     // however, preserve the complete human-readable mention that the model
     // extracted from a write request (for example a multi-token name that a
@@ -596,7 +627,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
-    const temporalIntent = deterministicSignals.temporalIntent ?? rawInterpretation.temporalIntent ?? inferTemporalIntent(input.input);
+    const temporalIntent = deterministicSignals.temporalIntent
+        ?? (ungroundedRawTemporalClaim ? null : rawInterpretation.temporalIntent)
+        ?? inferTemporalIntent(input.input);
     // A model may use the prior-read summary to understand an elliptical
     // follow-up, but it must not make a new explicit topic inherit the old
     // entity. Core-owned surface evidence wins this boundary: a substantive
@@ -637,9 +670,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // commitment in that range so the answer can faithfully report overdue,
     // open, completed, or cancelled items as applicable.
     const neutralTemporalCollection = deterministicSignals.intent === 'commitment_query'
-        && deterministicSignals.timeExpression !== null
+        && (normalizedTimeExpression !== null || temporalIntent !== null)
         && deterministicSignals.statusHints === null
         && !deterministicSignals.wantsOverdueFocus;
+    const normalizedIntent = commitmentSignalConfident || !ungroundedRawTemporalClaim
+        ? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent)
+        : 'general_context';
+    const normalizedWantsOverdueFocus = deterministicSignals.wantsOverdueFocus
+        || (!ungroundedRawTemporalClaim && rawInterpretation.wantsOverdueFocus && hasExplicitOverdueCue(input.input));
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -650,9 +688,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // adding a new use).
         personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
-        timeExpression: deterministicSignals.timeExpression ?? rawInterpretation.timeExpression ?? null,
+        timeExpression: normalizedTimeExpression,
         temporalIntent,
-        intent: commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent,
+        intent: normalizedIntent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
         // que produce el extractor determinístico sobre el MISMO input crudo
@@ -660,8 +698,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // language de confirmación/aceptación/aprobación, ver
         // stripConfirmationControlWords). Nunca se confía en un textQuery
         // sugerido por el LLM para un dominio que el Core ya resolvió.
-        textQuery: priorSingleReferent?.rawText
-            ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
+        textQuery: ungroundedRawTemporalClaim
+            ? null
+            : priorSingleReferent?.rawText
+                ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
         priorReferenceIntent,
         followUpAttribute: rawInterpretation.followUpAttribute ?? null,
         // El operador de comparación es una decisión del Core sobre la
@@ -695,12 +735,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // that semantics (not even the deterministic value, since the
         // requested transition itself is what the answer must verify
         // against, never a retrieval-narrowing status filter).
-        statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection
+        statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection || ungroundedRawTemporalClaim
             ? null
             : rawInterpretation.statusHints,
-        topicHints: commitmentSignalConfident
-            ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
-            : rawInterpretation.topicHints,
+        topicHints: ungroundedRawTemporalClaim
+            ? []
+            : commitmentSignalConfident
+                ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
+                : rawInterpretation.topicHints,
         intentConfidence: commitmentSignalConfident
             ? Math.max(deterministicSignals.intentConfidence, rawInterpretation.intentConfidence)
             : rawInterpretation.intentConfidence,
@@ -709,7 +751,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // determinístico no lo detecta y el LLM sí lo sugiere para una
         // frase que el regex no cubre, se mantiene (nunca se resta señal,
         // sólo se garantiza un piso).
-        wantsOverdueFocus: deterministicSignals.wantsOverdueFocus || rawInterpretation.wantsOverdueFocus,
+        wantsOverdueFocus: normalizedWantsOverdueFocus,
         // Cuando el Core ya tiene una lectura estructurada confiada de
         // proposalFocus, una alucinación de ambigüedad del LLM
         // (needs_clarification sobre una consulta que en realidad es clara)
@@ -737,7 +779,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // proposalFocus (pese a que el LLM haya dicho wantsCommitments
         // false -- una alucinación correlacionada plausible), la
         // recuperación de commitments no puede quedar apagada.
-        wantsCommitments: commitmentSignalConfident ? true : rawInterpretation.wantsCommitments,
+        wantsCommitments: commitmentSignalConfident
+            ? true
+            : ungroundedRawTemporalClaim
+                ? false
+                : rawInterpretation.wantsCommitments,
+        wantsMessages: ungroundedRawTemporalClaim ? false : rawInterpretation.wantsMessages,
+        wantsTranscriptions: ungroundedRawTemporalClaim ? false : rawInterpretation.wantsTranscriptions,
+        wantsAttachments: ungroundedRawTemporalClaim ? false : rawInterpretation.wantsAttachments,
     };
     const queryCardinality: QueryCardinality = classifyQueryCardinality(input.input, {
         intent: interpretation.intent,
@@ -1387,7 +1436,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // propio todavía -- fuera de alcance de este ticket.
     const ambiguityHints = interpretation.ambiguityHints ?? []; // defensivo: un intérprete mal formado no debe crashear el builder
     if (!isWritePlanning && !needsClarification) {
-        if (ambiguityHints.includes('time_ambiguous') && deterministicSignals.timeExpression === null) {
+        if (ambiguityHints.includes('time_ambiguous') && normalizedTimeExpression === null && temporalIntent === null) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
         } else if (interpretation.interactionMode !== 'conversation' && ambiguityHints.includes('topic_too_broad')) {
