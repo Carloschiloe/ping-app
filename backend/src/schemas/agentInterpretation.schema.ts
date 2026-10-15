@@ -5,6 +5,7 @@ const TEMPORAL_INTENT_SCHEMA = z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('calendar_week'), offsetWeeks: z.number().int().min(-52).max(52), futureOnly: z.boolean() }),
     z.object({ kind: z.literal('relative_days'), daysAhead: z.number().int().min(1).max(366), futureOnly: z.literal(true) }),
     z.object({ kind: z.literal('upcoming_horizon'), daysAhead: z.number().int().min(1).max(366).nullable(), futureOnly: z.literal(true) }),
+    z.object({ kind: z.literal('weekday'), weekday: z.number().int().min(0).max(6), nextOccurrence: z.boolean(), futureOnly: z.boolean() }),
 ]);
 
 // M-1D.1 — Schema estricto para la salida estructurada del LLM Input

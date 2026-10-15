@@ -137,6 +137,12 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
     return new Date(monthStartUtcMs - offsetMs);
 }
 
+function localWeekdayIndex(date: Date, timeZone: string): number {
+    const startToday = startOfDayInZone(date, timeZone);
+    const offsetMs = timeZoneOffsetMs(startToday, timeZone);
+    return new Date(startToday.getTime() + offsetMs).getUTCDay();
+}
+
 // Resuelve una expresión temporal cruda (detectada por el intérprete) a un
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
@@ -156,6 +162,13 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
                 ? { from: now.toISOString(), to: end.toISOString() }
                 : { from: start.toISOString(), to: end.toISOString() };
         }
+        if (temporalIntent.kind === 'weekday') {
+            const currentDay = localWeekdayIndex(now, timezone);
+            let daysAhead = (temporalIntent.weekday - currentDay + 7) % 7;
+            if (temporalIntent.nextOccurrence && daysAhead === 0) daysAhead = 7;
+            const target = addDays(startOfDayInZone(now, timezone), daysAhead);
+            return { from: target.toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+        }
         const daysAhead = temporalIntent.daysAhead ?? 7;
         return {
             from: now.toISOString(),
@@ -172,11 +185,15 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const yesterday = addDays(now, -1);
         return { from: startOfDayInZone(yesterday, timezone).toISOString(), to: endOfDayInZone(yesterday, timezone).toISOString() };
     }
-    if (/mañana|tomorrow/.test(expr)) {
+    if (/pasad[oa]\s+(?:mañana|manana)|day after tomorrow/.test(expr)) {
+        const dayAfterTomorrow = addDays(now, 2);
+        return { from: startOfDayInZone(dayAfterTomorrow, timezone).toISOString(), to: endOfDayInZone(dayAfterTomorrow, timezone).toISOString() };
+    }
+    if (/mañana|manana|tomorrow/.test(expr)) {
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
     }
-    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d[ií]as?\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
+    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d(?:ías?|ias?)\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
     if (upcomingDaysMatch) {
         // "los próximos días" is intentionally bounded: seven calendar days
         // starting today, or the explicit count when the user gives one. This

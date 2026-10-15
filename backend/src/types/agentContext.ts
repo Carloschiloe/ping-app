@@ -155,7 +155,8 @@ export type TemporalIntent =
     | { kind: 'calendar_day'; offsetDays: number; futureOnly: boolean }
     | { kind: 'calendar_week'; offsetWeeks: number; futureOnly: boolean }
     | { kind: 'relative_days'; daysAhead: number; futureOnly: true }
-    | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true };
+    | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true }
+    | { kind: 'weekday'; weekday: number; nextOccurrence: boolean; futureOnly: boolean };
 
 // Sanitized provider metadata used only for staging diagnostics. Raw SDK
 // messages, request bodies, headers and credentials never cross this boundary.

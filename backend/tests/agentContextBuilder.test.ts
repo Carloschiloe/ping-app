@@ -213,6 +213,24 @@ describe('M-1D: resolveTimeExpression', () => {
         expect(diffHours).toBe(24);
     });
 
+    it('resuelve formas de voz frecuentes: "pasado mañana", "próxima semana" y "el jueves"', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        const now = new Date('2026-06-15T12:00:00.000Z'); // lunes
+        expect(resolveTimeExpression('pasado mañana', now, 'UTC', inferTemporalIntent('pasado mañana'))).toEqual({
+            from: '2026-06-17T00:00:00.000Z',
+            to: '2026-06-18T00:00:00.000Z',
+        });
+        expect(resolveTimeExpression('próxima semana', now, 'UTC', inferTemporalIntent('próxima semana'))).toEqual({
+            from: '2026-06-22T00:00:00.000Z',
+            to: '2026-06-29T00:00:00.000Z',
+        });
+        expect(resolveTimeExpression('el jueves', now, 'UTC', inferTemporalIntent('el jueves'))).toEqual({
+            from: '2026-06-18T00:00:00.000Z',
+            to: '2026-06-19T00:00:00.000Z',
+        });
+    });
+
     it('"esta semana" empieza el lunes ISO', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const now = new Date('2026-06-17T12:00:00.000Z'); // miércoles
