@@ -477,6 +477,32 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(ctx.entities.timeRange).toEqual(priorTimeRange);
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ timeRange: priorTimeRange }), expect.any(Number));
     });
+
+    it('una referencia corta sobre varios resultados muestra opciones reales en vez de pedir detalles genéricos', async () => {
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Y ese?',
+            priorReadContext: {
+                kind: 'commitment_query',
+                timeRange: null,
+                sourceTurnId: 'prior-turn',
+                commitmentReferents: [
+                    { rawText: 'Reunión con Juan', entityType: 'commitment', canonicalId: 'cm-juan' },
+                    { rawText: 'Reunión con María', entityType: 'commitment', canonicalId: 'cm-maria' },
+                ],
+            },
+        });
+
+        expect(ctx.needsClarification).toBe(true);
+        expect(ctx.clarification).toEqual({
+            reason: 'entity_ambiguous',
+            entityCandidates: [
+                { id: 'cm-juan', label: 'Reunión con Juan' },
+                { id: 'cm-maria', label: 'Reunión con María' },
+            ],
+        });
+    });
 });
 
 describe('M-1D: buildAgentContext — authorization (sección 23)', () => {

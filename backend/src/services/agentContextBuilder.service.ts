@@ -893,7 +893,21 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     ]));
     const people: PersonResolutionResult[] = [];
     let needsClarification = isWritePlanning ? false : priorReferenceAmbiguous;
-    let clarification: AgentClarification | undefined = !isWritePlanning && priorReferenceAmbiguous ? { reason: 'topic_too_broad' } : undefined;
+    // A prior read with several real referents is a known ambiguity, not an
+    // underspecified topic. Keep the safe behavior (never choose silently),
+    // but expose the authorized referent labels so the user can answer with
+    // natural language such as "el del jueves" or "la de Juan" instead of
+    // being sent back to a generic "dame más detalles" question.
+    const priorEntityCandidates = priorReferenceAmbiguous
+        ? priorCommitmentReferents
+            .filter((referent) => Boolean(referent.canonicalId) && referent.rawText.trim().length > 0)
+            .map((referent) => ({ id: referent.canonicalId!, label: referent.rawText.trim() }))
+        : [];
+    let clarification: AgentClarification | undefined = !isWritePlanning && priorReferenceAmbiguous
+        ? priorEntityCandidates.length > 0
+            ? { reason: 'entity_ambiguous', entityCandidates: priorEntityCandidates }
+            : { reason: 'topic_too_broad' }
+        : undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
