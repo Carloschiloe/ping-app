@@ -9,7 +9,6 @@ import { rescheduleCommitmentExecutor } from './toolExecutors/rescheduleCommitme
 import { completeCommitmentExecutor } from './toolExecutors/completeCommitmentExecutor';
 import { rememberFactExecutor } from './toolExecutors/rememberFactExecutor';
 import { cancelCommitmentExecutor } from './toolExecutors/cancelCommitmentExecutor';
-import { editCommitmentExecutor } from './toolExecutors/editCommitmentExecutor';
 import type { ToolExecutor } from '../types/agentExecution';
 
 const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -20,7 +19,6 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     complete_commitment: completeCommitmentExecutor,
     remember_fact: rememberFactExecutor,
     cancel_commitment: cancelCommitmentExecutor,
-    edit_commitment: editCommitmentExecutor,
 };
 
 export function getToolExecutor(toolId: string): ToolExecutor | null {

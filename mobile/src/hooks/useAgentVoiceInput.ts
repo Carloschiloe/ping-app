@@ -12,6 +12,7 @@ import { File } from 'expo-file-system';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { transcribeAgentVoice, type AgentAdapterSurface, type AgentVoiceTranscriptResult } from '../api/query-modules/agent';
 import { resolveRecordingDurationMs } from '../utils/audioRecording';
+import { AGENT_IDLE_AUDIO_MODE, AGENT_RECORDING_AUDIO_MODE } from '../utils/agentAudioSession';
 import {
     createEphemeralUuid,
     mapMicrophonePermission,
@@ -76,6 +77,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
     const deleteLocalCapture = useCallback((uri?: string | null) => {
         const target = uri || activeUriRef.current;
         activeUriRef.current = null;
+        lastKnownUriRef.current = null;
         if (!target) return;
         try {
             const file = new File(target);
@@ -93,7 +95,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
         requestAbortRef.current?.abort();
         requestAbortRef.current = null;
         deleteLocalCapture(lastKnownUriRef.current);
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+        await setAudioModeAsync(AGENT_IDLE_AUDIO_MODE).catch(() => undefined);
         try {
             applyEvent('CANCEL');
         } catch {
@@ -132,7 +134,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             subscription.remove();
             if (stateRef.current === 'capturing' || stateRef.current === 'listening') void recorder.stop().catch(() => undefined);
             deleteLocalCapture(lastKnownUriRef.current);
-            void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+            void setAudioModeAsync(AGENT_IDLE_AUDIO_MODE).catch(() => undefined);
         };
     }, [cancel, deleteLocalCapture, recorder]);
 
@@ -153,7 +155,10 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
                 return;
             }
 
-            await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+            // Do not mix the microphone with Ping's previous response or
+            // another app's audio. This is a capture boundary, not a prompt
+            // tweak: the transcript must contain only this turn.
+            await setAudioModeAsync(AGENT_RECORDING_AUDIO_MODE);
             await recorder.prepareToRecordAsync();
             voiceSessionIdRef.current = createEphemeralUuid();
             durationRef.current = 0;
@@ -209,7 +214,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
         } finally {
             requestAbortRef.current = null;
             deleteLocalCapture(activeUriRef.current || lastKnownUriRef.current);
-            await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+            await setAudioModeAsync(AGENT_IDLE_AUDIO_MODE).catch(() => undefined);
         }
     }, [applyEvent, deleteLocalCapture, recorder]);
 

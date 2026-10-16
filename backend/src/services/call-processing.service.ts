@@ -110,6 +110,8 @@ Transcripción:
         }).select().single();
 
         if (extraction.hasCommitment && msgData) {
+            // LEGACY SATELLITE WRITER — migrate in future slice.
+            // Commitment Core writers must delegate to commitmentApplication.service.
             await supabaseAdmin.from('commitments').insert({
                 title: extraction.title,
                 due_at: extraction.dueAt,

@@ -2,6 +2,7 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 import appJson from './app.json';
 
 const STAGING_PROJECT_REF = 'oonijgmddgyymhrlnvuu';
+const EAS_PROJECT_ID = '0baf032d-de1a-49e7-9181-a5897927fb11';
 const isPrivateOrLocalHost = (hostname: string) =>
     hostname === 'localhost'
     || hostname === '127.0.0.1'
@@ -57,50 +58,49 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: isStaging ? 'Ping Staging' : 'Ping',
-        // Production OTA updates currently target the installed 1.0.1
-        // runtime. Keep this explicit until the next native build advances
-        // the runtime deliberately; otherwise EAS would publish a bundle
-        // the installed app cannot select.
         version: isStaging ? '1.0.3' : '1.0.1',
+        runtimeVersion: { policy: 'appVersion' },
+        updates: {
+            url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+            checkAutomatically: 'ON_LOAD',
+            fallbackToCacheTimeout: 0,
+        },
         // Preserve the slug bound to extra.eas.projectId. Staging and
         // production remain separate Android applications through package ID.
         slug: base.slug,
         scheme: isStaging ? 'ping-staging' : 'ping',
-        updates: {
-            url: 'https://u.expo.dev/0baf032d-de1a-49e7-9181-a5897927fb11',
-        },
-        runtimeVersion: {
-            policy: 'appVersion',
-        },
         plugins: isStaging ? [...plugins, 'expo-web-browser'] : plugins,
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: isStaging ? 5 : 1,
+            versionCode: isStaging ? 4 : 6,
             permissions: m8LiveVoiceEnabled
-                ? ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS']
+                ? [
+                    'android.permission.RECORD_AUDIO',
+                    'android.permission.MODIFY_AUDIO_SETTINGS',
+                    'android.permission.READ_CONTACTS',
+                    'android.permission.WRITE_CONTACTS',
+                ]
                 : [],
             blockedPermissions: m8LiveVoiceEnabled
                 ? blockedBetaPermissions.filter((permission) =>
                     permission !== 'android.permission.RECORD_AUDIO'
-                    && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS')
+                    && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS'
+                    && permission !== 'android.permission.READ_CONTACTS'
+                    && permission !== 'android.permission.WRITE_CONTACTS')
                 : blockedBetaPermissions,
         },
         ios: {
             ...base.ios,
-            infoPlist: {
-                ...base.ios?.infoPlist,
-                ITSAppUsesNonExemptEncryption: false,
-            },
             ...(isStaging ? {
                 bundleIdentifier: 'com.carloschiloe.ping.staging',
-                buildNumber: '5',
+                buildNumber: '4',
             } : {}),
         },
         extra: {
             ...base.extra,
             appVariant: variant,
-            buildLabel: isStaging ? 'STAGING 1.0.4 (5) · M8 LIVE VOICE SPIKE' : undefined,
+            buildLabel: isStaging ? 'STAGING 1.0.3 (4) · AUTH UI V1' : undefined,
             m8LiveVoiceEnabled,
             expectedSupabaseProjectRef: isStaging ? STAGING_PROJECT_REF : undefined,
         },

@@ -27,6 +27,7 @@
 // extends this module -- no edit needed here.
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
 import { isHistoricalLifecycleQuery } from './agentInputInterpreter.service';
+import type { Interpretation } from '../types/agentContext';
 
 export interface ReadReferentEvidence {
     id: string;
@@ -64,6 +65,27 @@ export function forgetReadFollowupReferent(actorUserId: string, conversationId?:
     if (conversationId) referents.delete(key(actorUserId, conversationId));
 }
 
+/** Read the verified referent without turning it into user-visible evidence.
+ * The Core still re-authorizes this id through canonical retrieval before it
+ * can affect a response.
+ */
+export function getVerifiedReadReferent(input: {
+    actorUserId: string;
+    conversationId?: string;
+    now?: number;
+}): ReadReferentEvidence | null {
+    if (!input.conversationId) return null;
+    const scope = key(input.actorUserId, input.conversationId);
+    const now = input.now ?? Date.now();
+    const stored = referents.get(scope);
+    if (!stored) return null;
+    if (stored.expiresAt <= now) {
+        referents.delete(scope);
+        return null;
+    }
+    return { id: stored.id, title: stored.title };
+}
+
 /** Record only after the Core answered from exactly one cited commitment.
  * Never persist a date, prior response text, or a user-supplied guess.
  */
@@ -87,6 +109,27 @@ export function rememberVerifiedReadReferent(input: {
     const now = input.now ?? Date.now();
     prune(now);
     referents.set(scope, { id: commitment.id, title: commitment.title, expiresAt: now + TTL_MS });
+}
+
+/**
+ * Semantic gate for an attribute follow-up. It deliberately contains no
+ * natural-language vocabulary: the interpreter supplies the bounded
+ * attribute enum, while Core decides whether the rest of the turn is still
+ * an entity-free read continuation.
+ */
+export function isEligibleReadAttributeFollowup(interpretation: Pick<Interpretation,
+    'followUpAttribute' | 'isWriteActionRequest' | 'textQuery' | 'personHints'
+    | 'timeExpression' | 'temporalComparison' | 'urgencyComparison'
+    | 'requestedTransition' | 'proposalFocus'>): boolean {
+    return interpretation.followUpAttribute != null
+        && !interpretation.isWriteActionRequest
+        && interpretation.textQuery == null
+        && interpretation.personHints.length === 0
+        && interpretation.timeExpression == null
+        && interpretation.temporalComparison == null
+        && interpretation.urgencyComparison == null
+        && interpretation.requestedTransition == null
+        && interpretation.proposalFocus == null;
 }
 
 const deterministicInterpreter = new DeterministicInputInterpreter();
@@ -134,6 +177,7 @@ export async function resolveVerifiedReadFollowup(input: {
     conversationId?: string;
     utterance: string;
     now?: number;
+    preserveOnIneligible?: boolean;
 }): Promise<{ query: string; sourceId: string } | null> {
     const { actorUserId, conversationId, utterance } = input;
     if (!conversationId) return null;
@@ -148,7 +192,7 @@ export async function resolveVerifiedReadFollowup(input: {
     // Explicitly avoid carrying context across unrelated instructions,
     // ambiguous plural references, or anything that could be a write action.
     if (!(await isEligibleReadFollowup(utterance))) {
-        referents.delete(scope);
+        if (!input.preserveOnIneligible) referents.delete(scope);
         return null;
     }
     const normalized = utterance.trim().normalize('NFC');

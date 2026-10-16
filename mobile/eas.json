@@ -7,11 +7,11 @@
     "staging-apk": {
       "distribution": "internal",
       "environment": "preview",
+      "channel": "staging",
       "autoIncrement": false,
       "env": {
         "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
       },
       "android": {
         "buildType": "apk"
@@ -20,11 +20,11 @@
     "staging-aab": {
       "distribution": "store",
       "environment": "preview",
+      "channel": "staging",
       "autoIncrement": false,
       "env": {
         "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
       },
       "android": {
         "buildType": "app-bundle"
@@ -33,25 +33,11 @@
     "staging-ios": {
       "distribution": "internal",
       "environment": "preview",
+      "channel": "staging",
       "autoIncrement": false,
       "env": {
         "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
-      },
-      "ios": {
-        "simulator": false
-      }
-    },
-    "staging-ios-dev": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "environment": "preview",
-      "autoIncrement": false,
-      "env": {
-        "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
+        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
       },
       "ios": {
         "simulator": false
@@ -60,13 +46,31 @@
     "production": {
       "distribution": "store",
       "environment": "production",
+      "channel": "production",
       "autoIncrement": false,
       "env": {
         "APP_VARIANT": "production",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
+        "EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS": "true",
+        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true",
+        "EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK": "1"
       },
       "android": {
         "buildType": "app-bundle"
+      }
+    },
+    "production-apk": {
+      "distribution": "internal",
+      "environment": "production",
+      "channel": "production",
+      "autoIncrement": false,
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS": "true",
+        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true",
+        "EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK": "1"
+      },
+      "android": {
+        "buildType": "apk"
       }
     }
   }

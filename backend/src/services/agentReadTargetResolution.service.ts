@@ -1,3 +1,4 @@
+import { assertConversationParticipant } from '../utils/authz';
 import type { AgentReadTargetResolutionInput, ReadTargetResolutionResult } from '../types/agentReadTargetResolution';
 
 export interface ConversationScopeAuthorizer {
@@ -7,7 +8,6 @@ export interface ConversationScopeAuthorizer {
 const canonicalConversationScopeAuthorizer: ConversationScopeAuthorizer = {
     async validate(actorUserId, conversationId) {
         try {
-            const { assertConversationParticipant } = await import('../utils/authz');
             await assertConversationParticipant(actorUserId, conversationId);
             return true;
         } catch (error: any) {

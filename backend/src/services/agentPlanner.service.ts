@@ -29,7 +29,6 @@ import { tracePlan } from '../utils/planTrace';
 import type { ContextReferent } from '../types/agentInput';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 import type { TemporalCoreResult } from './temporalCore.service';
-import { extractCompanionPersonHint } from './agentObjectiveInterpreter.service';
 
 /**
  * Optional facts already decided by Core.  Legacy callers omit this object
@@ -77,16 +76,6 @@ interface DraftOutcome {
 }
 
 const ENTITY_CANDIDATE_LIMIT = 5;
-
-function titleWithCompanion(title: string, personHint: string): string {
-    const base = title.trim();
-    const person = personHint.trim();
-    if (!base || !person) return base;
-    if (new RegExp(`(?:^|\\s)${person.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}(?:$|\\s|[.,!?])`, 'iu').test(base)) {
-        return base;
-    }
-    return `${base} con ${person}`.slice(0, 120).trim();
-}
 
 function newStepId(): string {
     return `step-${randomUUID().slice(0, 8)}`;
@@ -584,13 +573,21 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     if (ownership === 'ambiguous') {
         return {
             steps: [],
-            blockingAmbiguities: [{ field: 'commitmentOwnership', kind: 'blocking', reason: 'Necesito saber si este compromiso es para ti o si implica a otra persona.' }],
+            blockingAmbiguities: [{
+                field: 'commitmentOwnership',
+                kind: 'blocking',
+                reason: 'Necesito saber si este compromiso es para ti o si implica a otra persona.',
+            }],
         };
     }
     if (personal && ownership === 'third_party') {
         return {
             steps: [],
-            blockingAmbiguities: [{ field: 'commitmentOwnership', kind: 'blocking', reason: 'La interpretación del compromiso es contradictoria: indica una acción personal y una asignación a otra persona.' }],
+            blockingAmbiguities: [{
+                field: 'commitmentOwnership',
+                kind: 'blocking',
+                reason: 'La interpretación del compromiso es contradictoria: indica una acción personal y una asignación a otra persona.',
+            }],
         };
     }
     const isThirdParty = ownership === 'third_party';
@@ -710,35 +707,6 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
     const sourceRefs = [{ sourceType: entity.entityType, sourceId: entity.id }];
     const entityResolutionSource = resolvedFromContext ? 'canonical_context' as const : 'entity_resolution' as const;
     const sourceSpan = hint || undefined;
-
-    if (objective.objectiveType === 'edit_existing_commitment') {
-        if (isProposal) {
-            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" todavía es una propuesta pendiente; primero debe confirmarse.` };
-        }
-        if (entity.ownerUserId !== input.actorUserId) {
-            return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: `Solo quien creó "${entity.title}" puede editarlo.` };
-        }
-        const personHint = objective.targetEntities.personHints[0]?.trim()
-            ?? extractCompanionPersonHint(objective.sourceUtterance);
-        if (!personHint) {
-            return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: '¿Qué detalle quieres agregar al compromiso?' }] };
-        }
-        const nextTitle = titleWithCompanion(entity.title, personHint);
-        if (nextTitle === entity.title) {
-            return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" ya contiene ese detalle.` };
-        }
-        const step = buildStep({
-            toolId: 'edit_commitment',
-            operation: `Actualizar "${entity.title}" a "${nextTitle}"`,
-            args: { commitmentId: entity.id, title: nextTitle },
-            expectedEffect: `El mismo compromiso quedará como "${nextTitle}"; no se creará otro.`,
-            isShared: false,
-            sourceUtteranceSpan: objective.sourceUtterance,
-            resolvedFrom: entityResolutionSource,
-            canonicalSourceRefs: sourceRefs,
-        });
-        return { steps: [step], blockingAmbiguities: [] };
-    }
 
     if (objective.objectiveType === 'respond_to_existing_proposal') {
         if (!isProposal) {
@@ -891,19 +859,6 @@ async function planResolvedExistingEntity(objective: AgentObjective, input: Agen
         })], blockingAmbiguities: [] };
     }
 
-    if (objective.objectiveType === 'edit_existing_commitment') {
-        if (isProposal) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'La propuesta aún debe confirmarse antes de editarla.' };
-        if (entity.ownerUserId !== input.actorUserId) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'El actor no puede editar este compromiso.' };
-        const personHint = objective.targetEntities.personHints[0]?.trim() ?? extractCompanionPersonHint(objective.sourceUtterance);
-        if (!personHint) return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: 'No identifiqué qué detalle quieres agregar.' }] };
-        const nextTitle = titleWithCompanion(entity.title, personHint);
-        if (nextTitle === entity.title) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: `"${entity.title}" ya contiene ese detalle.` };
-        return { steps: [buildStep({
-            toolId: 'edit_commitment', operation: `Update "${entity.title}" to "${nextTitle}"`, args: { commitmentId: entity.id, title: nextTitle },
-            expectedEffect: `The same commitment will be updated to "${nextTitle}".`, isShared: false, resolvedFrom: 'canonical_context', canonicalSourceRefs: sourceRefs,
-        })], blockingAmbiguities: [] };
-    }
-
     if (isProposal) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'A pending proposal cannot be completed.' };
     if (entity.ownerUserId !== input.actorUserId && entity.assignedToUserId !== input.actorUserId) return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'The actor cannot complete this commitment.' };
     if (!COMMITMENT_TRANSITION_TABLE.resolve.validFromStatuses.includes(entity.status)) return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'The commitment lifecycle does not allow completion.' };
@@ -975,7 +930,6 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
         case 'create_personal_commitment':
             return planCreateCommitment(objective, input, true);
         case 'reschedule_existing_commitment':
-        case 'edit_existing_commitment':
         case 'complete_existing_commitment':
         case 'respond_to_existing_proposal':
         case 'cancel_existing_commitment':

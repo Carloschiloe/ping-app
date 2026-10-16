@@ -57,6 +57,8 @@ import { resolveMediaTapPresentation } from '../utils/messagePresentation';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { getMessageFocusDecision } from '../utils/messageFocus';
+import { publicPingSurface } from '../api/agentSurfaceAdapter';
+import { PingActivityCard } from '../components/PingActivityCard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -280,6 +282,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     isSelf={!!isSelf}
                     onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}
                     onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
+                    onPing={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
                     onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
                     onMenu={() => setHeaderMenuVisible(true)}
                     onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
@@ -706,6 +709,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 />
 
                 <View style={styles.chatBg}>
+                    <PingActivityCard
+                        conversationId={conversationId}
+                        onOpen={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
+                    />
                     {conversationMode === 'operation' && (
                         <OperationPanel
                             loading={isOperationStateLoading}

@@ -12,21 +12,11 @@ import { AGENT_OBJECTIVE_TYPE_VALUES } from '../types/agentPlan';
 const HINT_STRING = z.string().trim().min(1).max(80);
 
 export const agentObjectiveInterpretationPayloadSchema = z.object({
-    dialogueAct: z.enum(['confirm', 'reject', 'defer', 'correct', 'clarify', 'new_objective', 'other']).nullable().default(null),
-    slotDelta: z.object({
-        title: HINT_STRING.nullable().default(null),
-        date: HINT_STRING.nullable().default(null),
-        time: HINT_STRING.nullable().default(null),
-    }).default({ title: null, date: null, time: null }),
     objectiveType: z.enum(AGENT_OBJECTIVE_TYPE_VALUES),
     personHints: z.array(HINT_STRING).max(5).default([]),
     entityHints: z.array(HINT_STRING).max(5).default([]),
-    // Semantic content slot for a new commitment. This is deliberately
-    // separate from temporal/discourse material: Core still validates the
-    // value against the source utterance before planning a write.
-    contentHint: HINT_STRING.nullable().default(null),
     timeHint: z.string().trim().max(60).nullable().default(null),
-    decisionHint: z.enum(['approve', 'reject', 'defer', 'counter_propose']).nullable().default(null),
+    decisionHint: z.enum(['approve', 'reject', 'counter_propose']).nullable().default(null),
     draftOnly: z.boolean().default(false),
     responsibleHint: z.string().trim().max(80).nullable().default(null),
     commitmentOwnership: z.enum(['personal', 'third_party', 'ambiguous']).nullable().default(null),

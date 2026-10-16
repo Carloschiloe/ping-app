@@ -24,13 +24,14 @@
 // agentPlanOrchestrator.service.ts).
 import { runAgentPlanning } from './agentPlanOrchestrator.service';
 import { buildAgentContext } from './agentContextBuilder.service';
-import { interpretAgentSemanticTurn, type AgentSemanticInterpretation } from './agentSemanticInterpreter.service';
+import { interpretAgentSemanticTurn } from './agentSemanticInterpreter.service';
 import { synthesizeAgentResponse, realizeAgentClarification } from './agentResponseSynthesizer.service';
 import { detectAgentLanguage } from '../utils/agentLanguage';
 import { toPublicAgentResponse } from '../types/agent';
 import { toPublicAgentPlanResponse } from '../types/agentPlan';
 import { AUTHORIZATION_TTL_MS } from './agentAuthorization.service';
-import { LlmObjectiveInterpreter, extractCompanionPersonHint, extractTimeHint } from './agentObjectiveInterpreter.service';
+import { LlmObjectiveInterpreter, extractCompanionPersonHint, extractTimeHint, type AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import type { AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveTimeZone } from './date-parser.service';
 import type { AgentPlan, AgentPlanStep, AgentObjective } from '../types/agentPlan';
 import type {
@@ -40,18 +41,17 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
-import { hasUnresolvedPersonReference, type AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
 import { tracePlan } from '../utils/planTrace';
 import { traceAgentDevice, hashForTrace, getAgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
-import { runSemanticV4Shadow } from './agentSemanticShadow.service';
-import { runSemanticV4CoreShadow } from './agentSemanticV4CoreShadow.service';
-import type { DispositionDialogueSnapshot } from '../types/agentTurnDisposition';
-import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
-import type { SemanticV4Diagnostics } from './canonicalSemanticProducer.service';
-import type { V4CoreShadowResolver, V4CoreShadowTelemetry } from './agentSemanticV4CoreShadow.service';
-import type { AgentObjectiveInterpreter } from './agentObjectiveInterpreter.service';
+import {
+    forgetReadFollowupReferent,
+    getVerifiedReadReferent,
+    isEligibleReadAttributeFollowup,
+    isEligibleReadFollowup,
+    rememberVerifiedReadReferent,
+} from './agentReadFollowupReferent.service';
 // M-7B — first controlled live wiring of dialogue state, scoped to
 // create_commitment slot continuation only (tmp/PING-M7-DIALOGUE-STATE-ADR.md,
 // tmp/PING-M7-JARVIS-ARCHITECTURE-GAP-AUDIT.md). Core still owns objective
@@ -66,18 +66,12 @@ import {
     isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
-    buildPendingTemporalAnswerObjective,
     classifyPlanCorrection,
     buildPlanDateCorrection,
     buildPlanTitleCorrection,
-    buildPendingPlanEdit,
+    isExplicitPlanConfirmation,
     classifyPendingPlanDecision,
-    isPendingPlanUnchangedCandidate,
-    classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
-    isCompletePendingPlanReplacement,
-    isSelfContainedPendingPlanCandidate,
-    groundPendingPlanCandidate,
 } from './agentDialogueContinuation.service';
 
 export interface RunAgentTurnOptions {
@@ -89,26 +83,10 @@ export interface RunAgentTurnOptions {
     // Internal Core binding only. The public HTTP body cannot populate this;
     // it is produced after a read clarification selects a real candidate.
     authorizedCommitmentReferentId?: string;
-    // Test/integration seam for the semantic boundary. Production uses the
-    // configured interpreter; callers cannot provide this through HTTP.
+    // Certification/test seam only. Production callers omit these and keep
+    // the same default interpreters and model configuration.
     inputInterpreter?: AgentInputInterpreter;
-    // Internal certification seam only. The public HTTP boundary cannot
-    // provide this value; it allows a persisted V4 turn to traverse the
-    // real Agent Turn path without another provider call.
-    precomputedSemanticV4?: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics };
-    semanticV4CoreShadowResolver?: V4CoreShadowResolver;
-    semanticV4CoreShadowObserver?: (telemetry: V4CoreShadowTelemetry) => void;
     objectiveInterpreter?: AgentObjectiveInterpreter;
-    // One durable admission sequence is shared by every internal state
-    // transition produced while processing this user turn.
-    dialogueTurnSequence?: number;
-}
-
-function turnSequenceFor(
-    existing: { lastTurnSequence: number } | null | undefined,
-    admittedTurnSequence?: number,
-): number {
-    return admittedTurnSequence ?? ((existing?.lastTurnSequence ?? 0) + 1);
 }
 
 // Sección 20/34 del ticket — ejemplos honestos de lo que SÍ existe hoy,
@@ -199,8 +177,7 @@ export async function runAgentTurn(
     // deterministic intent classifier (see looksLikeExplicitEscape), never a
     // new regex family for names.
     const dialogueService = options.dialogueService ?? new AgentDialogueStateService();
-    let existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
-    let resumedSuspendedObjective = false;
+    const existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
     traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_BEFORE', {
         stateFound: !!existingDialogueState,
         lifecycle: existingDialogueState?.lifecycle ?? null,
@@ -211,6 +188,20 @@ export async function runAgentTurn(
     });
     const pendingAnswerable = isPendingClarificationAnswerable(existingDialogueState);
     traceAgentDevice(traceId, 'AGENT_PENDING_CLARIFICATION_CHECK', { pendingAnswerable });
+
+    if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
+        && existingDialogueState.openObjective
+        && existingDialogueState.currentPlanDigestRef
+        && isExplicitPlanConfirmation(content)) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'natural_plan_confirmation', dialogueScopeKey });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: existingDialogueState.openObjective,
+            inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
+            confirmationRequested: true,
+        }), traceId);
+    }
 
     if (pendingAnswerable) {
         const pendingResult = await tryAnswerPendingClarification(
@@ -234,8 +225,8 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_resolved', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.reconciledObjective,
-            admittedTurnSequence: options.dialogueTurnSequence,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.reconciledObjective,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             }), traceId);
         }
         // GENERALIZATION (M-7): the targetEntity re-ask is built directly
@@ -256,10 +247,10 @@ export async function runAgentTurn(
             const language = detectAgentLanguage(content, locale);
             const isEntityField = existingDialogueState!.pendingClarification?.field === 'targetEntity';
             let answer: string;
-            let clarificationOptions: { id: string; label: string }[] | undefined;
+            let options: { id: string; label: string }[] | undefined;
             if (isEntityField) {
                 const entityCandidates = pendingResult.outcome === 'multi_match_entity' ? pendingResult.candidates : [];
-                clarificationOptions = entityCandidates.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` }));
+                options = entityCandidates.map((c) => ({ id: c.id, label: `${c.title} (${c.dueAt ?? 'sin fecha'})` }));
                 answer = entityCandidates.length > 0
                     ? (language === 'es'
                         ? `Hay más de un resultado. ¿Cuál compromiso? ${entityCandidates.map((c) => c.title).join(', ')}.`
@@ -273,22 +264,21 @@ export async function runAgentTurn(
                     : { reason: 'person_ambiguous' as const, candidates: [] };
                 const realized = realizeAgentClarification(clarification, language);
                 answer = realized.answer;
-                clarificationOptions = realized.followUp.options;
+                options = realized.followUp.options;
             }
             const field = isEntityField ? 'targetEntity' : 'person_ambiguous';
             const turnId = `${traceId}:${Date.now()}`;
-            const nextTurnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
+            const nextTurnSequence = (existingDialogueState!.lastTurnSequence ?? 0) + 1;
             dialogueService.setPendingClarification({
                 actorUserId: input.actorUserId, dialogueScopeKey,
-                clarification: { field, question: answer, options: clarificationOptions },
-                turnId,
-                turnSequence: options.dialogueTurnSequence ?? nextTurnSequence + 1,
+                clarification: { field, question: answer, options },
+                turnId, turnSequence: nextTurnSequence,
             });
             traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'clarification', field });
             traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
             return finalizeAgentTurn({
                 kind: 'clarification',
-                questions: [{ field, question: answer, options: clarificationOptions }],
+                questions: [{ field, question: answer, options }],
             }, traceId);
         }
         if (pendingResult.newObjective) {
@@ -300,8 +290,8 @@ export async function runAgentTurn(
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'explicit_new_objective_escape', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.newObjective,
-            admittedTurnSequence: options.dialogueTurnSequence,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: pendingResult.newObjective,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             }), traceId);
         }
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'pending_clarification_escaped', dialogueScopeKey });
@@ -310,76 +300,28 @@ export async function runAgentTurn(
         dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
     }
 
-    // A pending plan belongs to the currently active objective, but an
-    // explicit return to a uniquely named suspended objective must be
-    // reconciled before the pending-plan interpreter gets a chance to treat
-    // the turn as a decision about the wrong plan. The match is Core-owned
-    // and structural: it uses the persisted objective hints plus the current
-    // utterance, with uniqueness still required. No language-specific escape
-    // rule is involved.
-    if (existingDialogueState?.suspendedObjectives?.length) {
-        const candidates = existingDialogueState.suspendedObjectives
-            .map((entry, index) => ({
-                entry,
-                index,
-                score: suspendedObjectiveMatchScore(entry.objective, [content]),
-            }))
-            .filter((candidate) => candidate.score > 0)
-            .sort((left, right) => right.score - left.score);
-        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
-            const selected = candidates[0];
-            existingDialogueState = dialogueService.resumeObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            resumedSuspendedObjective = true;
-            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                matchScore: selected.score,
-                phase: 'before_pending_plan_reconciliation',
-            });
-        }
-    }
-
-    let precomputedSemantic: AgentSemanticInterpretation | null = null;
-    // Interpret date-bearing follow-ups once before correction routing. This
-    // lets Core distinguish a target-less correction of the currently open
-    // objective from an independent reschedule request without a second
-    // interpreter or phrase-specific routing rule.
-    if (existingDialogueState?.openObjective
-        && existingDialogueState.lifecycle !== 'plan_pending_authorization'
-        && extractTimeHint(content.trim())) {
-        precomputedSemantic = await interpretAgentSemanticTurn(content, {
-            actorUserId: input.actorUserId,
-            conversationId,
-            channel,
-            dialogueReconciliation: 'active_objective',
-            activeObjective: {
-                lifecycle: existingDialogueState.lifecycle,
-                objectiveType: existingDialogueState.openObjective.objectiveType,
-                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
-                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
-            },
-        }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
-    }
-
-    // GENERALIZATION (M-7), third mechanism: date correction of the active
-    // objective, whether its plan is already shown or it is being resumed
-    // from a collecting/clarifying state. The same state invalidation and
-    // canonical planner path are used in both cases.
+    // GENERALIZATION (M-7), third mechanism: plan-shown, pre-authorization
+    // date correction (benchmark scenario 4). Only reachable when
+    // pendingAnswerable was false above -- which is always true while
+    // lifecycle === 'plan_pending_authorization', since that state carries
+    // no pendingClarification by construction (markReadyForAuthorization
+    // never sets one). See agentDialogueContinuation.service.ts's own header
+    // comment on this mechanism for the full safety rationale: no bespoke
+    // plan/digest invalidation is needed here, because applyCorrection
+    // (called inside buildPlanDateCorrection) already clears the stale
+    // currentPlanDigestRef and transitions back to `collecting`, and
+    // authorizePlan's existing re-plan-from-scratch + digest-comparison
+    // already makes the OLD, now-superseded plan harmless the instant the
+    // user would try to confirm it.
     const correctionClassification = await classifyPlanCorrection(
         existingDialogueState, content, input.actorUserId, conversationId,
-        precomputedSemantic?.objective ?? null,
     );
     tracePlan(traceId, 'PLAN_CORRECTION_CLASSIFIED', {
         isCorrection: correctionClassification.isCorrection, reason: correctionClassification.reason, dialogueScopeKey,
     });
     if (correctionClassification.isCorrection) {
         const newTimeHint = extractTimeHint(content.trim());
+        const companionPersonHint = extractCompanionPersonHint(content.trim());
         // extractTimeHint's own vocabulary is what classifyPlanCorrection
         // already required to be present -- re-deriving it here (rather than
         // threading it through the classification result) keeps
@@ -391,7 +333,7 @@ export async function runAgentTurn(
             const turnId = `${traceId}:${Date.now()}`;
             const { correctedObjective, turnSequence } = buildPlanDateCorrection(
                 dialogueService, existingDialogueState!, dialogueScopeKey, input.actorUserId, newTimeHint, turnId,
-                now, resolveTimeZone(timezone), options.dialogueTurnSequence,
+                now, resolveTimeZone(timezone),
             );
             // buildPlanDateCorrection's own applyCorrection call already
             // consumed `turnSequence` (it is now existingDialogueState's new
@@ -400,20 +342,15 @@ export async function runAgentTurn(
             // exactly mirroring the person_ambiguous re-ask path's own
             // turnSequence/turnSequence + 1 pattern above.
             dialogueService.openObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                objective: correctedObjective,
-                turnId,
-                turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
+                actorUserId: input.actorUserId, dialogueScopeKey, objective: correctedObjective, turnId, turnSequence: turnSequence + 1,
             });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_date_correction', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: correctedObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             }), traceId);
         }
-        const companionPersonHint = extractCompanionPersonHint(content.trim());
         if (correctionClassification.reason === 'title_correction' && companionPersonHint) {
             const turnId = `${traceId}:${Date.now()}`;
             const { correctedObjective, turnSequence } = buildPlanTitleCorrection(
@@ -421,181 +358,33 @@ export async function runAgentTurn(
                 companionPersonHint, turnId,
             );
             dialogueService.openObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                objective: correctedObjective,
-                turnId,
-                turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
+                actorUserId: input.actorUserId, dialogueScopeKey, objective: correctedObjective,
+                turnId, turnSequence: turnSequence + 1,
             });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'plan_title_correction', dialogueScopeKey });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
                 newTurnObjective: correctedObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             }), traceId);
         }
     }
 
-    // M-7: reconcile a pending plan through the structured objective
-    // interpreter before treating a short follow-up as an isolated READ.
-    // The Core owns the existing plan identity and authorization boundary;
-    // the interpreter only proposes the user's decision or a new objective.
-    if (!resumedSuspendedObjective
-        && existingDialogueState?.lifecycle === 'plan_pending_authorization'
+    // A plan awaiting authorization is a semantic dialogue state, not a
+    // license to route every later turn through the read pipeline. Reuse the
+    // existing objective interpreter to classify a non-standard confirmation,
+    // rejection, or a complete new write objective. Core applies the result
+    // to the current state; the interpreter never supplies an ID or executes
+    // anything.
+    if (existingDialogueState?.lifecycle === 'plan_pending_authorization'
         && existingDialogueState.openObjective
         && existingDialogueState.currentPlanDigestRef) {
-        precomputedSemantic = await interpretAgentSemanticTurn(content, {
+        const pendingTurnObjective = await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
             actorUserId: input.actorUserId,
             conversationId,
-            dialogueReconciliation: 'pending_plan',
-            pendingPlan: {
-                objectiveType: existingDialogueState!.openObjective!.objectiveType,
-                desiredOutcome: existingDialogueState!.openObjective!.desiredOutcome,
-                timeHint: existingDialogueState!.openObjective!.timeConstraints.rawHint,
-            },
-            activeObjective: {
-                lifecycle: existingDialogueState.lifecycle,
-                objectiveType: existingDialogueState.openObjective.objectiveType,
-                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
-                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
-            },
-        }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
-        const semanticRelation = classifyPendingPlanSemanticRelation(precomputedSemantic.interpretation);
-        if (semanticRelation.kind === 'approve') {
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_confirmation', dialogueScopeKey, source: 'input_interpretation',
-            });
-            return finalizeAgentTurn(await runWriteActionTurn({
-                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-                newTurnObjective: existingDialogueState.openObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
-                confirmationRequested: true,
-            }), traceId);
-        }
-        if (semanticRelation.kind === 'reject') {
-            dialogueService.rejectPendingPlan({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: { status: 'answered', answer: 'Entendido; no ejecutaré el plan pendiente.', citations: [] },
-            }, traceId);
-        }
-        if (semanticRelation.kind === 'defer') {
-            dialogueService.recordTurn({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
-                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        if (semanticRelation.kind === 'follow_up'
-            && (semanticRelation.attribute === 'date' || semanticRelation.attribute === 'time')
-            && existingDialogueState.openObjective.timeConstraints.rawHint) {
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: `El objetivo pendiente está previsto para ${existingDialogueState.openObjective.timeConstraints.rawHint}.`,
-                    citations: [],
-                },
-            }, traceId);
-        }
-        const pendingPlanContext = {
-            actorUserId: input.actorUserId,
-            conversationId,
-            dialogueReconciliation: 'pending_plan' as const,
-            pendingPlan: {
-                objectiveType: existingDialogueState.openObjective.objectiveType,
-                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
-                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
-            },
-            activeObjective: {
-                lifecycle: existingDialogueState.lifecycle,
-                objectiveType: existingDialogueState.openObjective.objectiveType,
-                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
-                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
-            },
-        };
-        const routeCandidate = precomputedSemantic.route === 'write'
-            && precomputedSemantic.objective
-            && precomputedSemantic.objective.objectiveType !== 'unsupported'
-            ? precomputedSemantic.objective : null;
-        const pendingPlanCandidateRaw = routeCandidate
-            && isSelfContainedPendingPlanCandidate(routeCandidate)
-            ? routeCandidate
-            : await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
-                ...pendingPlanContext,
-            });
-        const pendingPlanCandidate = pendingPlanCandidateRaw
-            ? groundPendingPlanCandidate(pendingPlanCandidateRaw, content)
-            : null;
-        // The input interpreter and objective interpreter are independent
-        // semantic proposals. When the objective proposal is structurally
-        // empty but the input boundary has already identified the speech act,
-        // carry that bounded act into the pending-plan candidate. This keeps
-        // elliptical confirmations/rejections on the Core-owned plan without
-        // introducing a phrase vocabulary or granting the interpreter any
-        // authorization authority.
-        const inputDialogueAct = precomputedSemantic?.interpretation.dialogueAct;
-        if (pendingPlanCandidate
-            && !pendingPlanCandidate.dialogueAct
-            && inputDialogueAct
-            && inputDialogueAct !== 'other'
-            && inputDialogueAct !== 'new_objective'
-            && inputDialogueAct !== 'clarify') {
-            pendingPlanCandidate.dialogueAct = inputDialogueAct;
-            if ((inputDialogueAct === 'confirm' || inputDialogueAct === 'reject' || inputDialogueAct === 'defer')
-                && !pendingPlanCandidate.constraints.decisionHint) {
-                pendingPlanCandidate.constraints.decisionHint = inputDialogueAct === 'confirm'
-                    ? 'approve'
-                    : inputDialogueAct;
-            }
-        }
-        if (pendingPlanCandidate) {
-        const pendingPlanEdit = buildPendingPlanEdit({
-            dialogueState: existingDialogueState,
-            candidate: pendingPlanCandidate,
-            dialogueService,
-                dialogueScopeKey,
-                actorUserId: input.actorUserId,
-                turnId: traceId,
-                now,
-                turnSequence: options.dialogueTurnSequence,
         });
-        if (pendingPlanEdit.isEdit && pendingPlanEdit.correctedObjective) {
-            dialogueService.openObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                objective: pendingPlanEdit.correctedObjective,
-                turnId: traceId,
-                turnSequence: options.dialogueTurnSequence
-                    ?? existingDialogueState.lastTurnSequence + pendingPlanEdit.changedSlots.length + 1,
-            });
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_pending_plan_edit', dialogueScopeKey,
-                changedSlots: pendingPlanEdit.changedSlots,
-            });
-            return finalizeAgentTurn(await runWriteActionTurn({
-                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-                newTurnObjective: pendingPlanEdit.correctedObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
-            }), traceId);
-        }
-        const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
+        const pendingDecision = classifyPendingPlanDecision(pendingTurnObjective);
         if (pendingDecision === 'approve') {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_plan_confirmation', dialogueScopeKey,
@@ -604,108 +393,38 @@ export async function runAgentTurn(
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
                 newTurnObjective: existingDialogueState.openObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
                 confirmationRequested: true,
             }), traceId);
         }
         if (pendingDecision === 'reject') {
-            dialogueService.rejectPendingPlan({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_plan_rejection', dialogueScopeKey,
             });
-            const language = detectAgentLanguage(content, locale);
+            traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', { kind: 'response', outcome: 'plan_rejected' });
             return finalizeAgentTurn({
                 kind: 'response',
                 response: {
                     status: 'answered',
-                    answer: language === 'es'
+                    answer: detectAgentLanguage(content, locale) === 'es'
                         ? 'Entendido; no ejecutaré el plan pendiente.'
                         : 'Understood; I will not execute the pending plan.',
                     citations: [],
                 },
             }, traceId);
         }
-        if (pendingDecision === 'defer') {
-            const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
-            dialogueService.recordTurn({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                turnId: traceId,
-                turnSequence,
-            });
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_deferral', dialogueScopeKey,
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
-                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        if (precomputedSemantic.route === 'write' && isPendingPlanUnchangedCandidate({
-            pendingObjectiveType: existingDialogueState.openObjective.objectiveType,
-            candidate: pendingPlanCandidate,
-        })) {
-            // A structurally empty same-family proposal is not enough
-            // evidence for a new write. Preserve the Core-owned pending
-            // plan and acknowledge the unchanged state without authorizing
-            // or executing anything.
-            const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
-            dialogueService.recordTurn({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                turnId: traceId,
-                turnSequence,
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'El plan pendiente sigue sin cambios. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
-                        : 'The pending plan remains unchanged. You can confirm, change, or discard it when you are ready.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        if (isCompletePendingPlanReplacement(pendingPlanCandidate)) {
+        if (isIndependentWriteObjective(pendingTurnObjective)) {
+            dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
             });
             return finalizeAgentTurn(await runWriteActionTurn({
                 actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
                 now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-                newTurnObjective: pendingPlanCandidate,
-                admittedTurnSequence: options.dialogueTurnSequence,
+                newTurnObjective: pendingTurnObjective,
+                inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             }), traceId);
-        }
-        // A semantic suspend signal is only a fallback when the current turn
-        // did not provide a complete replacement objective. The input
-        // interpreter may conservatively mark an explicit topic switch as
-        // suspend_current while the objective interpreter still provides the
-        // complete replacement. Core must reconcile that candidate first.
-        if (semanticRelation.kind === 'suspend') {
-            dialogueService.suspendCurrentObjective({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: { status: 'answered', answer: 'De acuerdo. Dejé el objetivo anterior en pausa.', citations: [] },
-            }, traceId);
-        }
         }
     }
 
@@ -713,221 +432,48 @@ export async function runAgentTurn(
     // classifiers are fallback/safety signals inside the interpreter and can
     // no longer decide that an unrecognised wording is a READ before the LLM
     // gets a chance to understand it.
-    const priorReadContext = existingDialogueState?.lastReadContext ?? null;
-    const priorReadSummary = priorReadContext ? {
-        kind: priorReadContext.kind,
-        referentCount: priorReadContext.commitmentReferents?.length ?? 0,
-        uniqueReferent: (priorReadContext.commitmentReferents?.length ?? 0) === 1,
-        entityTypes: Array.from(new Set((priorReadContext.commitmentReferents ?? []).map((referent) => referent.entityType))),
-        hasTimeRange: priorReadContext.timeRange !== null,
-    } : null;
-    traceAgentDevice(traceId, 'AGENT_PRIOR_READ_SUMMARY', priorReadSummary ?? { present: false });
-    const semantic = precomputedSemantic ?? await interpretAgentSemanticTurn(content, {
+    const semantic = await interpretAgentSemanticTurn(content, {
         actorUserId: input.actorUserId,
         conversationId,
         channel,
-        priorReadSummary,
-        activeObjective: existingDialogueState?.openObjective ? {
-            lifecycle: existingDialogueState.lifecycle,
-            objectiveType: existingDialogueState.openObjective.objectiveType,
-            desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
-            timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
-        } : undefined,
-    }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
-
-    // A semantic topic switch without a complete replacement objective must
-    // suspend, not discard, the Core-owned objective. No write or execution
-    // occurs here; the earlier plan remains non-authorized and can only be
-    // resumed later through the unique suspended-objective path.
-    if (semantic.interpretation.dialogueControl === 'suspend_current'
-        && existingDialogueState?.openObjective
-        && !semantic.objective
-        && semantic.route === 'read') {
-        dialogueService.suspendCurrentObjective({
-            actorUserId: input.actorUserId,
-            dialogueScopeKey,
-            turnId: traceId,
-            turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-        });
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'semantic_suspend_current_objective', dialogueScopeKey,
-        });
-        const language = detectAgentLanguage(content, locale);
-        return finalizeAgentTurn({
-            kind: 'response',
-            response: {
-                status: 'answered',
-                answer: language === 'es'
-                    ? 'De acuerdo. Dejé el objetivo anterior en pausa.'
-                    : 'Understood. I left the previous objective suspended.',
-                citations: [],
-            },
-        }, traceId);
-    }
-
-    // An attribute question about the currently open Core-owned objective is
-    // a read of dialogue state, not a new retrieval query. The state carries
-    // only bounded user-proposed fields; it does not authorize or execute a
-    // write. This keeps a pending objective useful across short follow-ups
-    // without requiring it to have already been persisted as a commitment.
-    const activeObjective = existingDialogueState?.openObjective;
-    const followUpAttribute = semantic.interpretation.followUpAttribute;
-    if (activeObjective
-        && semantic.route === 'read'
-        && (followUpAttribute === 'date' || followUpAttribute === 'time')
-        && activeObjective.timeConstraints.rawHint) {
-        const language = detectAgentLanguage(content, locale);
-        const temporalHint = activeObjective.timeConstraints.rawHint;
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'active_objective_attribute_read', dialogueScopeKey, followUpAttribute,
-        });
-        return finalizeAgentTurn({
-            kind: 'response',
-            response: {
-                status: 'answered',
-                answer: language === 'es'
-                    ? `El objetivo pendiente está previsto para ${temporalHint}.`
-                    : `The pending objective is set for ${temporalHint}.`,
-                citations: [],
-            },
-        }, traceId);
-    }
-
-    // A planner clarification such as a missing due date is an open
-    // dialogue slot, not a new read query. The answer may be only a temporal
-    // fragment, so there is no standalone write verb for the input
-    // interpreter to route. Bind the fragment to the Core-owned objective
-    // after the normal semantic pass and send it through the same planner /
-    // authorization path.
-    const pendingTemporalObjective = buildPendingTemporalAnswerObjective(existingDialogueState, content);
-    if (pendingTemporalObjective) {
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
-        });
-        return finalizeAgentTurn(await runWriteActionTurn({
-            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-            newTurnObjective: pendingTemporalObjective,
-            admittedTurnSequence: options.dialogueTurnSequence,
-        }), traceId);
-    }
-
-    // A read-shaped turn can explicitly name a previously suspended objective
-    // (for example, returning to an earlier task after changing topics). The
-    // match is structural over interpreter-provided topic hints and requires a
-    // unique candidate; Core never guesses among equally plausible objectives.
-    // A provider may classify an explicit return/correction as write-shaped
-    // because it mentions an action/objective. The unique Core-side topic
-    // match is stronger evidence of which suspended objective is being
-    // addressed than that route label; the ordinary planner and authorization
-    // gates still decide what the resumed turn may do.
-    if (!resumedSuspendedObjective && existingDialogueState?.suspendedObjectives?.length) {
-        const topicHints = [
-            ...semantic.interpretation.topicHints,
-            ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
-            // The current utterance is an additional bounded topic signal.
-            // A read-shaped return can explicitly name a suspended objective
-            // even when the input interpreter omits that topic from its
-            // optional hints. Core still requires a unique structural match;
-            // this does not invent or resolve an objective from free text.
-            content,
-        ];
-        const candidates = existingDialogueState.suspendedObjectives
-            .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
-            .filter((candidate) => candidate.score > 0
-                || (semantic.interpretation.dialogueControl === 'resume_suspended'
-                    && existingDialogueState!.suspendedObjectives.length === 1))
-            .sort((left, right) => right.score - left.score);
-        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
-            const selected = candidates[0];
-            existingDialogueState = dialogueService.resumeObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            resumedSuspendedObjective = true;
-            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                matchScore: selected.score,
-            });
-        }
-    }
+    }, {
+        inputInterpreter: options.inputInterpreter,
+        objectiveInterpreter: options.objectiveInterpreter,
+    });
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
-        fallbackReason: semantic.interpretation.fallbackReason ?? null,
-        providerErrorClass: semantic.interpretation.providerErrorClass ?? null,
-        providerHttpStatus: semantic.interpretation.providerHttpStatus ?? null,
-        providerErrorCode: semantic.interpretation.providerErrorCode ?? null,
-        providerErrorType: semantic.interpretation.providerErrorType ?? null,
-        schemaValid: semantic.interpretation.schemaValid ?? null,
         objectiveType: semantic.objective?.objectiveType ?? null,
     });
-    // Semantic V4 is observational in Phase 1. It receives only bounded
-    // dialogue metadata and the already-produced legacy interpretation. Its
-    // result is deliberately not passed to context, routing, planning,
-    // authorization, dialogue state, or execution.
-    const shadowDialogue = existingDialogueState ? {
-        lifecycle: existingDialogueState.lifecycle === 'collecting'
-            || existingDialogueState.lifecycle === 'clarifying'
-            || existingDialogueState.lifecycle === 'ready_to_plan'
-            || existingDialogueState.lifecycle === 'plan_pending_authorization'
-            ? 'active' as const : 'none' as const,
-        activeObjectiveType: existingDialogueState.openObjective?.objectiveType ?? null,
-        missingSlotType: existingDialogueState.pendingClarification?.field ?? null,
-        suspendedObjectiveType: null,
-        referentHints: existingDialogueState.lastReadContext?.commitmentReferents?.slice(0, 3).map((referent) => referent.rawText) ?? [],
-        activeObjective: existingDialogueState.openObjective ? {
-            objectiveType: existingDialogueState.openObjective.objectiveType,
-            desiredOutcome: existingDialogueState.openObjective.desiredOutcome.slice(0, 300),
-            knownSlots: {
-                ...(existingDialogueState.openObjective.timeConstraints.rawHint
-                    ? { time: existingDialogueState.openObjective.timeConstraints.rawHint.slice(0, 120) }
-                    : {}),
-                ...(existingDialogueState.openObjective.constraints.responsibleHint
-                    ? { responsible: existingDialogueState.openObjective.constraints.responsibleHint.slice(0, 120) }
-                    : {}),
-            },
-            targetHints: [
-                ...existingDialogueState.openObjective.targetEntities.entityHints,
-                ...existingDialogueState.openObjective.targetEntities.personHints,
-            ].filter(Boolean).slice(0, 6).map((hint) => hint.slice(0, 120)),
-        } : null,
-    } : null;
-    const semanticShadow = await runSemanticV4Shadow({
-        legacy: semantic,
-        request: {
-            text: content,
-            modality: input.voiceInputToken ? 'voice' : 'text',
-            locale,
-            timezone,
-            dialogue: shadowDialogue,
-        },
-        precomputedResult: options.precomputedSemanticV4,
+    // M-7 continuity: a short attribute question may omit the entity name,
+    // but it must not trigger a fresh broad retrieval. The only identity
+    // allowed here is an evidence-verified referent from this actor and
+    // conversation; buildAgentContext re-authorizes it against live data.
+    const storedReadReferent = getVerifiedReadReferent({
+        actorUserId: input.actorUserId,
+        conversationId,
+        now: now.getTime(),
     });
-    if (semanticShadow.enabled) {
-        traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_SHADOW', {
-            model: semanticShadow.model,
-            legacyRoute: semanticShadow.legacyRoute,
-            v4Kind: semanticShadow.v4Kind,
-            legacyObjective: semanticShadow.legacyObjective,
-            v4Objective: semanticShadow.v4Objective,
-            openObjectiveRelation: semanticShadow.openObjectiveRelation,
-            routeAgreement: semanticShadow.routeAgreement,
-            objectiveAgreement: semanticShadow.objectiveAgreement,
-            v4Confidence: semanticShadow.v4Confidence,
-            ambiguityCount: semanticShadow.ambiguityCount,
-            schemaValid: semanticShadow.schemaValid,
-            providerFailure: semanticShadow.providerFailure,
-            timeout: semanticShadow.timeout,
-            failure: semanticShadow.failure,
-            latencyMs: semanticShadow.latencyMs,
-            differenceCount: semanticShadow.differences.length,
-        });
+    const semanticAttributeFollowup = isEligibleReadAttributeFollowup(semantic.interpretation);
+    const historicalFollowup = storedReadReferent && !semanticAttributeFollowup
+        ? await isEligibleReadFollowup(content)
+        : false;
+    const continuityReferentId = options.authorizedCommitmentReferentId
+        ?? (storedReadReferent && (semanticAttributeFollowup || historicalFollowup)
+            ? storedReadReferent.id
+            : undefined);
+    if (storedReadReferent && !continuityReferentId && semantic.route === 'read') {
+        // An explicit new subject, list, ambiguity or unrelated read abandons
+        // the previous implicit referent rather than leaking it forward.
+        forgetReadFollowupReferent(input.actorUserId, conversationId);
     }
+    traceAgentDevice(traceId, 'AGENT_READ_REFERENT_RESOLUTION', {
+        stateFound: !!storedReadReferent,
+        semanticAttributeFollowup,
+        historicalFollowup,
+        resolved: !!continuityReferentId,
+        attribute: semantic.interpretation.followUpAttribute ?? null,
+    });
     // Single buildAgentContext call using the same semantic interpretation;
     // the read pipeline must not reinterpret the text through another policy.
     const context = await buildAgentContext({
@@ -939,8 +485,8 @@ export async function runAgentTurn(
         timezone,
         now: now.toISOString(),
         traceId,
-        priorReadContext,
-        authorizedCommitmentReferentId: options.authorizedCommitmentReferentId,
+        priorReadContext: existingDialogueState?.lastReadContext ?? null,
+        authorizedCommitmentReferentId: continuityReferentId,
     }, {
         interpretation: semantic.interpretation,
         objective: semantic.objective,
@@ -973,80 +519,6 @@ export async function runAgentTurn(
         sourceRefCount: context.commitments.length + context.events.length + context.messages.length
             + context.transcriptions.length + context.attachments.length,
     });
-
-    // Semantic V4 -> Core is an opt-in, side-effect-free shadow boundary.
-    // The legacy semantic result still owns every branch below. Only bounded
-    // structured state is passed to the Core adapter; canonical identity,
-    // authorization, preparation and execution remain outside this shadow.
-    const coreShadowDialogue: DispositionDialogueSnapshot | null = existingDialogueState ? {
-        lifecycle: existingDialogueState.lifecycle,
-        activeDialogue: existingDialogueState.openObjective ? {
-            objectiveType: existingDialogueState.openObjective.objectiveType,
-            lifecycle: existingDialogueState.lifecycle,
-            pendingField: existingDialogueState.pendingClarification?.field ?? null,
-        } : null,
-        suspendedDialogue: null,
-        version: existingDialogueState.version,
-        lastAppliedTurnId: null,
-        lastAppliedTurnSequence: existingDialogueState.lastTurnSequence,
-    } : null;
-    const semanticV4CoreShadow = await runSemanticV4CoreShadow({
-        legacy: semantic,
-        request: {
-            text: content,
-            modality: input.voiceInputToken ? 'voice' : 'text',
-            locale,
-            timezone,
-            dialogue: shadowDialogue,
-        },
-        dialogue: coreShadowDialogue,
-        actorUserId: input.actorUserId,
-        dialogueScopeKey,
-        turnReferenceInstant: now.toISOString(),
-        priorReferent: priorReadContext?.commitmentReferents?.length === 1 && priorReadContext.commitmentReferents[0].canonicalId
-            ? {
-                kind: priorReadContext.commitmentReferents[0].entityType === 'commitment_proposal' ? 'proposal' as const : 'commitment' as const,
-                id: priorReadContext.commitmentReferents[0].canonicalId,
-            }
-            : null,
-        authorizedScope: priorReadContext ? {
-            ...(priorReadContext.timeRange ? { timeRange: { ...priorReadContext.timeRange } } : {}),
-            ...(priorReadContext.statuses ? { statuses: [...priorReadContext.statuses] } : {}),
-        } : undefined,
-        context: {
-            needsClarification: context.needsClarification,
-            sourceRefCount: context.commitments.length + context.events.length + context.messages.length
-                + context.transcriptions.length + context.attachments.length,
-            intentType: context.intent.type,
-        },
-        semanticResult: semanticShadow.coreInput,
-        resolver: options.semanticV4CoreShadowResolver,
-    });
-    options.semanticV4CoreShadowObserver?.(semanticV4CoreShadow);
-    if (semanticV4CoreShadow.enabled) {
-        traceAgentDevice(traceId, 'AGENT_SEMANTIC_V4_CORE_SHADOW', {
-            model: semanticV4CoreShadow.model,
-            providerFailure: semanticV4CoreShadow.providerFailure,
-            timeout: semanticV4CoreShadow.timeout,
-            schemaValid: semanticV4CoreShadow.schemaValid,
-            fallbackReason: semanticV4CoreShadow.fallbackReason,
-            failure: semanticV4CoreShadow.failure,
-            v4Kind: semanticV4CoreShadow.v4.kind,
-            v4Objective: semanticV4CoreShadow.v4.objectiveType,
-            mappedKind: semanticV4CoreShadow.core.mappedKind,
-            disposition: semanticV4CoreShadow.core.disposition,
-            dispositionReason: semanticV4CoreShadow.core.dispositionReason,
-            resolutionStatus: semanticV4CoreShadow.core.resolution.status,
-            resolutionReferenceKind: semanticV4CoreShadow.core.resolution.referenceKind,
-            resolutionCandidateCount: semanticV4CoreShadow.core.resolution.candidateCount,
-            resolutionScopeKind: semanticV4CoreShadow.core.resolution.scopeKind,
-            planRoute: semanticV4CoreShadow.core.planShape?.route ?? null,
-            planObjective: semanticV4CoreShadow.core.planShape?.objectiveType ?? null,
-            planSlotCount: semanticV4CoreShadow.core.planShape?.relevantSlotNames.length ?? null,
-            differenceClasses: semanticV4CoreShadow.differences.map((difference) => difference.class),
-            sideEffects: semanticV4CoreShadow.sideEffects,
-        });
-    }
 
     // 1) Ambiguity in the READ pipeline (unresolved person/time/topic) always
     // wins first — there is nothing a plan or a response could safely say
@@ -1091,39 +563,30 @@ export async function runAgentTurn(
             dialogueScopeKey,
             isWriteActionRequest,
         });
-        {
+        if (clarification?.reason === 'person_ambiguous') {
             // A provider may conservatively mark the input READ while the
             // resolved read context proves that an unresolved person is
             // blocking a write-shaped commitment. In that narrow case Core
             // asks the canonical objective interpreter for the pending
             // objective so the dialogue state is not lost.
-            const candidateObjective = semantic.objective ?? await new LlmObjectiveInterpreter().interpret(content, {
+            const candidateObjective = semantic.objective ?? await (options.objectiveInterpreter ?? new LlmObjectiveInterpreter()).interpret(content, {
                 actorUserId: input.actorUserId,
                 conversationId,
             });
-            const eligible = !!candidateObjective && isDialogueTrackedObjectiveType(candidateObjective.objectiveType);
+            const eligible = !!candidateObjective && isContinuationEligibleObjectiveType(candidateObjective.objectiveType);
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
                 objectiveType: candidateObjective?.objectiveType ?? null, eligible, dialogueScopeKey,
             });
             if (eligible) {
                 const turnId = `${traceId}:${Date.now()}`;
-                const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
+                const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
                 dialogueService.openObjective({
-                    actorUserId: input.actorUserId,
-                    dialogueScopeKey,
-                    objective: candidateObjective!,
-                    turnId,
-                    turnSequence: options.dialogueTurnSequence ?? turnSequence,
+                    actorUserId: input.actorUserId, dialogueScopeKey, objective: candidateObjective, turnId, turnSequence,
                 });
                 dialogueService.setPendingClarification({
                     actorUserId: input.actorUserId, dialogueScopeKey,
-                    clarification: {
-                        field: clarification?.reason ?? 'clarification',
-                        question: answer,
-                        options: followUp.options,
-                    },
-                    turnId,
-                    turnSequence: options.dialogueTurnSequence ?? turnSequence + 1,
+                    clarification: { field: 'person_ambiguous', question: answer, options: followUp.options },
+                    turnId, turnSequence: turnSequence + 1,
                 });
                 const writtenState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
                 traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_RESULT', {
@@ -1154,11 +617,12 @@ export async function runAgentTurn(
     // This preserves dialogue-first clarification while ensuring novel write
     // wording never falls through to a misleading read response.
     if (semantic.route === 'write' && semantic.objective) {
+        forgetReadFollowupReferent(input.actorUserId, conversationId);
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'semantic_write', dialogueScopeKey });
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, dialogueService, newTurnObjective: semantic.objective,
-            admittedTurnSequence: options.dialogueTurnSequence,
+            inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter,
             preloadedCommitments: context.commitments,
         }), traceId);
     }
@@ -1188,7 +652,7 @@ export async function runAgentTurn(
         kind: 'response', sourceRefCount: response.citations?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
-    if (!resumedSuspendedObjective) dialogueService.setReadContext({
+    dialogueService.setReadContext({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
         context: context.intent.type === 'commitment_query'
@@ -1196,17 +660,27 @@ export async function runAgentTurn(
                 kind: 'commitment_query',
                 timeRange: context.entities?.timeRange ?? null,
                 sourceTurnId: traceId,
-                commitmentReferents: context.commitments.slice(0, 10).map((commitment) => ({
-                    rawText: commitment.title,
-                    entityType: commitment.entityType,
-                    canonicalId: commitment.id,
-                })),
-                statuses: Array.from(new Set(context.commitments.map((commitment) => commitment.status))),
             }
             : null,
         turnId: traceId,
-        turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+        turnSequence: (existingDialogueState?.lastTurnSequence ?? 0) + 1,
     });
+    // Store only the exact canonical commitment that was actually cited.
+    // This is evidence continuity, not a cache of prose or a user-provided
+    // title, and the next turn still re-reads it under current authorization.
+    if (conversationId && response.status === 'answered') {
+        const canonicalCommitments = context.commitments.filter((item) => item.entityType === 'commitment');
+        rememberVerifiedReadReferent({
+            actorUserId: input.actorUserId,
+            conversationId,
+            status: response.status,
+            commitments: canonicalCommitments.map((item) => ({ id: item.id, title: item.title })),
+            citations: response.citations,
+            now: now.getTime(),
+        });
+    } else {
+        forgetReadFollowupReferent(input.actorUserId, conversationId);
+    }
     return finalizeAgentTurn({ kind: 'response', response: toPublicAgentResponse(response) }, traceId);
 }
 
@@ -1244,9 +718,10 @@ async function runWriteActionTurn(params: {
     dialogueScopeKey: string;
     dialogueService: AgentDialogueStateService;
     newTurnObjective: AgentObjective;
+    inputInterpreter?: AgentInputInterpreter;
+    objectiveInterpreter?: AgentObjectiveInterpreter;
     preloadedCommitments?: AgentContext['commitments'];
     confirmationRequested?: boolean;
-    admittedTurnSequence?: number;
 }): Promise<AgentTurnResult> {
     const { actorUserId, dialogueScopeKey, newTurnObjective } = params;
     const dialogueService = params.dialogueService;
@@ -1258,7 +733,7 @@ async function runWriteActionTurn(params: {
     // genuinely newer concurrent turn (per the CAS guard inside
     // AgentDialogueStateService) would still win over this one if it
     // commits first.
-    const turnSequence = turnSequenceFor(existingDialogueState, params.admittedTurnSequence);
+    const turnSequence = (existingDialogueState?.lastTurnSequence ?? 0) + 1;
 
     const classification = classifyContinuation(existingDialogueState, newTurnObjective);
     tracePlan(params.traceId, 'DIALOGUE_CONTINUATION_CLASSIFIED', {
@@ -1274,57 +749,6 @@ async function runWriteActionTurn(params: {
         });
     }
 
-    // Core identity boundary: a grammatical person reference is not an
-    // authorized person. Do not let the planner interpret a missing
-    // antecedent as a self-owned action or choose an arbitrary person. If
-    // there is an open dialogue objective, preserve it while invalidating any
-    // stale plan digest; otherwise create a clarification state for this
-    // turn. The actual identity resolution remains in the canonical planner.
-    if (hasUnresolvedPersonReference(params.content, objectiveForPlanning)) {
-        const clarification = {
-            field: 'person_reference',
-            question: '¿A qué persona te refieres?',
-        } as const;
-        const ambiguity = {
-            field: 'person_reference',
-            kind: 'blocking' as const,
-            reason: 'La referencia a la persona debe resolverse y autorizarse antes de planificar.',
-        };
-        if (existingDialogueState?.openObjective) {
-            dialogueService.setPendingClarificationPreservingObjective({
-                actorUserId,
-                dialogueScopeKey,
-                clarification,
-                ambiguity,
-                turnId,
-                turnSequence,
-            });
-        } else {
-            dialogueService.openObjective({
-                actorUserId,
-                dialogueScopeKey,
-                objective: objectiveForPlanning,
-                ambiguities: [ambiguity],
-                turnId,
-                turnSequence,
-            });
-            dialogueService.setPendingClarification({
-                actorUserId,
-                dialogueScopeKey,
-                clarification,
-                turnId,
-                turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
-            });
-        }
-        traceAgentDevice(params.traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'write_person_reference_clarification', dialogueScopeKey,
-        });
-        return {
-            kind: 'clarification',
-            questions: [clarification],
-        };
-    }
-
     const plan = await runAgentPlanning({
         actorUserId,
         input: params.content,
@@ -1337,7 +761,10 @@ async function runWriteActionTurn(params: {
         inputEnvelope: params.envelope,
         contextReferents: params.referents,
         preloadedCommitments: params.preloadedCommitments,
-    }, { resolvedObjective: objectiveForPlanning });
+    }, {
+        resolvedObjective: objectiveForPlanning,
+        objectiveInterpreter: params.objectiveInterpreter,
+    });
 
     // M-7B dialogue-state bookkeeping, strictly AFTER the real plan result
     // is known -- dialogue state never predicts or overrides what the
@@ -1363,14 +790,11 @@ async function runWriteActionTurn(params: {
     } else if (plan.status === 'needs_clarification') {
         dialogueService.openObjective({
             actorUserId, dialogueScopeKey, objective: objectiveForPlanning,
-            ambiguities: plan.objective.ambiguities,
-            turnId,
-            turnSequence: params.admittedTurnSequence ?? turnSequence,
+            ambiguities: plan.objective.ambiguities, turnId, turnSequence,
         });
         if (plan.unresolvedInputs[0]) {
             dialogueService.setPendingClarification({
-                actorUserId, dialogueScopeKey, clarification: plan.unresolvedInputs[0], turnId,
-                turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
+                actorUserId, dialogueScopeKey, clarification: plan.unresolvedInputs[0], turnId, turnSequence: turnSequence + 1,
             });
         }
     } else if (plan.status === 'ready_for_authorization' && plan.planDigest) {
@@ -1382,12 +806,10 @@ async function runWriteActionTurn(params: {
         // authorization has occurred yet; PlanCard confirmation is still
         // required exactly as for any other plan.
         dialogueService.openObjective({
-            actorUserId, dialogueScopeKey, objective: objectiveForPlanning, turnId,
-            turnSequence: params.admittedTurnSequence ?? turnSequence,
+            actorUserId, dialogueScopeKey, objective: objectiveForPlanning, turnId, turnSequence,
         });
         dialogueService.markReadyForAuthorization({
-            actorUserId, dialogueScopeKey, planDigest: plan.planDigest, turnId,
-            turnSequence: params.admittedTurnSequence ?? turnSequence + 1,
+            actorUserId, dialogueScopeKey, planDigest: plan.planDigest, turnId, turnSequence: turnSequence + 1,
         });
     } else if (classification.isContinuation) {
         // A continuation attempt that still resolved to 'draft'/unsupported
@@ -1411,10 +833,8 @@ function routePlanningResult(
         return { kind: 'clarification', questions: plan.unresolvedInputs };
     }
     if (plan.status === 'ready_for_authorization') {
-        const confirmationState = context.confirmationRequested === true ? 'received' : 'required' as const;
         return {
             kind: 'plan',
-            confirmationState,
             confirmationRequested: context.confirmationRequested,
             plan: toPublicAgentPlanResponse(plan),
             presentation: buildPlanPresentation(plan, context),
@@ -1562,18 +982,6 @@ export function buildStepPresentation(
                 ...shared,
             };
         }
-        case 'edit_commitment': {
-            const title = extractQuoted(step.operation) ?? 'el compromiso';
-            const nextTitle = typeof args.title === 'string' ? args.title : title;
-            return {
-                stepId: step.stepId, toolId,
-                headline: `Actualizar "${title}"`,
-                effectDescription: `Se actualizará el mismo compromiso a "${nextTitle}".`,
-                targetLabel: nextTitle,
-                confirmationLabel: 'Actualizar', cancelLabel: 'Cancelar',
-                ...shared,
-            };
-        }
         case 'complete_commitment': {
             const title = extractQuoted(step.operation) ?? 'el compromiso';
             return {
@@ -1679,31 +1087,4 @@ function buildRiskLabel(riskLevel: 'low' | 'medium' | 'high'): string {
         case 'medium': return 'Requiere confirmación explícita';
         case 'high': return 'Acción de alto impacto — confirma con atención';
     }
-}
-
-export function suspendedObjectiveMatchScore(objective: AgentObjective, topicHints: string[]): number {
-    const candidates = [
-        ...objective.targetEntities.entityHints,
-        ...objective.targetEntities.personHints,
-        // The model's bounded objective summary/source preserve the natural
-        // wording of the earlier topic. They are still only match hints; a
-        // unique match is required before Core resumes anything.
-        objective.desiredOutcome,
-        objective.sourceUtterance,
-    ].map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-    const hints = topicHints.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-    return candidates.reduce((score, candidate) => score + (hints.some((hint) => topicHintMatches(candidate, hint)) ? 1 : 0), 0);
-}
-
-function topicHintMatches(candidate: string, hint: string): boolean {
-    if (hint.includes(candidate) || candidate.includes(hint)) return true;
-    const tokenize = (value: string): string[] => value
-        .normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
-        .split(/[^\p{L}\p{N}]+/u)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 4);
-    const candidateTokens = [...new Set(tokenize(candidate))];
-    const hintTokens = new Set(tokenize(hint));
-    const overlap = candidateTokens.filter((token) => hintTokens.has(token)).length;
-    return overlap >= 2 && overlap / Math.max(1, Math.min(candidateTokens.length, hintTokens.size)) >= 0.4;
 }

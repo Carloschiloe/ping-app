@@ -3,11 +3,10 @@
 // maps result to discriminated union, maps known errors to HTTP.
 import { Request, Response } from 'express';
 import { runAgentTurn } from '../services/agentTurn.service';
-import { runCanonicalAgentTurn } from '../services/agentConversationRuntime.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
-import { isDurableGeneralAgentTurnEnabled } from '../services/agentTurnDurableBoundary.service';
+import { isDurableGeneralAgentTurnEnabled, runDurableAgentTurn } from '../services/agentTurnDurableBoundary.service';
 import {
     isAgentConversationTurnPersistenceEnabled,
     persistAgentConversationTurn,
@@ -57,14 +56,15 @@ export async function turn(req: Request, res: Response): Promise<void> {
             timezone: req.body.timezone,
             traceId,
         };
-        // When durable history is enabled, signed voice envelopes are the
-        // authoritative source for the conversation and transcript. Never
-        // persist client copies of those values.
+        // Resolve once at the HTTP boundary when history is enabled. For voice
+        // and reviewed voice, the signed envelope is the only authoritative
+        // source of conversationId and transcript text; never trust a client
+        // copy for durable provenance.
         const historyInput = isAgentConversationTurnPersistenceEnabled()
             ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
             : null;
         const result = durableEnabled
-            ? await runCanonicalAgentTurn(turnInput, {}, idempotencyKey!)
+            ? await runDurableAgentTurn(turnInput, {}, idempotencyKey!)
             : await runAgentTurn(turnInput);
 
         const historyConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;

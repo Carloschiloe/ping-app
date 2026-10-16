@@ -3,10 +3,8 @@
 // title, then routed through the exact same authorization-aware Core.
 export * from './agentTurnCore.service';
 import { runAgentTurn as runCoreAgentTurn } from './agentTurnCore.service';
-import { buildAgentContext } from './agentContextBuilder.service';
 import {
     forgetReadFollowupReferent,
-    rememberVerifiedReadReferent,
     resolveVerifiedReadFollowup,
 } from './agentReadFollowupReferent.service';
 import {
@@ -18,8 +16,6 @@ import {
 import type { AgentTurnInput, AgentTurnResult } from '../types/agentTurn';
 import type { RunAgentTurnOptions } from './agentTurnCore.service';
 
-const TARGETED_FIRST_READ = /^¿?\s*qu[eé]\s+pas[oó]\s+con\s+\S.+\??$/iu;
-
 export async function runAgentTurn(
     input: AgentTurnInput,
     options: RunAgentTurnOptions = {},
@@ -30,6 +26,7 @@ export async function runAgentTurn(
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
         utterance: content,
+        preserveOnIneligible: true,
     });
     const clarificationSelection = input.voiceInputToken ? { kind: 'none' as const } : resolveReadClarification({
         actorUserId: input.actorUserId,
@@ -47,7 +44,9 @@ export async function runAgentTurn(
                 : input,
         selectedReadCandidate
             ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId }
-            : options,
+            : followup
+                ? { ...options, authorizedCommitmentReferentId: followup.sourceId }
+                : options,
     );
 
     if (followup) {
@@ -103,41 +102,6 @@ export async function runAgentTurn(
         forgetReadClarification(input.actorUserId, input.conversationId);
     }
 
-    // Keep only one evidence-verified read referent for this actor+conversation.
-    // Do not infer one from an LLM answer, a plain user title or an old date.
-    // This exceptional, narrow first-turn check adds one canonical read;
-    // every other turn retains the existing one-build Core behavior.
-    if (!input.voiceInputToken && input.conversationId
-        && TARGETED_FIRST_READ.test(content.trim())
-        && result.kind === 'response' && result.response.status === 'answered'
-        && result.response.citations.length === 1
-        && result.response.citations[0].sourceType === 'commitment') {
-        try {
-            const context = await buildAgentContext({
-                actorUserId: input.actorUserId,
-                input: content,
-                conversationId: input.conversationId,
-                channel: input.channel,
-                locale: input.locale,
-                timezone: input.timezone,
-                now: (options.now ?? input.now ?? new Date()).toISOString(),
-                traceId: input.traceId,
-            }, {});
-            rememberVerifiedReadReferent({
-                actorUserId: input.actorUserId,
-                conversationId: input.conversationId,
-                status: result.response.status,
-                commitments: context.evidenceFound ? context.commitments.map((item) => ({
-                    id: item.id,
-                    title: item.title,
-                })) : [],
-                citations: result.response.citations,
-            });
-        } catch {
-            // Caching must never interrupt a completed, source-backed read.
-            forgetReadFollowupReferent(input.actorUserId, input.conversationId);
-        }
-    }
     return result;
 }
 

@@ -8,7 +8,6 @@ import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
-import { isAllowedRequestOrigin } from './security/corsPolicy';
 
 dotenv.config();
 
@@ -30,19 +29,21 @@ app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 
-app.use((req, res, next) => {
-  cors({
-    origin: (origin, callback) => {
-      if (isAllowedRequestOrigin(req, origin, env.allowedOrigins)
-        || (env.nodeEnv !== 'production' && env.allowedOrigins.length === 0)) {
-        callback(null, true);
-        return;
-      }
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || env.allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
 
-      callback(new Error('Origin not allowed by CORS'));
-    },
-  })(req, res, next);
-});
+    if (env.nodeEnv !== 'production' && env.allowedOrigins.length === 0) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Origin not allowed by CORS'));
+  },
+}));
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,

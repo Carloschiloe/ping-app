@@ -35,6 +35,9 @@ export function isAgentConversationTurnPersistenceEnabled(): boolean {
 }
 
 function publicResult(result: AgentConversationEventResult): AgentConversationEventResult {
+    // Debug metadata is useful for device certification but is not part of the
+    // durable conversation history. Keeping it out also avoids storing traces
+    // that can contain implementation details or provider metadata.
     const copy = { ...(result as unknown as Record<string, unknown>) };
     delete copy.debug;
     return copy as unknown as AgentConversationEventResult;

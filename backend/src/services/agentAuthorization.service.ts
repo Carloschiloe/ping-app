@@ -12,24 +12,11 @@ import { traceAuth } from '../utils/executionTrace';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
-import { isPlanDigestNonExecutable, loadPendingDialogueObjective } from './agentPlanInvalidationGuard.service';
-import { detectAgentLanguage } from '../utils/agentLanguage';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
 // mockeando Date global.
 export const AUTHORIZATION_TTL_MS = 5 * 60 * 1000;
-
-function planChangedMessage(input: AuthorizePlanInput, kind: 'unavailable' | 'changed'): string {
-    if (detectAgentLanguage(input.input, input.locale) === 'es') {
-        return kind === 'unavailable'
-            ? 'No pude reconstruir el compromiso pendiente para confirmarlo. No se creó ni modificó nada.'
-            : 'El plan cambió desde que te lo mostré. Revísalo nuevamente antes de confirmarlo.';
-    }
-    return kind === 'unavailable'
-        ? 'The pending request could not be rebuilt for confirmation. Nothing was created or changed.'
-        : 'The plan changed since it was shown to you. Please review it again before authorizing.';
-}
 
 export interface AuthorizePlanInput {
     actorUserId: string;
@@ -74,23 +61,6 @@ function rowToAuthorization(row: any): AgentAuthorization {
 
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
-
-    // Durable dialogue keeps bounded tombstones for plans rejected or
-    // superseded during a conversation. Check that boundary before any
-    // re-plan or authorization insert so a late/replayed confirmation cannot
-    // resurrect a plan the user already cancelled or corrected.
-    if (await isPlanDigestNonExecutable({
-        actorUserId: input.actorUserId,
-        conversationId: input.conversationId,
-        channel: input.channel,
-        inputEnvelope: input.inputEnvelope,
-        planDigest: input.planDigest,
-    })) {
-        traceAuth(input.traceId, 'NON_EXECUTABLE_PLAN_REJECTED', {
-            planDigest: input.planDigest,
-        });
-        return { ok: false, failureCode: 'plan_rejected', message: 'This plan is no longer executable. Please review the current plan before confirming.' };
-    }
     const orchestratorInput: AgentPlanOrchestratorInput = {
         actorUserId: input.actorUserId,
         input: input.input,
@@ -117,25 +87,18 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // final plan-status owner (semantic enrichment, LLM fallback,
     // validation, digest — all unchanged, all still exclusively there).
     // authorizePlan itself contains zero interpreter-selection policy.
-    // A multi-turn confirmation may arrive after the user corrected the
-    // pending plan. In that case the short confirmation input is not the
-    // source of the plan. Re-derive from the durable Core-owned objective
-    // whose digest is being confirmed; never reinterpret it as a new request.
-    const pendingObjective = await loadPendingDialogueObjective(input);
-    const routing = pendingObjective ? null : await resolveDeterministicRouting(input.input, {
+    const routing = await resolveDeterministicRouting(input.input, {
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
     });
-    const freshPlan = await runAgentPlanning(orchestratorInput, {
-        resolvedObjective: pendingObjective ?? routing?.resolvedObjective,
-    });
+    const freshPlan = await runAgentPlanning(orchestratorInput, { resolvedObjective: routing.resolvedObjective });
 
     traceAuth(input.traceId, 'REPLAN_FOR_AUTHORIZATION', {
         status: freshPlan.status, freshDigest: freshPlan.planDigest, claimedDigest: input.planDigest,
     });
 
     if (freshPlan.status !== 'ready_for_authorization' || !freshPlan.planDigest) {
-        return { ok: false, failureCode: 'plan_changed', message: planChangedMessage(input, 'unavailable') };
+        return { ok: false, failureCode: 'plan_changed', message: 'The request can no longer be planned the way it was described — nothing was authorized.' };
     }
 
     // El corazón del binding (sección 5/9/62 adversarial C): si CUALQUIER
@@ -145,7 +108,7 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // exactamente el caso adversarial que el ticket exige cerrar.
     if (freshPlan.planDigest !== input.planDigest) {
         traceAuth(input.traceId, 'DIGEST_MISMATCH', { freshDigest: freshPlan.planDigest, claimedDigest: input.planDigest });
-        return { ok: false, failureCode: 'plan_changed', message: planChangedMessage(input, 'changed') };
+        return { ok: false, failureCode: 'plan_changed', message: 'The plan has changed since it was shown to you — please review it again before authorizing.' };
     }
 
     const policy = canAuthorize({

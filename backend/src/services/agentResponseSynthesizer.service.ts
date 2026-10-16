@@ -53,7 +53,6 @@ import { detectAgentLanguage as detectTemplateLanguage } from '../utils/agentLan
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
     if (context.needsClarification) return 'needs_clarification';
     if (!context.evidenceFound && context.capabilityGaps.length > 0) return 'capability_gap';
-    if (context.interactionMode === 'conversation') return 'answered';
     // M-1H (ticket "DETERMINISTIC QUERY SEMANTICS", sección 10) — un conteo
     // de 0 es una respuesta VÁLIDA y ya conocida con certeza estructural
     // ("no tienes ninguno"), nunca "no encontré nada relacionado" (esa
@@ -99,7 +98,7 @@ interface SerializedContext {
     // proposal está aprobada (sección 15 del ticket).
     commitments: Array<{
         id: string; entityType: 'commitment' | 'commitment_proposal'; title: string; status: string;
-        dueAt: string | null; dueAtLocal: string | null; resolvedAt: string | null; resolutionResult: string | null;
+        dueAt: string | null; resolvedAt: string | null; resolutionResult: string | null;
         ownerUserId: string; assignedToUserId: string | null; isOverdue: boolean;
         actorHasApproved?: boolean; actorCanRespond?: boolean; pendingResponderNamesSafe?: string[];
         isFullyApproved?: boolean; proposalDatePassed?: boolean;
@@ -265,7 +264,6 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
     const full: SerializedContext = {
         commitments: context.commitments.map((c) => ({
             id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: c.dueAt,
-            dueAtLocal: c.dueAt ? formatEventTimestampInZone(c.dueAt, context.timezone, locale) : null,
             resolvedAt: c.resolvedAt, resolutionResult: c.resolutionResult, ownerUserId: c.ownerUserId,
             assignedToUserId: c.assignedToUserId,
             isOverdue: isCommitmentOverdue(c.dueAt, c.status, context.now, context.timezone, c.entityType),
@@ -360,7 +358,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         '"commitments" entries are the CANONICAL, CURRENT state — always outweigh "messages"/"transcriptions" (informal, historical evidence) and "events" (history of status changes) when they conflict. If a commitment is directly relevant to the question, prefer citing its current status/due_at fields over an older message/transcript for that same fact — if a commitment was rescheduled, state the CURRENT date, and you may mention it changed if useful.',
         'A commitment with status "resolved", "cancelled", or "rejected" must NEVER be described as pending or open — check its "status" field before asserting anything about it being due or pending.',
         'Each commitment has an "entityType" field: "commitment" is a canonical, already-established, active commitment. "commitment_proposal" is a PROPOSAL that is NOT a commitment yet — it only becomes one once every required person has approved it. Never call a "commitment_proposal" a "commitment" and never say it is overdue, active, or pending completion — it simply does not exist as a real obligation until fully approved.',
-        'Each commitment already has a boolean "isOverdue" field, computed by the backend — TRUST it exactly, never compute overdue status yourself. For "entityType":"commitment_proposal", "isOverdue" is ALWAYS false by design (a proposal can never be overdue, no matter its due date) — never contradict this or call a proposal overdue yourself. If the user asks about overdue/late/past-due items and ANY "commitment" (not "commitment_proposal") has "isOverdue":true, you MUST mention it as overdue. For due dates/times, use "dueAtLocal" verbatim; it is already formatted in the actor timezone. Use raw "dueAt" only for chronological comparison, never to display a clock time.',
+        'Each commitment already has a boolean "isOverdue" field, computed by the backend — TRUST it exactly, never compute overdue status yourself. For "entityType":"commitment_proposal", "isOverdue" is ALWAYS false by design (a proposal can never be overdue, no matter its due date) — never contradict this or call a proposal overdue yourself. If the user asks about overdue/late/past-due items and ANY "commitment" (not "commitment_proposal") has "isOverdue":true, you MUST mention it as overdue.',
         'For "entityType":"commitment_proposal" you are given the exact participation facts, already resolved by the backend — never infer or guess any of them from "status" or dates yourself: "actorHasApproved" (the user already approved it), "actorCanRespond" (the user still needs to respond — accept, propose another date, or reject), "pendingResponderNamesSafe" (the real names of people whose approval is still missing), "isFullyApproved" (nothing more is needed, it is about to become a real commitment), and "proposalDatePassed" (its proposed date has already passed — this is informational only, it is NEVER the same as "overdue"). Phrase these naturally: if pendingResponderNamesSafe has names, say the proposal is waiting on them (e.g. "\'Entrenar\' is waiting for Alejandra to respond"); if proposalDatePassed is true, you may add that the proposed date has already passed, but always alongside who it is still waiting on, and NEVER phrase this as "overdue" or "vencido". If actorCanRespond is true, say the user still needs to respond to it themselves.',
         'Distinguish "we talked about X" (a message/transcript mentions a topic) from "we agreed to X" (only assert an agreement if a canonical commitment actually reflects it) — do not upgrade an informal remark into a commitment.',
         'Attachments are metadata references only (id, kind, filename) — never assert what a document says internally unless its actual text is given to you (it is not, in this version).',
@@ -1060,210 +1058,78 @@ function buildCountResponse(context: AgentContext, language: 'es' | 'en'): Agent
     return { status: 'answered', answer, claims: [], citations: context.commitments.map((c) => c.provenance) };
 }
 
-// Una consulta explícita por vencidos no es una petición de prioridad. Es un
-// filtro de estado derivado del compromiso canónico. Mantenerla fuera de la
-// síntesis libre evita que el modelo sustituya la respuesta por "el más
-// urgente" o que mezcle un compromiso futuro con uno atrasado.
-function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
-    const overdue = context.commitments
-        .filter((commitment) => isCommitmentOverdue(
-            commitment.dueAt,
-            commitment.status,
-            context.now,
-            context.timezone,
-            commitment.entityType,
-        ))
-        .sort((left, right) => {
-            const leftDue = left.dueAt ? Date.parse(left.dueAt) : Number.POSITIVE_INFINITY;
-            const rightDue = right.dueAt ? Date.parse(right.dueAt) : Number.POSITIVE_INFINITY;
-            return leftDue - rightDue || left.id.localeCompare(right.id);
-        });
-    const passedProposals = context.commitments.filter((commitment) =>
-        commitment.entityType === 'commitment_proposal' && commitment.proposalDatePassed === true,
-    );
-    const proposalNotes = passedProposals.map((proposal) => {
-        const title = proposal.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-        const waitingNames = proposal.pendingResponderNamesSafe?.filter(Boolean) ?? [];
-        if (language === 'es') {
-            const waiting = waitingNames.length > 0
-                ? `sigue esperando la respuesta de ${waitingNames.join(', ')}`
-                : proposal.actorCanRespond
-                    ? 'sigue pendiente de tu respuesta'
-                    : 'sigue pendiente de aprobación';
-            return `La propuesta "${title}" ${waiting}. La fecha propuesta ya pasó.`;
-        }
-        const waiting = waitingNames.length > 0
-            ? `is still waiting for ${waitingNames.join(', ')} to respond`
-            : proposal.actorCanRespond
-                ? 'is still waiting for your response'
-                : 'is still waiting for approval';
-        return `The proposal "${title}" ${waiting}. Its proposed date has passed.`;
-    });
-    const proposalReferences: AgentCitation[] = passedProposals.map((proposal) => ({
-        sourceType: proposal.provenance.sourceType,
-        sourceId: proposal.provenance.sourceId,
-    }));
-
-    if (overdue.length === 0) {
-        const proposalText = proposalNotes.length > 0 ? ` ${proposalNotes.join(' ')}` : '';
-        return {
-            status: 'answered',
-            answer: language === 'es'
-                ? `No tienes compromisos vencidos.${proposalText}`
-                : `You have no overdue commitments.${proposalText}`,
-            claims: proposalNotes.map((text, index) => ({ text, sourceRefs: [proposalReferences[index]] })),
-            citations: proposalReferences,
-        };
-    }
-
-    const locale = language === 'es' ? 'es-CL' : 'en-US';
-    const references: AgentCitation[] = overdue.map((commitment) => ({
-        sourceType: commitment.provenance.sourceType,
-        sourceId: commitment.provenance.sourceId,
-    }));
-    const items = overdue.map((commitment) => {
-        const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-        const due = commitment.dueAt
-            ? formatEventTimestampInZone(commitment.dueAt, context.timezone, locale)
-            : (language === 'es' ? 'sin fecha' : 'no date');
-        return language === 'es' ? `${title} está vencido. Venció ${due}.` : `${title} is overdue. It was due ${due}.`;
-    });
-    // Si existe al menos un compromiso confirmado vencido, la respuesta debe
-    // mantenerse enfocada en ese conjunto. Las proposals con fecha pasada no
-    // se mezclan en la misma respuesta, porque todavía no son obligaciones.
-    const answer = language === 'es'
-        ? `Tienes ${overdue.length} compromiso${overdue.length === 1 ? '' : 's'} vencido${overdue.length === 1 ? '' : 's'}: ${items.join(' ')}`
-        : `You have ${overdue.length} overdue commitment${overdue.length === 1 ? '' : 's'}: ${items.join(' ')}`;
-    const claims: AgentClaim[] = overdue.map((commitment, index) => ({
-        text: items[index],
-        sourceRefs: [references[index]],
-    }));
-    return { status: 'answered', answer, claims, citations: references };
-}
-
-// A bounded temporal collection is a read over a Core-owned set, not an open
-// ended writing task for the model. Answer it from the canonical rows so a
-// synthesis model cannot replace an existing result with a generic
-// "nothing found" response or ask for a scope that the user already gave.
-function buildTemporalCommitmentListResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
-    const commitments = context.commitments.filter((item) => item.entityType === 'commitment');
-    const references: AgentCitation[] = commitments.map((item) => ({
-        sourceType: item.provenance.sourceType,
-        sourceId: item.provenance.sourceId,
-    }));
-    if (commitments.length === 0) {
-        return {
-            status: 'answered',
-            answer: language === 'es'
-                ? 'No tienes compromisos en el período solicitado.'
-                : 'You have no commitments in the requested period.',
-            claims: [],
-            citations: [],
-        };
-    }
-
-    const locale = language === 'es' ? 'es-CL' : 'en-US';
-    const items = commitments.map((commitment) => {
-        const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-        const due = commitment.dueAt
-            ? formatEventTimestampInZone(commitment.dueAt, context.timezone, locale)
-            : (language === 'es' ? 'sin fecha' : 'no date');
-        const overdue = isCommitmentOverdue(
-            commitment.dueAt,
-            commitment.status,
-            context.now,
-            context.timezone,
-            commitment.entityType,
-        );
-        if (language === 'es') return `${title}, ${due}${overdue ? ' (vencido)' : ''}.`;
-        return `${title}, ${due}${overdue ? ' (overdue)' : ''}.`;
-    });
-    const scope = language === 'es'
-        ? /\bhoy\b/i.test(context.input)
-            ? 'Para hoy'
-            : /\bmañana\b/i.test(context.input)
-                ? 'Para mañana'
-                : 'En el período solicitado'
-        : /\btoday\b/i.test(context.input)
-            ? 'For today'
-            : /\btomorrow\b/i.test(context.input)
-                ? 'For tomorrow'
-                : 'In the requested period';
-    const answer = language === 'es'
-        ? `${scope} tienes ${commitments.length} compromiso${commitments.length === 1 ? '' : 's'}: ${items.join(' ')}`
-        : `${scope} you have ${commitments.length} commitment${commitments.length === 1 ? '' : 's'}: ${items.join(' ')}`;
-    const claims: AgentClaim[] = commitments.map((commitment, index) => ({
-        text: items[index],
-        sourceRefs: [references[index]],
-    }));
-    return { status: 'answered', answer, claims, citations: references };
-}
-
-// A semantic follow-up is answered from the single canonical referent already
-// re-authorized by the Core. It must not fall back to the general retrieval or
-// synthesis path: that would allow unrelated commitments to contaminate a
-// question about the immediately preceding result.
+// M-7 continuity: once Core has resolved exactly one authorized referent,
+// attribute answers must be composed from that commitment's canonical fields.
+// This prevents a broad second retrieval or a synthesis model from importing
+// an unrelated time/status while preserving the same citation contract.
 function buildReadReferentAttributeResponse(
     context: AgentContext,
     language: 'es' | 'en',
-    timezone: string,
     locale?: string,
 ): AgentResponse | null {
-    if (!context.followUpAttribute || context.commitments.length !== 1) return null;
-
+    const attribute = context.followUpAttribute;
+    if (!attribute || context.commitments.length !== 1) return null;
     const commitment = context.commitments[0];
-    const reference: AgentCitation = {
+    const ref: AgentCitation = {
         sourceType: commitment.provenance.sourceType,
         sourceId: commitment.provenance.sourceId,
     };
-    const claim = (text: string): AgentResponse => ({
-        status: 'answered',
-        answer: text,
-        claims: [{ text, sourceRefs: [reference] }],
-        citations: [reference],
-    });
-    const es = language === 'es';
-    const dueAt = commitment.dueAt ?? commitment.proposedDueAt ?? null;
+    const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+    const zone = context.timezone;
+    const resolvedLocale = locale ?? (language === 'es' ? 'es-CL' : 'en-US');
+    let answer: string;
 
-    if (context.followUpAttribute === 'time' || context.followUpAttribute === 'date') {
-        if (!dueAt || !Number.isFinite(Date.parse(dueAt))) {
-            return claim(es ? 'Ese compromiso no tiene una fecha u hora registrada.' : 'That commitment has no recorded date or time.');
+    if (attribute === 'time' || attribute === 'date') {
+        if (!commitment.dueAt) {
+            answer = language === 'es'
+                ? `El compromiso "${title}" no tiene una fecha u hora registrada.`
+                : `The commitment "${title}" has no recorded date or time.`;
+        } else {
+            const instant = new Date(commitment.dueAt);
+            if (attribute === 'time') {
+                const time = new Intl.DateTimeFormat(resolvedLocale, {
+                    timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false,
+                }).format(instant);
+                answer = language === 'es'
+                    ? `El compromiso "${title}" es a las ${time}.`
+                    : `The commitment "${title}" is at ${time}.`;
+            } else {
+                const date = new Intl.DateTimeFormat(resolvedLocale, {
+                    timeZone: zone, year: 'numeric', month: 'long', day: 'numeric',
+                }).format(instant);
+                answer = language === 'es'
+                    ? `El compromiso "${title}" es el ${date}.`
+                    : `The commitment "${title}" is on ${date}.`;
+            }
         }
-        const formatter = context.followUpAttribute === 'time'
-            ? new Intl.DateTimeFormat(locale ?? (es ? 'es-CL' : 'en-US'), {
-                hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
-            })
-            : new Intl.DateTimeFormat(locale ?? (es ? 'es-CL' : 'en-US'), {
-                day: 'numeric', month: 'long', year: 'numeric', timeZone: timezone,
-            });
-        const value = formatter.format(new Date(dueAt));
-        return claim(es
-            ? context.followUpAttribute === 'time' ? `Es a las ${value}.` : `Es el ${value}.`
-            : context.followUpAttribute === 'time' ? `It is at ${value}.` : `It is on ${value}.`);
-    }
-
-    if (context.followUpAttribute === 'responsible') {
-        const names = commitment.pendingResponderNamesSafe?.filter(Boolean) ?? [];
-        if (names.length === 0) {
-            return claim(es
-                ? 'No tengo un nombre de responsable disponible en la información autorizada.'
-                : 'I do not have an authorized responsible person name available.');
-        }
-        return claim(es
-            ? `La persona responsable pendiente es ${names.join(', ')}.`
-            : `The pending responsible person is ${names.join(', ')}.`);
-    }
-
-    if (context.followUpAttribute === 'status') {
-        const overdue = isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, timezone, commitment.entityType);
+    } else if (attribute === 'status') {
+        const overdue = isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, zone, commitment.entityType);
         const state = fallbackCommitmentState(commitment.status, overdue, language);
-        return claim(es ? `Está ${state}.` : `It is ${state}.`);
+        answer = language === 'es'
+            ? `El compromiso "${title}" está ${state}.`
+            : `The commitment "${title}" is ${state}.`;
+    } else if (attribute === 'responsible') {
+        const names = commitment.pendingResponderNamesSafe ?? [];
+        answer = names.length > 0
+            ? (language === 'es'
+                ? `La persona responsable asociada a "${title}" es ${names.join(', ')}.`
+                : `The associated responsible person for "${title}" is ${names.join(', ')}.`)
+            : (language === 'es'
+                ? `No hay un responsable con nombre visible registrado para "${title}".`
+                : `There is no visible named responsible person recorded for "${title}".`);
+    } else {
+        const detail = commitment.description?.trim() || commitment.expectedResult?.trim();
+        answer = detail
+            ? (language === 'es'
+                ? `Los detalles de "${title}" son: ${detail}.`
+                : `The details for "${title}" are: ${detail}.`)
+            : (language === 'es'
+                ? `No hay detalles adicionales registrados para "${title}".`
+                : `There are no additional details recorded for "${title}".`);
     }
 
-    const details = commitment.description?.trim() || commitment.expectedResult?.trim();
-    return claim(details
-        ? (es ? `El detalle es: ${details}` : `The detail is: ${details}`)
-        : (es ? 'No tengo detalles adicionales autorizados para ese compromiso.' : 'I do not have additional authorized details for that commitment.'));
+    const claim: AgentClaim = { text: answer, sourceRefs: [ref] };
+    return { status: 'answered', answer, claims: [claim], citations: [ref] };
 }
 
 function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', timezone: string, locale?: string): AgentResponse | null {
@@ -1402,16 +1268,6 @@ export function realizeAgentClarification(
             ? 'No tengo suficiente contexto para saber a quién te refieres. ¿Puedes decirme el nombre?'
             : 'I don\'t have enough context to know who you mean. Could you tell me the name?';
         followUp = { type: 'clarify_person', question: answer };
-    } else if (clarification?.reason === 'person_not_found') {
-        const names = (clarification.requestedNames ?? []).filter(Boolean).join(', ');
-        answer = language === 'es'
-            ? names
-                ? `No encontré una persona o contacto autorizado llamado "${names}". Revisa el nombre o indícame cómo identificarlo.`
-                : 'No encontré una persona o contacto autorizado con esos datos. ¿Puedes indicar otro nombre?'
-            : names
-                ? `I could not find an authorized person or contact named "${names}". Check the name or tell me how to identify them.`
-                : 'I could not find an authorized person or contact with those details. Could you provide another name?';
-        followUp = { type: 'clarify_person', question: answer };
     } else if (clarification?.reason === 'time_ambiguous') {
         answer = language === 'es'
             ? '¿A qué fecha o período te refieres exactamente?'
@@ -1457,14 +1313,6 @@ function buildClarificationResponse(context: AgentContext, language: 'es' | 'en'
 }
 
 function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
-    if (context.wantsOverdueFocus) {
-        return {
-            status: 'no_evidence',
-            answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
-            claims: [],
-            citations: [],
-        };
-    }
     const isTemporalCommitmentRead = context.intent.type === 'commitment_query' && !!context.entities.timeRange;
     const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
     const answer = isTemporalCommitmentRead
@@ -1479,17 +1327,6 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
                 ? 'No encontré conversaciones, compromisos ni documentos relacionados con eso.'
                 : 'I didn\'t find any conversations, commitments, or documents related to that.';
     return { status: 'no_evidence', answer, claims: [], citations: [] };
-}
-
-function buildConversationalResponse(language: 'es' | 'en'): AgentResponse {
-    return {
-        status: 'answered',
-        answer: language === 'es'
-            ? 'Estoy bien y aquí para ayudarte. ¿En qué te gustaría conversar?'
-            : 'I’m doing well and I’m here to help. What would you like to talk about?',
-        claims: [],
-        citations: [],
-    };
 }
 
 const CAPABILITY_GAP_MESSAGES: Record<string, { es: string; en: string }> = {
@@ -1631,9 +1468,6 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         if (status === 'needs_clarification') {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
-        if (status === 'answered' && context.interactionMode === 'conversation') {
-            return this.withDiagnostics(buildConversationalResponse(language), 'deterministic', startedAt, sourceCount);
-        }
         if (status === 'no_evidence') {
             return this.withDiagnostics(buildNoEvidenceResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
@@ -1647,13 +1481,10 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         if (status === 'answered' && context.queryCardinality === 'count') {
             return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
-        if (status === 'answered' && context.wantsOverdueFocus) {
-            return this.withDiagnostics(buildOverdueResponse(context, language), 'deterministic', startedAt, sourceCount);
-        }
         if (status === 'answered' && context.followUpAttribute) {
-            const referentResponse = buildReadReferentAttributeResponse(context, language, context.timezone, input.locale);
-            if (referentResponse) {
-                return this.withDiagnostics(referentResponse, 'deterministic', startedAt, sourceCount);
+            const attributeResponse = buildReadReferentAttributeResponse(context, language, input.locale);
+            if (attributeResponse) {
+                return this.withDiagnostics(attributeResponse, 'deterministic', startedAt, sourceCount);
             }
         }
         if (status === 'answered' && context.temporalComparison) {
@@ -1662,25 +1493,14 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
                 return this.withDiagnostics(comparisonResponse, 'deterministic', startedAt, sourceCount);
             }
         }
-        if (status === 'answered' && context.urgencyComparison === 'most_urgent') {
+        // An overdue request is a scope query, not a request to select one
+        // "most urgent" item. Provider over-interpretation must not hijack
+        // the overdue evidence/disclosure path.
+        if (status === 'answered' && context.urgencyComparison === 'most_urgent' && !context.wantsOverdueFocus) {
             const urgencyResponse = buildUrgencyResponse(context, language, context.timezone, input.locale);
             if (urgencyResponse) {
                 return this.withDiagnostics(urgencyResponse, 'deterministic', startedAt, sourceCount);
             }
-        }
-        if (status === 'answered'
-            && context.intent.type === 'commitment_query'
-            && context.queryCardinality === 'exhaustive_list'
-            && !!context.entities.timeRange
-            && !context.followUpAttribute
-            && !context.temporalComparison
-            && context.urgencyComparison !== 'most_urgent') {
-            return this.withDiagnostics(
-                buildTemporalCommitmentListResponse(context, language),
-                'deterministic',
-                startedAt,
-                sourceCount,
-            );
         }
 
         // status === 'answered': única rama que invoca al modelo. La
@@ -1825,9 +1645,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             const resolvedLocale = locale ?? (language === 'es' ? 'es-CL' : 'en-US');
             const lines = payload.commitments.slice(0, 8).map((commitment) => {
                 const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-                const due = commitment.dueAtLocal
-                    ?? (commitment.dueAt ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale) : null)
-                    ?? (language === 'es' ? 'sin fecha' : 'no date');
+                const due = commitment.dueAt
+                    ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale)
+                    : (language === 'es' ? 'sin fecha' : 'no date');
                 const state = fallbackCommitmentState(commitment.status, commitment.isOverdue, language);
                 return language === 'es'
                     ? `"${title}" — ${due}${state ? ` (${state})` : ''}`

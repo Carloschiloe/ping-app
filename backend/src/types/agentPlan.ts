@@ -87,7 +87,6 @@ export const AGENT_OBJECTIVE_TYPE_VALUES = [
     'create_commitment_or_proposal',
     'create_personal_commitment',
     'reschedule_existing_commitment',
-    'edit_existing_commitment',
     'complete_existing_commitment',
     'respond_to_existing_proposal',
     'remember_fact',
@@ -99,6 +98,9 @@ export type AgentObjectiveType = typeof AGENT_OBJECTIVE_TYPE_VALUES[number];
 
 export type AmbiguityKind = 'blocking' | 'non_blocking';
 
+// Semantic ownership of a new commitment. A person/entity mentioned inside
+// a personal action is content, not a participant, unless the interpretation
+// explicitly assigns or involves that person.
 export type CommitmentOwnership = 'personal' | 'third_party' | 'ambiguous';
 
 export interface AgentObjectiveAmbiguity {
@@ -134,23 +136,13 @@ export interface MessageContentCandidate {
 }
 
 export interface AgentObjective {
-    dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
-    slotDelta?: {
-        title?: string | null;
-        date?: string | null;
-        time?: string | null;
-    };
     objectiveType: AgentObjectiveType;
     targetEntities: {
         personHints: string[];   // raw text, never IDs — resolved later by the planner via context.entities.people
         entityHints: string[];   // raw text naming a commitment/proposal (e.g. "Entrenar"), never an ID
     };
-    // Raw semantic content for a newly created commitment. It is not an
-    // authority or a canonical entity; the planner must prove it belongs to
-    // sourceUtterance before using it as a title.
-    contentHint?: string | null;
     constraints: {
-        decisionHint?: 'approve' | 'reject' | 'defer' | 'counter_propose' | null; // pending-plan lifecycle / respond_to_existing_proposal
+        decisionHint?: 'approve' | 'reject' | 'counter_propose' | null; // for respond_to_existing_proposal
         draftOnly?: boolean; // true only when the user explicitly asked for a preview, never inferred silently
         responsibleHint?: string | null; // raw text naming who should be responsible for a new commitment
         commitmentOwnership?: CommitmentOwnership;

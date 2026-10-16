@@ -64,26 +64,15 @@ async function interpretInput(
  */
 export async function interpretAgentSemanticTurn(
     input: string,
-    context: {
-        actorUserId: string;
-        conversationId?: string;
-        channel?: string;
-        priorReadSummary?: InterpreterContext['priorReadSummary'];
-        pendingPlan?: ObjectiveInterpreterContext['pendingPlan'];
-        activeObjective?: ObjectiveInterpreterContext['activeObjective'];
-        dialogueReconciliation?: InterpreterContext['dialogueReconciliation'];
-    },
+    context: { actorUserId: string; conversationId?: string; channel?: string },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
     const interpretation = await interpretInput(input, {
         conversationId: context.conversationId,
         channel: context.channel,
-        pendingPlan: context.pendingPlan,
-        activeObjective: context.activeObjective,
-        dialogueReconciliation: context.dialogueReconciliation,
-        priorReadSummary: context.priorReadSummary,
     }, inputInterpreter);
+
 
     // Safety veto, never a semantic gate: an LLM write proposal cannot turn a
     // clearly structured retrieval/comparison into a mutation. The
@@ -94,19 +83,9 @@ export async function interpretAgentSemanticTurn(
         const isRetrievalIntent = safeRead.intent === 'recall'
             || safeRead.intent === 'message_search'
             || safeRead.intent === 'document_search';
-        const hasReadDomainSignal = safeRead.wantsCommitments
-            || safeRead.wantsMessages
-            || safeRead.wantsTranscriptions
-            || safeRead.wantsAttachments;
-        // A question-shaped turn with a read-domain signal is a structural
-        // retrieval request even when the provider overstates
-        // isWriteActionRequest. This does not enumerate user phrases and
-        // does not override a deterministic write signal for an action.
-        const isInterrogativeRead = /[?\u061f]\s*$/u.test(input.trim()) && hasReadDomainSignal;
-        const isStructuredRead = (isRetrievalIntent && isInterrogativeRead)
+        const isStructuredRead = isRetrievalIntent
             || isTemporalComparisonQuery(input)
-            || !!extractUrgencyComparison(input)
-            || isInterrogativeRead;
+            || !!extractUrgencyComparison(input);
         if (isStructuredRead && !safeRead.isWriteActionRequest) {
             return { route: 'read', interpretation: safeRead, objective: null };
         }
@@ -118,46 +97,13 @@ export async function interpretAgentSemanticTurn(
     // from silently turning an explicit state-changing request into “no
     // evidence”, while lifecycle/entity/permission decisions remain in Core.
     if (!interpretation.isWriteActionRequest) {
-        // Some natural commitments are declarative rather than imperative
-        // (the user states an obligation they want kept, instead of saying
-        // "create" or "remind me").  Let the objective interpreter decide
-        // whether that meaning is a write; the bounded structural admission
-        // below only applies to a non-interrogative commitment frame and
-        // still sends the resulting objective through the normal planner.
-        const declarativeCommitmentFrame = !/[?\u061f]$/u.test(input.trim())
-            && interpretation.intent === 'commitment_query';
-        if (declarativeCommitmentFrame) {
-            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
-            const candidate = await objectiveInterpreter.interpret(input, {
-                actorUserId: context.actorUserId,
-                conversationId: context.conversationId,
-            });
-            const creationObjective = candidate.objectiveType === 'create_personal_commitment'
-                || candidate.objectiveType === 'create_commitment_or_proposal';
-            if (creationObjective && (candidate.targetEntities.entityHints.length > 0
-                || candidate.timeConstraints.rawHint
-                || candidate.sourceUtterance.trim().length > 0)) {
-                return {
-                    route: 'write',
-                    interpretation: {
-                        ...interpretation,
-                        interactionMode: 'task',
-                        isWriteActionRequest: true,
-                    },
-                    objective: candidate,
-                };
-            }
-        }
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, {
             actorUserId: context.actorUserId,
             conversationId: context.conversationId,
         });
         const safeWriteObjective = structuralObjective.objectiveType === 'create_personal_commitment'
-            || (structuralObjective.objectiveType === 'create_commitment_or_proposal'
-                && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
-            || structuralObjective.objectiveType === 'cancel_existing_commitment'
-            || structuralObjective.objectiveType === 'edit_existing_commitment';
+            || structuralObjective.objectiveType === 'cancel_existing_commitment';
         if (safeWriteObjective && structuralObjective.confidence >= 0.7) {
             const structuralInput = await new DeterministicInputInterpreter().interpret(input);
             if (structuralInput.isWriteActionRequest) {
@@ -174,9 +120,6 @@ export async function interpretAgentSemanticTurn(
     const objectiveContext: ObjectiveInterpreterContext = {
         actorUserId: context.actorUserId,
         conversationId: context.conversationId,
-        pendingPlan: context.pendingPlan,
-        activeObjective: context.activeObjective,
-        dialogueReconciliation: context.dialogueReconciliation,
     };
     let objective: AgentObjective;
     try {

@@ -13,6 +13,8 @@ type AuthConfig = {
     initialized: boolean;
     profile: AuthProfile | null;
     profileComplete: boolean | null;
+    passwordRecoveryPending: boolean;
+    clearPasswordRecovery: () => void;
     refreshProfile: () => Promise<AuthProfile | null>;
 };
 
@@ -30,6 +32,8 @@ const AuthContext = createContext<AuthConfig>({
     initialized: false,
     profile: null,
     profileComplete: null,
+    passwordRecoveryPending: false,
+    clearPasswordRecovery: () => undefined,
     refreshProfile: async () => null,
 });
 
@@ -39,6 +43,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [initialized, setInitialized] = useState(false);
     const [profile, setProfile] = useState<AuthProfile | null>(null);
     const [profileComplete, setProfileComplete] = useState<boolean | null>(null);
+    const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
+    const clearPasswordRecovery = useCallback(() => setPasswordRecoveryPending(false), []);
 
     const loadProfile = useCallback(async (userId: string): Promise<AuthProfile | null> => {
         const { data, error } = await supabase
@@ -89,6 +95,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 if (redirect.code) {
                     const { error } = await supabase.auth.exchangeCodeForSession(redirect.code);
                     if (error) throw error;
+                    if (redirect.type === 'recovery') setPasswordRecoveryPending(true);
                     return;
                 }
 
@@ -98,6 +105,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                         refresh_token: redirect.refreshToken,
                     });
                     if (error) throw error;
+                    if (redirect.type === 'recovery') setPasswordRecoveryPending(true);
                 }
             } catch (error: any) {
                 console.warn('[Auth] redirect session failed', {
@@ -171,6 +179,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 clearPrivateFileReadCache();
             }
             activeUserId = nextUserId;
+            if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryPending(true);
             setSession(session);
             setUser(session?.user ?? null);
             if (event === 'SIGNED_OUT') {
@@ -197,7 +206,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }, [loadProfile]);
 
     return (
-        <AuthContext.Provider value={{ session, user, initialized, profile, profileComplete, refreshProfile }}>
+        <AuthContext.Provider value={{
+            session,
+            user,
+            initialized,
+            profile,
+            profileComplete,
+            passwordRecoveryPending,
+            clearPasswordRecovery,
+            refreshProfile,
+        }}>
             {children}
         </AuthContext.Provider>
     );

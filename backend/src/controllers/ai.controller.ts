@@ -9,7 +9,7 @@ import {
 import { analyzeAndSuggestTask } from '../services/message.service';
 import path from 'path';
 import os from 'os';
-import { assertConversationParticipant, getMessageForParticipant } from '../utils/authz';
+import { assertConversationParticipant } from '../utils/authz';
 import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
 
 export const askPing = async (req: Request, res: Response): Promise<void> => {
@@ -196,14 +196,19 @@ export const analyzeMessage = async (req: Request, res: Response, next: NextFunc
     try {
         const userId = req.user!.id;
         const { id } = req.params;
-        const messageId = Array.isArray(id) ? id[0] : id;
 
-        const message = await getMessageForParticipant(userId, messageId);
+        const { data: message, error: msgError } = await supabaseAdmin
+            .from('messages')
+            .select('*')
+            .eq('id', id)
+            .single();
 
-        if (!message) {
+        if (msgError || !message) {
             res.status(404).json({ error: 'Message not found' });
             return;
         }
+
+        await assertConversationParticipant(userId, message.conversation_id);
 
         let processingText = message.content || '';
         let imageUrl: string | undefined;

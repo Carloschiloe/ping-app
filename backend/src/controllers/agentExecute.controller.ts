@@ -28,8 +28,9 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
                     execution: result,
                 });
             } catch (historyError: any) {
-                // Execution is canonical. A projection failure must not hide
-                // the already-completed domain result from the client.
+                // Domain execution already completed. Keep the canonical result
+                // available to the caller while exposing a safe server-side
+                // diagnostic for the auxiliary conversation projection.
                 console.warn('[AgentHistory] execution projection skipped', {
                     code: historyError instanceof AppError ? historyError.statusCode : 'unknown',
                 });

@@ -12,7 +12,6 @@ const uuidParam = z.string().uuid();
 
 const FAILURE_STATUS: Record<string, number> = {
     plan_changed: 409,
-    plan_rejected: 409,
     not_authorized: 403,
     tool_not_executable: 422,
 };

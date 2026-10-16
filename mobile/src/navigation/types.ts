@@ -75,6 +75,7 @@ export type RootStackParamList = {
     Main: undefined;
     Auth: undefined;
     CompleteProfile: undefined;
+    PasswordRecovery: undefined;
     IncomingCall: any;
     Call: {
         conversationId: string;

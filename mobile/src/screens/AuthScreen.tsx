@@ -24,6 +24,7 @@ import {
 import {
     AuthMode,
     getAuthCredentialsValidationError,
+    getAuthEmailValidationError,
     getAuthErrorMessage,
     normalizeAuthEmail,
 } from '../utils/authForm';
@@ -44,6 +45,8 @@ export default function AuthScreen() {
     const [signupSubmitted, setSignupSubmitted] = useState(false);
     const [signupEmail, setSignupEmail] = useState('');
     const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
+    const [forgotPassword, setForgotPassword] = useState(false);
+    const [passwordResetSent, setPasswordResetSent] = useState(false);
     const requestGate = useRef(createRequestGate());
 
     useEffect(() => {
@@ -57,7 +60,25 @@ export default function AuthScreen() {
     const changeMode = (nextMode: AuthMode) => {
         if (loading || nextMode === mode) return;
         setMode(nextMode);
+        setForgotPassword(false);
+        setPasswordResetSent(false);
         setSignupSubmitted(false);
+        setFormMessage(null);
+        setPassword('');
+    };
+
+    const openForgotPassword = () => {
+        if (loading) return;
+        setForgotPassword(true);
+        setPasswordResetSent(false);
+        setFormMessage(null);
+        setPassword('');
+    };
+
+    const closeForgotPassword = () => {
+        if (loading) return;
+        setForgotPassword(false);
+        setPasswordResetSent(false);
         setFormMessage(null);
         setPassword('');
     };
@@ -124,6 +145,38 @@ export default function AuthScreen() {
         }
     }
 
+    async function handlePasswordResetRequest() {
+        if (!requestGate.current.tryStart()) return;
+
+        setFormMessage(null);
+        setLoading(true);
+        try {
+            const validationError = getAuthEmailValidationError(email);
+            if (validationError) {
+                setFormMessage({ tone: 'error', text: validationError });
+                return;
+            }
+
+            const { error } = await supabase.auth.resetPasswordForEmail(normalizeAuthEmail(email), {
+                redirectTo: authCallbackUrl,
+            });
+            if (error) {
+                console.warn('[Auth] password reset request failed', getSafeAuthErrorDetails(error));
+                setFormMessage({ tone: 'error', text: getAuthErrorMessage(error, 'recovery') });
+                return;
+            }
+
+            setPasswordResetSent(true);
+            setFormMessage({
+                tone: 'success',
+                text: 'Si el correo está registrado, recibirás un enlace para recuperar tu contraseña. Revisa también spam.',
+            });
+        } finally {
+            requestGate.current.finish();
+            setLoading(false);
+        }
+    }
+
     async function handleResendVerification() {
         if (!signupSubmitted || signupCooldown > 0) return;
         if (!requestGate.current.tryStart()) return;
@@ -175,10 +228,12 @@ export default function AuthScreen() {
         <AuthScaffold buildLabel={buildLabel}>
             <View style={styles.intro}>
                 <Text style={styles.title}>
-                    {mode === 'login' ? 'Qué bueno verte' : 'Bienvenido'}
+                    {forgotPassword ? 'Recupera tu acceso' : mode === 'login' ? 'Qué bueno verte' : 'Bienvenido'}
                 </Text>
                 <Text style={styles.description}>
-                    {mode === 'login'
+                    {forgotPassword
+                        ? 'Te enviaremos un enlace seguro al correo registrado en Ping.'
+                        : mode === 'login'
                         ? 'Retoma tus conversaciones y asuntos importantes.'
                         : 'Organiza tus conversaciones y compromisos en un solo lugar.'}
                 </Text>
@@ -190,9 +245,22 @@ export default function AuthScreen() {
             </View>
 
             <AuthCard>
-                <AuthSegmentedControl value={mode} onChange={changeMode} disabled={loading} />
+                {forgotPassword ? (
+                    <PasswordResetRequest
+                        email={email}
+                        loading={loading}
+                        sent={passwordResetSent}
+                        message={formMessage}
+                        onEmailChange={(value) => {
+                            setEmail(value);
+                            if (formMessage?.tone === 'error') setFormMessage(null);
+                        }}
+                        onSubmit={handlePasswordResetRequest}
+                        onBack={closeForgotPassword}
+                    />
+                ) : <AuthSegmentedControl value={mode} onChange={changeMode} disabled={loading} />}
 
-                {mode === 'signup' && signupSubmitted ? (
+                {!forgotPassword && mode === 'signup' && signupSubmitted ? (
                     <VerificationState
                         email={signupEmail}
                         cooldown={signupCooldown}
@@ -209,7 +277,7 @@ export default function AuthScreen() {
                         }}
                         onResend={handleResendVerification}
                     />
-                ) : (
+                ) : !forgotPassword ? (
                     <>
                         <AuthField
                             icon="mail-outline"
@@ -268,6 +336,17 @@ export default function AuthScreen() {
                             disabled={buttonDisabled}
                         />
 
+                        {mode === 'login' && (
+                            <Pressable
+                                accessibilityRole="button"
+                                disabled={loading}
+                                onPress={openForgotPassword}
+                                style={({ pressed }) => [styles.forgotLink, pressed && styles.pressed]}
+                            >
+                                <Text style={styles.forgotLinkText}>¿Olvidaste tu contraseña?</Text>
+                            </Pressable>
+                        )}
+
                         <Pressable
                             accessibilityRole="button"
                             disabled={loading}
@@ -282,7 +361,7 @@ export default function AuthScreen() {
                             </Text>
                         </Pressable>
                     </>
-                )}
+                ) : null}
 
                 <PrivacyNote />
             </AuthCard>
@@ -302,6 +381,69 @@ function ValuePill({
             <Ionicons name={icon} size={15} color={authColors.primary} />
             <Text style={styles.valueLabel}>{label}</Text>
         </View>
+    );
+}
+
+function PasswordResetRequest({
+    email,
+    loading,
+    sent,
+    message,
+    onEmailChange,
+    onSubmit,
+    onBack,
+}: {
+    email: string;
+    loading: boolean;
+    sent: boolean;
+    message: FormMessage | null;
+    onEmailChange: (value: string) => void;
+    onSubmit: () => void;
+    onBack: () => void;
+}) {
+    return (
+        <>
+            <View style={styles.recoveryIntro}>
+                <View style={styles.recoveryIcon}>
+                    <Ionicons name="mail-unread-outline" size={28} color={authColors.primary} />
+                </View>
+                <Text style={styles.recoveryTitle}>Recuperar contraseña</Text>
+                <Text style={styles.recoveryText}>
+                    Escribe el correo con el que te registraste y te enviaremos las instrucciones.
+                </Text>
+            </View>
+            <AuthField
+                icon="mail-outline"
+                placeholder="Correo electrónico"
+                value={email}
+                onChangeText={onEmailChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                textContentType="emailAddress"
+                keyboardType="email-address"
+                returnKeyType="done"
+                onSubmitEditing={onSubmit}
+                editable={!loading}
+                accessibilityLabel="Correo para recuperar contraseña"
+            />
+            {!!message && <AuthMessage tone={message.tone}>{message.text}</AuthMessage>}
+            <AuthPrimaryButton
+                label={sent ? 'Reenviar enlace' : 'Enviar enlace de recuperación'}
+                icon="mail-outline"
+                onPress={onSubmit}
+                loading={loading}
+                disabled={loading}
+            />
+            <Pressable
+                accessibilityRole="button"
+                disabled={loading}
+                onPress={onBack}
+                style={({ pressed }) => [styles.recoveryBack, pressed && styles.pressed]}
+            >
+                <Text style={styles.recoveryBackText}>Volver a iniciar sesión</Text>
+            </Pressable>
+        </>
     );
 }
 
@@ -405,6 +547,22 @@ const styles = StyleSheet.create({
     switchLink: { alignItems: 'center', paddingVertical: 16, marginBottom: -5 },
     switchText: { color: authColors.inkSoft, fontSize: 14 },
     switchTextStrong: { color: authColors.primary, fontWeight: '800' },
+    forgotLink: { alignItems: 'center', paddingVertical: 10 },
+    forgotLinkText: { color: authColors.primary, fontSize: 13, fontWeight: '800' },
+    recoveryIntro: { alignItems: 'center', marginBottom: 16, paddingHorizontal: 8 },
+    recoveryIcon: {
+        alignItems: 'center',
+        backgroundColor: '#edf0ff',
+        borderRadius: 29,
+        height: 58,
+        justifyContent: 'center',
+        marginBottom: 10,
+        width: 58,
+    },
+    recoveryTitle: { color: authColors.ink, fontSize: 23, fontWeight: '900' },
+    recoveryText: { color: authColors.inkSoft, fontSize: 14, lineHeight: 20, marginTop: 6, textAlign: 'center' },
+    recoveryBack: { alignItems: 'center', paddingVertical: 14 },
+    recoveryBackText: { color: authColors.primary, fontSize: 13, fontWeight: '800' },
     verification: { alignItems: 'center', marginBottom: 14 },
     verificationIcon: {
         width: 58,

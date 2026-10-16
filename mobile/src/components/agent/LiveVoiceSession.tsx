@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as Localization from 'expo-localization';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import { createEphemeralUuid } from '../../utils/voiceSession';
@@ -10,7 +9,6 @@ import { createEphemeralUuid } from '../../utils/voiceSession';
 interface LiveVoiceSessionProps {
     visible: boolean;
     conversationId?: string;
-    currentCommitmentId?: string;
     onClose: () => void;
 }
 
@@ -20,7 +18,6 @@ type LiveConfig = {
     protocolVersion: number;
     handshakeId: string;
     conversationId?: string;
-    currentCommitmentId?: string;
     voiceSessionId: string;
     deviceSessionId: string;
     locale: string;
@@ -32,17 +29,12 @@ function voiceLocale(): string {
         const locale = Localization.getLocales?.()[0];
         const candidate = locale?.languageTag
             || (locale?.languageCode ? (locale.regionCode ? `${locale.languageCode}-${locale.regionCode}` : locale.languageCode) : null);
-        // Ping's current voice experience is Spanish-first. Do not let an
-        // English device locale make the realtime agent answer half in
-        // English; a future language selector can make this explicit.
         if (candidate && /^es(?:-|$)/i.test(candidate)) return candidate;
     } catch { /* fallback below */ }
     return 'es-CL';
 }
 
-const LIVE_VOICE_KEEP_AWAKE_TAG = 'ping-live-voice';
-
-export function LiveVoiceSession({ visible, conversationId, currentCommitmentId, onClose }: LiveVoiceSessionProps) {
+export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [sessionKey, setSessionKey] = useState(0);
@@ -54,23 +46,11 @@ export function LiveVoiceSession({ visible, conversationId, currentCommitmentId,
         protocolVersion: 1,
         handshakeId: createEphemeralUuid(),
         conversationId,
-        currentCommitmentId,
         voiceSessionId: createEphemeralUuid(),
         deviceSessionId: createEphemeralUuid(),
         locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
-    } : null, [authorization, conversationId, currentCommitmentId]);
-
-    useEffect(() => {
-        if (visible) {
-            void activateKeepAwakeAsync(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
-        } else {
-            void deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
-        }
-        return () => {
-            void deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG).catch(() => undefined);
-        };
-    }, [visible]);
+    } : null, [authorization, conversationId]);
 
     useEffect(() => {
         if (!visible) return;
@@ -82,7 +62,9 @@ export function LiveVoiceSession({ visible, conversationId, currentCommitmentId,
         return () => { active = false; setAuthorization(null); };
     }, [visible]);
 
-    const injected = config ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()` : '';
+    const injected = config
+        ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
+        : '';
     const injectConfig = () => {
         if (injected) webViewRef.current?.injectJavaScript(injected);
     };
@@ -116,28 +98,36 @@ export function LiveVoiceSession({ visible, conversationId, currentCommitmentId,
             if (message.type === 'config_requested' || message.type === 'webview_ready') injectConfig();
             if (message.type === 'retry') retry();
             if (message.type === 'error') setError('No se pudo iniciar la conversación de voz.');
-        } catch { /* WebView telemetry is already sent to staging. */ }
+        } catch { /* WebView telemetry is handled by the voice client. */ }
     };
 
     return <Modal visible={visible} animationType="slide" onRequestClose={requestClose}>
         <View style={styles.container}>
-            <View style={styles.topbar}><Text style={styles.title}>Ping Voz</Text><TouchableOpacity onPress={requestClose}><Text style={styles.close}>Cerrar</Text></TouchableOpacity></View>
-            {visible && (error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={retry}><Text style={styles.retry}>Reintentar</Text></TouchableOpacity></View>
-                : config ? <WebView
-                    key={sessionKey}
-                    ref={webViewRef}
-                    source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }}
-                    injectedJavaScriptBeforeContentLoaded={injected}
-                    onLoadEnd={injectConfig}
-                    onMessage={handleMessage}
-                    onError={() => setError('No se pudo cargar la interfaz de voz.')}
-                    onHttpError={() => setError('El servidor de voz no está disponible.')}
-                    javaScriptEnabled
-                    mediaPlaybackRequiresUserAction={false}
-                    allowsInlineMediaPlayback
-                    originWhitelist={['https://*']}
-                />
-                : <ActivityIndicator style={styles.loading} />)}
+            <View style={styles.topbar}>
+                <Text style={styles.title}>Ping Voz</Text>
+                <TouchableOpacity onPress={requestClose} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
+                    <Text style={styles.close}>Cerrar</Text>
+                </TouchableOpacity>
+            </View>
+            {visible && (error ? <View style={styles.error}>
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity onPress={retry} accessibilityRole="button" accessibilityLabel="Reintentar Ping Voz">
+                    <Text style={styles.retry}>Reintentar</Text>
+                </TouchableOpacity>
+            </View> : config ? <WebView
+                key={sessionKey}
+                ref={webViewRef}
+                source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }}
+                injectedJavaScriptBeforeContentLoaded={injected}
+                onLoadEnd={injectConfig}
+                onMessage={handleMessage}
+                onError={() => setError('No se pudo cargar la interfaz de voz.')}
+                onHttpError={() => setError('El servidor de voz no está disponible.')}
+                javaScriptEnabled
+                mediaPlaybackRequiresUserAction={false}
+                allowsInlineMediaPlayback
+                originWhitelist={['https://*']}
+            /> : <ActivityIndicator style={styles.loading} />)}
         </View>
     </Modal>;
 }

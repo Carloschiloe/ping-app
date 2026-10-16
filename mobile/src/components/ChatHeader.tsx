@@ -16,6 +16,7 @@ interface ChatHeaderProps {
     isSelf?: boolean;
     onVoiceCall: () => void;
     onVideoCall: () => void;
+    onPing: () => void;
     onInfo: () => void;
     onMenu: () => void;
     onAvatarPress?: (url: string) => void;
@@ -29,6 +30,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     isSelf = false,
     onVoiceCall,
     onVideoCall,
+    onPing,
     onInfo,
     onMenu,
     onAvatarPress,
@@ -70,6 +72,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </View>
 
             <View style={styles.actionsSection}>
+                <TouchableOpacity
+                    onPress={onPing}
+                    style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Hablar con Ping en esta conversación"
+                >
+                    <Ionicons name="sparkles" size={20} color={theme.colors.white} />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={onMenu} style={[styles.iconBtn, styles.menuBtn]}>
                     <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.white} />
                 </TouchableOpacity>

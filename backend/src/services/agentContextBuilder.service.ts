@@ -35,9 +35,6 @@ import {
     CLOSED_LIFECYCLE_HISTORICAL_VERBS_ES,
     isHistoricalLifecycleQuery,
     isDeclarativeLifecycleMention,
-    isUpcomingTimeExpression,
-    inferTemporalIntent,
-    inferPriorReferenceIntent,
     isTemporalComparisonQuery,
     extractTemporalComparison,
     extractUrgencyComparison,
@@ -53,13 +50,10 @@ import type {
     ProposalFocus,
     QueryCardinality,
     RetrievalPlanStep,
-    TemporalIntent,
-    PriorReferenceIntent,
 } from '../types/agentContext';
 import type { AgentObjective } from '../types/agentPlan';
 import type { PersonResolutionResult, RetrievalCommitment, RetrievalProvenance, RetrievalTimeRange } from '../types/retrieval';
 import type { AgentReadContext } from '../types/agentDialogueState';
-import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 // [PING_PROPOSAL_TRACE] TEMPORARY (ticket "M-1H: DETERMINISTIC QUERY
@@ -92,8 +86,6 @@ function addDays(date: Date, days: number): Date {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-const UPCOMING_DAYS_HORIZON = 7;
-
 function endOfDayInZone(date: Date, timeZone: string): Date {
     return addDays(startOfDayInZone(date, timeZone), 1);
 }
@@ -109,59 +101,6 @@ function normalizeSignalText(value: string): string {
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase()
         .trim();
-}
-
-// A spoken qualifier such as "la de Juan" is not a new person scope when it
-// can identify exactly one item from the immediately preceding read. Match
-// only meaningful word overlap and require a unique winner; ties remain a
-// clarification so the Core never guesses between two commitments.
-const PRIOR_ENTITY_QUALIFIER = /\b(?:el|la|ese|esa|este|esta)\s+(?:de|del|con|para)\s+[\p{L}\p{N}]/iu;
-const PRIOR_ORDINAL_REFERENCE = /\b(?:el|la|ese|esa)?\s*(prim(?:ero|era)|segund[oa]|tercer[oa]|cuart[oa]|últim[oa]|ultim[oa]|first|second|third|last)\b/iu;
-const PRIOR_ENTITY_QUALIFIER_STOPWORDS = new Set([
-    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'ese', 'esa', 'esos', 'esas', 'este', 'esta',
-    'estos', 'estas', 'de', 'del', 'con', 'para', 'por', 'que', 'compromiso', 'compromisos', 'reunion', 'reunión',
-]);
-
-function meaningfulReferenceTokens(value: string): string[] {
-    return Array.from(new Set(
-        normalizeSignalText(value)
-            .replace(/[^\p{L}\p{N}]+/gu, ' ')
-            .split(/\s+/)
-            .filter((token) => token.length >= 2 && !PRIOR_ENTITY_QUALIFIER_STOPWORDS.has(token)),
-    ));
-}
-
-function resolvePriorQualifiedReferent(
-    input: string,
-    referents: NonNullable<AgentReadContext['commitmentReferents']>,
-): NonNullable<AgentReadContext['commitmentReferents']>[number] | null {
-    if (referents.length < 2 || !PRIOR_ENTITY_QUALIFIER.test(input)) return null;
-    const queryTokens = new Set(meaningfulReferenceTokens(input));
-    if (queryTokens.size === 0) return null;
-    const scored = referents.map((referent) => {
-        const score = meaningfulReferenceTokens(referent.rawText).filter((token) => queryTokens.has(token)).length;
-        return { referent, score };
-    }).filter((candidate) => candidate.score > 0);
-    if (scored.length === 0) return null;
-    const highest = Math.max(...scored.map((candidate) => candidate.score));
-    const winners = scored.filter((candidate) => candidate.score === highest);
-    return winners.length === 1 ? winners[0].referent : null;
-}
-
-function resolvePriorOrdinalReferent(
-    input: string,
-    referents: NonNullable<AgentReadContext['commitmentReferents']>,
-): NonNullable<AgentReadContext['commitmentReferents']>[number] | null {
-    if (referents.length < 2) return null;
-    const match = input.match(PRIOR_ORDINAL_REFERENCE);
-    if (!match) return null;
-    const ordinal = normalizeSignalText(match[1]);
-    const index = ordinal.startsWith('prim') || ordinal === 'first' ? 0
-        : ordinal.startsWith('segund') || ordinal === 'second' ? 1
-            : ordinal.startsWith('tercer') || ordinal === 'third' ? 2
-                : ordinal.startsWith('cuart') ? 3
-                    : referents.length - 1;
-    return referents[index] ?? null;
 }
 
 function isTemporalExpressionGroundedInInput(expression: string | null, input: string): boolean {
@@ -190,44 +129,11 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
     return new Date(monthStartUtcMs - offsetMs);
 }
 
-function localWeekdayIndex(date: Date, timeZone: string): number {
-    const startToday = startOfDayInZone(date, timeZone);
-    const offsetMs = timeZoneOffsetMs(startToday, timeZone);
-    return new Date(startToday.getTime() + offsetMs).getUTCDay();
-}
-
 // Resuelve una expresión temporal cruda (detectada por el intérprete) a un
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
-export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: TemporalIntent | null): RetrievalTimeRange | null {
-    if (temporalIntent) {
-        if (temporalIntent.kind === 'calendar_day') {
-            const target = addDays(now, temporalIntent.offsetDays);
-            return temporalIntent.futureOnly
-                ? { from: now.toISOString(), to: endOfDayInZone(target, timezone).toISOString() }
-                : { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
-        }
-        if (temporalIntent.kind === 'calendar_week') {
-            const start = addDays(startOfWeekInZone(now, timezone), temporalIntent.offsetWeeks * 7);
-            const end = endOfDayInZone(addDays(start, 6), timezone);
-            return temporalIntent.futureOnly && temporalIntent.offsetWeeks === 0
-                ? { from: now.toISOString(), to: end.toISOString() }
-                : { from: start.toISOString(), to: end.toISOString() };
-        }
-        if (temporalIntent.kind === 'weekday') {
-            const currentDay = localWeekdayIndex(now, timezone);
-            let daysAhead = (temporalIntent.weekday - currentDay + 7) % 7;
-            if (temporalIntent.nextOccurrence && daysAhead === 0) daysAhead = 7;
-            const target = addDays(startOfDayInZone(now, timezone), daysAhead);
-            return { from: target.toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
-        }
-        const daysAhead = temporalIntent.daysAhead ?? 7;
-        return {
-            from: now.toISOString(),
-            to: endOfDayInZone(addDays(now, daysAhead), timezone).toISOString(),
-        };
-    }
+export function resolveTimeExpression(expression: string | null, now: Date, timezone: string): RetrievalTimeRange | null {
     if (!expression) return null;
     const expr = expression.toLowerCase();
 
@@ -238,15 +144,11 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const yesterday = addDays(now, -1);
         return { from: startOfDayInZone(yesterday, timezone).toISOString(), to: endOfDayInZone(yesterday, timezone).toISOString() };
     }
-    if (/pasad[oa]\s+(?:mañana|manana)|day after tomorrow/.test(expr)) {
-        const dayAfterTomorrow = addDays(now, 2);
-        return { from: startOfDayInZone(dayAfterTomorrow, timezone).toISOString(), to: endOfDayInZone(dayAfterTomorrow, timezone).toISOString() };
-    }
-    if (/mañana|manana|tomorrow/.test(expr)) {
+    if (/mañana|tomorrow/.test(expr)) {
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
     }
-    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d(?:ías?|ias?)\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
+    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d[ií]as?\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
     if (upcomingDaysMatch) {
         // "los próximos días" is intentionally bounded: seven calendar days
         // starting today, or the explicit count when the user gives one. This
@@ -255,14 +157,6 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const spanDays = Math.min(Math.max(Number(upcomingDaysMatch[1] || upcomingDaysMatch[2] || 7), 1), 30);
         const from = startOfDayInZone(now, timezone);
         return { from: from.toISOString(), to: addDays(from, spanDays).toISOString() };
-    }
-    if (isUpcomingTimeExpression(expression)) {
-        // "Próximos días" is a future-only horizon: start at this instant
-        // (so an item due earlier today is not presented as upcoming) and end
-        // at the end of the seventh local calendar day. The same range is
-        // passed to every temporal retrieval source.
-        const horizonEnd = endOfDayInZone(addDays(now, UPCOMING_DAYS_HORIZON), timezone);
-        return { from: now.toISOString(), to: horizonEnd.toISOString() };
     }
     if (/semana pasada|last week/.test(expr)) {
         const startThisWeek = startOfWeekInZone(now, timezone);
@@ -637,19 +531,34 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
         ? rawTimeExpression
         : null;
-    const rawTemporalClaimPresent = rawTimeExpression !== null || rawInterpretation.temporalIntent != null;
-    const ungroundedRawTemporalClaim = rawTemporalClaimPresent
-        && deterministicSignals.temporalIntent === null
-        && groundedRawTimeExpression === null;
     const normalizedTimeExpression = deterministicSignals.timeExpression ?? groundedRawTimeExpression;
-    // LLM suggestions do not grant identity or authorization. They can,
-    // however, preserve the complete human-readable mention that the model
-    // extracted from a write request (for example a multi-token name that a
-    // capitalization heuristic truncated). Core still grounds the mention in
-    // the raw utterance and resolves it through the actor-scoped resolver
-    // before it can affect planning. Read-only topical mentions remain
-    // deterministic-only here, preventing a model from turning an entity
-    // title into a person scope.
+    const ungroundedRawTemporalClaim = rawTimeExpression !== null
+        && deterministicSignals.timeExpression === null
+        && groundedRawTimeExpression === null;
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE (root architectural fix,
+    // replaces the two prior patch attempts at this exact spot — M-1H's
+    // isPersonHintGroundedInInput and M-2's isPersonHintTopicalNotPersonal).
+    // Both of those still funneled the LLM's personHints (filtered, but
+    // still LLM-sourced) into the SAME array that drives resolvePerson,
+    // personAttributionUnresolved and personScopeBlocked below — a heuristic
+    // stacked on a heuristic, never a real authority boundary. Real
+    // architecture: "LLM SUGGESTS, PING CORE DECIDES" (sección 0/3) means
+    // the LLM's personHints output must have ZERO authority to establish
+    // BLOCKING person scope, full stop — no filter, threshold, or repeated
+    // sampling makes an advisory signal authoritative. `advisoryPersonHints`
+    // (kept for diagnostics/trace only, NEVER passed to resolvePerson) is
+    // whatever the primary interpreter (LLM or deterministic fallback)
+    // suggested. `canonicalPersonScope` (defined further below, right before
+    // the resolution loop) is the ONLY thing allowed to call resolvePerson
+    // or set personAttributionUnresolved/personScopeBlocked — it is built
+    // exclusively from (A) the deterministic interpreter's own structural
+    // cue extraction (con X/a X/X dijo/falta que acepte X/etc. — a REAL Core
+    // signal, not a filtered LLM one) and (B) an already-authorized explicit
+    // referent supplied by the caller in the input envelope
+    // (`input.authorizedPersonReferentId`), never derived from parsed text.
+    // This is not "trust the LLM unless X" with more X — it's "the LLM
+    // literally cannot reach resolvePerson", so correctness never depends on
+    // how the model samples.
     const advisoryPersonHints = rawInterpretation.personHints.filter((hint) => isPersonHintGroundedInInput(hint, input.input));
     // Sección 3: cuando el determinístico detecta proposalFocus (waiting_for_
     // others/needs_my_response/pending_response_from_person), el LLM no
@@ -697,39 +606,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
-    const deterministicFollowUpAttribute = deterministicSignals.followUpAttribute ?? null;
-    const temporalIntent = deterministicSignals.temporalIntent
-        ?? (ungroundedRawTemporalClaim ? null : rawInterpretation.temporalIntent)
-        ?? inferTemporalIntent(input.input);
-    // A model may use the prior-read summary to understand an elliptical
-    // follow-up, but it must not make a new explicit topic inherit the old
-    // entity. Core-owned surface evidence wins this boundary: a substantive
-    // topic/person in the current utterance is a new scope, while an
-    // otherwise topic-free utterance may refer back to the prior result.
-    const currentTurnIntroducesScope = rawInterpretation.textQuery !== null
-        || rawInterpretation.topicHints.length > 0
-        || deterministicSignals.personHints.length > 0;
-    const priorCommitmentReferents = input.priorReadContext?.commitmentReferents ?? [];
-    const priorQualifiedReferent = resolvePriorQualifiedReferent(input.input, priorCommitmentReferents)
-        ?? resolvePriorOrdinalReferent(input.input, priorCommitmentReferents);
-    const priorQualifierPresent = PRIOR_ENTITY_QUALIFIER.test(input.input) || PRIOR_ORDINAL_REFERENCE.test(input.input);
-    const priorReferenceIntent: PriorReferenceIntent | null = deterministicSignals.priorReferenceIntent
-        ?? (priorQualifiedReferent ? 'single_entity'
-            : priorQualifierPresent && priorCommitmentReferents.length === 1 ? 'single_entity'
-            : priorQualifierPresent ? 'result_set'
-            : currentTurnIntroducesScope ? null
-            : deterministicFollowUpAttribute != null || rawInterpretation.followUpAttribute != null
-                ? 'single_entity'
-                : rawInterpretation.priorReferenceIntent ?? inferPriorReferenceIntent(input.input));
-    const priorSingleReferent = priorQualifiedReferent
-        ?? (priorReferenceIntent === 'single_entity' && priorCommitmentReferents.length === 1
-            ? priorCommitmentReferents[0]
-            : null);
-    const priorCanonicalCommitmentId = priorSingleReferent?.entityType === 'commitment'
-        ? priorSingleReferent.canonicalId
-        : undefined;
-    const priorProposalReferent = priorSingleReferent?.entityType === 'commitment_proposal';
-    const priorReferenceAmbiguous = priorReferenceIntent !== null && !priorQualifiedReferent && priorCommitmentReferents.length !== 1;
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
@@ -739,16 +615,17 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // this turn into the commitment domain even when its wording is not
         // present in the deterministic multilingual fast-path.
         || temporalComparison !== null
-        || urgencyComparison !== null
-        || temporalIntent !== null
-        || priorSingleReferent !== null;
-    // A neutral temporal collection such as "¿Qué compromisos tengo para
-    // hoy?" must not inherit an open-status filter invented by the advisory
-    // LLM. The date range is the user's complete query; Core keeps every
-    // commitment in that range so the answer can faithfully report overdue,
-    // open, completed, or cancelled items as applicable.
+        || urgencyComparison !== null;
+    // PING — NEUTRAL TEMPORAL COLLECTION (root fix): a request such as
+    // "¿Qué compromisos tengo para hoy?" asks for the complete collection
+    // in a time window. It does not ask for open/pending/closed items.
+    // The LLM's statusHints are advisory and, in this exact semantic shape,
+    // must not narrow the canonical SQL read when the deterministic Core has
+    // found no status signal. Otherwise a provider wobble can turn a neutral
+    // date query into an open-only query and produce a false no_evidence
+    // response even though today's commitment exists.
     const neutralTemporalCollection = deterministicSignals.intent === 'commitment_query'
-        && (normalizedTimeExpression !== null || temporalIntent !== null)
+        && normalizedTimeExpression !== null
         && deterministicSignals.statusHints === null
         && !deterministicSignals.wantsOverdueFocus;
     const normalizedIntent = commitmentSignalConfident || !ungroundedRawTemporalClaim
@@ -756,22 +633,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         : 'general_context';
     const normalizedWantsOverdueFocus = deterministicSignals.wantsOverdueFocus
         || (!ungroundedRawTemporalClaim && rawInterpretation.wantsOverdueFocus && hasExplicitOverdueCue(input.input));
-    // Core owns the boundary between social conversation and a domain task.
-    // A provider may label a temporal question as `conversation`, but a
-    // request such as "¿qué tengo para mañana?" still requires retrieval and
-    // a domain answer. Keep genuinely social turns conversational while
-    // forcing task mode whenever the input carries a verifiable read/write
-    // signal that must reach the corresponding pipeline.
-    const coreTaskSignal = normalizedIntent === 'commitment_query'
-        || normalizedTimeExpression !== null
-        || temporalIntent !== null
-        || normalizedWantsOverdueFocus
-        || temporalComparison !== null
-        || urgencyComparison !== null
-        || deterministicSignals.proposalFocus !== null
-        || rawInterpretation.isWriteActionRequest === true
-        || deterministicSignals.requestedTransition !== null;
-    const normalizedInteractionMode = coreTaskSignal ? 'task' : rawInterpretation.interactionMode;
     const interpretation: Interpretation = {
         ...rawInterpretation,
         // ADVISORY ONLY from this point on — see canonicalPersonScope below
@@ -783,7 +644,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         timeExpression: normalizedTimeExpression,
-        temporalIntent,
         intent: normalizedIntent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
@@ -794,10 +654,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // sugerido por el LLM para un dominio que el Core ya resolvió.
         textQuery: ungroundedRawTemporalClaim
             ? null
-            : priorSingleReferent?.rawText
-                ?? (commitmentSignalConfident ? deterministicSignals.textQuery : rawInterpretation.textQuery),
-        priorReferenceIntent,
-        followUpAttribute: deterministicFollowUpAttribute ?? rawInterpretation.followUpAttribute ?? null,
+            : commitmentSignalConfident
+                ? deterministicSignals.textQuery
+                : rawInterpretation.textQuery,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
         // existe; el enum acotado del intérprete LLM cubre formulaciones y
@@ -887,21 +746,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
     });
-    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone, interpretation.temporalIntent);
+    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
         ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
             ? input.priorReadContext.timeRange
             : null);
-    // A future-only horizon means the user is asking for confirmed upcoming
-    // obligations, not the separate proposal/approval lifecycle. Keep the
-    // proposal path available for explicit approval questions.
-    const upcomingOnlyCommitmentRead = (interpretation.temporalIntent?.futureOnly === true || isUpcomingTimeExpression(interpretation.timeExpression))
-        && interpretation.proposalFocus === null;
-    const commitmentStatuses: CanonicalCommitmentStatus[] | null = priorSingleReferent
-        ? (input.priorReadContext?.statuses ?? null)
-        : upcomingOnlyCommitmentRead
-            ? ['accepted']
-            : interpretation.statusHints;
 
     // [PING_PROPOSAL_TRACE] TEMPORARY — captura RAW vs NORMALIZED para poder
     // comparar dos ejecuciones idénticas del mismo input (sección 2 del
@@ -945,7 +794,27 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const sourceCounts: Record<string, number> = {};
 
     // ─── Entity resolution (sección 11) — nunca se elige arbitrariamente. ────
-    const isWritePlanning = options.objective !== undefined && options.objective !== null;
+    // PING — REMOVE LLM AUTHORITY FROM PERSON SCOPE: canonicalPersonScope is
+    // the ONLY input this loop (and everything that blocks on it below —
+    // personAttributionUnresolved, personScopeBlocked, person_ambiguous)
+    // ever consumes. Built from exactly two sources, both Core-owned:
+    //   A) deterministicSignals.personHints — the deterministic
+    //      interpreter's OWN structural cue extraction (con X/a X/X dijo/
+    //      falta que acepte X/etc.), run unconditionally above regardless of
+    //      which interpreter is primary. This is real evidence the input
+    //      text itself contains a person-introducing construction — never a
+    //      filtered/derived version of what the LLM said.
+    //   B) input.authorizedPersonReferentId — an id the CALLER already
+    //      authorized before this input reached any interpreter (see its
+    //      doc comment in types/agentContext.ts). Never derived from parsed
+    //      text, never from personHints of any kind.
+    // rawInterpretation.personHints / advisoryPersonHints (LLM-sourced, only
+    // grounding-checked) are used NOWHERE in this loop or its guards — the
+    // fix is structural non-participation, not a filter that could
+    // theoretically be bypassed by a different LLM phrasing.
+    const creationObjective = options.objective
+        && (options.objective.objectiveType === 'create_personal_commitment'
+            || options.objective.objectiveType === 'create_commitment_or_proposal');
     // A creation objective is routed to the planner immediately after this
     // context pass. Its title/content may mention a person, company or place,
     // but that mention is not read-side identity scope. The planner remains
@@ -953,38 +822,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // objective's semantic ownership is third_party. This prevents a
     // personal action such as "llamar a ..." from being rejected by the
     // unrelated read pipeline before the plan is built.
-    const writeKeepsIdentityScope = isWritePlanning
-        && options.objective?.constraints.commitmentOwnership === 'third_party';
-    const objectiveResponsibleHint = writeKeepsIdentityScope
-        && typeof options.objective?.constraints.responsibleHint === 'string'
-        && options.objective.constraints.responsibleHint.trim().length > 0
-        ? [options.objective.constraints.responsibleHint.trim()]
-        : [];
-    const semanticActionPersonHints = rawInterpretation.isWriteActionRequest === true
-        ? advisoryPersonHints
-        : [];
-    const canonicalPersonScope: string[] = priorQualifiedReferent ? [] : Array.from(new Set([
-        ...(!isWritePlanning || writeKeepsIdentityScope ? deterministicSignals.personHints : []),
-        ...(!isWritePlanning || writeKeepsIdentityScope ? semanticActionPersonHints : []),
-        ...objectiveResponsibleHint,
-    ]));
+    const canonicalPersonScope: string[] = creationObjective
+        ? []
+        : [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
-    let needsClarification = isWritePlanning ? false : priorReferenceAmbiguous;
-    // A prior read with several real referents is a known ambiguity, not an
-    // underspecified topic. Keep the safe behavior (never choose silently),
-    // but expose the authorized referent labels so the user can answer with
-    // natural language such as "el del jueves" or "la de Juan" instead of
-    // being sent back to a generic "dame más detalles" question.
-    const priorEntityCandidates = priorReferenceAmbiguous
-        ? priorCommitmentReferents
-            .filter((referent) => Boolean(referent.canonicalId) && referent.rawText.trim().length > 0)
-            .map((referent) => ({ id: referent.canonicalId!, label: referent.rawText.trim() }))
-        : [];
-    let clarification: AgentClarification | undefined = !isWritePlanning && priorReferenceAmbiguous
-        ? priorEntityCandidates.length > 0
-            ? { reason: 'entity_ambiguous', entityCandidates: priorEntityCandidates }
-            : { reason: 'topic_too_broad' }
-        : undefined;
+    let needsClarification = false;
+    let clarification: AgentClarification | undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
@@ -1053,18 +896,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
         needsClarification = true;
-        clarification = {
-            // A write-shaped turn has an explicit action boundary: if its
-            // named target does not resolve, tell the user that the named
-            // person was not found. Read-side unresolved references retain
-            // the historical person_ambiguous contract, which also covers
-            // pronouns and keeps existing ambiguity handling intact.
-            reason: rawInterpretation.isWriteActionRequest === true ? 'person_not_found' : 'person_ambiguous',
-            candidates: [],
-            ...(rawInterpretation.isWriteActionRequest === true
-                ? { requestedNames: canonicalPersonScope.slice(0, 5) }
-                : {}),
-        };
+        clarification = { reason: 'person_ambiguous', candidates: [] };
     }
 
     // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,
@@ -1104,7 +936,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // produces the same routing, independent of whether/how the LLM phrased
     // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
-    if (!isWritePlanning && !needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
+    if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
         clarification = { reason: 'person_ambiguous', candidates: [] };
     }
@@ -1122,7 +954,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // on) — an LLM-only hint can never block a source it has no authority
     // over.
     const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
-    const readReferenceScopeBlocked = priorReferenceAmbiguous;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
     // Mismo guard que commitments/messages: un personHint explícito que no
@@ -1152,14 +983,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !interpretation.proposalFocus && !priorProposalReferent
+    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
             if (interpretation.wantsOverdueFocus) {
                 traceOverdue(input.traceId, 'RETRIEVAL_INPUT', {
                     actorPresent: !!input.actorUserId,
-                    statuses: commitmentStatuses,
+                    statuses: interpretation.statusHints,
                     query: interpretation.textQuery,
                     ftsWillRun: !!interpretation.textQuery,
                     timeRange: timeRange ?? null,
@@ -1171,16 +1002,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                     personScope: !!resolvedPersonId,
                 });
             }
-            const authorizedReferentId = input.authorizedCommitmentReferentId ?? priorCanonicalCommitmentId;
-            if (authorizedReferentId) {
-                return retrieveVisibleCommitmentById(input.actorUserId, authorizedReferentId)
+            if (input.authorizedCommitmentReferentId) {
+                return retrieveVisibleCommitmentById(input.actorUserId, input.authorizedCommitmentReferentId)
                     .then((commitment) => commitment ? [commitment] : []);
             }
             return retrieveCommitments({
                 actorUserId: input.actorUserId,
                 conversationId,
                 personId: resolvedPersonId,
-                statuses: commitmentStatuses ?? undefined,
+                statuses: interpretation.statusHints ?? undefined,
                 timeRange: timeRange ?? undefined,
                 query: interpretation.textQuery ?? undefined,
                 // M-1G.2: prioriza lo realmente vencido en el budget de 10
@@ -1227,9 +1057,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !readReferenceScopeBlocked && !overdueOnlyQuery && !upcomingOnlyCommitmentRead && !priorCanonicalCommitmentId
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: commitmentStatuses, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
+            retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
                 return fillProposalFocusMatches(baseProposalInput, interpretation.proposalFocus, resolvedPersonId, budget.commitments);
             }
@@ -1337,16 +1167,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         ? sortedCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
         : sortedCommitments;
     const filteredCommitments = filterByProposalFocus(semanticallyFilteredCommitments, interpretation.proposalFocus, resolvedPersonId);
-    const focusedReferentMatches = priorSingleReferent
-        ? filteredCommitments.filter((commitment) => commitment.entityType === priorSingleReferent.entityType
-            && commitment.title.trim().toLocaleLowerCase() === priorSingleReferent.rawText.trim().toLocaleLowerCase())
-        : filteredCommitments;
-    const focusedReferentMissing = priorSingleReferent !== null && focusedReferentMatches.length === 0;
-    if (focusedReferentMissing && !isWritePlanning) {
-        needsClarification = true;
-        clarification = { reason: 'topic_too_broad' };
-    }
-    const commitments = focusedReferentMatches.slice(0, priorSingleReferent ? 1 : budget.commitments);
+    const commitments = filteredCommitments.slice(0, budget.commitments);
 
     // M-2 — INVARIANTE NO NEGOCIABLE: la verdad canónica siempre domina a la
     // memoria. Se aplica AQUÍ, después de que `commitments` ya es el conjunto
@@ -1499,7 +1320,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // Deliberately checked BEFORE topic_too_broad: this signal is a real,
     // Core-verified structural ambiguity about a KNOWN set of live
     // candidates, strictly more specific than "no signal at all".
-    if (!isWritePlanning && !needsClarification && interpretation.wantsSingularStatusEntityReference) {
+    if (!needsClarification && interpretation.wantsSingularStatusEntityReference) {
         const qualifyingStatuses = interpretation.wantsOverdueFocus
             ? null // overdue is derived, not a stored status -- checked via isCommitmentOverdue below instead
             : interpretation.statusHints;
@@ -1527,8 +1348,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // canonicalPersonScope, never interpretation.personHints — an LLM-only
     // hallucinated hint (advisory, no authority) must never count as "real
     // signal exists" any more than it may block a source.
-    if (!isWritePlanning && !needsClarification && interpretation.interactionMode !== 'conversation'
-        && !evidenceFound && interpretation.intent === 'general_context'
+    if (!needsClarification && !evidenceFound && interpretation.intent === 'general_context'
         && canonicalPersonScope.length === 0 && !input.authorizedPersonReferentId && !interpretation.textQuery && !interpretation.timeExpression) {
         needsClarification = true;
         clarification = { reason: 'topic_too_broad' };
@@ -1543,11 +1363,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales genuinas del intérprete, sin un resolutor determinístico
     // propio todavía -- fuera de alcance de este ticket.
     const ambiguityHints = interpretation.ambiguityHints ?? []; // defensivo: un intérprete mal formado no debe crashear el builder
-    if (!isWritePlanning && !needsClarification) {
-        if (ambiguityHints.includes('time_ambiguous') && normalizedTimeExpression === null && temporalIntent === null) {
+    if (!needsClarification) {
+        if (ambiguityHints.includes('time_ambiguous') && normalizedTimeExpression === null) {
             needsClarification = true;
             clarification = { reason: 'time_ambiguous' };
-        } else if (interpretation.interactionMode !== 'conversation' && ambiguityHints.includes('topic_too_broad')) {
+        } else if (ambiguityHints.includes('topic_too_broad')) {
             needsClarification = true;
             clarification = { reason: 'topic_too_broad' };
         }
@@ -1591,7 +1411,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
-        interactionMode: normalizedInteractionMode ?? 'task',
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,

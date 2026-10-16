@@ -15,13 +15,14 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
     createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
-    type AgentFollowUpOption, type AgentVoiceTranscriptResult,
+    useAgentConversationTurns, type AgentFollowUpOption, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
 import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
     appendExecutionMessage, appendUserMessage,
-    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel, type AgentChatMessage,
+    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel,
+    restoreAgentConversationMessages, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -68,13 +69,24 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const confirmationInFlightRef = useRef(false);
+    const hydratedConversationRef = useRef<string | null>(null);
+    const localInteractionRef = useRef(false);
 
     const { mutate: submitTurn, isPending: isTurnPending } = useAgentTurn();
     const { mutateAsync: authorizePlan, isPending: isAuthorizePending } = useAgentAuthorize();
     const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
+    const { data: persistedHistory } = useAgentConversationTurns(conversationId);
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
     const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
     const liveVoiceEnabled = Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
+
+    useEffect(() => {
+        if (!conversationId || !persistedHistory || hydratedConversationRef.current === conversationId) return;
+        hydratedConversationRef.current = conversationId;
+        if (!localInteractionRef.current) {
+            setMessages(restoreAgentConversationMessages(persistedHistory.turns));
+        }
+    }, [conversationId, persistedHistory]);
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
         setInputText(result.transcript.text);
@@ -138,6 +150,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             };
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
+        localInteractionRef.current = true;
         dispatchTurn({ type: 'SUBMIT', source, sourceText: trimmed });
         setInputText('');
         setVoiceDraft(null);
@@ -219,7 +232,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         try {
             const { execution } = await authorizeThenExecuteAgentPlan(pending, {
                 authorize: (pendingPlan) => authorizePlan({ source: pendingPlan.source, turn: pendingPlan.turn }),
-                execute: executePlan,
+                execute: (authorizationId) => executePlan({
+                    authorizationId,
+                    conversationId: pending.source.conversationId,
+                    sourceTurnKey: pending.source.idempotencyKey,
+                }),
                 onAuthorized: (authorization) => {
                 dispatchTurn({ type: 'AUTHORIZED', authorization });
                 },
@@ -348,7 +365,12 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <Text style={styles.subtitle}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
                 </View>
                 {liveVoiceEnabled ? (
-                    <TouchableOpacity onPress={() => setLiveVoiceVisible(true)} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Abrir conversación de voz en vivo">
+                    <TouchableOpacity
+                        onPress={() => setLiveVoiceVisible(true)}
+                        style={styles.headerBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Abrir Ping Voz"
+                    >
                         <Ionicons name="radio" size={22} color={theme.colors.white} />
                     </TouchableOpacity>
                 ) : <View style={styles.headerBtn} />}
@@ -517,7 +539,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             <LiveVoiceSession
                 visible={liveVoiceVisible}
                 conversationId={conversationId}
-                currentCommitmentId={route.params?.currentCommitmentId}
                 onClose={() => setLiveVoiceVisible(false)}
             />
         </SafeAreaView>

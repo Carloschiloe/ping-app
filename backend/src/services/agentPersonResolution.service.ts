@@ -1,18 +1,13 @@
+import { resolvePerson } from './retrieval.service';
 import type { NormalizedSemanticTurnV2 } from '../types/agentTurnCommit';
 import type { DispositionDialogueSnapshot } from '../types/agentTurnDisposition';
 import type { PersonResolutionBindingResult, PersonResolutionRequest } from '../types/agentPersonResolution';
-import type { PersonResolutionResult } from '../types/retrieval';
 
 export interface PersonResolutionInvoker {
-    resolve(actorUserId: string, input: { name: string }): Promise<PersonResolutionResult>;
+    resolve(actorUserId: string, input: { name: string }): Promise<Awaited<ReturnType<typeof resolvePerson>>>;
 }
 
-const canonicalInvoker: PersonResolutionInvoker = {
-    async resolve(actorUserId, input) {
-        const { resolvePerson } = await import('./retrieval.service');
-        return resolvePerson(actorUserId, input);
-    },
-};
+const canonicalInvoker: PersonResolutionInvoker = { resolve: resolvePerson };
 
 function candidateFromSemantic(turn: NormalizedSemanticTurnV2): string | null {
     if (turn.candidateSlotType !== 'person') return null;

@@ -10,6 +10,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AuthScreen from '../screens/AuthScreen';
+import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
 import CompleteProfileScreen from '../screens/CompleteProfileScreen';
 import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
@@ -209,7 +210,7 @@ const PushNotificationHandler = () => {
 };
 
 export const AppNavigator = () => {
-    const { session, initialized, profileComplete } = useAuth();
+    const { session, initialized, profileComplete, passwordRecoveryPending } = useAuth();
     const { theme: appTheme, isDark } = useAppTheme();
 
     if (!initialized || (session && profileComplete === null)) {
@@ -247,9 +248,11 @@ export const AppNavigator = () => {
                 },
             }}
         >
-            {session && profileComplete && <PushNotificationHandler />}
+            {session && profileComplete && !passwordRecoveryPending && <PushNotificationHandler />}
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
-                {session && profileComplete ? (
+                {passwordRecoveryPending ? (
+                    <RootStack.Screen name="PasswordRecovery" component={PasswordRecoveryScreen} />
+                ) : session && profileComplete ? (
                     <RootStack.Screen name="Main" component={MainTabs} />
                 ) : session ? (
                     <RootStack.Screen name="CompleteProfile" component={CompleteProfileScreen} />

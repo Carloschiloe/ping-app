@@ -5,6 +5,7 @@
 import type { AgentCitation, AgentFollowUp, AgentRespondResult, AgentResponseStatus } from '../api/query-modules/agent';
 import type {
     AgentExecutionResult,
+    AgentConversationTurnRecord,
     AgentPlanPresentation,
     AgentTurnPlan,
     AgentTurnResult,
@@ -91,6 +92,28 @@ export function appendExecutionMessage(
         id: nextId('execution'), role: 'agent', text: '', createdAt: Date.now(),
         executionResult: result, executionPresentation: presentation,
     }];
+}
+
+export function restoreAgentConversationMessages(turns: AgentConversationTurnRecord[]): AgentChatMessage[] {
+    const restored: AgentChatMessage[] = [];
+    for (const turn of turns) {
+        restored.push({
+            id: `${turn.id}:user`,
+            role: 'user',
+            text: turn.inputText,
+            createdAt: new Date(turn.createdAt).getTime(),
+        });
+        const withResult = turn.result.kind === 'execution'
+            ? appendExecutionMessage(restored, turn.result.execution, turn.result.presentation)
+            : appendAgentTurnMessage(restored, turn.result);
+        const resultMessage = withResult[withResult.length - 1];
+        if (resultMessage) {
+            resultMessage.id = `${turn.id}:result`;
+            resultMessage.createdAt = new Date(turn.createdAt).getTime();
+        }
+        restored.splice(0, restored.length, ...withResult);
+    }
+    return restored;
 }
 
 // Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca

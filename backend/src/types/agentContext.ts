@@ -53,8 +53,7 @@ export interface AgentContextInput {
     // autorizar contra el actor antes de devolver evidencia.
     authorizedCommitmentReferentId?: string;
     // Core-derived, bounded context from the immediately preceding read in
-    // the same dialogue scope. It contains no raw utterance; canonical IDs,
-    // when present, are only re-authorized references, never evidence.
+    // the same dialogue scope. It contains no raw utterance or canonical ID.
     priorReadContext?: AgentReadContext | null;
     // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts. Remover junto con esa instrumentación.
     traceId?: string;
@@ -74,8 +73,6 @@ export type AgentIntentType =
     | 'message_search'     // búsqueda de texto explícita ("busca", "search")
     | 'document_search'    // adjuntos/documentos ("me mandaron", "contrato")
     | 'general_context';   // fallback conservador — no se identificó una intención más específica
-
-export type AgentInteractionMode = 'task' | 'conversation';
 
 export interface AgentIntent {
     type: AgentIntentType;
@@ -130,53 +127,21 @@ export type UrgencyComparison = 'most_urgent';
 // latest"). El intérprete puede sugerirlo, pero el Core lo valida y lo usa
 // para seleccionar evidencia canónica antes de redactar.
 export type TemporalComparison = 'earliest' | 'latest';
-export type PriorReferenceIntent = 'single_entity' | 'result_set';
+
+// M-7 continuity: semantic attribute requested about an already discussed
+// entity. It never identifies the entity; Core resolves that separately.
 export type AgentFollowUpAttribute = 'time' | 'date' | 'responsible' | 'status' | 'details';
-export type AgentDialogueControl = 'resume_suspended' | 'suspend_current';
-export type AgentDialogueAct = 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other';
-
-// Structural, non-authoritative summary of the immediately preceding read.
-// It is safe to expose to the language interpreter because it contains no
-// identifiers, titles, evidence, permissions, or other canonical facts. Core
-// remains responsible for re-authorizing the actual referent after semantic
-// interpretation.
-export interface AgentPriorReadSummary {
-    kind: 'commitment_query';
-    referentCount: number;
-    uniqueReferent: boolean;
-    entityTypes: Array<'commitment' | 'commitment_proposal'>;
-    hasTimeRange: boolean;
-}
-
-// Semantic temporal constraint proposed by the interpreter and resolved by
-// Core. The raw wording remains available in timeExpression for traceability,
-// but retrieval never needs to recognize one exact sentence.
-export type TemporalIntent =
-    | { kind: 'calendar_day'; offsetDays: number; futureOnly: boolean }
-    | { kind: 'calendar_week'; offsetWeeks: number; futureOnly: boolean }
-    | { kind: 'relative_days'; daysAhead: number; futureOnly: true }
-    | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true }
-    | { kind: 'weekday'; weekday: number; nextOccurrence: boolean; futureOnly: boolean };
-
-// Sanitized provider metadata used only for staging diagnostics. Raw SDK
-// messages, request bodies, headers and credentials never cross this boundary.
-export type AgentInputProviderErrorClass = 'http' | 'network' | 'sdk' | 'configuration' | 'unknown';
 
 export interface Interpretation {
-    interactionMode?: AgentInteractionMode;
     intent: AgentIntentType;
     intentConfidence: number;
     personHints: string[];       // nombres tal como aparecen en el texto — nunca IDs
     topicHints: string[];        // M-1D.1: conceptos/temas explícitos del input — nunca expansión semántica (sección 14/19)
     textQuery: string | null;    // texto residual para FTS (M-1C) — null si no aporta
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
-    temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
-    priorReferenceIntent?: PriorReferenceIntent | null;
-    followUpAttribute?: AgentFollowUpAttribute | null;
-    dialogueAct?: AgentDialogueAct | null;
-    dialogueControl?: AgentDialogueControl | null;
     temporalComparison?: TemporalComparison | null;
     urgencyComparison?: UrgencyComparison | null;
+    followUpAttribute?: AgentFollowUpAttribute | null;
     statusHints: CanonicalCommitmentStatus[] | null; // ej. ["proposed","accepted"] para "pendientes"/"open"
     // M-2 HISTORICAL TRANSITION ABSENCE FIX — el/los CommitmentEventType(s)
     // que constituirían evidencia real de la transición histórica
@@ -225,10 +190,6 @@ export interface Interpretation {
     // M-1D.1: metadata de diagnóstico únicamente (nunca prompt/input/respuesta cruda) — el builder los traslada a AgentDiagnostics.
     modelUsed?: string;
     schemaValid?: boolean;
-    providerErrorClass?: AgentInputProviderErrorClass;
-    providerHttpStatus?: number;
-    providerErrorCode?: string;
-    providerErrorType?: string;
 }
 
 // ─── Retrieval plan (sección 13) ─────────────────────────────────────────────
@@ -253,7 +214,7 @@ export interface RetrievalPlanStep {
 // (a completely different pipeline, gated by write-turn authorization) while
 // this one lives in the read-only AgentContext/response-synthesis pipeline,
 // which has no dialogue-state/authorization involvement at all.
-export type ClarificationReason = 'person_ambiguous' | 'person_not_found' | 'time_ambiguous' | 'topic_too_broad' | 'entity_ambiguous';
+export type ClarificationReason = 'person_ambiguous' | 'time_ambiguous' | 'topic_too_broad' | 'entity_ambiguous';
 
 export interface EntityAmbiguityCandidate {
     id: string;
@@ -263,10 +224,6 @@ export interface EntityAmbiguityCandidate {
 export interface AgentClarification {
     reason: ClarificationReason;
     candidates?: PersonResolutionResult['candidates'];
-    // The user supplied an explicit person mention, but Core found no
-    // authorized match. This is deliberately distinct from an unresolved
-    // pronoun: the response must not claim that no name was provided.
-    requestedNames?: string[];
     // Only ever present when reason === 'entity_ambiguous'. Kept as its own
     // field (never overloading `candidates` above, which is strictly typed
     // to PersonResolutionResult's own person-shaped candidates) so a caller
@@ -335,7 +292,6 @@ export interface AgentContext {
     // propagada para que "vencido" se calcule comparando el día calendario
     // en la zona del actor, nunca en la del servidor. Siempre presente.
     timezone: string;
-    interactionMode?: AgentInteractionMode;
     intent: AgentIntent;
     // M-1G.1: ver Interpretation.wantsOverdueFocus.
     wantsOverdueFocus: boolean;

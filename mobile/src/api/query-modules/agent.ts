@@ -2,7 +2,7 @@
 // backend/src/controllers/agent.controller.ts). Deliberately separate from
 // legacy-ai.ts (/ai/ask, ai_messages) -- the two coexist, this file never
 // imports from or writes to the legacy module.
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { apiClient, ApiError, API_URL, getAuthHeaders } from '../client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
@@ -233,6 +233,7 @@ export function useAgentRespond() {
 // Mobile renders based on kind discriminator — NO semantic routing heuristics.
 
 export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
+export type AgentConversationResultKind = AgentTurnKind | 'execution';
 
 export interface AgentTurnDebugMetadata {
     traceId: string;
@@ -340,6 +341,26 @@ export type AgentTurnResult =
     | AgentTurnClarification
     | AgentTurnUnsupported;
 
+export interface AgentConversationTurnRecord {
+    id: string;
+    conversationId: string;
+    actorUserId: string;
+    clientTurnKey: string;
+    inputText: string;
+    inputMode: 'text' | 'voice' | 'reviewed_voice_text';
+    resultKind: AgentConversationResultKind;
+    result: AgentConversationEventResult;
+    createdAt: string;
+}
+
+export interface AgentExecutionConversationEvent {
+    kind: 'execution';
+    execution: AgentExecutionResult;
+    presentation: AgentPlanPresentation;
+}
+
+export type AgentConversationEventResult = AgentTurnResult | AgentExecutionConversationEvent;
+
 export interface AgentTurnInput {
     input?: string;
     voiceInputToken?: string;
@@ -444,6 +465,84 @@ export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
     }
     // The backend returns the full discriminated union — we trust the shape
     return obj as unknown as AgentTurnResult;
+}
+
+export function parseAgentConversationTurns(raw: unknown): {
+    enabled: boolean;
+    turns: AgentConversationTurnRecord[];
+} {
+    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_conversation_history_shape');
+    const value = raw as Record<string, unknown>;
+    if (typeof value.enabled !== 'boolean' || !Array.isArray(value.turns)) {
+        throw new Error('invalid_agent_conversation_history_shape');
+    }
+
+    const turns: AgentConversationTurnRecord[] = [];
+    for (const rawTurn of value.turns) {
+        if (!rawTurn || typeof rawTurn !== 'object') continue;
+        const row = rawTurn as Record<string, unknown>;
+        if (typeof row.id !== 'string'
+            || typeof row.conversationId !== 'string'
+            || typeof row.actorUserId !== 'string'
+            || typeof row.clientTurnKey !== 'string'
+            || typeof row.inputText !== 'string'
+            || !['text', 'voice', 'reviewed_voice_text'].includes(String(row.inputMode))
+            || typeof row.createdAt !== 'string') continue;
+        // READ events are valid Core events but have a different renderer and
+        // are intentionally omitted until the Ping preview exposes that card.
+        if (row.resultKind === 'read') continue;
+        try {
+            let result: AgentConversationEventResult;
+            if (row.resultKind === 'execution') {
+                const event = row.result as Record<string, unknown>;
+                const presentation = event?.presentation as Record<string, unknown> | undefined;
+                if (!presentation
+                    || typeof presentation.planId !== 'string'
+                    || typeof presentation.planDigest !== 'string'
+                    || typeof presentation.summary !== 'string'
+                    || !Array.isArray(presentation.stepPresentations)) {
+                    throw new Error('invalid_agent_execution_history_shape');
+                }
+                result = {
+                    kind: 'execution',
+                    execution: parseAgentExecution(event.execution),
+                    presentation: presentation as unknown as AgentPlanPresentation,
+                };
+            } else {
+                result = parseAgentTurnResult(row.result);
+            }
+            turns.push({
+                id: row.id,
+                conversationId: row.conversationId,
+                actorUserId: row.actorUserId,
+                clientTurnKey: row.clientTurnKey,
+                inputText: row.inputText,
+                inputMode: row.inputMode as AgentConversationTurnRecord['inputMode'],
+                resultKind: row.resultKind as AgentConversationResultKind,
+                result,
+                createdAt: row.createdAt,
+            });
+        } catch {
+            // A single future/unknown event must not erase the usable history.
+        }
+    }
+    return { enabled: value.enabled, turns };
+}
+
+export function isAgentConversationEventsEnabled(): boolean {
+    return process.env.EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS === 'true';
+}
+
+export function useAgentConversationTurns(conversationId?: string) {
+    return useQuery({
+        queryKey: ['agent-conversation-turns', conversationId],
+        queryFn: async () => parseAgentConversationTurns(
+            await apiClient.get(`/conversations/${conversationId}/agent-turns`)
+        ),
+        enabled: Boolean(conversationId && isAgentConversationEventsEnabled()),
+        staleTime: 60_000,
+        retry: false,
+    });
 }
 
 /**
@@ -610,8 +709,8 @@ export function useAgentAuthorize() {
 export function useAgentExecute() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (authorizationId: string): Promise<AgentExecutionResult> => {
-            const raw = await apiClient.post('/agent/execute', { authorizationId });
+        mutationFn: async (input: { authorizationId: string; conversationId?: string; sourceTurnKey?: string }): Promise<AgentExecutionResult> => {
+            const raw = await apiClient.post('/agent/execute', input);
             return parseAgentExecution(raw);
         },
         onSuccess: () => {
@@ -621,6 +720,7 @@ export function useAgentExecute() {
             queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
             queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
             queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['agent-conversation-turns'] });
             queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
         },
     });
