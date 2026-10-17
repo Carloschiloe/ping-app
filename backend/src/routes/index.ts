@@ -22,6 +22,7 @@ import * as agentConversationTurnController from '../controllers/agentConversati
 import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
+import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import * as agentDeviceTraceDebugController from '../controllers/agentDeviceTraceDebug.controller';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -32,6 +33,7 @@ import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
 import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
 import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
+import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import * as groupSchema from '../schemas/group.schema';
@@ -81,6 +83,22 @@ const agentExecutionRateLimiter = rateLimit({
 const agentVoiceRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
+});
+
+const agentVoiceSessionRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 6,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
+});
+
+const agentVoiceTelemetryRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 240,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
@@ -329,6 +347,40 @@ router.post(
     agentVoiceController.agentVoiceRawBodyError,
     validateRequest(agentVoiceTranscriptionRequestSchema),
     agentVoiceController.transcribe,
+);
+
+// M-8: production WebRTC live-voice broker. The provider key remains on the
+// backend and semantic turns return through the existing Ping Core boundary.
+router.post(
+    '/agent/voice/live/session',
+    requireAuth,
+    agentVoiceSessionRateLimiter,
+    validateRequest(m8LiveVoiceSessionSchema),
+    m8LiveVoiceController.createSession,
+);
+router.get('/agent/voice/live/client', m8LiveVoiceController.client);
+router.post(
+    '/agent/voice/live/telemetry',
+    requireAuth,
+    agentVoiceTelemetryRateLimiter,
+    validateRequest(m8LiveVoiceTelemetrySchema),
+    m8LiveVoiceController.telemetry,
+);
+router.get(
+    '/agent/voice/live/telemetry/latest',
+    requireAuth,
+    agentVoiceTelemetryRateLimiter,
+    m8LiveVoiceController.readLatestTelemetry,
+);
+router.get(
+    '/agent/voice/live/telemetry/internal/latest',
+    agentVoiceTelemetryRateLimiter,
+    m8LiveVoiceController.readLatestTelemetryInternal,
+);
+router.get(
+    '/agent/voice/live/telemetry/:voiceSessionId',
+    requireAuth,
+    m8LiveVoiceController.readTelemetry,
 );
 
 router.post(
