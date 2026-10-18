@@ -883,6 +883,10 @@ export async function classifyPlanCorrection(
     if (!trimmed) {
         return { isCorrection: false, reason: 'empty_turn' };
     }
+    const companionCorrection = /^s*(?:es|era|será|sera)\\s+con\\s+(.+?)s*$/iu.test(trimmed);
+    if (pendingPlan && companionCorrection) {
+        return { isCorrection: true, reason: 'title_correction' };
+    }
     const newTimeHint = extractTimeHint(trimmed);
     if (!newTimeHint) {
         return { isCorrection: false, reason: 'no_date_expression' };
