@@ -577,7 +577,24 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // boundary), social turns must remain conversation-only. This prevents a
     // provider-produced hint from reopening retrieval or clarification for a
     // simple greeting.
-    if (isSocialConversation) rawInterpretation = deterministicSignals;
+    if (isSocialConversation) {
+        rawInterpretation = {
+            ...deterministicSignals,
+            wantsCommitments: false,
+            wantsMessages: false,
+            wantsTranscriptions: false,
+            wantsAttachments: false,
+            wantsMemory: false,
+            personHints: [],
+            proposalFocus: null,
+            textQuery: null,
+            topicHints: [],
+            timeExpression: null,
+            temporalIntent: null,
+            wantsOverdueFocus: false,
+            ambiguityHints: [],
+        };
+    }
     const rawTimeExpression = rawInterpretation.timeExpression?.trim() || null;
     const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
         ? rawTimeExpression
@@ -679,6 +696,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && normalizedTimeExpression !== null
         && deterministicSignals.statusHints === null
         && !deterministicSignals.wantsOverdueFocus;
+    const futureOnlyTemporal = deterministicSignals.temporalIntent?.futureOnly === true
+        || rawInterpretation.temporalIntent?.futureOnly === true;
     const normalizedIntent = commitmentSignalConfident || !ungroundedRawTemporalClaim
         ? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent)
         : 'general_context';
@@ -741,7 +760,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // against, never a retrieval-narrowing status filter).
         statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection || ungroundedRawTemporalClaim
             ? null
-            : rawInterpretation.statusHints,
+            : futureOnlyTemporal
+                ? ['accepted']
+                : rawInterpretation.statusHints,
         topicHints: ungroundedRawTemporalClaim
             ? []
             : commitmentSignalConfident
@@ -920,8 +941,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
-    let needsClarification = priorReferentCandidates.length > 1;
-    let clarification: AgentClarification | undefined = priorReferentCandidates.length > 1
+    const priorReferentAmbiguous = priorReferentCandidates.length > 1
+        || (priorReferents.length > 1 && priorPronounCue && !priorReferentId);
+    let needsClarification = priorReferentAmbiguous;
+    let clarification: AgentClarification | undefined = priorReferentAmbiguous
         ? { reason: 'entity_ambiguous', entityCandidates: priorReferentCandidates }
         : undefined;
     let resolvedPersonId: string | undefined;
@@ -1036,7 +1059,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
     if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
-        clarification = { reason: 'person_ambiguous', candidates: [] };
+        clarification = {
+            reason: 'person_ambiguous',
+            candidates: [],
+            requestedNames: canonicalPersonScope,
+        };
     }
 
     // Retrieval-plan guard (sección 4): si hay un personHint explícito y
@@ -1157,7 +1184,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
     const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments
-        && interpretation.proposalFocus !== null
+        && (interpretation.proposalFocus !== null || interpretation.statusHints === null)
         && !personScopeBlocked
         && !overdueOnlyQuery
         ? (() => {
