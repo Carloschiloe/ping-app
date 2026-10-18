@@ -142,6 +142,44 @@ describe('atomic Commitment evidence', () => {
 });
 
 describe('canonical application update boundary', () => {
+    it('actualiza metadata de Calendar mediante RPC con evidencia y sin DML directo', async () => {
+        const mock = createSupabaseAdminMock({
+            commitments: [
+                { data: { id: 'c1', owner_user_id: OWNER, assigned_to_user_id: null }, error: null },
+            ],
+            'rpc:update_commitment_integration_metadata_with_evidence': [{
+                data: {
+                    id: 'c1',
+                    owner_user_id: OWNER,
+                    status: 'accepted',
+                    meta: { synced_to: 'google', sync_status: 'synced' },
+                },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { updateCommitmentIntegrationMetadata } = await import('../src/services/commitment.service');
+        const result = await updateCommitmentIntegrationMetadata(
+            OWNER,
+            'c1',
+            'calendar',
+            { synced_to: 'google', sync_status: 'synced' },
+        );
+
+        expect(mock.getRpcCalls()[0]).toEqual({
+            name: 'update_commitment_integration_metadata_with_evidence',
+            args: {
+                p_commitment_id: 'c1',
+                p_actor_user_id: OWNER,
+                p_integration: 'calendar',
+                p_metadata: { synced_to: 'google', sync_status: 'synced' },
+            },
+        });
+        expect(mock.getUpdateCalls('commitments')).toHaveLength(0);
+        expect(result.meta.sync_status).toBe('synced');
+    });
+
     it('un cambio sólo de título no se anuncia como cambio de fecha u hora', async () => {
         const mock = createSupabaseAdminMock({
             commitments: [
