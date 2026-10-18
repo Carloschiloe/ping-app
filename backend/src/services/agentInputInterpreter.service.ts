@@ -1352,6 +1352,17 @@ export function generalContextHasRetrievableSignal(
     return !!textQuery || personHints.length > 0 || !!timeExpression || !!temporalIntent || !!wantsOverdueFocus || !!(statusHints && statusHints.length > 0);
 }
 
+
+export function inferDeterministicFollowUpAttribute(input: string): NonNullable<Interpretation['followUpAttribute']> | null {
+    const normalized = input.trim().toLocaleLowerCase('es');
+    if (/^[¿?¡!\s]*(?:y\s+)?a\s+qué\s+hora[?¿!\s.]*$/iu.test(normalized)) return 'time';
+    if (/^[¿?¡!\s]*para\s+qué\s+día[?¿!\s.]*$/iu.test(normalized)) return 'date';
+    if (/^[¿?¡!\s]*(?:y\s+)?con\s+quién[?¿!\s.]*$/iu.test(normalized)) return 'responsible';
+    if (/^[¿?¡!\s]*(?:sigue\s+)?pendiente[?¿!\s.]*$/iu.test(normalized)) return 'status';
+    if (/^[¿?¡!\s]*me\s+das\s+más\s+detalles?[?¿!\s.]*$/iu.test(normalized)) return 'details';
+    return null;
+}
+
 export class DeterministicInputInterpreter implements AgentInputInterpreter {
     async interpret(input: string): Promise<Interpretation> {
         const trimmed = input.trim();
