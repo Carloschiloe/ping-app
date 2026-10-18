@@ -190,3 +190,20 @@ describe('assertOwnContact', () => {
         await expect(assertOwnContact('u1', 'ct-inexistente')).rejects.toThrow('Contact not found');
     });
 });
+
+describe('getActiveSharedProfileIds', () => {
+    it('excluye participantes de conversaciones eliminadas al resolver relaciones de archivos privados', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: 'deleted-conv' }, { conversation_id: 'active-conv' }], error: null },
+                { data: [{ user_id: 'u1' }, { user_id: 'u2' }], error: null },
+            ],
+            conversations: [
+                { data: [{ id: 'active-conv' }], error: null },
+            ],
+        }));
+        const { getActiveSharedProfileIds } = await import('../src/utils/authz');
+        await expect(getActiveSharedProfileIds('u1')).resolves.toEqual(['u2']);
+    });
+});
+
