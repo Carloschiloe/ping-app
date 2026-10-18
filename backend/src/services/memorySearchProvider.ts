@@ -78,7 +78,12 @@ export class PostgresMemorySearchProvider implements MemorySearchProvider {
             .from('memory_records')
             .select('*')
             .eq('owner_user_id', plan.ownerUserId)
-            .in('status', statusesForFreshness(plan.freshness));
+            .in('status', statusesForFreshness(plan.freshness))
+            // Memory is agent-facing context. Sensitive and restricted facts
+            // stay out of the model path until an explicit capability and
+            // redaction contract exist; owner authorization alone is not
+            // sufficient justification to disclose them to an LLM.
+            .eq('sensitivity', 'normal');
 
         if (plan.subjectPersonId) query = query.eq('subject_person_id', plan.subjectPersonId);
         if (plan.subjectContactId) query = query.eq('subject_contact_id', plan.subjectContactId);
