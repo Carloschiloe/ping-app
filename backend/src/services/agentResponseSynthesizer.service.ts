@@ -1548,7 +1548,11 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // Secciones 15-17: 3 de los 4 caminos NUNCA llaman al modelo — cero
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
         const explicitOverdueQuestion = /\b(vencid[oa]s?|atrasad[oa]s?|overdue|late)\b/iu.test(input.input);
-        if (status === 'answered' && context.wantsOverdueFocus && explicitOverdueQuestion) {
+        if (status === 'answered'
+            && context.wantsOverdueFocus
+            && explicitOverdueQuestion
+            && context.commitments.length < 10
+            && context.queryCardinality !== 'focused_lookup') {
             const hasActualOverdue = context.commitments.some((c) => isCommitmentOverdue(
                 c.dueAt,
                 c.status,
