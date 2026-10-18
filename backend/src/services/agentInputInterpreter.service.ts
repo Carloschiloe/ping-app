@@ -27,7 +27,7 @@ import {
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
 import { isAiConfigured } from './synthesis.service';
-import type { AmbiguityHintType, Interpretation, AgentIntentType, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison } from '../types/agentContext';
+import type { AmbiguityHintType, Interpretation, AgentIntentType, AgentInteractionMode, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary, AgentDialogueControl, AgentDialogueAct, AgentInputProviderErrorClass } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 
@@ -1590,4 +1590,157 @@ export class LlmInputInterpreter implements AgentInputInterpreter {
         const result = await this.fallback.interpret(input, context);
         return { ...result, source: 'llm_fallback', fallbackReason: reason, schemaValid: reason === 'schema_invalid' ? false : result.schemaValid };
     }
+}
+
+
+// Phase 1 semantic compatibility exports retained on the production reconciliation branch.
+const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]ximos?\s+d[i\u00ed]as?\b|\bnext\s+(?:few\s+)?days?\b|\b(?:the\s+)?coming\s+days?\b/i;
+
+const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+que\s+siguen\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
+
+const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
+
+export function hasUnresolvedPersonReference(
+    rawInput: string,
+    objective: Pick<AgentObjective, 'targetEntities' | 'constraints'>,
+): boolean {
+    if (!containsThirdPersonPronoun(rawInput)) return false;
+    const hints = [
+        ...objective.targetEntities.personHints,
+        objective.constraints.responsibleHint ?? '',
+    ].map((hint) => hint.trim()).filter(Boolean);
+    return !hints.some((hint) => !containsThirdPersonPronoun(hint));
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+    uno: 1, una: 1, one: 1, dos: 2, two: 2, tres: 3, three: 3,
+    cuatro: 4, four: 4, cinco: 5, five: 5, seis: 6, six: 6,
+    siete: 7, seven: 7, ocho: 8, eight: 8, nueve: 9, nine: 9,
+    diez: 10, ten: 10, once: 11, eleven: 11, doce: 12, twelve: 12,
+    trece: 13, thirteen: 13, catorce: 14, fourteen: 14, quince: 15,
+    fifteen: 15, dieciseis: 16, sixteen: 16, diecisiete: 17,
+    seventeen: 17, dieciocho: 18, eighteen: 18, diecinueve: 19,
+    nineteen: 19, veinte: 20, twenty: 20,
+};
+
+function stripTimeExpressionLanguage(text: string, temporalExpression?: string | null): string {
+    const detected = temporalExpression || extractTimeExpression(text);
+    if (!detected) return text;
+    return text.replace(detected, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function stripInvocationScaffolding(text: string): string {
+    return text
+        .replace(/^\s*(?:oye|hey|hola|hello|buenas)\s+ping\b\s*[,;:]?\s*/iu, '')
+        .replace(/^\s*ping\b\s*[,;:]\s*/iu, '')
+        .trim();
+}
+
+function parseDayCount(token: string): number | null {
+    const normalized = token.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const value = /^\d+$/.test(normalized) ? Number(normalized) : NUMBER_WORDS[normalized];
+    return Number.isInteger(value) && value >= 1 && value <= 366 ? value : null;
+}
+
+export function inferTemporalIntent(input: string): TemporalIntent | null {
+    const lower = input.toLowerCase();
+    const relative = lower.match(RELATIVE_DAYS_TIME_EXPRESSION);
+    if (relative) {
+        const daysAhead = parseDayCount(relative[1]);
+        if (daysAhead !== null) return { kind: 'relative_days', daysAhead, futureOnly: true };
+    }
+    if (FOLLOWING_DAYS_TIME_EXPRESSION.test(lower) || UPCOMING_DAYS_TIME_EXPRESSION.test(lower)) {
+        return { kind: 'upcoming_horizon', daysAhead: null, futureOnly: true };
+    }
+    if (/\b(?:esta semana|this week)\b/i.test(lower)) {
+        const futureOnly = /\b(?:viene|vienen|venir|se me viene|coming|upcoming|resto|siguientes?)\b/i.test(lower);
+        return { kind: 'calendar_week', offsetWeeks: 0, futureOnly };
+    }
+    if (/\b(?:hoy|today)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 0, futureOnly: false };
+    if (/\b(?:ayer|yesterday)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: -1, futureOnly: false };
+    if (/\b(?:ma\u00f1ana|manana|tomorrow)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 1, futureOnly: false };
+    return null;
+}
+
+export function inferPriorReferenceIntent(input: string): PriorReferenceIntent | null {
+    if (/\b(?:hacerlo|hacerla|hacerlos|hacerlas|eso|esa|ese|esas|esos|it|that|this|the\s+one)\b/i.test(input)) {
+        return 'single_entity';
+    }
+    if (/\b(?:ellos|ellas|esos|esas|los\s+anteriores|las\s+anteriores|those|these|the\s+others)\b/i.test(input)) {
+        return 'result_set';
+    }
+    return null;
+}
+
+export function isUpcomingTimeExpression(expression: string | null): boolean {
+    if (!expression) return false;
+    UPCOMING_DAYS_TIME_EXPRESSION.lastIndex = 0;
+    return UPCOMING_DAYS_TIME_EXPRESSION.test(expression);
+}
+
+export interface AgentInputProviderDiagnostics {
+    providerErrorClass: AgentInputProviderErrorClass;
+    providerHttpStatus?: number;
+    providerErrorCode?: string;
+    providerErrorType?: string;
+}
+
+function safeProviderIdentifier(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.trim();
+    return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(normalized) ? normalized : undefined;
+}
+
+function providerStatus(error: unknown): number | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const response = value.response as Record<string, unknown> | undefined;
+    const responseData = response?.data as Record<string, unknown> | undefined;
+    const candidates = [value.status, value.statusCode, response?.status, responseData?.status];
+    return candidates.find((candidate): candidate is number => typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 100 && candidate <= 599);
+}
+
+function providerCode(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const nestedError = value.error as Record<string, unknown> | undefined;
+    const response = value.response as Record<string, unknown> | undefined;
+    const responseData = response?.data as Record<string, unknown> | undefined;
+    const responseError = responseData?.error as Record<string, unknown> | undefined;
+    return safeProviderIdentifier(value.code)
+        ?? safeProviderIdentifier(nestedError?.code)
+        ?? safeProviderIdentifier(responseData?.code)
+        ?? safeProviderIdentifier(responseError?.code);
+}
+
+function providerType(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const value = error as Record<string, unknown>;
+    const nestedError = value.error as Record<string, unknown> | undefined;
+    return safeProviderIdentifier(value.name)
+        ?? safeProviderIdentifier(value.type)
+        ?? safeProviderIdentifier(nestedError?.type);
+}
+
+export function classifyAgentInputProviderError(error: unknown): AgentInputProviderDiagnostics {
+    const status = providerStatus(error);
+    const code = providerCode(error);
+    const type = providerType(error);
+    const value = error as { name?: unknown; message?: unknown } | null;
+    const name = typeof value?.name === 'string' ? value.name : '';
+    const message = typeof value?.message === 'string' ? value.message : '';
+    const signal = `${code ?? ''} ${name} ${message}`.toLowerCase();
+    const providerErrorClass: AgentInputProviderErrorClass = status !== undefined
+        ? 'http'
+        : /(econnreset|etimedout|enotfound|econnrefused|eai_again|und_err|network|connection)/i.test(signal)
+            ? 'network'
+            : /not configured|missing.*(api|key)|api.?key/i.test(signal)
+                ? 'configuration'
+                : type || code || name ? 'sdk' : 'unknown';
+    return {
+        providerErrorClass,
+        ...(status === undefined ? {} : { providerHttpStatus: status }),
+        ...(code ? { providerErrorCode: code } : {}),
+        ...(type ? { providerErrorType: type } : {}),
+    };
 }
