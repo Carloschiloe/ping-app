@@ -12,7 +12,7 @@ async function main() {
         .not('expo_push_token', 'is', null);
 
     if (error) { console.error('DB error:', error); return; }
-    console.log('Profiles with tokens:', JSON.stringify(profiles, null, 2));
+    console.log('Profiles with push tokens:', profiles.length);
 
     if (!profiles?.length) { console.log('NO TOKENS FOUND - cannot test'); return; }
 
@@ -55,11 +55,11 @@ async function main() {
             if (result.data) {
                 result.data.forEach((item, i) => {
                     if (item.status === 'error') {
-                        console.error(`\n❌ PUSH FAILED for token ${profiles[i].expo_push_token}:`);
+                        console.error(`\n❌ PUSH FAILED for profile ${i + 1}:`);
                         console.error('  Error:', item.message);
                         console.error('  Details:', item.details);
                     } else {
-                        console.log(`\n✅ Push sent OK to ${profiles[i].full_name} (${profiles[i].expo_push_token})`);
+                        console.log(`\n✅ Push sent OK for profile ${i + 1}`);
                         console.log('  Receipt ID:', item.id);
                     }
                 });
