@@ -30,6 +30,7 @@ import { isAiConfigured } from './synthesis.service';
 import type { AmbiguityHintType, Interpretation, AgentIntentType, AgentInteractionMode, ProposalFocus, QueryCardinality, TemporalComparison, UrgencyComparison, TemporalIntent, PriorReferenceIntent, AgentPriorReadSummary, AgentDialogueControl, AgentDialogueAct, AgentInputProviderErrorClass } from '../types/agentContext';
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
+import type { AgentObjective } from '../types/agentPlan';
 
 export interface InterpreterContext {
     conversationId?: string;
