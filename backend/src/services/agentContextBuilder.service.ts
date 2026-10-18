@@ -783,7 +783,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
     });
-    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone, interpretation.temporalIntent);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
         ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
             ? input.priorReadContext.timeRange
