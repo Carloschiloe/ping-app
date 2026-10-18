@@ -1308,10 +1308,16 @@ export function realizeAgentClarification(
             : `I found ${candidates.length} people that could match: ${names.join(', ')}. Which one do you mean?`;
         followUp = { type: 'clarify_person', question: answer, options: candidates.map((c) => ({ id: c.id, label: c.displayName })) };
     } else if (clarification?.reason === 'person_ambiguous') {
-        // unresolved_pronoun: no hay candidatos que ofrecer, sólo pedir que se especifique (sección 11 de M-1D: nunca inventar quién es "él").
-        answer = language === 'es'
-            ? 'No tengo suficiente contexto para saber a quién te refieres. ¿Puedes decirme el nombre?'
-            : 'I don\'t have enough context to know who you mean. Could you tell me the name?';
+        const names = (clarification.requestedNames ?? []).filter(Boolean).join(', ');
+        // A read-side name miss is distinct from an unresolved pronoun:
+        // preserve the requested name so the user can correct it.
+        answer = names
+            ? (language === 'es'
+                ? `No encontré una persona o contacto autorizado llamado "${names}". Revisa el nombre o indícame cómo identificarlo.`
+                : `I could not find an authorized person or contact named "${names}". Check the name or tell me how to identify them.`)
+            : (language === 'es'
+                ? 'No tengo suficiente contexto para saber a quién te refieres. ¿Puedes decirme el nombre?'
+                : 'I don\'t have enough context to know who you mean. Could you tell me the name?');
         followUp = { type: 'clarify_person', question: answer };
     } else if (clarification?.reason === 'person_not_found') {
         const names = (clarification.requestedNames ?? []).filter(Boolean).join(', ');
