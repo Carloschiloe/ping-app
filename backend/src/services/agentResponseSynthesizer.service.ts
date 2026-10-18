@@ -1289,9 +1289,14 @@ export function realizeAgentClarification(
             : 'I don\'t have enough context to know who you mean. Could you tell me the name?';
         followUp = { type: 'clarify_person', question: answer };
     } else if (clarification?.reason === 'person_not_found') {
+        const names = (clarification.requestedNames ?? []).filter(Boolean).join(', ');
         answer = language === 'es'
-            ? 'No encontré una persona o contacto autorizado con esos datos. ¿Puedes indicar otro nombre?'
-            : 'I could not find an authorized person or contact with those details. Could you provide another name?';
+            ? names
+                ? `No encontré una persona o contacto autorizado llamado "${names}". Revisa el nombre o indícame cómo identificarlo.`
+                : 'No encontré una persona o contacto autorizado con esos datos. ¿Puedes indicar otro nombre?'
+            : names
+                ? `I could not find an authorized person or contact named "${names}". Check the name or tell me how to identify them.`
+                : 'I could not find an authorized person or contact with those details. Could you provide another name?';
         followUp = { type: 'clarify_person', question: answer };
     } else if (clarification?.reason === 'time_ambiguous') {
         answer = language === 'es'
