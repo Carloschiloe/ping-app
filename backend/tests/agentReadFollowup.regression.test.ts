@@ -142,7 +142,9 @@ describe('M-7: read-only follow-up keeps an authorized referent', () => {
         expect(first.response.status).toBe('answered');
         expect(first.response.citations).toEqual([{ sourceType: 'commitment', sourceId: '33333333-3333-4333-8333-333333333333' }]);
         // Verify the first answer actually saved a title from canonical evidence.
-        expect(buildContextMock).toHaveBeenCalledTimes(2);
+        // The unified read path builds context once per turn; the second
+        // invocation is the follow-up turn itself.
+        expect(buildContextMock).toHaveBeenCalledTimes(1);
         expect(await resolveVerifiedReadFollowup({
             actorUserId: ACTOR, conversationId: CONVERSATION, utterance: '¿Y cuándo lo completamos?',
         })).toEqual({ query: '¿Y cuándo lo completamos? Ver Spiderman', sourceId: '33333333-3333-4333-8333-333333333333' });
