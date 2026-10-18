@@ -975,4 +975,3 @@ export function toClarificationQuestions(ambiguities: AgentObjectiveAmbiguity[])
         options: a.candidates,
     }));
 }
-
