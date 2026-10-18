@@ -584,7 +584,6 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             wantsMessages: false,
             wantsTranscriptions: false,
             wantsAttachments: false,
-            wantsMemory: false,
             personHints: [],
             proposalFocus: null,
             textQuery: null,
