@@ -143,7 +143,7 @@ select 1 / case when exists (
       and evidence_refs = '[]'::jsonb
 ) then 1 else 0 end;
 
-select 1 / case when count(*) = 2 then 1 else 0 end
+select 1 / case when count(*) = 3 then 1 else 0 end
 from public.delete_memory_for_account(
     'a5300000-0000-4000-8000-000000000101'
 );
