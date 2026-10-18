@@ -147,7 +147,7 @@ const NATURAL_WRITE_ACTION_PHRASES = /(?:acordarme\s+de|acu[ée]rdate\s+de|puede
 // Keep this bounded to greetings/courtesy/well-being phrases with no
 // operational subject, so an action or a real query still follows its normal
 // retrieval/planning path.
-const SOCIAL_CONVERSATION_PATTERN = /^[\s¡¿]*(?:(?:hola|holi|hey|buenas?|buenos?\s+d[ií]as|buenas?\s+(?:tardes|noches))\b(?:[\s,!.¡¿?]*(?:c[oó]mo\s+est[aá]s?|como\s+estas?|qu[eé]\s+tal|todo\s+bien|bien\s+y\s+t[uú]))?|(?:qu[eé]\s+tal|todo\s+bien|c[oó]mo\s+est[aá]s?|como\s+estas?|bien\s+y\s+t[uú])|(?:gracias|muchas\s+gracias|ok|vale|perfecto|genial))[\s.!?¡¿]*$/iu;
+const SOCIAL_CONVERSATION_PATTERN = /^[\s¡¿]*(?:(?:hola|holi|hey|buenas?|buenos?\s+d[ií]as|buenas?\s+(?:tardes|noches))\b(?:[\s,!.¡¿?]*(?:c[oó]mo\s+est[aá]s?|como\s+estas?|qu[eé]\s+tal|todo\s+bien|bien\s+y\s+t[uú]))?|(?:qu[eé]\s+tal|todo\s+bien|c[oó]mo\s+est[aá]s?|como\s+estas?|bien\s+y\s+t[uú])|(?:qu[eé]\s+gusto\s+(?:conversar|hablar)\s+contigo)|(?:c[oó]mo\s+va\s+(?:tu|su)\s+d[ií]a)|(?:gracias|muchas\s+gracias|ok|vale|perfecto|genial))[\s.!?¡¿]*$/iu;
 
 export function isSocialConversationInput(input: string): boolean {
     return SOCIAL_CONVERSATION_PATTERN.test(input.trim());
