@@ -978,10 +978,21 @@ export function enforceProposalLifecycleTruth(claims: AgentClaim[], context: Age
         const violatesInvariant = proposalRefs.length > 0
             && PROPOSAL_OVERDUE_CLAIM_PATTERN.test(claim.text)
             && !NEGATED_OVERDUE_CLAIM_PATTERN.test(claim.text);
+        const canonicalRefs = claim.sourceRefs.filter((ref) => ref.sourceType === 'commitment'
+            && context.commitments.some((commitment) => commitment.entityType === 'commitment' && commitment.id === ref.sourceId));
+        const quotedWaitingProposal = proposalRefs.length === 1
+            && claim.text.trim().startsWith(`"${proposalsById.get(proposalRefs[0].sourceId)!.title}"`)
+            && /esperando|pendiente|waiting|pending/iu.test(claim.text);
+        if (!violatesInvariant && quotedWaitingProposal) {
+            const ref = proposalRefs[0];
+            out.push(buildProposalTruthClaim(proposalsById.get(ref.sourceId)!, ref, language));
+            continue;
+        }
         if (!violatesInvariant) {
             out.push(claim);
             continue;
         }
+        if (context.wantsOverdueFocus && canonicalRefs.length > 0) continue;
         // Descarta el claim completo (pudo mezclar honestamente otra
         // entidad no-proposal en la misma oración -- esa entidad conserva
         // su propio disclosure vía enforceOverdueDisclosure, ya aplicado
@@ -1042,6 +1053,19 @@ export function enforceExhaustiveCoverage(claims: AgentClaim[], context: AgentCo
 // (needs_clarification/no_evidence/capability_gap más abajo): cero riesgo de
 // alucinación numérica, cero costo/latencia de un llamado al modelo para un
 // hecho que el Core ya conoce con certeza estructural.
+function buildCommitmentListResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const claims = context.commitments.map((commitment) => {
+        const overdue = commitment.entityType === 'commitment'
+            && isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, context.timezone, 'commitment');
+        const suffix = overdue ? (language === 'es' ? ' (vencido)' : ' (overdue)') : '';
+        return { text: commitment.title + suffix + '.', sourceRefs: [commitment.provenance] };
+    });
+    const answer = claims.length > 0
+        ? claims.map((claim) => claim.text).join(' ')
+        : (language === 'es' ? 'No tienes compromisos en el período solicitado.' : 'You have no commitments in the requested period.');
+    return { status: 'answered', answer, claims, citations: claims.flatMap((claim) => claim.sourceRefs) };
+}
+
 function buildCountResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
     const count = context.countResult ?? 0;
     let answer: string;
@@ -1323,7 +1347,7 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
     const answer = isTemporalCommitmentRead
         ? (language === 'es'
-            ? 'No encontré compromisos en el período solicitado.'
+            ? 'No tienes compromisos en el período solicitado.'
             : 'I didn\'t find any commitments in the requested period.')
         : isComparisonWithoutEvidence
             ? (language === 'es'
@@ -1507,7 +1531,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             if (!hasActualOverdue) {
                 return this.withDiagnostics({
                     status: 'answered',
-                    answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
+                    answer: language === 'es' ? 'No tienes compromisos atrasados.' : 'You have no overdue commitments.',
                     claims: [],
                     citations: [],
                 }, 'deterministic', startedAt, sourceCount);
@@ -1537,6 +1561,12 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // manualmente, el Core ya conoce el número con certeza estructural.
         if (status === 'answered' && context.queryCardinality === 'count') {
             return this.withDiagnostics(buildCountResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered'
+            && context.queryCardinality === 'exhaustive_list'
+            && !context.proposalFocus
+            && !context.wantsOverdueFocus) {
+            return this.withDiagnostics(buildCommitmentListResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.followUpAttribute) {
             const referentResponse = buildReadReferentAttributeResponse(context, language, context.timezone, input.locale);
