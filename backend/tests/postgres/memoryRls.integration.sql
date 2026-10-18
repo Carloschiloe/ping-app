@@ -59,4 +59,53 @@ end;
 $$;
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', 'a5300000-0000-0000-0000-000000000001', true);
+select set_config('request.jwt.claim.sub', 'a5300000-0000-4000-8000-000000000001', true);
+
+select 1 / case when count(*) = 1 then 1 else 0 end
+from public.memory_records
+where id = 'a5300000-0000-4000-8000-000000000010';
+
+select 1 / case when count(*) = 1 then 1 else 0 end
+from public.memory_record_evidence
+where memory_record_id = 'a5300000-0000-4000-8000-000000000010';
+
+do $$
+begin
+    begin
+        insert into public.memory_records (
+            owner_user_id, memory_type, predicate, object_value,
+            canonical_text, source_type, source_id, evidence_refs,
+            observed_at, status, confidence, sensitivity, visibility_scope,
+            extraction_method, content_hash
+        )
+        values (
+            'a5300000-0000-4000-8000-000000000001', 'semantic', 'blocked',
+            'blocked', 'blocked', 'manual',
+            'a5300000-0000-4000-8000-000000000012',
+            '[{"sourceType":"manual","sourceId":"a5300000-0000-4000-8000-000000000012"}]'::jsonb,
+            now(), 'candidate', 1.0, 'normal', 'private', 'manual',
+            'memory-rls-direct-write-must-fail'
+        );
+        raise exception 'authenticated unexpectedly inserted memory_records';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if sqlstate <> '42501' then raise; end if;
+    end;
+end;
+$$;
+
+select set_config('request.jwt.claim.sub', 'a5300000-0000-4000-8000-000000000002', true);
+
+select 1 / case when count(*) = 0 then 1 else 0 end
+from public.memory_records
+where id = 'a5300000-0000-4000-8000-000000000010';
+
+select 1 / case when count(*) = 0 then 1 else 0 end
+from public.memory_record_evidence
+where memory_record_id = 'a5300000-0000-4000-8000-000000000010';
+
+reset role;
+rollback;
+
+select 'Memory RLS/evidence integration passed' as result;
