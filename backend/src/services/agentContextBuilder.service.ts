@@ -872,6 +872,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // exactly one prior candidate; otherwise Core asks explicitly.
     const priorReferents = input.priorReadContext?.commitmentReferents ?? [];
     const normalizedFollowUp = input.input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const priorPronounCue = /\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\b/.test(normalizedFollowUp);
     const priorMatches = priorReferents.filter((referent) => {
         const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
@@ -888,10 +889,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
     } else if (priorMatches.length === 1 && priorMatches[0].canonicalId) {
         priorReferentId = priorMatches[0].canonicalId;
+    } else if (priorReferents.length === 1 && priorPronounCue && priorReferents[0].canonicalId) {
+        priorReferentId = priorReferents[0].canonicalId;
     } else if (priorMatches.length > 1) {
         priorReferentCandidates = priorMatches.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
-    } else if (priorReferents.length > 1 && /\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\b/.test(normalizedFollowUp)) {
+    } else if (priorReferents.length > 1 && priorPronounCue) {
         priorReferentCandidates = priorReferents.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
     }
