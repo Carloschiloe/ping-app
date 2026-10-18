@@ -24,7 +24,7 @@ async function run() {
             data: { type: 'incoming_call', conversationId: '123' }
         }));
 
-        console.log('Sending payload:', JSON.stringify(testPayload[0], null, 2));
+        console.log('Sending push test payload for', tokens.length, 'token(s); token values are redacted.');
 
         const res = await axios.post('https://exp.host/--/api/v2/push/send', testPayload, {
             headers: {
