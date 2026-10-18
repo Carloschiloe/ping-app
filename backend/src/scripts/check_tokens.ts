@@ -1,9 +1,12 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 async function check() {
-    const { data, error } = await supabaseAdmin.from('profiles').select('email, full_name, expo_push_token').neq('expo_push_token', null);
-    console.log(JSON.stringify(data, null, 2));
-    if (error) console.error(error);
+    const { data, error } = await supabaseAdmin.from('profiles').select('id').neq('expo_push_token', null);
+    if (error) {
+        console.error('[check_tokens] Query failed', { code: error.code });
+        return;
+    }
+    console.log(`Profiles with push tokens: ${data?.length ?? 0}`);
 }
 
 check();

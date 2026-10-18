@@ -15,6 +15,8 @@ import { apiClient } from '../api/client';
 import { supabase } from '../lib/supabase';
 import {
     buildCallPageUrl,
+    buildCallPageOriginWhitelist,
+    getAllowedCallPermissionResources,
     parseCallBridgeMessage,
 } from '../utils/callBridge';
 
@@ -183,7 +185,18 @@ const CallScreen = ({ route, navigation }: any) => {
                 javaScriptEnabled
                 domStorageEnabled
                 allowsFullscreenVideo
-                onPermissionRequest={(request: any) => request.grant(request.resources)}
+                onPermissionRequest={(request: any) => {
+                    const allowedResources = getAllowedCallPermissionResources(isVideo);
+                    const requestedResources = request.resources.filter((resource: string) =>
+                        allowedResources.includes(resource)
+                    );
+
+                    if (requestedResources.length > 0) {
+                        request.grant(requestedResources);
+                    } else {
+                        request.deny();
+                    }
+                }}
                 onError={(e: any) => {
                     console.error('[CallScreen] WebView load failed', {
                         code: e.nativeEvent.code,
@@ -230,7 +243,7 @@ const CallScreen = ({ route, navigation }: any) => {
                         setConnectionLabel('No se pudo conectar');
                     }
                 }}
-                originWhitelist={['*']}
+                originWhitelist={buildCallPageOriginWhitelist(API_URL)}
             />
 
             {/* Controls overlay */}

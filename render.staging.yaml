@@ -43,7 +43,7 @@ services:
       - key: PING_SEMANTIC_MODEL_FAMILY
         value: modern_reasoning
       - key: M8_LIVE_VOICE_ENABLED
-        value: "true"
+        value: "false"
       - key: M8_LIVE_VOICE_MODEL
         value: "gpt-realtime-2.1"
       - key: AGORA_APP_ID
@@ -55,13 +55,15 @@ services:
       - key: ENABLE_AUTOMATIONS
         value: "false"
       - key: ENABLE_NON_MVP_CAPABILITIES
-        value: "true"
+        value: "false"
       - key: ENABLE_OPERATION_MODULE
         value: "false"
       - key: ENABLE_CALENDAR_INTEGRATION
         value: "false"
       - key: ENABLE_CALLS
-        value: "true"
+        value: "false"
+      - key: ENABLE_LEGACY_SATELLITE_WRITERS
+        value: "false"
       - key: ENABLE_PRIVATE_FILE_READS
         value: "true"
       - key: ENABLE_PRIVATE_FILE_UPLOADS

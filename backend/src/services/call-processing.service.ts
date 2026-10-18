@@ -3,6 +3,7 @@ import fs from 'fs';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from './transcription.service';
 import { extractCommitment } from './commitment.service';
+import { isLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 let openai: OpenAI | null = null;
 function getOpenAiClient(): OpenAI {
@@ -100,6 +101,11 @@ Transcripción:
             status: 'processed'
         }).eq('id', callId);
 
+        if (!isLegacySatelliteWriterEnabled('ENABLE_CALLS')) {
+            console.info('[Call Processing] Legacy Calls writers are disabled; call processing stopped before chat/commitment writes');
+            return;
+        }
+
         // 7. Post to chat
         const summaryMessage = `📞 **Resumen de la llamada**\n\n${summary}`;
         const { data: msgData } = await supabaseAdmin.from('messages').insert({
@@ -110,6 +116,8 @@ Transcripción:
         }).select().single();
 
         if (extraction.hasCommitment && msgData) {
+            // LEGACY SATELLITE WRITER — migrate in future slice.
+            // Commitment Core writers must delegate to commitmentApplication.service.
             await supabaseAdmin.from('commitments').insert({
                 title: extraction.title,
                 due_at: extraction.dueAt,
