@@ -1155,7 +1155,7 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
         }
     }
     obj.timeConstraints.rawHint = payload.timeHint;
-    obj.constraints.decisionHint = payload.decisionHint;
+    obj.constraints.decisionHint = payload.decisionHint === 'defer' ? null : payload.decisionHint;
     obj.constraints.draftOnly = payload.draftOnly;
     obj.constraints.responsibleHint = payload.responsibleHint;
     const inferredOwnership: CommitmentOwnership = payload.commitmentOwnership
