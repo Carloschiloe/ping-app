@@ -9,8 +9,7 @@ import { AppError } from '../utils/AppError';
 import { runAgentPlanning, resolveDeterministicRouting, type AgentPlanOrchestratorInput } from './agentPlanOrchestrator.service';
 import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
-import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
-import { AgentDialogueCheckpointService } from './agentDialogueCheckpoint.service';
+import { isPlanDigestNonExecutable, loadPendingDialogueObjective } from './agentPlanInvalidationGuard.service';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
@@ -64,7 +63,7 @@ function rowToAuthorization(row: any): AgentAuthorization {
 function isShortAuthorizationConfirmation(value: string): boolean {
     const normalized = value.trim();
     if (!normalized || normalized.length > 80) return false;
-    return /^(?:sí|si|ok|okay|confirmo|confirmar|confirma|confírmalo|confirmalo|dale|yes)\\b/iu.test(normalized)
+    return /^(?:sí|si|ok|okay|confirmo|confirmar|confirma|confírmalo|confirmalo|dale|yes)(?:\\s|$)/iu.test(normalized)
         || /\\b(?:confirma|confirmar|confírmalo|confirmalo)\\b/iu.test(normalized);
 }
 
@@ -76,40 +75,15 @@ async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<s
         return input.input;
     }
 
-    // A conversation id is itself the durable dialogue scope key. Keep
-    // authorization independent from the dialogue-state implementation so
-    // the authorization boundary remains a consumer of the checkpoint API,
-    // never of the in-memory state machine.
-    const dialogueScopeKey = input.conversationId;
-    const checkpoint = await new AgentDialogueCheckpointService().loadDialogueCheckpoint({
+    const pendingObjective = await loadPendingDialogueObjective({
         actorUserId: input.actorUserId,
-        dialogueScopeKey,
+        conversationId: input.conversationId,
+        channel: input.channel,
+        inputEnvelope: input.inputEnvelope,
+        planDigest: input.planDigest,
     });
-    if (checkpoint.status !== 'found') return input.input;
-
-    const activeDialogue = checkpoint.snapshot.activeDialogue;
-    if (!activeDialogue || activeDialogue.kind !== 'agent_dialogue_state_v1') return input.input;
-    const state = activeDialogue.state as {
-        actorUserId?: string;
-        dialogueScopeKey?: string;
-        lifecycle?: string;
-        currentPlanDigestRef?: string | null;
-        openObjective?: { sourceUtterance?: string } | null;
-    };
-    if (state.actorUserId !== input.actorUserId
-        || state.dialogueScopeKey !== dialogueScopeKey
-        || state.lifecycle !== 'plan_pending_authorization'
-        || state.currentPlanDigestRef !== input.planDigest
-        || !state.openObjective?.sourceUtterance?.trim()) {
-        return input.input;
-    }
-
-    // The confirmation text is a transport-level acknowledgement. The
-    // durable pending objective remains the semantic source for the fresh
-    // digest re-plan; authorization still requires the exact digest match.
-    return state.openObjective.sourceUtterance;
+    return pendingObjective?.sourceUtterance?.trim() || input.input;
 }
-
 
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
