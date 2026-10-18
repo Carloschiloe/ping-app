@@ -670,7 +670,7 @@ async function planEditExistingCommitment(objective: AgentObjective, input: Agen
     if (!personHint) {
         return { steps: [], blockingAmbiguities: [{ field: 'person', kind: 'blocking', reason: 'No identifiqué la persona de la corrección.' }] };
     }
-    const baseTitle = entity.title.replace(/s+cons+.+$/iu, '').trim() || entity.title;
+    const baseTitle = entity.title.replace(/\s+con\s+.+$/iu, '').trim() || entity.title;
     const title = `${baseTitle} con ${personHint}`;
     const sourceRefs = [{ sourceType: 'commitment', sourceId: entity.id }];
     return {
