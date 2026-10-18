@@ -636,6 +636,56 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     return { steps: [step], blockingAmbiguities: [] };
 }
 
+async function planEditExistingCommitment(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
+    const referents = (input.contextReferents ?? []).filter((referent) =>
+        referent.actorScope === input.actorUserId
+        && referent.canonicalEntityType === 'commitment'
+        && referent.confidence >= 0.9
+        && Date.parse(referent.expiresAt) > input.now.getTime()
+    );
+    const ids = [...new Set(referents.map((referent) => referent.canonicalEntityId))];
+    if (ids.length !== 1) {
+        return {
+            steps: [],
+            blockingAmbiguities: [{
+                field: 'targetEntity',
+                kind: 'blocking',
+                reason: ids.length > 1
+                    ? 'Hay más de un compromiso referido; necesito que indiques cuál quieres editar.'
+                    : 'No identifiqué qué compromiso quieres editar.',
+            }],
+        };
+    }
+    const entity = await retrieveVisibleCommitmentById(input.actorUserId, ids[0]);
+    if (!entity) {
+        return { steps: [], blockingAmbiguities: [], failureMode: 'entity_not_found', failureMessage: 'El compromiso referido ya no está disponible o autorizado.' };
+    }
+    if (entity.entityType !== 'commitment') {
+        return { steps: [], blockingAmbiguities: [], failureMode: 'invalid_lifecycle', failureMessage: 'Sólo se puede editar un compromiso canónico.' };
+    }
+    if (entity.ownerUserId !== input.actorUserId && entity.assignedToUserId !== input.actorUserId) {
+        return { steps: [], blockingAmbiguities: [], failureMode: 'not_authorized', failureMessage: 'No tienes autorización para editar este compromiso.' };
+    }
+    const personHint = objective.targetEntities.personHints[0]?.trim();
+    if (!personHint) {
+        return { steps: [], blockingAmbiguities: [{ field: 'person', kind: 'blocking', reason: 'No identifiqué la persona de la corrección.' }] };
+    }
+    const baseTitle = entity.title.replace(/s+cons+.+$/iu, '').trim() || entity.title;
+    const title = `${baseTitle} con ${personHint}`;
+    const sourceRefs = [{ sourceType: 'commitment', sourceId: entity.id }];
+    return {
+        steps: [buildStep({
+            toolId: 'edit_commitment',
+            operation: `Editar "${entity.title}"`,
+            args: { commitmentId: entity.id, title },
+            expectedEffect: `El compromiso pasará a llamarse "${title}".`,
+            resolvedFrom: 'canonical_context',
+            canonicalSourceRefs: sourceRefs,
+        })],
+        blockingAmbiguities: [],
+    };
+}
+
 async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, input: AgentPlannerInput): Promise<DraftOutcome> {
     const hint = objective.targetEntities.entityHints[0];
     if (input.canonicalFacts?.canonicalOnly) {
@@ -929,6 +979,8 @@ async function planObjectiveDraft(input: AgentPlannerInput): Promise<DraftOutcom
             return planCreateCommitment(objective, input, false);
         case 'create_personal_commitment':
             return planCreateCommitment(objective, input, true);
+        case 'edit_existing_commitment':
+            return planEditExistingCommitment(objective, input);
         case 'reschedule_existing_commitment':
         case 'complete_existing_commitment':
         case 'respond_to_existing_proposal':
