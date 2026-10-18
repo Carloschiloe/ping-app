@@ -2,6 +2,8 @@ import { AppError } from '../utils/AppError';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import * as commitmentLifecycle from './commitment.service';
 import * as commitmentProposals from './commitmentProposal.service';
+import * as operationLegacy from './operation.service';
+import * as calendarLegacy from './calendar_sync.service';
 
 // This module is the only application-facing Commitment write boundary.
 // Controllers and compatibility routes delegate here; persistence details
@@ -11,6 +13,7 @@ export const createProposal = commitmentProposals.createProposal;
 export const createSharedProposal = commitmentProposals.createSharedProposal;
 export const respondToSharedProposal = commitmentProposals.respondToSharedProposal;
 export const getAgreementProposals = commitmentProposals.getAgreementProposals;
+export const attachAgreementResponses = commitmentProposals.attachAgreementResponses;
 export const confirmProposal = commitmentProposals.confirmProposal;
 export const rejectProposal = commitmentProposals.rejectProposal;
 
@@ -27,10 +30,19 @@ export const resolveCommitment = commitmentLifecycle.resolveCommitment;
 export const cancelCommitment = commitmentLifecycle.cancelCommitment;
 export const reopenCommitment = commitmentLifecycle.reopenCommitment;
 export const reassignCommitment = commitmentLifecycle.reassignCommitment;
+export const editCommitment = commitmentLifecycle.editCommitment;
 export const scheduleFollowUp = commitmentLifecycle.scheduleFollowUp;
 export const archiveCommitment = commitmentLifecycle.archiveCommitment;
 export const restoreCommitment = commitmentLifecycle.restoreCommitment;
 export const getArchivedCommitments = commitmentLifecycle.getArchivedCommitments;
+
+// Legacy Operation adapter. The endpoint enters through this facade while
+// its composite persistence remains allowlisted for a later RPC migration.
+export const registerCommitmentOperationAction = operationLegacy.registerCommitmentOperationAction;
+
+// Legacy Calendar adapter. External calendar side effects and commitment
+// metadata remain together until a canonical sync RPC is introduced.
+export const syncCommitmentToProvider = calendarLegacy.syncCommitmentToProvider;
 
 // Legacy /postpone adapter. It names an old route but executes the canonical
 // counter-proposal transition and evidence RPC.

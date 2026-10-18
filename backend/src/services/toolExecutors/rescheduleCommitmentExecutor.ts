@@ -32,7 +32,7 @@
 // external contact) -- there, someone else legitimately needs to approve
 // the new date before due_at can move.
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { counterProposeCommitment, editCommitment } from '../commitment.service';
+import { counterProposeCommitment, editCommitment } from '../commitmentApplication.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../../utils/commitmentTransitions';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { AppError } from '../../utils/AppError';

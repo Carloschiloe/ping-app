@@ -2,7 +2,7 @@
 // exactly: "if valid at plan time, but already completed before execute: no
 // second transition; return entity_changed/invalid_lifecycle honestly."
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { resolveCommitment } from '../commitment.service';
+import { resolveCommitment } from '../commitmentApplication.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../../utils/commitmentTransitions';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { AppError } from '../../utils/AppError';

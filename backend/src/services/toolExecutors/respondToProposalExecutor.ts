@@ -6,7 +6,7 @@
 // The real RPC (respond_to_commitment_proposal) has no target-participant
 // argument at all — an actor can structurally never respond on behalf of
 // someone else (confirmed during the participant-visibility ticket).
-import { getAgreementProposals, respondToSharedProposal } from '../commitmentProposal.service';
+import { getAgreementProposals, respondToSharedProposal } from '../commitmentApplication.service';
 import { AppError } from '../../utils/AppError';
 import type { ToolExecutor, ToolExecutionContext, ToolExecutionOutcome } from '../../types/agentExecution';
 

@@ -10,10 +10,14 @@ const integrationTests = [
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'attachmentCore.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'audioTranscription.integration.sql'),
 ];
-const postgresBin = process.env.POSTGRES_BIN ?? 'C:\\Program Files\\PostgreSQL\\16\\bin';
-const psql = join(postgresBin, 'psql.exe');
-const createdb = join(postgresBin, 'createdb.exe');
-const dropdb = join(postgresBin, 'dropdb.exe');
+const postgresBin = process.env.POSTGRES_BIN ?? '';
+const executable = (name, windowsName = name) => (
+  process.env[`${name.toUpperCase()}_BIN`] ??
+  (postgresBin ? join(postgresBin, process.platform === 'win32' ? windowsName : name) : name)
+);
+const psql = executable('psql');
+const createdb = executable('createdb');
+const dropdb = executable('dropdb');
 const host = process.env.PGHOST ?? '127.0.0.1';
 const port = process.env.PGPORT ?? '54322';
 const user = process.env.PGUSER ?? 'postgres';
@@ -83,6 +87,28 @@ try {
       '--single-transaction',
       '--file', join(migrationsDir, migration),
     ]);
+  }
+
+  const schemaVerification = run(psql, [
+    ...connectionArgs,
+    '--dbname', database,
+    '--tuples-only',
+    '--no-align',
+    '--command',
+    `select (
+      to_regclass('public.operation_checklists') is not null
+      and to_regclass('public.operation_checklist_items') is not null
+      and to_regclass('public.operation_checklist_runs') is not null
+      and to_regclass('public.operation_checklist_run_items') is not null
+      and to_regclass('public.conversation_operation_focuses') is not null
+      and to_regclass('public.commitment_operation_progress') is not null
+      and to_regprocedure('public.apply_commitment_operation_action_with_evidence(uuid,uuid,text,uuid,text,text)') is not null
+    )::text;
+  `,
+  ], { capture: true }).stdout.trim();
+
+  if (schemaVerification !== 'true') {
+    throw new Error('Fresh migration schema verification failed');
   }
 
   for (const integrationTest of integrationTests) {

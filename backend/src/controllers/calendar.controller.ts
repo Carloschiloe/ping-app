@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import * as calendarService from '../services/calendar_sync.service';
+import { syncCommitmentToProvider as syncCommitmentToProviderThroughCore } from '../services/commitmentApplication.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createOAuthState, verifyOAuthState } from '../utils/oauthState';
-import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 export const getGoogleAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
@@ -142,8 +142,6 @@ export const disconnectAccount = async (req: Request, res: Response) => {
 
 export const syncCommitment = async (req: Request, res: Response) => {
     try {
-        assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');
-
         const userId = req.user!.id;
         const { commitmentId, provider } = req.body;
 
@@ -151,62 +149,8 @@ export const syncCommitment = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Missing commitmentId or provider' });
         }
 
-        // 1. Get commitment details
-        const { data: commitment, error: commError } = await supabaseAdmin
-            .from('commitments')
-            .select('*')
-            .eq('id', commitmentId)
-            .eq('owner_user_id', userId)
-            .single();
-
-        if (commError || !commitment) throw new Error('Commitment not found');
-        if (!commitment.due_at) {
-            return res.status(400).json({ error: 'Only commitments with a due date can be synced to a calendar' });
-        }
-
-        // 2. Get valid access token
-        const accessToken = await calendarService.getValidAccessToken(userId, provider);
-
-        // 3. Prepare event data
-        const startDate = new Date(commitment.due_at);
-        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-
-        let result;
-        let eventUrl = '';
-        if (provider === 'google') {
-            result = await calendarService.createGoogleEvent(accessToken, {
-                summary: `Ping: ${commitment.title}`,
-                description: 'Compromiso detectado automáticamente por Ping.',
-                start: { dateTime: startDate.toISOString() },
-                end: { dateTime: endDate.toISOString() },
-            });
-            eventUrl = result.htmlLink;
-        } else if (provider === 'outlook') {
-            result = await calendarService.createMsEvent(accessToken, {
-                subject: `Ping: ${commitment.title}`,
-                body: { contentType: 'HTML', content: 'Compromiso detectado automáticamente por Ping.' },
-                start: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
-                end: { dateTime: endDate.toISOString(), timeZone: 'UTC' },
-            });
-            eventUrl = result.webLink;
-        }
-
-        // 4. Update commitment with sync info
-        await supabaseAdmin
-            .from('commitments')
-            .update({
-                meta: {
-                    ...commitment.meta,
-                    synced_to: provider,
-                    cloud_event_id: result.id,
-                    external_event_url: eventUrl,
-                    sync_status: 'synced',
-                    last_sync_at: new Date().toISOString()
-                }
-            })
-            .eq('id', commitmentId);
-
-        res.json({ ok: true, result });
+        const result = await syncCommitmentToProviderThroughCore(userId, commitmentId, provider);
+        res.json(result);
     } catch (error: any) {
         console.error('[Sync Commitment] Error:', error);
         res.status(error?.statusCode || 500).json({ error: error.message });

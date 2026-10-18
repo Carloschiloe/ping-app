@@ -9,7 +9,7 @@
 // pre-execution authorization check reflects that asymmetry precisely,
 // never reuses the owner-OR-assignee check the sibling executors use.
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { cancelCommitment } from '../commitment.service';
+import { cancelCommitment } from '../commitmentApplication.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../../utils/commitmentTransitions';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { AppError } from '../../utils/AppError';

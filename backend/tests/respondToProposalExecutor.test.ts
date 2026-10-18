@@ -14,13 +14,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // but doesn't verify against canonical truth must never report
 // status:'succeeded'), and the AppError/Postgres error-code failure
 // taxonomy mapping.
-vi.mock('../src/services/commitmentProposal.service', () => ({
+vi.mock('../src/services/commitmentApplication.service', () => ({
     getAgreementProposals: vi.fn(),
     respondToSharedProposal: vi.fn(),
 }));
 
 import { respondToProposalExecutor } from '../src/services/toolExecutors/respondToProposalExecutor';
-import { getAgreementProposals, respondToSharedProposal } from '../src/services/commitmentProposal.service';
+import { getAgreementProposals, respondToSharedProposal } from '../src/services/commitmentApplication.service';
 import { AppError } from '../src/utils/AppError';
 
 const mockGetAgreementProposals = vi.mocked(getAgreementProposals);

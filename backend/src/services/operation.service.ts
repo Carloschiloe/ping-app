@@ -430,16 +430,16 @@ export async function setActiveCommitment(userId: string, conversationId: string
     if (commitmentId) {
         const { data: commitment, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, group_conversation_id, title, assigned_to_user_id, status')
+            .select('id, conversation_id, title, assigned_to_user_id, status')
             .eq('id', commitmentId)
-            .eq('group_conversation_id', conversationId)
+            .eq('conversation_id', conversationId)
             .maybeSingle();
 
         if (error || !commitment) throw new Error('Commitment not found in this conversation');
         if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
             throw new Error('Only the assigned user can put this task in progress');
         }
-        if (!['accepted', 'in_progress'].includes(commitment.status)) {
+        if (normalizeCommitmentStatus(commitment.status) !== 'accepted') {
             throw new Error('Task must be accepted before putting it in progress');
         }
     }
@@ -711,119 +711,37 @@ export async function registerCommitmentOperationAction(
 ) {
     assertLegacySatelliteWriterEnabled('ENABLE_OPERATION_MODULE', 'Operation');
 
-    const { data: commitment, error: commitmentError } = await supabaseAdmin
-        .from('commitments')
-        .select('*')
-        .eq('id', commitmentId)
-        .single();
-
-    if (commitmentError || !commitment) throw commitmentError || new Error('Commitment not found');
-
-    if (commitment.group_conversation_id) {
-        await assertConversationParticipant(userId, commitment.group_conversation_id);
-    }
-
-    if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
-        throw new Error('Only the assigned user can update this operational status');
-    }
-
-    const { data: existingProgress } = await supabaseAdmin
-        .from('commitment_operation_progress')
-        .select('*')
-        .eq('commitment_id', commitmentId)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    const now = new Date().toISOString();
-    const currentMeta = commitment.meta || {};
-    const operational = currentMeta.operational || {};
-    const nextOperational = { ...operational };
-    const updates: any = {
-        meta: {
-            ...currentMeta,
-        },
-    };
-
-    if (action === 'acknowledged') {
-        nextOperational.acknowledged_at = now;
-        nextOperational.acknowledged_by_user_id = userId;
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
-            updates.status = 'accepted';
-            if (!commitment.assigned_to_user_id) {
-                updates.assigned_to_user_id = userId;
-            }
+    const { data: result, error } = await supabaseAdmin.rpc(
+        'apply_commitment_operation_action_with_evidence',
+        {
+            p_commitment_id: commitmentId,
+            p_actor_user_id: userId,
+            p_action: action,
+            p_location_message_id: locationMessageId || null,
+            p_completion_note: completionNote || null,
+            p_completion_outcome: completionOutcome || null,
         }
-    }
-
-    if (action === 'arrived') {
-        nextOperational.arrived_at = now;
-        nextOperational.arrived_by_user_id = userId;
-        if (locationMessageId) {
-            nextOperational.arrived_location_message_id = locationMessageId;
-        }
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
-            updates.status = 'accepted';
-            if (!commitment.assigned_to_user_id) {
-                updates.assigned_to_user_id = userId;
-            }
-        }
-    }
-
-    if (action === 'completed') {
-        nextOperational.completed_at = now;
-        nextOperational.completed_by_user_id = userId;
-        nextOperational.completion_note = completionNote || null;
-        nextOperational.completion_outcome = completionOutcome || 'resolved';
-        updates.status = 'completed';
-    }
-
-    updates.meta.operational = nextOperational;
-
-    const progressPayload: any = {
-        commitment_id: commitmentId,
-        user_id: userId,
-        status: action === 'acknowledged' ? 'started' : action === 'arrived' ? 'arrived' : 'completed',
-        acknowledged_at: action === 'acknowledged' ? now : existingProgress?.acknowledged_at || null,
-        arrived_at: action === 'arrived' ? now : existingProgress?.arrived_at || null,
-        completed_at: action === 'completed' ? now : existingProgress?.completed_at || null,
-        latest_location_message_id: action === 'arrived' ? locationMessageId || existingProgress?.latest_location_message_id || null : existingProgress?.latest_location_message_id || null,
-        completion_note: action === 'completed' ? completionNote || null : existingProgress?.completion_note || null,
-        completion_outcome: action === 'completed' ? completionOutcome || 'resolved' : existingProgress?.completion_outcome || null,
-        updated_at: now,
-    };
-
-    const { error: progressError } = await supabaseAdmin
-        .from('commitment_operation_progress')
-        .upsert(progressPayload, { onConflict: 'commitment_id,user_id' });
-
-    if (progressError) throw progressError;
-
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update(updates)
-        .eq('id', commitmentId)
-        .select(`
-            *,
-            owner:owner_user_id(id, full_name, email, avatar_url),
-            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
-        `)
-        .single();
+    );
 
     if (error) throw error;
 
+    const commitment = result?.commitment;
+    const progress = result?.operation_progress;
+    if (!commitment) throw new Error('Operation action returned no Commitment');
+
     await addOperationReaction(commitment.message_id, userId, action);
 
-    if (action === 'completed' && commitment.group_conversation_id) {
+    if (action === 'completed' && commitment.conversation_id) {
         await supabaseAdmin
             .from('conversation_operation_focuses')
             .delete()
-            .eq('conversation_id', commitment.group_conversation_id)
+            .eq('conversation_id', commitment.conversation_id)
             .eq('user_id', userId)
             .eq('commitment_id', commitment.id);
 
         const userName = await getUserDisplayName(userId);
         await insertSystemMessage(
-            commitment.group_conversation_id,
+            commitment.conversation_id,
             `${userName} termino "${commitment.title}"`,
             userId,
             {
@@ -832,7 +750,7 @@ export async function registerCommitmentOperationAction(
                     commitment_id: commitment.id,
                     title: commitment.title,
                     completed_by_name: userName,
-                    completed_at: now,
+                    completed_at: progress?.completed_at || new Date().toISOString(),
                     outcome: completionOutcome || 'resolved',
                     note: completionNote || null,
                 },
@@ -844,10 +762,10 @@ export async function registerCommitmentOperationAction(
                 commitment.owner_user_id,
                 'Tarea terminada',
                 `${userName} cerro "${commitment.title}"`,
-                { type: 'operation_completed', commitmentId: commitment.id, conversationId: commitment.group_conversation_id }
+                { type: 'operation_completed', commitmentId: commitment.id, conversationId: commitment.conversation_id }
             );
         }
     }
 
-    return mergeCommitmentWithProgress(data, { ...existingProgress, ...progressPayload });
+    return mergeCommitmentWithProgress(commitment, progress);
 }

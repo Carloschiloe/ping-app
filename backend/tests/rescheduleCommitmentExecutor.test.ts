@@ -27,13 +27,13 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 // due_at moves). Every fixture below now sets assigned_to_user_id
 // explicitly to disambiguate which path a given test exercises.
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
-vi.mock('../src/services/commitment.service', () => ({
+vi.mock('../src/services/commitmentApplication.service', () => ({
     counterProposeCommitment: vi.fn(),
     editCommitment: vi.fn(),
 }));
 
 import { rescheduleCommitmentExecutor } from '../src/services/toolExecutors/rescheduleCommitmentExecutor';
-import { counterProposeCommitment, editCommitment } from '../src/services/commitment.service';
+import { counterProposeCommitment, editCommitment } from '../src/services/commitmentApplication.service';
 import { AppError } from '../src/utils/AppError';
 
 const mockCounterProposeCommitment = vi.mocked(counterProposeCommitment);

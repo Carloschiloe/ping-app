@@ -9,10 +9,7 @@ const REPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slice';
 
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
-    ['controllers/calendar.controller.ts:update', LEGACY_WRITER_REASON],
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
-    ['services/call-processing.service.ts:insert', LEGACY_WRITER_REASON],
-    ['services/operation.service.ts:update', LEGACY_WRITER_REASON],
 ]);
 
 const ALLOWED_SQL_DML = new Map<string, string>([
@@ -98,4 +95,78 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(commitmentRouteLines.some((line) => line.includes("'/commitments/:id/operation-action'")))
             .toBe(true); // LEGACY SATELLITE WRITER — migrate in future slice.
     });
+
+    it('mantiene los ejecutores de Commitment detrás de la fachada de aplicación', () => {
+        const executorRoot = path.join(SOURCE_ROOT, 'services', 'toolExecutors');
+        const directInternalImport = /from\s+['"]\.\.\/commitment(?:Proposal)?\.service['"]/;
+        const bypasses = walk(executorRoot, new Set(['.ts']))
+            .filter((file) => directInternalImport.test(fs.readFileSync(file, 'utf8')))
+            .map((file) => unixRelative(SOURCE_ROOT, file));
+
+        expect(bypasses).toEqual([]);
+    });
+
+    it('usa la RPC canónica para mutar el progreso de Operation', () => {
+        const source = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain("apply_commitment_operation_action_with_evidence");
+        expect(source).not.toMatch(
+            /\.from\('commitments'\)\s*\.update\(/,
+        );
+        expect(source).not.toMatch(
+            /\.from\('commitment_operation_progress'\)\s*\.upsert\(/,
+        );
+    });
+
+    it('mantiene Operation alineado con el modelo canónico de Commitment', () => {
+        const source = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
+            'utf8',
+        );
+
+        expect(source).not.toContain('group_conversation_id');
+        expect(source).not.toContain("updates.status = 'completed'");
+        expect(source).not.toContain("commitment.status === 'pending'");
+        expect(source).not.toContain("'in_progress'");
+    });
+
+    it('mantiene Calendar detrás de la fachada de aplicación', () => {
+        const controllerPath = path.join(SOURCE_ROOT, 'controllers', 'calendar.controller.ts');
+        const controller = fs.readFileSync(controllerPath, 'utf8');
+        const actionStart = controller.indexOf('export const syncCommitment = async');
+        const actionSource = actionStart >= 0 ? controller.slice(actionStart) : '';
+
+        expect(controller).toContain(
+            "from '../services/commitmentApplication.service'"
+        );
+        expect(actionSource).toContain('syncCommitmentToProviderThroughCore(');
+        expect(actionSource).not.toContain(".from('commitments')");
+    });
+
+    it('mantiene el endpoint de Operation detrás de la fachada de aplicación', () => {
+        const controllerPath = path.join(SOURCE_ROOT, 'controllers', 'operation.controller.ts');
+        const controller = fs.readFileSync(controllerPath, 'utf8');
+        const actionStart = controller.indexOf('export const registerCommitmentOperationAction');
+        const actionSource = actionStart >= 0 ? controller.slice(actionStart) : '';
+
+        expect(controller).toContain(
+            "from '../services/commitmentApplication.service'"
+        );
+        expect(actionSource).toContain('registerCommitmentOperationActionThroughCore(');
+        expect(actionSource).not.toContain('operationService.registerCommitmentOperationAction(');
+    });
+
+    it('mantiene los controladores de Commitment detrás de la fachada de aplicación', () => {
+        const controllerRoot = path.join(SOURCE_ROOT, 'controllers');
+        const directInternalImport = /from ['"]\.\.\/services\/commitment(?:Proposal)?\.service['"]/;
+        const bypasses = walk(controllerRoot, new Set(['.ts']))
+            .filter((file) => directInternalImport.test(fs.readFileSync(file, 'utf8')))
+            .map((file) => unixRelative(SOURCE_ROOT, file));
+
+        expect(bypasses).toEqual([]);
+    });
+
 });

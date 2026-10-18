@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as operationService from '../services/operation.service';
+import { registerCommitmentOperationAction as registerCommitmentOperationActionThroughCore } from '../services/commitmentApplication.service';
 
 export const getConversationOperationState = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -131,7 +132,7 @@ export const registerCommitmentOperationAction = async (req: Request, res: Respo
         const userId = req.user!.id;
         const id = req.params.id as string;
         const { action, location_message_id, completion_note, completion_outcome } = req.body;
-        const data = await operationService.registerCommitmentOperationAction(
+        const data = await registerCommitmentOperationActionThroughCore(
             userId,
             id,
             action,

@@ -63,7 +63,6 @@ describe('C-3 canonical Messaging writer guard', () => {
         }
 
         expect([...found].sort()).toEqual([
-            'services/call-processing.service.ts', // Calls: fuera de alcance C-3; DB trigger igualmente crea receipts.
             'services/messagingApplication.service.ts',
             'services/morningRoutine.service.ts', // Ping AI: fuera de alcance C-3; DB trigger igualmente crea receipts.
         ]);

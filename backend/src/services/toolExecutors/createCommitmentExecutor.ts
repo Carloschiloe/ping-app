@@ -5,7 +5,7 @@
 // accepted commitment), a personal one goes through createConfirmedCommitment
 // (which itself creates a proposal first, then confirms it — see
 // commitmentProposal.service.ts, unchanged by M-4).
-import { createConfirmedCommitment, createSharedProposal } from '../commitmentProposal.service';
+import { createConfirmedCommitment, createSharedProposal } from '../commitmentApplication.service';
 import { assertConversationParticipantReference } from '../../utils/authz';
 import { AppError } from '../../utils/AppError';
 import type { ToolExecutor, ToolExecutionContext, ToolExecutionOutcome } from '../../types/agentExecution';

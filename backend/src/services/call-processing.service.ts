@@ -4,6 +4,8 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from './transcription.service';
 import { extractCommitment } from './commitment.service';
 import { isLegacySatelliteWriterEnabled } from '../middleware/featureGate';
+import { createProposal } from './commitmentApplication.service';
+import { persistSystemMessage } from './messagingApplication.service';
 
 let openai: OpenAI | null = null;
 function getOpenAiClient(): OpenAI {
@@ -106,25 +108,34 @@ Transcripción:
             return;
         }
 
-        // 7. Post to chat
+        // 7. Persist the call summary through the canonical messaging adapter.
+        // An AI extraction is only a proposal: it must never create a
+        // confirmed Commitment without the user's explicit confirmation.
+        const callerId = typeof call.meta?.callerId === 'string' ? call.meta.callerId : null;
         const summaryMessage = `📞 **Resumen de la llamada**\n\n${summary}`;
-        const { data: msgData } = await supabaseAdmin.from('messages').insert({
-            conversation_id: call.conversation_id,
-            user_id: call.meta?.callerId,
-            text: summaryMessage,
-            meta: { is_ai_summary: true, callId }
-        }).select().single();
+        const summaryRecord = await persistSystemMessage({
+            conversationId: call.conversation_id,
+            senderUserId: callerId || undefined,
+            content: summaryMessage,
+            metadata: { is_ai_summary: true, callId },
+            systemEventType: 'call_summary',
+        });
 
-        if (extraction.hasCommitment && msgData) {
-            // LEGACY SATELLITE WRITER — migrate in future slice.
-            // Commitment Core writers must delegate to commitmentApplication.service.
-            await supabaseAdmin.from('commitments').insert({
-                title: extraction.title,
-                due_at: extraction.dueAt,
-                assigned_to_user_id: call.conversation_id, 
-                message_id: msgData.id,
-                status: 'pending'
-            });
+        if (extraction.hasCommitment && callerId && summaryRecord?.id) {
+            try {
+                await createProposal(callerId, {
+                    title: extraction.title || 'Compromiso detectado en llamada',
+                    due_at: extraction.dueAt,
+                    type: extraction.type,
+                    conversation_id: call.conversation_id,
+                    message_id: summaryRecord.id,
+                    source_kind: 'ai_suggestion',
+                });
+            } catch (proposalError) {
+                // The summary remains durable even if proposal creation has a
+                // transient failure. No direct Commitment write is allowed.
+                console.error('[Call Processing] Commitment proposal failed:', proposalError);
+            }
         }
     } catch (err) {
         console.error('[Call Processing] Failed:', err);

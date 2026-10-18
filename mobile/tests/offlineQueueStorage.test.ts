@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { removeItem } = vi.hoisted(() => ({
@@ -21,5 +23,17 @@ describe('offline queue storage', () => {
         await clearOfflineMessageQueue();
         expect(removeItem).toHaveBeenCalledOnce();
         expect(removeItem).toHaveBeenCalledWith(OFFLINE_QUEUE_KEY);
+    });
+
+    it('guards persistence until the queue has finished hydrating', () => {
+        const source = fs.readFileSync(
+            path.join(__dirname, '../src/hooks/useOfflineSync.ts'),
+            'utf8',
+        );
+        expect(source).toContain('const [isQueueHydrated, setIsQueueHydrated] = useState(false);');
+        expect(source).toMatch(/if \(!isQueueHydrated\) return;/);
+        expect(source).toContain('setIsQueueHydrated(true);');
+        expect(source).toContain('nextAttemptAt: new Date(');
+        expect(source).toContain('Math.min(30000, 1000 * (2 ** retryCount))');
     });
 });
