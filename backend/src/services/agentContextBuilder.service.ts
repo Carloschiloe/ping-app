@@ -1261,7 +1261,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         });
     }
 
-    const transcriptionsPromise = !interpretation.isWriteActionRequest
+    const transcriptionsPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsTranscriptions && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveTranscriptions', params: { conversationId: true, hasTextQuery: !!interpretation.textQuery } });
@@ -1269,7 +1270,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const attachmentsPromise = !interpretation.isWriteActionRequest
+    const attachmentsPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsAttachments && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveAttachments', params: { conversationId: true, kind: 'document' } });
@@ -1282,7 +1284,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // siempre `.eq('owner_user_id', ...)`); memoryBlocked es sólo el mismo
     // principio de "nunca ampliar el scope semántico" ya aplicado a
     // commitments/messages, no una segunda barrera de autorización.
-    const memoryPromise: Promise<RetrievalMemory[]> = !interpretation.isWriteActionRequest
+    const memoryPromise: Promise<RetrievalMemory[]> = !needsClarification
+        && !interpretation.isWriteActionRequest
         && memoryIntentSignal.wantsMemory && !memoryBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMemory', params: { subjectPersonId: !!memorySubjectPersonId, freshness: memoryIntentSignal.memoryFreshness, hasTopicQuery: !!memoryTopicQuery } });
