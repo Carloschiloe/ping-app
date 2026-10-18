@@ -198,3 +198,4 @@ export async function resolveVerifiedReadFollowup(input: {
     const normalized = utterance.trim().normalize('NFC');
     return { query: `${normalized} ${stored.title}`, sourceId: stored.id };
 }
+
