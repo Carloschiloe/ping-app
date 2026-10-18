@@ -216,6 +216,7 @@ export async function resolvePerson(actorUserId: string, input: ResolvePersonInp
             .from('contacts')
             .select('id, owner_user_id, display_name, phone, email')
             .eq('id', input.contactId)
+            .eq('owner_user_id', actorUserId)
             .maybeSingle();
         if (!data || data.owner_user_id !== actorUserId) return { resolved: null, ambiguous: false, candidates: [] };
         return { resolved: contactToPerson(data), ambiguous: false, candidates: [] };
@@ -232,10 +233,11 @@ export async function resolvePerson(actorUserId: string, input: ResolvePersonInp
     const widerAllowedIds = new Set(await getSharedProfileIds(actorUserId));
 
     const candidates: RetrievalPerson[] = [];
+    const authorizedProfileIds = Array.from(new Set([actorUserId, ...widerAllowedIds]));
 
     if (input.email) {
         const email = input.email.trim().toLowerCase();
-        const { data: profiles } = await supabaseAdmin.from('profiles').select('id, full_name, email, avatar_url').eq('email', email);
+        const { data: profiles } = await supabaseAdmin.from('profiles').select('id, full_name, email, avatar_url').in('id', authorizedProfileIds).eq('email', email);
         for (const p of profiles || []) {
             if (p.id === actorUserId || widerAllowedIds.has(p.id)) candidates.push(profileToPerson(p));
         }
@@ -249,7 +251,7 @@ export async function resolvePerson(actorUserId: string, input: ResolvePersonInp
             normalizedPhone = null; // formato invalido -> sin candidatos, nunca un 400 por texto libre malformado
         }
         if (normalizedPhone) {
-            const { data: profiles } = await supabaseAdmin.from('profiles').select('id, full_name, email, avatar_url').eq('phone', normalizedPhone);
+            const { data: profiles } = await supabaseAdmin.from('profiles').select('id, full_name, email, avatar_url').in('id', authorizedProfileIds).eq('phone', normalizedPhone);
             for (const p of profiles || []) {
                 if (p.id === actorUserId || widerAllowedIds.has(p.id)) candidates.push(profileToPerson(p));
             }
@@ -853,17 +855,36 @@ async function retrieveMessagesFullTextAcrossAuthorizedConversations(actorUserId
 // Ventana alrededor de un mensaje: N anteriores + el propio + N posteriores.
 // Usado para "mensajes alrededor de source_message_id" y, por el llamador,
 // para "mensajes asociados a commitment.messageId" (pasando ese mismo id).
+async function getActiveConversationIdsForActor(actorUserId: string): Promise<string[]> {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id, conversations!inner(deleted_at)')
+        .eq('user_id', actorUserId)
+        .is('conversations.deleted_at', null);
+    if (error) throw new AppError(error.message, 500);
+    return Array.from(new Set((data || []).map((row) => row.conversation_id)));
+}
+
+// Ventana alrededor de un mensaje: N anteriores + el propio + N posteriores.
+// La primera consulta sólo puede observar mensajes dentro del universo de
+// conversaciones activas del actor; el messageId nunca se resuelve
+// globalmente antes de autorizarlo.
 async function retrieveMessageWindow(actorUserId: string, window: RetrievalMessageWindow): Promise<RetrievalMessage[]> {
+    const authorizedConversationIds = await getActiveConversationIdsForActor(actorUserId);
+    if (authorizedConversationIds.length === 0) return [];
+
     const { data: source, error } = await supabaseAdmin
         .from('messages')
         .select('id, conversation_id, created_at')
         .eq('id', window.aroundMessageId)
+        .in('conversation_id', authorizedConversationIds)
+        .is('deleted_at', null)
         .maybeSingle();
     if (error) throw new AppError(error.message, 500);
     if (!source) return [];
 
-    // Authorization first: se confirma membership ANTES de traer nada más de
-    // esta conversación, incluso el propio mensaje source.
+    // Revalida el membership canónico antes de traer la ventana completa,
+    // cubriendo una posible revocación entre las dos consultas.
     await assertConversationParticipant(actorUserId, source.conversation_id);
 
     const before = clampLimit(window.before, 5);
@@ -1010,14 +1031,20 @@ export async function retrieveTranscriptions(actorUserId: string, conversationId
 // Transcripción de un attachment específico — autoriza vía la conversación
 // del propio attachment, sin depender de que el caller ya la conozca.
 export async function retrieveTranscriptionForAttachment(actorUserId: string, attachmentId: string): Promise<RetrievalTranscript | null> {
+    const authorizedConversationIds = await getActiveConversationIdsForActor(actorUserId);
+    if (authorizedConversationIds.length === 0) return null;
+
     const { data: attachment, error: attErr } = await supabaseAdmin
         .from('attachments')
         .select('id, message_id, context_conversation_id, kind, lifecycle_status')
         .eq('id', attachmentId)
+        .in('context_conversation_id', authorizedConversationIds)
         .maybeSingle();
     if (attErr) throw new AppError(attErr.message, 500);
     if (!attachment || attachment.lifecycle_status !== 'attached') return null;
 
+    // Revalida membership antes de consultar la transcripción, que puede
+    // contener contenido sensible derivado del audio.
     await assertConversationParticipant(actorUserId, attachment.context_conversation_id);
     if (attachment.kind !== 'audio') return null;
 
