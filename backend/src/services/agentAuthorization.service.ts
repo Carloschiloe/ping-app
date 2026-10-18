@@ -10,6 +10,9 @@ import { runAgentPlanning, resolveDeterministicRouting, type AgentPlanOrchestrat
 import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
 import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
+import { AgentDialogueCheckpointService } from './agentDialogueCheckpoint.service';
+import { buildDialogueScopeKey } from './agentDialogueState.service';
+import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
@@ -60,6 +63,54 @@ function rowToAuthorization(row: any): AgentAuthorization {
     };
 }
 
+function isShortAuthorizationConfirmation(value: string): boolean {
+    const normalized = value.trim();
+    if (!normalized || normalized.length > 80) return false;
+    return /^(?:sí|si|ok|okay|confirmo|confirmar|confirma|confírmalo|confirmalo|dale|yes)\\b/iu.test(normalized)
+        || /\\b(?:confirma|confirmar|confírmalo|confirmalo)\\b/iu.test(normalized);
+}
+
+async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<string> {
+    if (!isCanonicalDurableAgentRuntimeEnabled()
+        || !input.conversationId
+        || !isShortAuthorizationConfirmation(input.input)) {
+        return input.input;
+    }
+
+    const dialogueScopeKey = buildDialogueScopeKey({
+        conversationId: input.conversationId,
+        surface: input.channel ?? 'mobile',
+    });
+    const checkpoint = await new AgentDialogueCheckpointService().loadDialogueCheckpoint({
+        actorUserId: input.actorUserId,
+        dialogueScopeKey,
+    });
+    if (checkpoint.status !== 'found') return input.input;
+
+    const activeDialogue = checkpoint.snapshot.activeDialogue;
+    if (!activeDialogue || activeDialogue.kind !== 'agent_dialogue_state_v1') return input.input;
+    const state = activeDialogue.state as {
+        actorUserId?: string;
+        dialogueScopeKey?: string;
+        lifecycle?: string;
+        currentPlanDigestRef?: string | null;
+        openObjective?: { sourceUtterance?: string } | null;
+    };
+    if (state.actorUserId !== input.actorUserId
+        || state.dialogueScopeKey !== dialogueScopeKey
+        || state.lifecycle !== 'plan_pending_authorization'
+        || state.currentPlanDigestRef !== input.planDigest
+        || !state.openObjective?.sourceUtterance?.trim()) {
+        return input.input;
+    }
+
+    // The confirmation text is a transport-level acknowledgement. The
+    // durable pending objective remains the semantic source for the fresh
+    // digest re-plan; authorization still requires the exact digest match.
+    return state.openObjective.sourceUtterance;
+}
+
+
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
     if (await isPlanDigestNonExecutable({
@@ -71,9 +122,10 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     })) {
         return { ok: false, failureCode: 'plan_rejected', message: 'The confirmed plan is no longer executable.' };
     }
+    const replanInput = await replanInputForAuthorization(input);
     const orchestratorInput: AgentPlanOrchestratorInput = {
         actorUserId: input.actorUserId,
-        input: input.input,
+        input: replanInput,
         conversationId: input.conversationId,
         channel: input.channel,
         locale: input.locale,
@@ -97,7 +149,7 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // final plan-status owner (semantic enrichment, LLM fallback,
     // validation, digest — all unchanged, all still exclusively there).
     // authorizePlan itself contains zero interpreter-selection policy.
-    const routing = await resolveDeterministicRouting(input.input, {
+    const routing = await resolveDeterministicRouting(replanInput, {
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
     });
