@@ -25,7 +25,7 @@ describe('M-2 canonical Memory writer guard', () => {
                 .replace(/\/\*[\s\S]*?\*\//g, '')
                 .replace(/^\s*\/\/.*$/gm, '');
             if (directWrite.test(executableSource)) {
-                found.add(path.relative(SOURCE_ROOT, file).replaceAll('\\\\', '/'));
+                found.add(path.relative(SOURCE_ROOT, file).replaceAll('\\', '/'));
             }
             directWrite.lastIndex = 0;
         }
