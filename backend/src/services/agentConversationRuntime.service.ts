@@ -33,7 +33,8 @@ async function executeConfirmedTurn(
     context: DurableTurnPostProcessContext,
 ): Promise<AgentTurnResult> {
     const turn = context.result;
-    if (turn.kind !== 'plan' || turn.confirmationRequested !== true) return turn;
+    if (turn.kind !== 'plan'
+        || (turn.confirmationRequested !== true && turn.confirmationState !== 'received')) return turn;
     if (typeof turn.plan.planDigest !== 'string' || turn.plan.planDigest.length === 0) {
         return executionResponse('El plan confirmado ya no está disponible para autorizarlo.', false);
     }
