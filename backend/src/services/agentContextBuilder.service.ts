@@ -1247,13 +1247,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // filters the returned set defensively so a broad adapter or a stale
     // cache cannot leak an item outside an explicit temporal request.
     const timeFilteredCommitments = timeRange
-        ? sortedCommitments.filter((commitment) => {
-            const dueMs = commitment.dueAt ? Date.parse(commitment.dueAt) : NaN;
+        ? (() => {
             const fromMs = Date.parse(timeRange.from);
             const toMs = Date.parse(timeRange.to);
-            return Number.isFinite(dueMs) && Number.isFinite(fromMs) && Number.isFinite(toMs)
-                && dueMs >= fromMs && dueMs < toMs;
-        })
+            return sortedCommitments.filter((commitment) => {
+                const dueMs = commitment.dueAt ? Date.parse(commitment.dueAt) : NaN;
+                return Number.isFinite(dueMs) && Number.isFinite(fromMs) && Number.isFinite(toMs)
+                    && dueMs >= fromMs && dueMs < toMs;
+            });
+        })()
         : sortedCommitments;
     const semanticallyFilteredCommitments = overdueOnlyQuery
         ? timeFilteredCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
