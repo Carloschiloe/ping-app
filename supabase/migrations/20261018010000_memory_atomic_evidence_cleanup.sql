@@ -60,6 +60,7 @@ as $$
           on r.memory_record_id = mr.id
         left join public.memory_record_evidence mre
           on mre.memory_record_id = mr.id
+         and not (mre.source_type = p_source_type and mre.source_id = p_source_id)
         group by mr.id
     ),
     updated as (
@@ -136,6 +137,7 @@ as $$
           on r.memory_record_id = mr.id
         left join public.memory_record_evidence mre
           on mre.memory_record_id = mr.id
+         and not (mre.source_type = p_source_type and mre.source_id = p_source_id)
         group by mr.id
     ),
     updated as (
