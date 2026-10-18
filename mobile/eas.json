@@ -4,45 +4,6 @@
     "appVersionSource": "local"
   },
   "build": {
-    "staging-apk": {
-      "distribution": "internal",
-      "environment": "preview",
-      "channel": "staging",
-      "autoIncrement": false,
-      "env": {
-        "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
-      },
-      "android": {
-        "buildType": "apk"
-      }
-    },
-    "staging-aab": {
-      "distribution": "store",
-      "environment": "preview",
-      "channel": "staging",
-      "autoIncrement": false,
-      "env": {
-        "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
-      },
-      "android": {
-        "buildType": "app-bundle"
-      }
-    },
-    "staging-ios": {
-      "distribution": "internal",
-      "environment": "preview",
-      "channel": "staging",
-      "autoIncrement": false,
-      "env": {
-        "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "oonijgmddgyymhrlnvuu"
-      },
-      "ios": {
-        "simulator": false
-      }
-    },
     "production": {
       "distribution": "store",
       "environment": "production",
