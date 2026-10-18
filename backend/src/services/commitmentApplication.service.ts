@@ -2,6 +2,7 @@ import { AppError } from '../utils/AppError';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import * as commitmentLifecycle from './commitment.service';
 import * as commitmentProposals from './commitmentProposal.service';
+import * as operationLegacy from './operation.service';
 
 // This module is the only application-facing Commitment write boundary.
 // Controllers and compatibility routes delegate here; persistence details
@@ -33,6 +34,10 @@ export const scheduleFollowUp = commitmentLifecycle.scheduleFollowUp;
 export const archiveCommitment = commitmentLifecycle.archiveCommitment;
 export const restoreCommitment = commitmentLifecycle.restoreCommitment;
 export const getArchivedCommitments = commitmentLifecycle.getArchivedCommitments;
+
+// Legacy Operation adapter. The endpoint enters through this facade while
+// its composite persistence remains allowlisted for a later RPC migration.
+export const registerCommitmentOperationAction = operationLegacy.registerCommitmentOperationAction;
 
 // Legacy /postpone adapter. It names an old route but executes the canonical
 // counter-proposal transition and evidence RPC.

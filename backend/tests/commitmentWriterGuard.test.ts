@@ -108,6 +108,19 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(bypasses).toEqual([]);
     });
 
+    it('mantiene el endpoint de Operation detrás de la fachada de aplicación', () => {
+        const controllerPath = path.join(SOURCE_ROOT, 'controllers', 'operation.controller.ts');
+        const controller = fs.readFileSync(controllerPath, 'utf8');
+        const actionStart = controller.indexOf('export const registerCommitmentOperationAction');
+        const actionSource = actionStart >= 0 ? controller.slice(actionStart) : '';
+
+        expect(controller).toContain(
+            "from '../services/commitmentApplication.service'"
+        );
+        expect(actionSource).toContain('registerCommitmentOperationActionThroughCore(');
+        expect(actionSource).not.toContain('operationService.registerCommitmentOperationAction(');
+    });
+
     it('mantiene los controladores de Commitment detrás de la fachada de aplicación', () => {
         const controllerRoot = path.join(SOURCE_ROOT, 'controllers');
         const directInternalImport = /from ['"]\.\.\/services\/commitment(?:Proposal)?\.service['"]/;
