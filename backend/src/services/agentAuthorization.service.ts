@@ -16,6 +16,7 @@ import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.serv
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
+import { resolveTextSurface } from './agentInputEnvelope.service';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
@@ -79,7 +80,7 @@ async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<s
 
     const dialogueScopeKey = buildDialogueScopeKey({
         conversationId: input.conversationId,
-        surface: input.channel ?? 'mobile',
+        surface: resolveTextSurface(input.channel),
     });
     const checkpoint = await new AgentDialogueCheckpointService().loadDialogueCheckpoint({
         actorUserId: input.actorUserId,
