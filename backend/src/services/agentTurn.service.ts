@@ -37,17 +37,22 @@ export async function runAgentTurn(
     const selectedReadCandidate = clarificationSelection.kind === 'resolved'
         ? clarificationSelection
         : null;
+    const rememberReadContext = (readContext: Parameters<typeof rememberVerifiedReadReferent>[0]) => {
+        rememberVerifiedReadReferent(readContext);
+        options.onReadContext?.(readContext);
+    };
+    const coreOptions = selectedReadCandidate
+        ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId, responseInput: content, onReadContext: rememberReadContext }
+        : followup
+            ? { ...options, authorizedCommitmentReferentId: followup.sourceId, responseInput: content, onReadContext: rememberReadContext }
+            : { ...options, onReadContext: rememberReadContext };
     const result = await runCoreAgentTurn(
         followup
             ? { ...input, input: followup.query }
             : selectedReadCandidate
                 ? { ...input, input: selectedReadCandidate.query }
                 : input,
-        selectedReadCandidate
-            ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId }
-            : followup
-                ? { ...options, authorizedCommitmentReferentId: followup.sourceId }
-                : options,
+        coreOptions,
     );
 
     if (followup) {
