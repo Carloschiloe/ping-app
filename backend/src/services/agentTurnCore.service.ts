@@ -1197,7 +1197,6 @@ export async function runAgentTurn(
     options.onReadContext?.({
         status: response.status,
         commitments: context.commitments
-            .filter((commitment) => commitment.entityType === 'commitment')
             .map((commitment) => ({ id: commitment.id, title: commitment.title })),
         citations: response.citations ?? [],
     });
