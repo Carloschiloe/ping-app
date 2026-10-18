@@ -7,6 +7,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSendMessage } from '../api/queries';
 import { buildCaptureRequest } from '../types/capture';
+import { useAuth } from '../context/AuthContext';
+import { useCreateCommitment } from '../api/query-modules/commitments';
+import { AISuggestionModal } from '../components/AISuggestionModal';
+import { resolveMessageMetadata } from '../utils/messageCompat';
 import * as Haptics from 'expo-haptics';
 
 const PRESET_LABELS = ['Llamar', 'Enviar', 'Reunión', 'Entregar', 'Ver', 'Confirmar'];
@@ -15,7 +19,12 @@ export default function QuickCaptureScreen() {
     const navigation = useNavigation();
     const [text, setText] = useState('');
     const [saving, setSaving] = useState(false);
+    const { user } = useAuth();
     const { mutateAsync: sendMessage } = useSendMessage();
+    const { mutateAsync: createCommitment } = useCreateCommitment();
+    const [suggestionData, setSuggestionData] = useState<any>(null);
+    const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
+    const [isConfirmingSuggestion, setIsConfirmingSuggestion] = useState(false);
 
     const handleSave = useCallback(async () => {
         const trimmed = text.trim();
@@ -23,12 +32,25 @@ export default function QuickCaptureScreen() {
         setSaving(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         try {
-            await sendMessage(buildCaptureRequest(trimmed, 'quick_capture'));
-            Alert.alert('✅ Capturado', 'Tu mensaje quedó guardado para seguimiento.', [
-                { text: 'OK', onPress: () => navigation.goBack() }
-            ]);
+            const response = await sendMessage(buildCaptureRequest(trimmed, 'quick_capture'));
+            const message = response?.message;
+            const suggestion = resolveMessageMetadata(message).suggestedTask;
+
+            if (suggestion?.title && suggestion?.dueAt) {
+                setSuggestionData({
+                    ...suggestion,
+                    messageId: message.id,
+                    conversation_id: message.conversation_id,
+                    assignedToUserId: suggestion.assignedToUserId || user?.id,
+                });
+                setSuggestionModalVisible(true);
+            } else {
+                Alert.alert('✅ Capturado', 'Tu mensaje quedó guardado para seguimiento.', [
+                    { text: 'OK', onPress: () => navigation.goBack() }
+                ]);
+            }
         } catch (e: any) {
-            Alert.alert('Error', e.message || 'No se pudo guardar la nota.');
+            Alert.alert('Error', e.message || 'No se pudo guardar la captura.');
         } finally {
             setSaving(false);
         }
@@ -50,7 +72,7 @@ export default function QuickCaptureScreen() {
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
                 <View style={styles.card}>
                     <Ionicons name="flash" size={28} color="#f59e0b" style={styles.flashIcon} />
-                    <Text style={styles.hint}>¿Qué necesitas recordar? Ping detectará si hay un compromiso y lo guardará automáticamente.</Text>
+                    <Text style={styles.hint}>¿Qué necesitas recordar? Ping analizará el mensaje y te propondrá un compromiso para que tú lo confirmes.</Text>
 
                     <TextInput
                         style={styles.input}
@@ -87,6 +109,35 @@ export default function QuickCaptureScreen() {
                     <Text style={styles.saveBtnText}>{saving ? 'Guardando…' : 'Capturar mensaje'}</Text>
                 </TouchableOpacity>
             </ScrollView>
+
+            <AISuggestionModal
+                visible={suggestionModalVisible}
+                suggestionData={suggestionData}
+                user={user}
+                isGroup={false}
+                groupParticipants={[]}
+                onClose={() => navigation.goBack()}
+                onUpdateData={setSuggestionData}
+                avatarColor={() => '#0a84ff'}
+                onConfirm={async () => {
+                    if (!suggestionData || isConfirmingSuggestion) return;
+                    setIsConfirmingSuggestion(true);
+                    try {
+                        await createCommitment(suggestionData);
+                        setSuggestionModalVisible(false);
+                        navigation.goBack();
+                    } catch (error) {
+                        Alert.alert(
+                            'No se pudo confirmar',
+                            error instanceof Error
+                                ? error.message
+                                : 'El compromiso no fue guardado. Revisa los datos e inténtalo nuevamente.',
+                        );
+                    } finally {
+                        setIsConfirmingSuggestion(false);
+                    }
+                }}
+            />
         </KeyboardAvoidingView>
     );
 }
