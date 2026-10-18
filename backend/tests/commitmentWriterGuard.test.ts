@@ -11,7 +11,6 @@ const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slic
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
     ['controllers/calendar.controller.ts:update', LEGACY_WRITER_REASON],
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
-    ['services/call-processing.service.ts:insert', LEGACY_WRITER_REASON],
     ['services/operation.service.ts:update', LEGACY_WRITER_REASON],
 ]);
 
