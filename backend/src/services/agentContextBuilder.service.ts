@@ -874,16 +874,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const normalizedFollowUp = input.input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const priorMatches = priorReferents.filter((referent) => {
         const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        if (/\\bsegunda\\b|\\bsecond\\b/.test(normalizedFollowUp)) return false;
-        if (/\\bprimera\\b|\\bfirst\\b/.test(normalizedFollowUp)) return false;
-        return label && normalizedFollowUp.split(/\\s+/).some((token) => token.length > 2 && label.includes(token));
+        if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
+        if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) return false;
+        return label && normalizedFollowUp.split(/\s+/).some((token) => token.length > 2 && label.includes(token));
     });
     let priorReferentId: string | undefined;
     let priorReferentCandidates: Array<{ id: string; label: string }> = [];
-    if (/\\bsegunda\\b|\\bsecond\\b/.test(normalizedFollowUp)) {
+    if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) {
         const candidate = priorReferents[1];
         if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
-    } else if (/\\bprimera\\b|\\bfirst\\b/.test(normalizedFollowUp)) {
+    } else if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) {
         const candidate = priorReferents[0];
         if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
     } else if (priorMatches.length === 1 && priorMatches[0].canonicalId) {
@@ -891,7 +891,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     } else if (priorMatches.length > 1) {
         priorReferentCandidates = priorMatches.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
-    } else if (priorReferents.length > 1 && /\\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\\b/.test(normalizedFollowUp)) {
+    } else if (priorReferents.length > 1 && /\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\b/.test(normalizedFollowUp)) {
         priorReferentCandidates = priorReferents.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
     }
