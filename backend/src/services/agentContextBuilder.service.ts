@@ -1156,7 +1156,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments
+        && interpretation.proposalFocus !== null
+        && !personScopeBlocked
+        && !overdueOnlyQuery
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
