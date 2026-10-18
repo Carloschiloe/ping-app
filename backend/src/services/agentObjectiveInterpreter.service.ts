@@ -703,7 +703,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         // frase que calzara con más de un patrón nunca queda ambigua.
 
         // Short companion correction is consumed by the dialogue continuation path.
-        const companionMatch = text.match(/^\\s*(?:es\\s+)?con\\s+([\\p{Lu}][\\p{L}]*)\\s*$/iu);
+        const companionMatch = text.match(/^\s*(?:es\s+)?con\s+([\p{Lu}][\p{L}]*)\s*$/iu);
         if (companionMatch) {
             const obj = baseObjective('unsupported', input, context.actorUserId, 'deterministic');
             (obj as any).objectiveType = 'edit_existing_commitment';
