@@ -107,7 +107,7 @@ try {
   `,
   ], { capture: true }).stdout.trim();
 
-  if (schemaVerification !== 't') {
+  if (schemaVerification !== 'true') {
     throw new Error('Fresh migration schema verification failed');
   }
 
