@@ -166,7 +166,7 @@ export function createSupabaseStorageMock(options: {
     ));
     const download = vi.fn(() => Promise.resolve(
         options.download ?? {
-            data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/m4a' }),
+            data: new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37])], { type: 'application/pdf' }),
             error: null,
         }
     ));
