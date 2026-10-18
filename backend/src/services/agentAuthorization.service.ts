@@ -11,12 +11,9 @@ import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
 import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
 import { AgentDialogueCheckpointService } from './agentDialogueCheckpoint.service';
-import { buildDialogueScopeKey } from './agentDialogueState.service';
-import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
-import { resolveTextSurface } from './agentInputEnvelope.service';
 
 // Sección 32 — TTL corto y real; los tests controlan el reloj pasando `now`
 // explícitamente (mismo patrón ya usado en runAgentPlanning), nunca
@@ -72,16 +69,18 @@ function isShortAuthorizationConfirmation(value: string): boolean {
 }
 
 async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<string> {
-    if (!isCanonicalDurableAgentRuntimeEnabled()
+    if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true'
+        || !process.env.PING_M7_DATABASE_URL
         || !input.conversationId
         || !isShortAuthorizationConfirmation(input.input)) {
         return input.input;
     }
 
-    const dialogueScopeKey = buildDialogueScopeKey({
-        conversationId: input.conversationId,
-        surface: resolveTextSurface(input.channel),
-    });
+    // A conversation id is itself the durable dialogue scope key. Keep
+    // authorization independent from the dialogue-state implementation so
+    // the authorization boundary remains a consumer of the checkpoint API,
+    // never of the in-memory state machine.
+    const dialogueScopeKey = input.conversationId;
     const checkpoint = await new AgentDialogueCheckpointService().loadDialogueCheckpoint({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
