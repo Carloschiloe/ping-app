@@ -70,6 +70,10 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
     remember_fact: z.object({
         factContent: z.string().trim().min(1).max(2000),
     }).strict(),
+    edit_commitment: z.object({
+        commitmentId: UUID,
+        title: z.string().trim().min(1).max(120),
+    }).strict(),
     cancel_commitment: z.object({
         commitmentId: UUID,
     }).strict(),
@@ -208,6 +212,14 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.memory', failureModes: ['missing_context', 'policy_blocked'],
+    },
+    edit_commitment: {
+        toolId: 'edit_commitment', version: 1, category: 'WRITE', domain: 'commitment',
+        description: 'Edits the title of an existing canonical commitment through the audited application boundary.',
+        argumentNames: ['commitmentId', 'title'], sideEffectClass: 'state_change',
+        authorizationRequirement: 'commitment_owner', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },
     // M-9 — cancel_commitment, the seventh WRITE tool. Reuses the SAME
     // canonical writer mobile's own "Cancelar" menu action already calls
