@@ -883,7 +883,7 @@ export async function classifyPlanCorrection(
     if (!trimmed) {
         return { isCorrection: false, reason: 'empty_turn' };
     }
-    const companionCorrection = /^s*(?:es|era|será|sera)\\s+con\\s+(.+?)s*$/iu.test(trimmed);
+    const companionCorrection = /^\s*(?:es|era|será|sera)\s+con\s+(.+?)\s*$/iu.test(trimmed);
     if (pendingPlan && companionCorrection) {
         return { isCorrection: true, reason: 'title_correction' };
     }
