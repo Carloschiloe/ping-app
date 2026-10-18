@@ -1342,7 +1342,9 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
     const answer = isTemporalCommitmentRead
         ? (language === 'es'
-            ? 'No tienes compromisos en el período solicitado.'
+            ? (context.commitments.length === 0 && context.messages.length + context.events.length + context.transcriptions.length + context.attachments.length === 0
+                ? 'No tienes compromisos en el período solicitado.'
+                : 'No encontré compromisos en el período solicitado.')
             : 'I didn\'t find any commitments in the requested period.')
         : isComparisonWithoutEvidence
             ? (language === 'es'
@@ -1523,10 +1525,11 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
                 context.timezone,
                 c.entityType === 'commitment_proposal' ? 'commitment_proposal' : 'commitment',
             ));
-            if (!hasActualOverdue) {
+            const hasCanonicalCommitment = context.commitments.some((commitment) => commitment.entityType === 'commitment');
+            if (!hasActualOverdue && (context.commitments.length === 0 || hasCanonicalCommitment)) {
                 return this.withDiagnostics({
                     status: 'answered',
-                    answer: language === 'es' ? 'No tienes compromisos atrasados.' : 'You have no overdue commitments.',
+                    answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
                     claims: [],
                     citations: [],
                 }, 'deterministic', startedAt, sourceCount);
