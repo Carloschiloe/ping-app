@@ -5,6 +5,7 @@ export * from './agentTurnCore.service';
 import { runAgentTurn as runCoreAgentTurn } from './agentTurnCore.service';
 import {
     forgetReadFollowupReferent,
+    rememberVerifiedReadReferent,
     resolveVerifiedReadFollowup,
 } from './agentReadFollowupReferent.service';
 import {
