@@ -12,6 +12,7 @@ const integrationTests = [
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'fullTextRetrieval.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'memoryRls.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'memoryAtomicCleanup.integration.sql'),
+  join(repositoryRoot, 'backend', 'tests', 'postgres', 'memoryAtomicIngestion.integration.sql'),
 ];
 const postgresBin = process.env.POSTGRES_BIN ?? '';
 const executable = (name, windowsName = name) => (
