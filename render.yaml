@@ -37,3 +37,20 @@ services:
         value: "false"
       - key: ENABLE_PRIVATE_FILE_UPLOADS
         value: "false"
+
+  - type: cron
+    name: ping-expired-attachment-cleanup
+    runtime: node
+    region: oregon
+    plan: free
+    schedule: "*/15 * * * *"
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run cleanup:expired-attachments
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
