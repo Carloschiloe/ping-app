@@ -1568,7 +1568,11 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         if (status === 'answered'
             && context.queryCardinality === 'exhaustive_list'
             && !context.proposalFocus
-            && !context.wantsOverdueFocus) {
+            && !context.wantsOverdueFocus
+            && !context.requestedTransition
+            && context.events.length === 0
+            && context.memoryFacts.length === 0
+            && context.historicalMemoryFacts.length === 0) {
             return this.withDiagnostics(buildCommitmentListResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.followUpAttribute) {
