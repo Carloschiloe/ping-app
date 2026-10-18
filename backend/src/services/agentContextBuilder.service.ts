@@ -1183,9 +1183,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
     const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments
-        && (interpretation.proposalFocus !== null || interpretation.statusHints === null)
         && !personScopeBlocked
         && !overdueOnlyQuery
+        && !futureOnlyTemporal
+        && !priorReferentId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
