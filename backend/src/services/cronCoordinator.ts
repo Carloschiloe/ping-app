@@ -1,10 +1,13 @@
 import { checkDueCommitments } from './push.service';
+import { cleanupExpiredMessageAttachments } from './attachmentApplication.service';
 import { startMorningRoutineCron } from './morningRoutine.service';
 import { getEnvConfig } from '../config/env';
 
 const env = getEnvConfig();
 let hasScheduledJobs = false;
 let isCheckingCommitments = false;
+let isCleaningExpiredAttachments = false;
+const EXPIRED_ATTACHMENT_SWEEP_MS = 15 * 60_000;
 
 export function startScheduledJobs() {
     if (!env.runCronJobs) {
@@ -31,5 +34,27 @@ export function startScheduledJobs() {
     }, 60_000);
 
     startMorningRoutineCron();
+
+    const sweepExpiredAttachments = () => {
+        if (isCleaningExpiredAttachments) {
+            console.warn('[CronCoordinator] expired attachment sweep skipped (previous run still in progress).');
+            return;
+        }
+        isCleaningExpiredAttachments = true;
+        cleanupExpiredMessageAttachments()
+            .then((result) => {
+                if (result.examined > 0) {
+                    console.info('[CronCoordinator] expired attachment sweep completed:', result);
+                }
+            })
+            .catch((err) => console.error('[CronCoordinator] expired attachment sweep failed:', err))
+            .finally(() => {
+                isCleaningExpiredAttachments = false;
+            });
+    };
+
+    sweepExpiredAttachments();
+    const interval = setInterval(sweepExpiredAttachments, EXPIRED_ATTACHMENT_SWEEP_MS);
+    interval.unref?.();
     hasScheduledJobs = true;
 }

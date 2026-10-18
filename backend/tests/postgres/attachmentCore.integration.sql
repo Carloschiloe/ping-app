@@ -227,6 +227,64 @@ begin
 end;
 $$;
 
+-- Expired unattached rows become inaccessible before physical Storage deletion.
+select id as expired_attachment_id
+from public.create_message_attachment_intent(
+    'a4100000-0000-4000-8000-000000000001',
+    :'c4b_conversation_id',
+    'document',
+    'application/pdf',
+    'expired.pdf',
+    'a4100000-0000-4000-8000-000000000013',
+    'chat-media',
+    'conversations/c4b/attachments/a/expired.pdf',
+    '{}'::jsonb
+)
+\gset c4b_
+select set_config('c4b.expired_attachment_id', :'c4b_expired_attachment_id', true);
+
+update public.attachments
+set expires_at = now() - interval '1 minute'
+where id = :'c4b_expired_attachment_id';
+
+do $
+declare
+    v_candidates integer;
+    v_expired public.attachments;
+begin
+    select count(*) into v_candidates
+    from public.list_expired_message_attachments(100)
+    where id = current_setting('c4b.expired_attachment_id')::uuid;
+    if v_candidates <> 1 then
+        raise exception 'expired attachment was not listed';
+    end if;
+
+    select * into v_expired
+    from public.claim_expired_message_attachment(
+        current_setting('c4b.expired_attachment_id')::uuid
+    );
+    if v_expired.lifecycle_status <> 'expired'
+       or v_expired.message_id is not null
+       or v_expired.tombstoned_at is null then
+        raise exception 'expired attachment was not claimed safely';
+    end if;
+
+    begin
+        perform public.complete_message_attachment(
+            current_setting('c4b.expired_attachment_id')::uuid,
+            'a4100000-0000-4000-8000-000000000001',
+            'application/pdf',
+            128
+        );
+        raise exception 'expired attachment unexpectedly completed';
+    exception when others then
+        if sqlstate <> '55000' then
+            raise;
+        end if;
+    end;
+end;
+$;
+
 -- RLS: participante ve attached; outsider no. Authenticated no escribe.
 do $$
 begin

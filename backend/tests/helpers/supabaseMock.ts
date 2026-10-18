@@ -145,6 +145,7 @@ export function createSupabaseStorageMock(options: {
     upload?: { data: any; error: any };
     list?: { data: any; error: any };
     download?: { data: any; error: any };
+    remove?: { data: any; error: any };
 } = {}) {
     const createSignedUrl = vi.fn(() => Promise.resolve(
         options.read ?? { data: { signedUrl: 'https://signed.invalid/read' }, error: null }
@@ -170,8 +171,11 @@ export function createSupabaseStorageMock(options: {
             error: null,
         }
     ));
-    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl, list, download }));
-    return { from, createSignedUrl, createSignedUploadUrl, list, download };
+    const remove = vi.fn(() => Promise.resolve(
+        options.remove ?? { data: [], error: null }
+    ));
+    const from = vi.fn(() => ({ createSignedUrl, createSignedUploadUrl, list, download, remove }));
+    return { from, createSignedUrl, createSignedUploadUrl, list, download, remove };
 }
 
 export function supabaseAdminMockModule() {

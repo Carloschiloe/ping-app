@@ -281,3 +281,49 @@ export async function listExpiredMessageAttachments(limit = 100) {
     if (error) throw attachmentError(error, 'Unable to list expired attachments');
     return data || [];
 }
+
+export type ExpiredMessageAttachmentCleanupResult = {
+    examined: number;
+    claimed: number;
+    removed: number;
+    failed: number;
+};
+
+export async function cleanupExpiredMessageAttachments(
+    limit = 100
+): Promise<ExpiredMessageAttachmentCleanupResult> {
+    const candidates = await listExpiredMessageAttachments(limit);
+    const result: ExpiredMessageAttachmentCleanupResult = {
+        examined: candidates.length,
+        claimed: 0,
+        removed: 0,
+        failed: 0,
+    };
+
+    for (const candidate of candidates as AttachmentRow[]) {
+        const { data, error } = await supabaseAdmin.rpc('claim_expired_message_attachment', {
+            p_attachment_id: candidate.id,
+        });
+        // A concurrent cleanup or a completed attachment can legitimately
+        // make this candidate disappear between list and claim.
+        if (error?.code === 'P0002') continue;
+        if (error) throw attachmentError(error, 'Unable to claim expired attachment');
+
+        const claimed = rpcRow(data) as AttachmentRow | null;
+        if (!claimed) continue;
+        result.claimed += 1;
+
+        const { error: removeError } = await supabaseAdmin.storage
+            .from(claimed.bucket)
+            .remove([claimed.object_path]);
+        if (removeError) {
+            // The row remains expired and inaccessible, so the next sweep
+            // retries the physical deletion without exposing it to users.
+            result.failed += 1;
+            continue;
+        }
+        result.removed += 1;
+    }
+
+    return result;
+}

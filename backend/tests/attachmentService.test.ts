@@ -10,6 +10,7 @@ import {
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
 
 import {
+    cleanupExpiredMessageAttachments,
     completeMessageAttachment,
     createMessageAttachmentReadUrl,
     createMessageAttachmentUploadIntent,
@@ -53,6 +54,66 @@ describe('Message Attachment Core application boundary', () => {
     beforeEach(() => {
         setSupabaseAdminMock(createSupabaseAdminMock({}));
         setSupabaseStorageMock(createSupabaseStorageMock());
+    });
+
+    it('reclama y elimina objetos de adjuntos expirados sin exponerlos a usuarios', async () => {
+        const expiredAttachment = {
+            id: attachmentId,
+            bucket: 'chat-media',
+            object_path: `conversations/${conversation}/attachments/${actor}/expired.pdf`,
+            lifecycle_status: 'uploaded',
+        };
+        const db = createSupabaseAdminMock({
+            'rpc:list_expired_message_attachments': [{ data: [expiredAttachment], error: null }],
+            'rpc:claim_expired_message_attachment': [{
+                data: { ...expiredAttachment, lifecycle_status: 'expired' },
+                error: null,
+            }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(cleanupExpiredMessageAttachments()).resolves.toEqual({
+            examined: 1,
+            claimed: 1,
+            removed: 1,
+            failed: 0,
+        });
+        expect(storage.remove).toHaveBeenCalledWith([expiredAttachment.object_path]);
+        expect(db.getRpcCalls().map((call) => call.name)).toEqual([
+            'list_expired_message_attachments',
+            'claim_expired_message_attachment',
+        ]);
+    });
+
+    it('conserva el estado expired para reintentar si Storage falla', async () => {
+        const expiredAttachment = {
+            id: attachmentId,
+            bucket: 'chat-media',
+            object_path: `conversations/${conversation}/attachments/${actor}/failed.pdf`,
+            lifecycle_status: 'uploaded',
+        };
+        const db = createSupabaseAdminMock({
+            'rpc:list_expired_message_attachments': [{ data: [expiredAttachment], error: null }],
+            'rpc:claim_expired_message_attachment': [{
+                data: { ...expiredAttachment, lifecycle_status: 'expired' },
+                error: null,
+            }],
+        });
+        const storage = createSupabaseStorageMock({
+            remove: { data: null, error: { message: 'storage unavailable' } },
+        });
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(cleanupExpiredMessageAttachments()).resolves.toMatchObject({
+            examined: 1,
+            claimed: 1,
+            removed: 0,
+            failed: 1,
+        });
+        expect(storage.remove).toHaveBeenCalledWith([expiredAttachment.object_path]);
     });
 
     it('crea un upload intent idempotente y no persiste credenciales temporales', async () => {
