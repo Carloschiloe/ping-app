@@ -68,7 +68,7 @@ function wb(alternatives: string): RegExp {
 
 const ACCEPT_VERB = wb('acept[oa]\\w*|aprueba\\w*|apruebo|approve[sd]?|accept(?:s|ed)?');
 const REJECT_VERB = wb('rechaz\\w*|reject(?:s|ed)?');
-const RESCHEDULE_VERB = wb('mueve\\w*|cambia\\w*|reprogram\\w*|posp\\w*|reschedule[sd]?|move[sd]?');
+const RESCHEDULE_VERB = wb('mueve\\w*|c[aá]mbia\\w*|reprogram\\w*|posp\\w*|reschedule[sd]?|move[sd]?');
 const COMPLETE_VERB = wb('completa\\w*|termina\\w*|marca\\w*|resuelve\\w*|complete[sd]?|finish(?:es|ed)?|resolve[sd]?');
 // PING — DECLARATIVE LIFECYCLE TRANSITION FIDELITY (root cause fix):
 // cancel_commitment/cancel_proposal have NEVER been WRITE tools
@@ -701,6 +701,16 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         // Orden deliberado (específico -> general), mismo principio que
         // PROPOSAL_FOCUS_KEYWORDS en agentInputInterpreter.service.ts: una
         // frase que calzara con más de un patrón nunca queda ambigua.
+
+        // Short companion correction is consumed by the dialogue continuation path.
+        const companionMatch = text.match(/^\\s*(?:es\\s+)?con\\s+([\\p{Lu}][\\p{L}]*)\\s*$/iu);
+        if (companionMatch) {
+            const obj = baseObjective('unsupported', input, context.actorUserId, 'deterministic');
+            (obj as any).objectiveType = 'edit_existing_commitment';
+            obj.targetEntities.entityHints = ['la'];
+            obj.targetEntities.personHints = [companionMatch[1]];
+            return obj;
+        }
 
         // 0) communicate_message/communicate_and_wait — un verbo de
         // comunicación explícito (dile/avísale/pregúntale/...) es una señal
@@ -1486,6 +1496,9 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
             providerError: null,
         });
         const result = await this.fallback.interpret(input, context);
+        if (context.pendingPlan && result.objectiveType === 'unsupported') {
+            return { ...result, objectiveType: context.pendingPlan.objectiveType, timeConstraints: { rawHint: extractTimeHint(input) }, source: 'llm_fallback', fallbackReason: reason };
+        }
         return { ...result, source: 'llm_fallback', fallbackReason: reason };
     }
 }
