@@ -108,7 +108,7 @@ describe('private file authorization', () => {
 
         await expect(createPrivateFileReadUrl(userId, 'message', messageId)).resolves.toBeTruthy();
         await expect(createPrivateFileReadUrl(userId, 'message', messageId))
-            .rejects.toMatchObject({ statusCode: 403 });
+            .rejects.toMatchObject({ statusCode: 404 });
         expect(storage.createSignedUrl).toHaveBeenCalledTimes(1);
     });
 
