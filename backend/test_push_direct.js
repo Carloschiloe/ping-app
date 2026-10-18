@@ -5,7 +5,7 @@ const { createClient } = require('@supabase/supabase-js');
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function main() {
-    console.log('\n=== STEP 1: Get all push tokens ===');
+    console.log('\n=== STEP 1: Get all push credentials ===');
     const { data: profiles, error } = await supabase
         .from('profiles')
         .select('id, full_name, expo_push_token')
