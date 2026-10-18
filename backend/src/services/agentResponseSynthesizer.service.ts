@@ -1347,10 +1347,10 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     const isComparisonWithoutEvidence = context.intent.type === 'commitment_query' && !!context.temporalComparison;
     const answer = isTemporalCommitmentRead
         ? (language === 'es'
-            ? (context.commitments.length === 0 && context.messages.length + context.events.length + context.transcriptions.length + context.attachments.length === 0
+            ? (context.commitments.length === 0 && context.evidenceFound
                 ? 'No tienes compromisos en el período solicitado.'
                 : 'No encontré compromisos en el período solicitado.')
-            : 'I didn\'t find any commitments in the requested period.')
+            : 'I didn\\'t find any commitments in the requested period.')
         : isComparisonWithoutEvidence
             ? (language === 'es'
                 ? 'No encontré compromisos con fecha para comparar.'
