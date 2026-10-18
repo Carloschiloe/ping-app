@@ -1248,8 +1248,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // cache cannot leak an item outside an explicit temporal request.
     const timeFilteredCommitments = timeRange
         ? (() => {
-            const fromMs = Date.parse(timeRange.from);
-            const toMs = Date.parse(timeRange.to);
+            const fromMs = Date.parse(timeRange.from ?? '');
+            const toMs = Date.parse(timeRange.to ?? '');
             return sortedCommitments.filter((commitment) => {
                 const dueMs = commitment.dueAt ? Date.parse(commitment.dueAt) : NaN;
                 return Number.isFinite(dueMs) && Number.isFinite(fromMs) && Number.isFinite(toMs)
