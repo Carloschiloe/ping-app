@@ -4,9 +4,13 @@ import { AppError } from './AppError';
 export async function assertConversationParticipant(userId: string, conversationId: string) {
     const { data, error } = await supabaseAdmin
         .from('conversation_participants')
-        .select('conversation_id, role')
+        // Membership in a soft-deleted conversation is no longer active
+        // authorization. Keep the check in the canonical authz primitive so
+        // every caller fails closed consistently.
+        .select('conversation_id, role, conversations!inner(deleted_at)')
         .eq('conversation_id', conversationId)
         .eq('user_id', userId)
+        .is('conversations.deleted_at', null)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
@@ -83,8 +87,9 @@ export async function getSharedProfileIds(userId: string): Promise<string[]> {
 
     const { data: participants, error: participantError } = await supabaseAdmin
         .from('conversation_participants')
-        .select('user_id')
-        .in('conversation_id', conversationIds);
+        .select('user_id, conversations!inner(deleted_at)')
+        .in('conversation_id', conversationIds)
+        .is('conversations.deleted_at', null);
 
     if (participantError) throw new AppError(participantError.message, 500);
     return Array.from(new Set(
