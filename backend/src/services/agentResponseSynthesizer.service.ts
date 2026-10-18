@@ -292,7 +292,8 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
         // is dropped entirely here, never reaching the prompt or the
         // citable allowlist (never just disclaimed).
         memory: excludeOffTargetCommitmentMemory(
-            [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])],
+            [...(context.memoryFacts ?? []), ...(context.historicalMemoryFacts ?? [])]
+                .filter((m) => m.sensitivity === 'normal'),
             context.commitments,
         ).map((m) => ({
             id: m.id, canonicalText: m.canonicalText, isCurrent: m.isCurrent, confidence: m.confidence, observedAt: m.observedAt,
