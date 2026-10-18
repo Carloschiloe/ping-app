@@ -250,7 +250,7 @@ function parseExplicitWeekday(
     const referenceCalendar = new Date(Date.UTC(reference.year, reference.month - 1, reference.day));
     const targetWeekday = WEEKDAYS[normalizeSpanish(weekdayMatch[2])];
     const currentWeekday = referenceCalendar.getUTCDay();
-    const explicitTime = explicitTimeFromText(parserText);
+    const explicitTime = explicitTimeFromText(text);
     const hour = explicitTime?.hour ?? 12;
     const minute = explicitTime?.minute ?? 0;
     const qualifier = normalizeSpanish(weekdayMatch[1] || '');
@@ -311,7 +311,7 @@ export const parseDateFromText = (
     if (!result) return null;
 
     const parsed = result.start.date();
-    const explicitTime = explicitTimeFromText(text);
+    const explicitTime = explicitTimeFromText(parserText);
     return {
         date: wallClockToInstant({
             year: parsed.getFullYear(),
