@@ -9,6 +9,7 @@ import { AppError } from '../utils/AppError';
 import { runAgentPlanning, resolveDeterministicRouting, type AgentPlanOrchestratorInput } from './agentPlanOrchestrator.service';
 import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
+import { isPlanDigestNonExecutable } from './agentPlanInvalidationGuard.service';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
@@ -61,6 +62,15 @@ function rowToAuthorization(row: any): AgentAuthorization {
 
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
+    if (await isPlanDigestNonExecutable({
+        actorUserId: input.actorUserId,
+        conversationId: input.conversationId,
+        channel: input.channel,
+        inputEnvelope: input.inputEnvelope,
+        planDigest: input.planDigest,
+    })) {
+        return { ok: false, failureCode: 'plan_rejected', message: 'The confirmed plan is no longer executable.' };
+    }
     const orchestratorInput: AgentPlanOrchestratorInput = {
         actorUserId: input.actorUserId,
         input: input.input,
