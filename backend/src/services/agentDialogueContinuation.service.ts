@@ -938,29 +938,6 @@ export function buildPendingPlanEdit(input: {
     };
 }
 
-/**
- * A structured objective with its own entity/person/time data is an
- * independent request. It may replace a pending plan, but it must never be
- * treated as an implicit confirmation of that plan.
- */
-export function isIndependentWriteObjective(
-    objective: AgentObjective | null | undefined,
-): boolean {
-    if (!objective || objective.objectiveType === 'unsupported') return false;
-    return objective.targetEntities.entityHints.length > 0
-        || objective.targetEntities.personHints.length > 0
-        || Boolean(objective.timeConstraints.rawHint);
-}
-
-/**
- * A pending-plan turn may be represented by two interpreters: the route
- * interpreter and the context-aware objective interpreter. The route result
- * is safe to use directly only when it is self-contained (an explicit
- * approve/reject decision or an independently specified objective). An empty
- * write-shaped proposal must be reinterpreted with the pending-plan context;
- * otherwise a deferral/correction can accidentally open a new objective.
- */
-
 export function isSelfContainedPendingPlanCandidate(
     objective: AgentObjective | null | undefined,
 ): boolean {
