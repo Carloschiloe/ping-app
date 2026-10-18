@@ -197,9 +197,26 @@ export const analyzeMessage = async (req: Request, res: Response, next: NextFunc
         const userId = req.user!.id;
         const { id } = req.params;
 
+        // Authorize the actor's conversation scope before reading message content.
+        // The message query is constrained by the server-owned participant set;
+        // a client-supplied message id can never select an unauthorized conversation.
+        const { data: participations, error: participationError } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('user_id', userId);
+        if (participationError) throw participationError;
+        const authorizedConversationIds = Array.from(new Set(
+            (participations || []).map((row: any) => row.conversation_id).filter(Boolean),
+        ));
+        if (authorizedConversationIds.length === 0) {
+            res.status(404).json({ error: 'Message not found' });
+            return;
+        }
+
         const { data: message, error: msgError } = await supabaseAdmin
             .from('messages')
             .select('*')
+            .in('conversation_id', authorizedConversationIds)
             .eq('id', id)
             .single();
 
@@ -207,8 +224,6 @@ export const analyzeMessage = async (req: Request, res: Response, next: NextFunc
             res.status(404).json({ error: 'Message not found' });
             return;
         }
-
-        await assertConversationParticipant(userId, message.conversation_id);
 
         let processingText = message.content || '';
         let imageUrl: string | undefined;
