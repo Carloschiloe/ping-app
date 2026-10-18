@@ -1066,6 +1066,31 @@ function buildCommitmentListResponse(context: AgentContext, language: 'es' | 'en
     return { status: 'answered', answer, claims, citations: claims.flatMap((claim) => claim.sourceRefs) };
 }
 
+function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const overdue = context.commitments.filter((commitment) =>
+        commitment.entityType === 'commitment'
+        && isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, context.timezone, 'commitment')
+    );
+    if (overdue.length === 0) {
+        return {
+            status: 'answered',
+            answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
+            claims: [],
+            citations: [],
+        };
+    }
+    const claims = overdue.map((commitment) => ({
+        text: language === 'es' ? commitment.title + ' está vencido.' : commitment.title + ' is overdue.',
+        sourceRefs: [commitment.provenance],
+    }));
+    return {
+        status: 'answered',
+        answer: claims.map((claim) => claim.text).join(' '),
+        claims,
+        citations: claims.flatMap((claim) => claim.sourceRefs),
+    };
+}
+
 function buildCountResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
     const count = context.countResult ?? 0;
     let answer: string;
@@ -1531,14 +1556,17 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
                 c.entityType === 'commitment_proposal' ? 'commitment_proposal' : 'commitment',
             ));
             const hasCanonicalCommitment = context.commitments.some((commitment) => commitment.entityType === 'commitment');
-            if (!hasActualOverdue && (context.commitments.length === 0 || hasCanonicalCommitment)) {
-                return this.withDiagnostics({
-                    status: 'answered',
-                    answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
-                    claims: [],
-                    citations: [],
-                }, 'deterministic', startedAt, sourceCount);
+            if (hasActualOverdue && hasCanonicalCommitment) {
+                return this.withDiagnostics(buildOverdueResponse(context, language), 'deterministic', startedAt, sourceCount);
             }
+            if (!hasActualOverdue && (context.commitments.length === 0 || hasCanonicalCommitment)) {
+                return this.withDiagnostics(buildOverdueResponse(context, language), 'deterministic', startedAt, sourceCount);
+            }
+        }
+        if (isSocialConversationResponseInput(context.input)
+            && !context.needsClarification
+            && context.capabilityGaps.length === 0) {
+            return this.withDiagnostics(buildSocialConversationResponse(language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'needs_clarification') {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
