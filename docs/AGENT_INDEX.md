@@ -415,15 +415,17 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Usually do not read:** `mobile/src/screens/PingAIScreen.tsx`; it is a separate legacy surface.
 **Known non-blocking debt (audited, not a bug):** citations are shown as a bare count + type-label list (`describeCitationsSummary`/`describeCitationTypes`, `agentChat.ts`) — the backend already computes full per-claim provenance (`AgentResponse.claims[].sourceRefs`), but mobile's `AgentRespondResult` type never models `claims`, only the deduplicated `citations` list, and there is no tap-through from a citation to the actual cited commitment/message. A user can see "this answer is backed by 2 sources" but not verify *which* commitment/message those are. Real click-through would need a new `claims` field on the mobile type plus navigation wiring — a UX feature addition, not a one-line fix, so left as documented debt.
 
-### Staging / deployment
+### Environment ownership and retired staging
 
-**Purpose:** Build only `backend/`, run the public health check, and guard the staging Supabase project identity.
-**Canonical owner:** `render.staging.yaml` for versioned staging service configuration; runtime validation in `backend/src/config/env.ts` and health route in `backend/src/routes/index.ts`.
-**Read first:** `render.staging.yaml`, `backend/src/config/env.ts`, `backend/src/routes/index.ts`, `docs/23-STAGING-BETA-VALIDATION.md`.
-
-**Direct dependencies:** branch `codex/staging-beta`, service `ping-backend-staging`, expected Supabase ref `oonijgmddgyymhrlnvuu`.
-**Used by:** Render auto-deploy and staging mobile configuration.
-**Tests/checks:** `mobile/tests/stagingConfig.test.ts`, `backend/scripts/e2e-staging-beta.mjs`, `/api/health`.
-
-**Common symptoms:** health old SHA, `db_status` disconnected, wrong project ref, accidental production target.
-**Usually do not read:** `render.yaml` or local `.env` for a staging-only task unless comparing targets; never print secrets.
+**Purpose:** Identify the real production service and prevent accidental use of
+the retired staging environment.
+**Canonical owner:** `docs/ENVIRONMENT-OWNERSHIP.md` is the source of truth
+for Render services, branches, URLs and Supabase environment ownership.
+**Production:** Render service `ping-app`, branch
+`codex/agent-voice-continuity-hardening`; verify the live SHA and
+`/api/health` before every promotion.
+**Retired staging:** `ping-backend-staging`, branch
+`codex/staging-beta`, and Supabase ref `oonijgmddgyymhrlnvuu`. The Render
+service is suspended and must not be restored for normal work.
+**Usually do not read:** historical staging runbooks or old staging E2E scripts
+unless recovering audit evidence. Never print secrets.

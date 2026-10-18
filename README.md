@@ -20,7 +20,9 @@ Broad repository search is a fallback, not the starting point.
 ## Repo guard
 
 - Repository: `Carloschiloe/ping-app`
-- Integration branch: `codex/staging-beta`
+- Production Render branch: `codex/agent-voice-continuity-hardening`
+- Audited integration branch: `codex/phase1-containment`
+- Legacy staging branch: `codex/staging-beta` (retired; do not deploy)
 - Typical Windows root: `C:\Users\carlo\Desktop\App en produccion\Ping`
 - Shell on the current workstation: Windows PowerShell 5.1
 
@@ -167,6 +169,6 @@ Additional rules:
 - Product vision: [`docs/00-VISION-PING.md`](docs/00-VISION-PING.md)
 - Architecture principles: [`docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md`](docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md)
 - Technical audit: [`docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md`](docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md)
-- Staging runbook: [`docs/23-STAGING-BETA-VALIDATION.md`](docs/23-STAGING-BETA-VALIDATION.md)
+- Environment ownership and retired staging: [`docs/ENVIRONMENT-OWNERSHIP.md`](docs/ENVIRONMENT-OWNERSHIP.md)
 
 When documentation and implementation differ, treat source plus `supabase/migrations/` as the current technical truth, then report the contradiction instead of silently choosing one.

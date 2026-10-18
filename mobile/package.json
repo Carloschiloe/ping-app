@@ -8,9 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint",
+    "lint": "eslint .",
     "update:production": "eas update --channel production --environment production",
-    "update:staging": "eas update --channel staging --environment preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
