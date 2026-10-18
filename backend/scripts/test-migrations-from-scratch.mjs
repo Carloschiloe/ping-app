@@ -95,7 +95,7 @@ try {
     '--tuples-only',
     '--no-align',
     '--command',
-    \`select (
+    `select (
       to_regclass('public.operation_checklists') is not null
       and to_regclass('public.operation_checklist_items') is not null
       and to_regclass('public.operation_checklist_runs') is not null
@@ -104,6 +104,7 @@ try {
       and to_regclass('public.commitment_operation_progress') is not null
       and to_regprocedure('public.apply_commitment_operation_action_with_evidence(uuid,uuid,text,uuid,text,text)') is not null
     )::text;
+  `,
   ], { capture: true }).stdout.trim();
 
   if (schemaVerification !== 't') {
