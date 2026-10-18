@@ -1026,29 +1026,31 @@ describe('M-1B: retrieveMessages — conversación reciente', () => {
 });
 
 describe('M-1B: retrieveMessages — ventana alrededor de un mensaje', () => {
-    it('autoriza membership de la conversación del mensaje ANTES de traer la ventana', async () => {
+    it('no resuelve un messageId fuera del universo autorizado del actor', async () => {
         const mock = createSupabaseAdminMock({
-            messages: [
-                { data: { id: 'src', conversation_id: 'conv-1', created_at: '2026-09-05T12:00:00Z' }, error: null }, // lookup del source
-            ],
-            conversation_participants: [{ data: null, error: null }], // no participante -> debe rechazar
+            conversation_participants: [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveMessages } = await import('../src/services/retrieval.service');
 
         await expect(retrieveMessages({ actorUserId: 'intruder', messageWindow: { aroundMessageId: 'src' } }, 30))
-            .rejects.toMatchObject({ statusCode: 403 });
+            .resolves.toEqual([]);
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
+        expect(mock.getCalledTables()).not.toContain('messages');
     });
 
     it('incluye N anteriores + el propio + N posteriores en orden cronológico', async () => {
         const mock = createSupabaseAdminMock({
             messages: [
-                { data: { id: 'src', conversation_id: 'conv-1', created_at: '2026-09-05T12:00:00Z' }, error: null }, // lookup source
-                { data: [{ id: 'before1', conversation_id: 'conv-1', sender_id: 'u1', content: 'antes', metadata: {}, created_at: '2026-09-05T11:00:00Z', deleted_at: null }], error: null }, // before (desc)
-                { data: { id: 'src', conversation_id: 'conv-1', sender_id: 'u1', content: 'fuente', metadata: {}, created_at: '2026-09-05T12:00:00Z', deleted_at: null }, error: null }, // source row itself
-                { data: [{ id: 'after1', conversation_id: 'conv-1', sender_id: 'u1', content: 'despues', metadata: {}, created_at: '2026-09-05T13:00:00Z', deleted_at: null }], error: null }, // after (asc)
+                { data: { id: 'src', conversation_id: 'conv-1', created_at: '2026-09-05T12:00:00Z', deleted_at: null }, error: null },
+                { data: [{ id: 'before1', conversation_id: 'conv-1', sender_id: 'u1', content: 'antes', metadata: {}, created_at: '2026-09-05T11:00:00Z', deleted_at: null }], error: null },
+                { data: { id: 'src', conversation_id: 'conv-1', sender_id: 'u1', content: 'fuente', metadata: {}, created_at: '2026-09-05T12:00:00Z', deleted_at: null }, error: null },
+                { data: [{ id: 'after1', conversation_id: 'conv-1', sender_id: 'u1', content: 'despues', metadata: {}, created_at: '2026-09-05T13:00:00Z', deleted_at: null }], error: null },
             ],
-            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            conversation_participants: [
+                { data: [{ conversation_id: 'conv-1' }], error: null },
+                { data: { conversation_id: 'conv-1', role: 'member' }, error: null },
+            ],
         });
         setSupabaseAdminMock(mock);
         const { retrieveMessages } = await import('../src/services/retrieval.service');
@@ -1058,7 +1060,10 @@ describe('M-1B: retrieveMessages — ventana alrededor de un mensaje', () => {
     });
 
     it('mensaje inexistente devuelve [] sin lanzar', async () => {
-        const mock = createSupabaseAdminMock({ messages: [{ data: null, error: null }] });
+        const mock = createSupabaseAdminMock({
+            messages: [{ data: null, error: null }],
+            conversation_participants: [{ data: [{ conversation_id: 'conv-1' }], error: null }],
+        });
         setSupabaseAdminMock(mock);
         const { retrieveMessages } = await import('../src/services/retrieval.service');
 
@@ -1066,6 +1071,7 @@ describe('M-1B: retrieveMessages — ventana alrededor de un mensaje', () => {
         expect(messages).toEqual([]);
     });
 });
+
 
 // ─── Transcriptions (sección 11) ─────────────────────────────────────────────
 
@@ -1126,20 +1132,23 @@ describe('M-1B: retrieveTranscriptions', () => {
 });
 
 describe('M-1B: retrieveTranscriptionForAttachment', () => {
-    it('autoriza vía la conversación del propio attachment', async () => {
+    it('no resuelve un attachment fuera del universo autorizado del actor', async () => {
         const mock = createSupabaseAdminMock({
-            attachments: [{ data: { id: 'att1', message_id: 'm1', context_conversation_id: 'conv-1', kind: 'audio', lifecycle_status: 'attached' }, error: null }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
 
-        await expect(retrieveTranscriptionForAttachment('intruder', 'att1')).rejects.toMatchObject({ statusCode: 403 });
+        await expect(retrieveTranscriptionForAttachment('intruder', 'att1')).resolves.toBeNull();
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
+        expect(mock.getCalledTables()).not.toContain('attachments');
+        expect(mock.getCalledTables()).not.toContain('audio_transcriptions');
     });
 
     it('un attachment tombstoned nunca expone su transcripción', async () => {
         const mock = createSupabaseAdminMock({
             attachments: [{ data: { id: 'att1', message_id: 'm1', context_conversation_id: 'conv-1', kind: 'audio', lifecycle_status: 'tombstoned' }, error: null }],
+            conversation_participants: [{ data: [{ conversation_id: 'conv-1' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
@@ -1152,7 +1161,10 @@ describe('M-1B: retrieveTranscriptionForAttachment', () => {
     it('un attachment que no es audio no tiene transcripción', async () => {
         const mock = createSupabaseAdminMock({
             attachments: [{ data: { id: 'att1', message_id: 'm1', context_conversation_id: 'conv-1', kind: 'document', lifecycle_status: 'attached' }, error: null }],
-            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            conversation_participants: [
+                { data: [{ conversation_id: 'conv-1' }], error: null },
+                { data: { conversation_id: 'conv-1', role: 'member' }, error: null },
+            ],
         });
         setSupabaseAdminMock(mock);
         const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
@@ -1161,6 +1173,7 @@ describe('M-1B: retrieveTranscriptionForAttachment', () => {
         expect(result).toBeNull();
     });
 });
+
 
 // ─── Attachments (sección 12) ─────────────────────────────────────────────────
 
@@ -1242,28 +1255,27 @@ describe('M-1B.1: outsider llamando funciones de retrieval directamente', () => 
         expect(mock.getCalledTables()).not.toContain('messages');
     });
 
-    it('retrieveMessages con messageWindow apuntando a un messageId ajeno: resuelve su conversación real y rechaza, sin filtrar contenido', async () => {
+    it('retrieveMessages con messageWindow ajeno no consulta el mensaje antes de autorización', async () => {
         const mock = createSupabaseAdminMock({
             messages: [{ data: { id: 'ajeno-msg', conversation_id: 'conv-privada', created_at: '2026-09-01T00:00:00Z' }, error: null }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveMessages } = await import('../src/services/retrieval.service');
         await expect(retrieveMessages({ actorUserId: 'outsider', messageWindow: { aroundMessageId: 'ajeno-msg' } }, 30))
-            .rejects.toMatchObject({ statusCode: 403 });
-        // Sólo se consultó el lookup mínimo del mensaje source (id/conversation_id/created_at) — nunca su contenido ni la ventana.
-        expect(mock.getSelectCalls('messages')).toHaveLength(1);
+            .resolves.toEqual([]);
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
     });
 
-    it('retrieveTranscriptionForAttachment con un attachmentId ajeno: resuelve su conversación real y rechaza antes de tocar audio_transcriptions', async () => {
+    it('retrieveTranscriptionForAttachment con un attachmentId ajeno no consulta el recurso antes de autorización', async () => {
         const mock = createSupabaseAdminMock({
             attachments: [{ data: { id: 'att-ajeno', message_id: 'm1', context_conversation_id: 'conv-privada', kind: 'audio', lifecycle_status: 'attached' }, error: null }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
-        await expect(retrieveTranscriptionForAttachment('outsider', 'att-ajeno')).rejects.toMatchObject({ statusCode: 403 });
-        expect(mock.getCalledTables()).not.toContain('audio_transcriptions');
+        await expect(retrieveTranscriptionForAttachment('outsider', 'att-ajeno')).resolves.toBeNull();
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
     });
 
     it('retrieveCommitmentEvents con commitmentIds ajenos llamado directamente: nunca expone eventos fuera de la visibilidad del actor', async () => {
