@@ -1384,7 +1384,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             timeExpression,
             temporalIntent,
             priorReferenceIntent,
-            followUpAttribute: null,
+            followUpAttribute: inferDeterministicFollowUpAttribute(trimmed),
             temporalComparison,
             urgencyComparison,
             statusHints,
