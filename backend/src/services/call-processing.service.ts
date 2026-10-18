@@ -112,7 +112,7 @@ Transcripción:
         // An AI extraction is only a proposal: it must never create a
         // confirmed Commitment without the user's explicit confirmation.
         const callerId = typeof call.meta?.callerId === 'string' ? call.meta.callerId : null;
-        const summaryMessage = \`📞 **Resumen de la llamada**\\n\\n\${summary}\`;
+        const summaryMessage = `📞 **Resumen de la llamada**\n\n${summary}`;
         const summaryRecord = await persistSystemMessage({
             conversationId: call.conversation_id,
             senderUserId: callerId || undefined,
