@@ -62,6 +62,46 @@ const allowedMimeTypes = new Set([
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
+function startsWithBytes(bytes: Uint8Array, signature: number[], offset = 0): boolean {
+    return signature.every((value, index) => bytes[offset + index] === value);
+}
+
+function hasIsoBaseMediaFileType(bytes: Uint8Array): boolean {
+    return bytes.length >= 12 && startsWithBytes(bytes, [0x66, 0x74, 0x79, 0x70], 4);
+}
+
+function hasMpegFrameSync(bytes: Uint8Array): boolean {
+    return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
+}
+
+function matchesStoredFileSignature(mimeType: string, bytes: Uint8Array): boolean {
+    switch (mimeType) {
+        case 'image/jpeg':
+            return startsWithBytes(bytes, [0xff, 0xd8, 0xff]);
+        case 'image/png':
+            return startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        case 'image/webp':
+            return startsWithBytes(bytes, [0x52, 0x49, 0x46, 0x46])
+                && startsWithBytes(bytes, [0x57, 0x45, 0x42, 0x50], 8);
+        case 'application/pdf':
+            return startsWithBytes(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]);
+        case 'audio/wav':
+            return startsWithBytes(bytes, [0x52, 0x49, 0x46, 0x46])
+                && startsWithBytes(bytes, [0x57, 0x41, 0x56, 0x45], 8);
+        case 'audio/mpeg':
+            return startsWithBytes(bytes, [0x49, 0x44, 0x33]) || hasMpegFrameSync(bytes);
+        case 'audio/aac':
+            return hasMpegFrameSync(bytes);
+        case 'audio/m4a':
+        case 'audio/mp4':
+        case 'video/mp4':
+        case 'video/quicktime':
+            return hasIsoBaseMediaFileType(bytes);
+        default:
+            return false;
+    }
+}
+
 type StoredReference = {
     bucket: string;
     objectPath: string;
@@ -290,6 +330,26 @@ export async function validatePrivateFileUploadReference(
     }
     if (purpose === 'profile_avatar' && !mimeType.startsWith('image/')) {
         throw new AppError('Profile avatars must be images', 400);
+    }
+
+    // Storage metadata is useful for policy checks but is not a trustworthy
+    // content declaration by itself. Read the object after authorization and
+    // verify its signature before allowing it to become a domain attachment.
+    const { data: file, error: downloadError } = await supabaseAdmin.storage
+        .from(PRIVATE_FILE_BUCKET)
+        .download(objectPath);
+    if (downloadError || !file) {
+        throw new AppError(downloadError?.message || 'Unable to verify private file content', 502);
+    }
+
+    let bytes: Uint8Array;
+    try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+    } catch {
+        throw new AppError('Unable to verify private file content', 502);
+    }
+    if (!matchesStoredFileSignature(mimeType, bytes)) {
+        throw new AppError('Stored private file content does not match its declared type', 400);
     }
 
     return { bucket, objectPath, mimeType, size };
