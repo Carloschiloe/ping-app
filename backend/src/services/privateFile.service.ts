@@ -85,16 +85,33 @@ function assertStoredReference(bucket: unknown, objectPath: unknown): StoredRefe
     return { bucket, objectPath };
 }
 
+async function getActiveConversationIdsForActor(userId: string): Promise<string[]> {
+    const { data, error } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id, conversations!inner(deleted_at)')
+        .eq('user_id', userId)
+        .is('conversations.deleted_at', null);
+    if (error) throw new AppError(error.message, 500);
+    return Array.from(new Set((data || []).map((row: { conversation_id: string }) => row.conversation_id)));
+}
+
 async function getMessageReference(userId: string, resourceId: string): Promise<StoredReference> {
+    const authorizedConversationIds = await getActiveConversationIdsForActor(userId);
+    if (authorizedConversationIds.length === 0) throw new AppError('Message not found', 404);
+
     const { data, error } = await supabaseAdmin
         .from('messages')
         .select('id, conversation_id, media_bucket, media_object_path, deleted_at')
         .eq('id', resourceId)
+        .in('conversation_id', authorizedConversationIds)
+        .is('deleted_at', null)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
-    if (!data || data.deleted_at) throw new AppError('Message not found', 404);
+    if (!data) throw new AppError('Message not found', 404);
 
+    // Revalidate after the scoped lookup so a concurrent revocation cannot
+    // turn the preflight universe into a stale authorization decision.
     await assertConversationParticipant(userId, data.conversation_id);
     const { data: conversation, error: conversationError } = await supabaseAdmin
         .from('conversations')
