@@ -611,84 +611,97 @@ describe('M-2: retrieveMemory', () => {
 
 // ─── Deletion / retention hooks ─────────────────────────────────────────────
 describe('M-2: deletion/retention hooks', () => {
-    it('invalidateMemoryForDeletedSource: única evidencia -> status invalidated + evidence_refs=[] en UNA sola escritura atómica (reverse-lookup real vía memory_record_evidence)', async () => {
+    it('invalidateMemoryForDeletedSource delega limpieza atómica de fuente al RPC canónico', async () => {
         const mock = createSupabaseAdminMock({
-            memory_record_evidence: [
-                { data: [{ memory_record_id: 'm1' }], error: null }, // reverse lookup por (source_type, source_id)
-                { data: null, error: null }, // delete de la fila de evidencia
-                { data: [], error: null }, // readEvidenceRefs: no queda ninguna
-            ],
-            memory_records: [
-                { data: null, error: null }, // update combinado: status + evidence_refs en la MISMA sentencia
-            ],
+            'rpc:invalidate_memory_evidence_for_source': [{
+                data: [{ memory_record_id: 'm1', remaining_evidence_count: 0, invalidated: true }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { invalidateMemoryForDeletedSource } = await import('../src/services/memory.service');
         await invalidateMemoryForDeletedSource('commitment_proposal', 'p1');
-        // Nunca dos updates separados (evidence_refs=[] con status='active'
-        // todavía vigente viola el constraint real de forma transitoria --
-        // hallazgo empírico contra Postgres real, ver memory.service.ts).
-        expect(mock.getUpdateCalls('memory_records')).toHaveLength(1);
-        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'invalidated', evidence_refs: [] });
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'invalidate_memory_evidence_for_source',
+            args: { p_source_type: 'commitment_proposal', p_source_id: 'p1' },
+        }]);
     });
 
-    it('invalidateMemoryForDeletedSource: evidencia adicional sobrevive -- nunca invalida un hecho aún respaldado, catch TAMBIÉN evidencia SECUNDARIA fusionada', async () => {
+    it('invalidateMemoryForDeletedSource conserva evidencia adicional según el resultado atómico del RPC', async () => {
         const mock = createSupabaseAdminMock({
-            memory_record_evidence: [
-                { data: [{ memory_record_id: 'm1' }], error: null }, // reverse lookup encuentra la memoria aunque esta fuente sea sólo evidencia secundaria
-                { data: null, error: null }, // delete
-                { data: [{ source_type: 'message', source_id: 'msg1', message_id: null, conversation_id: null, occurred_at: null }], error: null }, // queda 1 evidencia real
-            ],
-            memory_records: [
-                { data: null, error: null }, // update evidence_refs (sync)
-            ],
+            'rpc:invalidate_memory_evidence_for_source': [{
+                data: [{ memory_record_id: 'm1', remaining_evidence_count: 1, invalidated: false }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { invalidateMemoryForDeletedSource } = await import('../src/services/memory.service');
         await invalidateMemoryForDeletedSource('commitment_proposal', 'p1');
-        expect(mock.getUpdateCalls('memory_records')).toHaveLength(1); // nunca se llega a invalidar -- sigue habiendo evidencia real
-        expect(mock.getUpdateCalls('memory_records')[0].evidence_refs).toEqual([{ sourceType: 'message', sourceId: 'msg1', messageId: null, conversationId: null, timestamp: null }]);
+
+        expect(mock.getRpcCalls()[0].name).toBe('invalidate_memory_evidence_for_source');
+        expect(mock.getRpcCalls()[0].args).toEqual({
+            p_source_type: 'commitment_proposal',
+            p_source_id: 'p1',
+        });
     });
 
-    it('revalidateMemoryEvidenceAuthorization: sólo limpia las memorias del owner que perdió acceso, nunca las de otros dueños que citan la misma fuente', async () => {
+    it('revalidateMemoryEvidenceAuthorization mantiene el alcance owner-scoped en el RPC canónico', async () => {
         const mock = createSupabaseAdminMock({
-            memory_record_evidence: [
-                { data: [{ memory_record_id: 'm1' }, { memory_record_id: 'm2' }], error: null }, // dos memorias distintas citan esta fuente
-                { data: null, error: null }, // delete para m1 (el único que pertenece a este owner)
-                { data: [], error: null }, // readEvidenceRefs m1 -> sin evidencia
-            ],
-            memory_records: [
-                { data: [{ id: 'm1' }], error: null }, // filtro por owner: sólo m1 es de este owner (m2 es de otro)
-                { data: null, error: null }, // update combinado (status+evidence_refs) m1
-            ],
+            'rpc:revalidate_memory_evidence_for_owner_source': [{
+                data: [{ memory_record_id: 'm1', remaining_evidence_count: 0, invalidated: true }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { revalidateMemoryEvidenceAuthorization } = await import('../src/services/memory.service');
         await revalidateMemoryEvidenceAuthorization('owner1', 'commitment_proposal', 'p1');
-        expect(mock.getInCalls('memory_records')).toContainEqual(['id', ['m1', 'm2']]);
-        expect(mock.getEqCalls('memory_records')).toContainEqual(['owner_user_id', 'owner1']);
-        // m2 (otro dueño) nunca se toca -- sólo 1 update atómico, sobre m1.
-        expect(mock.getUpdateCalls('memory_records')).toHaveLength(1);
-        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'invalidated', evidence_refs: [] });
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'revalidate_memory_evidence_for_owner_source',
+            args: {
+                p_owner_user_id: 'owner1',
+                p_source_type: 'commitment_proposal',
+                p_source_id: 'p1',
+            },
+        }]);
     });
 
-    it('invalidateMemoryForConversationDeletion invalida todo lo asociado a esa conversación', async () => {
-        const mock = createSupabaseAdminMock({ memory_records: [{ data: null, error: null }] });
+    it('invalidateMemoryForConversationDeletion delega al RPC que limpia evidencia y estado en una transacción', async () => {
+        const mock = createSupabaseAdminMock({
+            'rpc:invalidate_memory_evidence_for_conversation': [{
+                data: [{ memory_record_id: 'm1', remaining_evidence_count: 0, invalidated: true }],
+                error: null,
+            }],
+        });
         setSupabaseAdminMock(mock);
         const { invalidateMemoryForConversationDeletion } = await import('../src/services/memory.service');
         await invalidateMemoryForConversationDeletion('conv1');
-        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'invalidated' });
-        expect(mock.getEqCalls('memory_records')).toContainEqual(['conversation_id', 'conv1']);
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'invalidate_memory_evidence_for_conversation',
+            args: { p_conversation_id: 'conv1' },
+        }]);
     });
 
-    it('deleteMemoryForAccountDeletion marca deleted todo lo del owner (gancho para soft-delete de cuenta)', async () => {
-        const mock = createSupabaseAdminMock({ memory_records: [{ data: null, error: null }] });
+    it('deleteMemoryForAccountDeletion delega borrado lógico y limpieza de evidencia al RPC canónico', async () => {
+        const mock = createSupabaseAdminMock({
+            'rpc:delete_memory_for_account': [{
+                data: [{ memory_record_id: 'm1', remaining_evidence_count: 0, invalidated: false }],
+                error: null,
+            }],
+        });
         setSupabaseAdminMock(mock);
         const { deleteMemoryForAccountDeletion } = await import('../src/services/memory.service');
         await deleteMemoryForAccountDeletion('owner1');
-        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'deleted' });
+
+        expect(mock.getRpcCalls()).toEqual([{
+            name: 'delete_memory_for_account',
+            args: { p_owner_user_id: 'owner1' },
+        }]);
     });
 });
+
 
 // ─── deriveMemoryFromCommitmentStatusChange — helper determinístico ───────
 describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
