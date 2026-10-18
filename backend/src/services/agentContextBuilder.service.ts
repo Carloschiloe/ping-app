@@ -134,9 +134,39 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
-export function resolveTimeExpression(expression: string | null, now: Date, timezone: string): RetrievalTimeRange | null {
+export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: import('../types/agentContext').TemporalIntent | null): RetrievalTimeRange | null {
     if (!expression) return null;
     const expr = expression.toLowerCase();
+    const normalizedExpression = expression.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (/pasado\s+manana|day\s+after\s+tomorrow/.test(normalizedExpression)) {
+        const target = addDays(now, 2);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
+    if (/proxima\s+semana|next\s+week/.test(normalizedExpression)) {
+        const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
+        return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
+    }
+    const weekday = normalizedExpression.match(/\b(?:el\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+    if (weekday) {
+        const weekdays: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+        const startToday = startOfDayInZone(now, timezone);
+        const offsetMs = timeZoneOffsetMs(startToday, timezone);
+        const localToday = new Date(startToday.getTime() + offsetMs);
+        let delta = (weekdays[weekday[1]] - localToday.getUTCDay() + 7) % 7;
+        if (delta === 0) delta = 7;
+        const target = addDays(now, delta);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
+    if (temporalIntent?.kind === 'relative_days') {
+        const target = addDays(now, temporalIntent.daysAhead);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
+    if (temporalIntent?.kind === 'upcoming_horizon') {
+        const from = startOfDayInZone(now, timezone);
+        const spanDays = Math.min(Math.max(temporalIntent.daysAhead ?? 7, 1), 30);
+        return { from: from.toISOString(), to: addDays(from, spanDays).toISOString() };
+    }
+
 
     if (/hoy|today/.test(expr)) {
         return { from: startOfDayInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
@@ -1423,6 +1453,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
+        interactionMode: isSocialConversation ? 'conversation' : interpretation.interactionMode,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,
