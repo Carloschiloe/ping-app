@@ -1766,3 +1766,38 @@ describe('AUDIT (sección 22): "¿Qué tengo vencido sobre el viaje?" activa FTS
         expect(calls[0][1]).not.toMatch(/vencido|overdue|atrasad|past due|\blate\b/i);
     });
 });
+
+
+describe('Phase 3C: retrieval lifecycle safety', () => {
+    it('retrieval only requests attachments already attached to a message', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'conv-1', role: 'member' }, error: null }],
+            attachments: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveAttachments } = await import('../src/services/retrieval.service');
+
+        await expect(retrieveAttachments('u1', 'conv-1', 10)).resolves.toEqual([]);
+        expect(mock.getEqCalls('attachments')).toContainEqual(['lifecycle_status', 'attached']);
+    });
+
+    it('transcription retrieval rejects uploaded-but-not-attached audio', async () => {
+        const mock = createSupabaseAdminMock({
+            attachments: [{
+                data: {
+                    id: 'att-1',
+                    message_id: 'msg-1',
+                    context_conversation_id: 'conv-1',
+                    kind: 'audio',
+                    lifecycle_status: 'uploaded',
+                },
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
+
+        await expect(retrieveTranscriptionForAttachment('u1', 'att-1')).resolves.toBeNull();
+        expect(mock.getCalledTables()).toEqual(['attachments']);
+    });
+});
