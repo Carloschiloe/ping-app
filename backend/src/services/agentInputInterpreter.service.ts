@@ -111,8 +111,7 @@ function wordBounded(alternatives: string): RegExp {
 // encontrado durante el testing (ej. "el héroe llegó").
 const THIRD_PERSON_PRONOUN_PATTERN = wordBounded(
     'él|ella|ellos|ellas|he|she|they|him|her|them'
-    + '|(?:esa|ese|aquella|aquel)\\s+person(?:a|as)'
-    + '|(?:lo|la|eso|esto)\\s+(?:de|que)',
+    + '|(?:esa|ese|aquella|aquel)\\s+person(?:a|as)',
 );
 export function containsThirdPersonPronoun(rawInput: string): boolean {
     return THIRD_PERSON_PRONOUN_PATTERN.test(rawInput);
