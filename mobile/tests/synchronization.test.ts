@@ -65,6 +65,48 @@ describe('basic message synchronization', () => {
         expect(serialized).not.toContain('temporary-secret');
     });
 
+    it('replaces malformed persisted ids and keeps the first duplicate identity', () => {
+        const now = Date.parse('2026-09-01T12:00:00.000Z');
+        const firstId = createClientMessageId();
+        const sanitized = sanitizePendingQueue([
+            {
+                id: 'offline-first',
+                conversationId: 'conversation-1',
+                text: 'original',
+                retryCount: 0,
+                createdAt: new Date(now).toISOString(),
+                clientMessageId: firstId,
+                state: 'pending',
+            },
+            {
+                id: 'offline-duplicate',
+                conversationId: 'conversation-1',
+                text: 'duplicate',
+                retryCount: 0,
+                createdAt: new Date(now).toISOString(),
+                clientMessageId: firstId,
+                state: 'pending',
+            },
+            {
+                id: 'offline-malformed',
+                conversationId: 'conversation-1',
+                text: 'malformed identity',
+                retryCount: 0,
+                createdAt: new Date(now).toISOString(),
+                clientMessageId: 'not-a-uuid',
+                state: 'pending',
+            },
+        ], now);
+
+        expect(sanitized).toHaveLength(2);
+        expect(sanitized[0].id).toBe('offline-first');
+        expect(sanitized[0].text).toBe('original');
+        expect(sanitized[1].clientMessageId).toMatch(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        );
+        expect(sanitized[1].clientMessageId).not.toBe('not-a-uuid');
+    });
+
     it('removes expired entries and enforces the item retention limit', () => {
         const now = Date.parse('2026-07-28T12:00:00.000Z');
         const items = Array.from({ length: OFFLINE_QUEUE_MAX_ITEMS + 5 }, (_, index) => ({
