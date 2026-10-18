@@ -100,14 +100,13 @@ describe('C-2 canonical Commitment writer guard', () => {
 
     it('mantiene los ejecutores de Commitment detrás de la fachada de aplicación', () => {
         const executorRoot = path.join(SOURCE_ROOT, 'services', 'toolExecutors');
-                const directInternalImport = /from\s+['"]\.\.\/commitment(?:Proposal)?\.service['"]/;
+        const directInternalImport = /from\s+['"]\.\.\/commitment(?:Proposal)?\.service['"]/;
         const bypasses = walk(executorRoot, new Set(['.ts']))
             .filter((file) => directInternalImport.test(fs.readFileSync(file, 'utf8')))
             .map((file) => unixRelative(SOURCE_ROOT, file));
 
         expect(bypasses).toEqual([]);
     });
-
 
     it('mantiene los controladores de Commitment detrás de la fachada de aplicación', () => {
         const controllerRoot = path.join(SOURCE_ROOT, 'controllers');
