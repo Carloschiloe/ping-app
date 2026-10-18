@@ -1030,3 +1030,17 @@ export function buildPlanDateCorrection(
 
     return { correctedObjective, turnSequence };
 }
+
+
+export function buildPlanTitleCorrection(
+    dialogueService: { applyCorrection: (input: { actorUserId: string; dialogueScopeKey: string; slotName: string; previousValue: string | null; newValue: string; reason: 'user_correction'; turnId: string; turnSequence: number }) => unknown },
+    dialogueState: AgentDialogueState, dialogueScopeKey: string, actorUserId: string, companionPersonHint: string, turnId: string,
+): PlanCorrectionResult {
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const previousTitle = priorObjective.targetEntities.entityHints[0] ?? null;
+    const newTitle = previousTitle && !previousTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
+        ? previousTitle + ' con ' + companionPersonHint : previousTitle ?? companionPersonHint;
+    const turnSequence = dialogueState.lastTurnSequence + 1;
+    dialogueService.applyCorrection({ actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints', previousValue: previousTitle, newValue: newTitle, reason: 'user_correction', turnId, turnSequence });
+    return { correctedObjective: { ...priorObjective, targetEntities: { ...priorObjective.targetEntities, entityHints: [newTitle] }, desiredOutcome: newTitle, sourceUtterance: priorObjective.sourceUtterance.trim() + ' ' + companionPersonHint, ambiguities: [] }, turnSequence };
+}
