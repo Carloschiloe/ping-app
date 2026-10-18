@@ -76,6 +76,18 @@ describe('Message Attachment Core application boundary', () => {
         expect(JSON.stringify(db.getRpcCalls())).not.toContain('temporary-token');
     });
 
+    it('un attachment ajeno no revela metadata antes de autorización', async () => {
+        const db = createSupabaseAdminMock({
+            attachments: [{ data: null, error: null }],
+        });
+        setSupabaseAdminMock(db);
+
+        await expect(completeMessageAttachment(actor, attachmentId))
+            .rejects.toMatchObject({ statusCode: 404, message: 'Attachment not found' });
+        expect(db.getEqCalls('attachments')).toContainEqual(['created_by_user_id', actor]);
+        expect(db.getCalledTables()).toEqual(['attachments']);
+    });
+
     it('complete verifica ownership, conversacion, objeto, MIME y tamaño antes del RPC', async () => {
         const db = createSupabaseAdminMock({
             attachments: [{ data: attachment(), error: null }],
