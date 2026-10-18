@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
     assertConversationAdmin,
     assertConversationParticipant,
-    getSharedProfileIds,
+    getActiveSharedProfileIds,
 } from '../utils/authz';
 import { AppError } from '../utils/AppError';
 
@@ -135,7 +135,7 @@ async function getConversationReference(userId: string, resourceId: string): Pro
 
 async function getProfileReference(userId: string, resourceId: string): Promise<StoredReference> {
     if (resourceId !== userId) {
-        const visibleProfileIds = await getSharedProfileIds(userId);
+        const visibleProfileIds = await getActiveSharedProfileIds(userId);
         if (!visibleProfileIds.includes(resourceId)) {
             throw new AppError('You do not have access to this profile', 403);
         }
