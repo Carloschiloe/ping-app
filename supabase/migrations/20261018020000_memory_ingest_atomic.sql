@@ -88,15 +88,13 @@ begin
             message_id, conversation_id, occurred_at
         )
         select
-            v_existing_id, e.source_type, e.source_id,
-            e.message_id, e.conversation_id, e.occurred_at
-        from jsonb_to_recordset(p_evidence_refs) as e(
-            source_type text,
-            source_id uuid,
-            message_id uuid,
-            conversation_id uuid,
-            occurred_at timestamptz
-        )
+            v_existing_id,
+            e->>'sourceType',
+            (e->>'sourceId')::uuid,
+            nullif(e->>'messageId', '')::uuid,
+            nullif(e->>'conversationId', '')::uuid,
+            nullif(e->>'timestamp', '')::timestamptz
+        from jsonb_array_elements(p_evidence_refs) as item(e)
         on conflict (memory_record_id, source_type, source_id) do nothing;
 
         select coalesce(
@@ -213,15 +211,13 @@ begin
         message_id, conversation_id, occurred_at
     )
     select
-        v_memory_id, e.source_type, e.source_id,
-        e.message_id, e.conversation_id, e.occurred_at
-    from jsonb_to_recordset(p_evidence_refs) as e(
-        source_type text,
-        source_id uuid,
-        message_id uuid,
-        conversation_id uuid,
-        occurred_at timestamptz
-    )
+        v_memory_id,
+        e->>'sourceType',
+        (e->>'sourceId')::uuid,
+        nullif(e->>'messageId', '')::uuid,
+        nullif(e->>'conversationId', '')::uuid,
+        nullif(e->>'timestamp', '')::timestamptz
+    from jsonb_array_elements(p_evidence_refs) as item(e)
     on conflict (memory_record_id, source_type, source_id) do nothing;
 
     select coalesce(
