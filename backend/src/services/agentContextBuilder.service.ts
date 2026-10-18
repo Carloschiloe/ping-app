@@ -886,6 +886,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const creationObjective = options.objective
         && (options.objective.objectiveType === 'create_personal_commitment'
             || options.objective.objectiveType === 'create_commitment_or_proposal');
+    const contentOnlyPersonalObjective = !!creationObjective
+        && creationObjective.objectiveType === 'create_personal_commitment'
+        && creationObjective.targetEntities.personHints.length === 0
+        && !creationObjective.constraints.responsibleHint
+        && (creationObjective.constraints.commitmentOwnership === 'personal'
+            || rawInterpretation.isWriteActionRequest === true);
     // A creation objective is routed to the planner immediately after this
     // context pass. Its title/content may mention a person, company or place,
     // but that mention is not read-side identity scope. The planner remains
@@ -938,7 +944,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
     }
 
-    const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
+    const canonicalPersonScope: string[] = contentOnlyPersonalObjective || !!priorReferentId || isSocialConversation
+        ? []
+        : [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
     const priorReferentAmbiguous = priorReferentCandidates.length > 1
         || (priorReferents.length > 1 && priorPronounCue && !priorReferentId);
@@ -1014,9 +1022,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
         needsClarification = true;
-        clarification = containsThirdPersonPronoun(input.input)
-            ? { reason: 'person_ambiguous', candidates: [] }
-            : { reason: 'person_not_found', requestedNames: canonicalPersonScope };
+        const writeLikeInput = interpretation.isWriteActionRequest
+            && !/^\s*[¿?]/u.test(input.input);
+        clarification = {
+            reason: writeLikeInput ? 'person_not_found' : 'person_ambiguous',
+            candidates: [],
+            requestedNames: canonicalPersonScope,
+        };
     }
 
     // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,
@@ -1107,7 +1119,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
+    const commitmentsPromise = interpretation.wantsCommitments && !needsClarification && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
