@@ -430,16 +430,16 @@ export async function setActiveCommitment(userId: string, conversationId: string
     if (commitmentId) {
         const { data: commitment, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, group_conversation_id, title, assigned_to_user_id, status')
+            .select('id, conversation_id, title, assigned_to_user_id, status')
             .eq('id', commitmentId)
-            .eq('group_conversation_id', conversationId)
+            .eq('conversation_id', conversationId)
             .maybeSingle();
 
         if (error || !commitment) throw new Error('Commitment not found in this conversation');
         if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
             throw new Error('Only the assigned user can put this task in progress');
         }
-        if (!['accepted', 'in_progress'].includes(commitment.status)) {
+        if (normalizeCommitmentStatus(commitment.status) !== 'accepted') {
             throw new Error('Task must be accepted before putting it in progress');
         }
     }
@@ -719,8 +719,8 @@ export async function registerCommitmentOperationAction(
 
     if (commitmentError || !commitment) throw commitmentError || new Error('Commitment not found');
 
-    if (commitment.group_conversation_id) {
-        await assertConversationParticipant(userId, commitment.group_conversation_id);
+    if (commitment.conversation_id) {
+        await assertConversationParticipant(userId, commitment.conversation_id);
     }
 
     if (commitment.assigned_to_user_id && commitment.assigned_to_user_id !== userId) {
@@ -747,7 +747,7 @@ export async function registerCommitmentOperationAction(
     if (action === 'acknowledged') {
         nextOperational.acknowledged_at = now;
         nextOperational.acknowledged_by_user_id = userId;
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+        if (normalizeCommitmentStatus(commitment.status) === 'proposed') {
             updates.status = 'accepted';
             if (!commitment.assigned_to_user_id) {
                 updates.assigned_to_user_id = userId;
@@ -761,7 +761,7 @@ export async function registerCommitmentOperationAction(
         if (locationMessageId) {
             nextOperational.arrived_location_message_id = locationMessageId;
         }
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
+        if (normalizeCommitmentStatus(commitment.status) === 'proposed') {
             updates.status = 'accepted';
             if (!commitment.assigned_to_user_id) {
                 updates.assigned_to_user_id = userId;
@@ -774,7 +774,7 @@ export async function registerCommitmentOperationAction(
         nextOperational.completed_by_user_id = userId;
         nextOperational.completion_note = completionNote || null;
         nextOperational.completion_outcome = completionOutcome || 'resolved';
-        updates.status = 'completed';
+        updates.action_completed_at = now;
     }
 
     updates.meta.operational = nextOperational;
@@ -813,17 +813,17 @@ export async function registerCommitmentOperationAction(
 
     await addOperationReaction(commitment.message_id, userId, action);
 
-    if (action === 'completed' && commitment.group_conversation_id) {
+    if (action === 'completed' && commitment.conversation_id) {
         await supabaseAdmin
             .from('conversation_operation_focuses')
             .delete()
-            .eq('conversation_id', commitment.group_conversation_id)
+            .eq('conversation_id', commitment.conversation_id)
             .eq('user_id', userId)
             .eq('commitment_id', commitment.id);
 
         const userName = await getUserDisplayName(userId);
         await insertSystemMessage(
-            commitment.group_conversation_id,
+            commitment.conversation_id,
             `${userName} termino "${commitment.title}"`,
             userId,
             {
@@ -844,7 +844,7 @@ export async function registerCommitmentOperationAction(
                 commitment.owner_user_id,
                 'Tarea terminada',
                 `${userName} cerro "${commitment.title}"`,
-                { type: 'operation_completed', commitmentId: commitment.id, conversationId: commitment.group_conversation_id }
+                { type: 'operation_completed', commitmentId: commitment.id, conversationId: commitment.conversation_id }
             );
         }
     }

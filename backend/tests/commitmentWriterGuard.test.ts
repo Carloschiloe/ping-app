@@ -107,6 +107,18 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(bypasses).toEqual([]);
     });
 
+    it('mantiene Operation alineado con el modelo canónico de Commitment', () => {
+        const source = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
+            'utf8',
+        );
+
+        expect(source).not.toContain('group_conversation_id');
+        expect(source).not.toContain("updates.status = 'completed'");
+        expect(source).not.toContain("commitment.status === 'pending'");
+        expect(source).not.toContain("'in_progress'");
+    });
+
     it('mantiene Calendar detrás de la fachada de aplicación', () => {
         const controllerPath = path.join(SOURCE_ROOT, 'controllers', 'calendar.controller.ts');
         const controller = fs.readFileSync(controllerPath, 'utf8');
