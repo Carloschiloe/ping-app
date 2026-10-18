@@ -873,7 +873,7 @@ async function retrieveMessageWindow(actorUserId: string, window: RetrievalMessa
         supabaseAdmin.from('messages').select(MESSAGE_SELECT)
             .eq('conversation_id', source.conversation_id).is('deleted_at', null)
             .lt('created_at', source.created_at).order('created_at', { ascending: false }).limit(before),
-        supabaseAdmin.from('messages').select(MESSAGE_SELECT).eq('id', window.aroundMessageId).maybeSingle(),
+        supabaseAdmin.from('messages').select(MESSAGE_SELECT).eq('id', window.aroundMessageId).is('deleted_at', null).maybeSingle(),
         supabaseAdmin.from('messages').select(MESSAGE_SELECT)
             .eq('conversation_id', source.conversation_id).is('deleted_at', null)
             .gt('created_at', source.created_at).order('created_at', { ascending: true }).limit(after),
@@ -968,7 +968,7 @@ async function retrieveTranscriptionsInternal(conversationId: string, limit: num
         .select('id, message_id')
         .eq('context_conversation_id', conversationId)
         .eq('kind', 'audio')
-        .neq('lifecycle_status', 'tombstoned');
+        .eq('lifecycle_status', 'attached');
     if (attErr) throw new AppError(attErr.message, 500);
     const attachmentIds = (attachmentRows || []).map((a) => a.id);
     if (attachmentIds.length === 0) return [];
@@ -1016,7 +1016,7 @@ export async function retrieveTranscriptionForAttachment(actorUserId: string, at
         .eq('id', attachmentId)
         .maybeSingle();
     if (attErr) throw new AppError(attErr.message, 500);
-    if (!attachment || attachment.lifecycle_status === 'tombstoned') return null;
+    if (!attachment || attachment.lifecycle_status !== 'attached') return null;
 
     await assertConversationParticipant(actorUserId, attachment.context_conversation_id);
     if (attachment.kind !== 'audio') return null;
@@ -1067,7 +1067,7 @@ async function retrieveAttachmentsInternal(
         .from('attachments')
         .select('id, message_id, context_conversation_id, kind, mime_type, original_filename, lifecycle_status, attached_at, created_at')
         .eq('context_conversation_id', conversationId)
-        .neq('lifecycle_status', 'tombstoned')
+        .eq('lifecycle_status', 'attached')
         .order('created_at', { ascending: false })
         .limit(limit);
     if (kinds && kinds.length > 0) query = query.in('kind', kinds);

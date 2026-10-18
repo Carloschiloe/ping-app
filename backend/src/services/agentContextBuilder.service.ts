@@ -1178,11 +1178,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // sin importar su `status` almacenado. Luego se particiona en
     // vigentes/históricos para que síntesis nunca tenga que re-derivar esa
     // distinción por su cuenta.
-    const memoryFactsDominanceApplied = enforceMemoryCanonicalDominance(memoryFactsRaw);
+    // Defense in depth: the provider already excludes non-normal memory,
+    // but a future provider or a hand-built test context must not put
+    // sensitive/restricted facts into the agent context by accident.
+    const agentSafeMemoryFacts = memoryFactsRaw.filter((m) => m.sensitivity === 'normal');
+    const memoryFactsDominanceApplied = enforceMemoryCanonicalDominance(agentSafeMemoryFacts);
     const memoryFacts = memoryFactsDominanceApplied.filter((m) => m.isCurrent);
     const historicalMemoryFacts = memoryFactsDominanceApplied.filter((m) => !m.isCurrent);
-    if (memoryFactsRaw.length > 0) sourcesConsulted.push('retrieveMemory');
-    sourceCounts.memory = memoryFactsRaw.length;
+    if (agentSafeMemoryFacts.length > 0) sourcesConsulted.push('retrieveMemory');
+    sourceCounts.memory = agentSafeMemoryFacts.length;
 
     // Sección 12 del ticket (truncation/completeness honesty) — señales
     // DISTINTAS, nunca una sola "truncated" optimista:
