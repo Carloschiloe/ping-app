@@ -9,6 +9,14 @@ const RELATIONSHIP_KINDS = new Set(['general_recall', 'current_state', 'lifecycl
 const LIFECYCLE_TRANSITIONS = new Set(['action_completed', 'resolved', 'cancelled', 'rejected', 'reopened', 'reassigned', 'accepted']);
 const PROPOSAL_FOCI = new Set(['waiting_for_others', 'needs_my_response', 'pending_response_from_person']);
 const MESSAGE_RELATIONSHIPS = new Set(['content', 'conversation_context', 'sender', 'participant']);
+const OBJECTIVE_RELATIONS = new Set(['answers_pending_slot', 'continues', 'corrects', 'replaces', 'independent', 'ambiguous', 'unrelated']);
+const OBJECTIVE_RELATION_COMPATIBILITY: Record<string, Set<string>> = {
+    read_request: new Set(['continues', 'independent', 'ambiguous', 'unrelated']),
+    write_request: new Set(['continues', 'corrects', 'replaces', 'independent', 'ambiguous']),
+    slot_answer: new Set(['answers_pending_slot', 'continues', 'corrects', 'ambiguous']),
+    lifecycle_command: new Set(['continues', 'corrects', 'ambiguous', 'unrelated']),
+    unknown: new Set(['ambiguous', 'unrelated']),
+};
 
 function validRelationship(value: unknown): value is SemanticReadMeaningV4['relationship'] {
     if (!value || typeof value !== 'object') return false;
@@ -36,6 +44,14 @@ export function normalizeSemanticTurnV4(input: NormalizedSemanticTurnV4): Normal
     if (bytes > 32 * 1024 || value.version !== 4 || !validMeaning) throw new AppError('Unsupported or malformed semantic V4 checkpoint', 409);
     if (value.kind === 'read_request' && meaning === null) throw new AppError('Semantic V4 read meaning is required', 409);
     if (value.kind !== 'read_request' && meaning !== null) throw new AppError('Semantic V4 read meaning is only valid for reads', 409);
+    const relation = value.openObjectiveRelation ?? 'ambiguous';
+    if (typeof relation !== 'string' || !OBJECTIVE_RELATIONS.has(relation)) {
+        throw new AppError('Unsupported semantic V4 objective relation', 409);
+    }
+    const allowedRelations = OBJECTIVE_RELATION_COMPATIBILITY[value.kind ?? 'unknown'];
+    if (!allowedRelations?.has(relation)) {
+        throw new AppError('Contradictory semantic V4 objective relation for kind', 409);
+    }
     const base = normalizeSemanticTurnV2({ ...input, version: 2 } as any);
-    return JSON.parse(JSON.stringify({ ...base, version: 4, readMeaning: meaning })) as NormalizedSemanticTurnV4;
+    return JSON.parse(JSON.stringify({ ...base, version: 4, readMeaning: meaning, openObjectiveRelation: relation })) as NormalizedSemanticTurnV4;
 }
