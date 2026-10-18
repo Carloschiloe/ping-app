@@ -845,11 +845,10 @@ describe('M-2 FINAL: memoryExtractionProvider -- pipeline real con fake provider
 
     it('procesa múltiples candidatos válidos de una sola extracción, uno por uno', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [
-                { data: null, error: null }, { data: null, error: null }, { data: { id: 'id-1' }, error: null }, // candidato 1
-                { data: null, error: null }, { data: null, error: null }, { data: { id: 'id-2' }, error: null }, // candidato 2
+            'rpc:ingest_memory_record_atomic': [
+                { data: [{ outcome: 'inserted', memory_id: 'id-1', superseded_id: null, status: 'active' }], error: null },
+                { data: [{ outcome: 'inserted', memory_id: 'id-2', superseded_id: null, status: 'active' }], error: null },
             ],
-            memory_record_evidence: [{ data: null, error: null }, { data: null, error: null }],
         });
         setSupabaseAdminMock(mock);
         const { runMemoryExtraction } = await import('../src/services/memoryExtractionProvider.service');
@@ -864,10 +863,9 @@ describe('M-2 FINAL: memoryExtractionProvider -- pipeline real con fake provider
 
     it('ADVERSARIAL: un candidato malformado dentro del lote se rechaza SIN bloquear los demás candidatos válidos', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [
-                { data: null, error: null }, { data: null, error: null }, { data: { id: 'id-ok' }, error: null }, // el válido
+            'rpc:ingest_memory_record_atomic': [
+                { data: [{ outcome: 'inserted', memory_id: 'id-ok', superseded_id: null, status: 'active' }], error: null },
             ],
-            memory_record_evidence: [{ data: null, error: null }],
         });
         setSupabaseAdminMock(mock);
         const { runMemoryExtraction } = await import('../src/services/memoryExtractionProvider.service');
@@ -882,8 +880,9 @@ describe('M-2 FINAL: memoryExtractionProvider -- pipeline real con fake provider
 
     it('ADVERSARIAL: el provider nunca puede fijar ownerUserId/sourceType/sourceId -- siempre vienen del contexto real, nunca del candidato crudo', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [{ data: null, error: null }, { data: null, error: null }, { data: { id: 'id-1' }, error: null }],
-            memory_record_evidence: [{ data: null, error: null }],
+            'rpc:ingest_memory_record_atomic': [
+                { data: [{ outcome: 'inserted', memory_id: 'id-1', superseded_id: null, status: 'active' }], error: null },
+            ],
         });
         setSupabaseAdminMock(mock);
         const { runMemoryExtraction } = await import('../src/services/memoryExtractionProvider.service');
@@ -895,9 +894,9 @@ describe('M-2 FINAL: memoryExtractionProvider -- pipeline real con fake provider
             },
         ]);
         await runMemoryExtraction(provider, { text: 'x' }, baseContext2);
-        const inserted = mock.getInsertCalls('memory_records')[0];
-        expect(inserted.owner_user_id).toBe('owner1'); // del contexto real, nunca del candidato
-        expect(inserted.source_id).toBe('msg1');
-        expect(inserted.source_type).toBe('message');
+        const record = mock.getRpcCalls()[0].args.p_memory_record;
+        expect(record.owner_user_id).toBe('owner1'); // del contexto real, nunca del candidato
+        expect(record.source_id).toBe('msg1');
+        expect(record.source_type).toBe('message');
     });
 });
