@@ -7,8 +7,7 @@ import { useAppTheme } from '../../theme/ThemeContext';
 // type) se movió al subpath /legacy -- el import raíz ahora expone la
 // "Next API" basada en clases. Sin cambio de comportamiento, sólo de ruta.
 import * as Calendar from 'expo-calendar/legacy';
-import { API_URL } from '../../api/client';
-import { supabase } from '../../lib/supabase';
+import { apiClient } from '../../api/client';
 import { useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../../api/queries';
 
 interface CalendarsSheetProps {
@@ -38,10 +37,21 @@ export function CalendarsSheet({
     const { mutate: disconnectAccount } = useDisconnectCalendarAccount();
 
     const handleConnectCloud = async (provider: 'google' | 'outlook') => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const url = `${API_URL}/calendar/auth/${provider}?token=${session.access_token}`;
-        Linking.openURL(url);
+        try {
+            const endpoint = provider === 'google'
+                ? '/calendar/auth/google/link'
+                : '/calendar/auth/outlook/link';
+            const response = await apiClient.get(endpoint);
+            if (!response?.url || typeof response.url !== 'string') {
+                throw new Error('OAuth link was not returned');
+            }
+            await Linking.openURL(response.url);
+        } catch {
+            Alert.alert(
+                'No se pudo conectar',
+                'Ping no pudo iniciar la conexión con el calendario. Inténtalo nuevamente.',
+            );
+        }
     };
 
     const handleDisconnectCloud = (id: string, email: string) => {
