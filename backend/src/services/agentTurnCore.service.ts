@@ -101,6 +101,16 @@ export interface RunAgentTurnOptions {
     // One durable admission sequence is shared by every internal state
     // transition produced while processing this user turn.
     dialogueTurnSequence?: number;
+    // Internal adapter seam: the wrapper receives the canonical read evidence
+    // after Core has authorized and synthesized it, never from raw text.
+    onReadContext?: (input: {
+        status: string;
+        commitments: Array<{ id: string; title: string }>;
+        citations: Array<{ sourceType: string; sourceId: string }>;
+    }) => void;
+    // Preserve the actual user utterance for response semantics when the
+    // follow-up adapter augments the Core query with an authorized title.
+    responseInput?: string;
 }
 
 function turnSequenceFor(
@@ -1158,7 +1168,7 @@ export async function runAgentTurn(
 
     traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', { path: 'read_response', dialogueScopeKey });
     const response = await synthesizeAgentResponse(
-        { input: content, context, locale, channel, traceId },
+        { input: options.responseInput ?? content, context, locale, channel, traceId },
         {},
     );
     traceAgentDevice(traceId, 'AGENT_RESPONSE_KIND', {
@@ -1183,6 +1193,13 @@ export async function runAgentTurn(
             : null,
         turnId: traceId,
         turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+    });
+    options.onReadContext?.({
+        status: response.status,
+        commitments: context.commitments
+            .filter((commitment) => commitment.entityType === 'commitment')
+            .map((commitment) => ({ id: commitment.id, title: commitment.title })),
+        citations: response.citations ?? [],
     });
     return finalizeAgentTurn({ kind: 'response', response: toPublicAgentResponse(response) }, traceId);
 }
