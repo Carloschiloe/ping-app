@@ -37,7 +37,7 @@ export async function runAgentTurn(
     const selectedReadCandidate = clarificationSelection.kind === 'resolved'
         ? clarificationSelection
         : null;
-    const rememberReadContext = (readContext: Parameters<typeof rememberVerifiedReadReferent>[0]) => {
+    const rememberReadContext: NonNullable<RunAgentTurnOptions['onReadContext']> = (readContext) => {
         rememberVerifiedReadReferent({
             ...readContext,
             actorUserId: input.actorUserId,
