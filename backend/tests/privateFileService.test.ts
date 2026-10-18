@@ -21,6 +21,10 @@ const otherUserId = '22222222-2222-4222-8222-222222222222';
 const conversationId = '33333333-3333-4333-8333-333333333333';
 const messageId = '44444444-4444-4444-8444-444444444444';
 
+const pdfFixture = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37])], {
+    type: 'application/pdf',
+});
+
 describe('private file authorization', () => {
     beforeEach(() => {
         setSupabaseAdminMock(createSupabaseAdminMock({}));
@@ -168,6 +172,7 @@ describe('private file authorization', () => {
                 }],
                 error: null,
             },
+            download: { data: pdfFixture, error: null },
         });
         setSupabaseAdminMock(db);
         setSupabaseStorageMock(storage);
@@ -187,6 +192,38 @@ describe('private file authorization', () => {
             `conversations/${conversationId}/attachments/${userId}`,
             { search: filename, limit: 2 }
         );
+        expect(storage.download).toHaveBeenCalledWith(objectPath);
+    });
+
+    it('rechaza contenido que no coincide con el MIME declarado aunque la metadata sea válida', async () => {
+        const filename = 'spoofed.pdf';
+        const objectPath = `conversations/${conversationId}/attachments/${userId}/${filename}`;
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+        });
+        const storage = createSupabaseStorageMock({
+            list: {
+                data: [{ name: filename, metadata: { size: 128, mimetype: 'application/pdf' } }],
+                error: null,
+            },
+            download: {
+                data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' }),
+                error: null,
+            },
+        });
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(validatePrivateFileUploadReference(
+            userId,
+            'message_attachment',
+            conversationId,
+            'chat-media',
+            objectPath
+        )).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Stored private file content does not match its declared type',
+        });
     });
 
     it('rechaza una ruta arbitraria aunque el usuario participe', async () => {
