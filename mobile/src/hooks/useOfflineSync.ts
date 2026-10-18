@@ -130,11 +130,19 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
                     }));
                 }
             } catch {
-                setQueue((current) => current.map((item) =>
-                    item.id === msg.id
-                        ? { ...item, state: 'result_unknown', lastError: 'Resultado desconocido', retryCount: item.retryCount + 1 }
-                        : item
-                ));
+                setQueue((current) => current.map((item) => {
+                    if (item.id !== msg.id) return item;
+                    const retryCount = item.retryCount + 1;
+                    return {
+                        ...item,
+                        state: 'result_unknown',
+                        lastError: 'Resultado desconocido',
+                        retryCount,
+                        nextAttemptAt: new Date(
+                            Date.now() + Math.min(30000, 1000 * (2 ** retryCount))
+                        ).toISOString(),
+                    };
+                }));
             }
         }
 
