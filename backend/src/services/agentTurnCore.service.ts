@@ -80,6 +80,8 @@ export interface RunAgentTurnOptions {
     // from the canonical checkpoint. The default remains the existing
     // process-local repository for legacy callers and tests.
     dialogueService?: AgentDialogueStateService;
+    // Durable boundary sequence, carried for CAS/replay diagnostics.
+    dialogueTurnSequence?: number;
     // Internal Core binding only. The public HTTP body cannot populate this;
     // it is produced after a read clarification selects a real candidate.
     authorizedCommitmentReferentId?: string;
