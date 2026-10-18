@@ -1246,7 +1246,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // Retrieval implementations should honor the range, but Core also
     // filters the returned set defensively so a broad adapter or a stale
     // cache cannot leak an item outside an explicit temporal request.
-    const timeFilteredCommitments = timeRange
+    const timeFilteredCommitments = timeRange && interpretation.temporalIntent?.futureOnly === true
         ? (() => {
             const fromMs = Date.parse(timeRange.from ?? '');
             const toMs = Date.parse(timeRange.to ?? '');
