@@ -8,12 +8,12 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 // commitmentTransitions.ts#computeCancel before writing this test file --
 // "Only the owner can cancel this commitment", 403), never owner-or-assignee.
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
-vi.mock('../src/services/commitment.service', () => ({
+vi.mock('../src/services/commitmentApplication.service', () => ({
     cancelCommitment: vi.fn(),
 }));
 
 import { cancelCommitmentExecutor } from '../src/services/toolExecutors/cancelCommitmentExecutor';
-import { cancelCommitment } from '../src/services/commitment.service';
+import { cancelCommitment } from '../src/services/commitmentApplication.service';
 import { AppError } from '../src/utils/AppError';
 
 const mockCancelCommitment = vi.mocked(cancelCommitment);

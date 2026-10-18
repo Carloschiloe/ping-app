@@ -27,6 +27,7 @@ export const resolveCommitment = commitmentLifecycle.resolveCommitment;
 export const cancelCommitment = commitmentLifecycle.cancelCommitment;
 export const reopenCommitment = commitmentLifecycle.reopenCommitment;
 export const reassignCommitment = commitmentLifecycle.reassignCommitment;
+export const editCommitment = commitmentLifecycle.editCommitment;
 export const scheduleFollowUp = commitmentLifecycle.scheduleFollowUp;
 export const archiveCommitment = commitmentLifecycle.archiveCommitment;
 export const restoreCommitment = commitmentLifecycle.restoreCommitment;

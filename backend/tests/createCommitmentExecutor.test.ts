@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // verification (PostgREST never round-trips the same literal ISO string)
 // and the structural precondition that a shared commitment requires a real
 // conversationId at execution time.
-vi.mock('../src/services/commitmentProposal.service', () => ({
+vi.mock('../src/services/commitmentApplication.service', () => ({
     createConfirmedCommitment: vi.fn(),
     createSharedProposal: vi.fn(),
 }));
@@ -19,7 +19,7 @@ vi.mock('../src/utils/authz', () => ({
 }));
 
 import { createCommitmentExecutor } from '../src/services/toolExecutors/createCommitmentExecutor';
-import { createConfirmedCommitment, createSharedProposal } from '../src/services/commitmentProposal.service';
+import { createConfirmedCommitment, createSharedProposal } from '../src/services/commitmentApplication.service';
 import { assertConversationParticipantReference } from '../src/utils/authz';
 import { AppError } from '../src/utils/AppError';
 

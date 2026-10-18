@@ -9,12 +9,12 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 // owner/assignee authorization boundary, and verification-before-success
 // were entirely unexercised until this file.
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
-vi.mock('../src/services/commitment.service', () => ({
+vi.mock('../src/services/commitmentApplication.service', () => ({
     resolveCommitment: vi.fn(),
 }));
 
 import { completeCommitmentExecutor } from '../src/services/toolExecutors/completeCommitmentExecutor';
-import { resolveCommitment } from '../src/services/commitment.service';
+import { resolveCommitment } from '../src/services/commitmentApplication.service';
 import { AppError } from '../src/utils/AppError';
 
 const mockResolveCommitment = vi.mocked(resolveCommitment);
