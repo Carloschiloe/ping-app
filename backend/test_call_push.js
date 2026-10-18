@@ -9,7 +9,7 @@ async function run() {
     if (error) { console.error('DB Error:', error); return; }
 
     const tokens = users.map(u => u.expo_push_token).filter(t => t && t.startsWith('ExponentPushToken'));
-    console.log('Valid push tokens found:', tokens.length);
+    console.log('Valid push credentials found:', tokens.length);
     if (tokens.length === 0) return;
 
     try {
