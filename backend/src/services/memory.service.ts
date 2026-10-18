@@ -293,6 +293,9 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
     const subjectKey = subjectKeyFor(subject.subjectPersonId, subject.subjectContactId, subject.subjectUnresolvedHint);
     const contentHash = computeContentHash(event.ownerUserId, subjectKey, predicate, objectValueNormalized);
 
+    const validFrom = sanitizeTimestamp(candidate.temporalHint?.validFromHint);
+    const validUntil = sanitizeTimestamp(candidate.temporalHint?.validUntilHint);
+
     const insertRow = {
         owner_user_id: event.ownerUserId,
         memory_type: candidate.memoryTypeHint,
@@ -310,8 +313,8 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
         valid_from: validFrom,
         valid_until: validUntil,
         status,
-        superseded_by: supersededByExistingId,
-        superseded_at: supersededByExistingAt,
+        superseded_by: null,
+        superseded_at: null,
         confidence,
         sensitivity,
         visibility_scope: 'private' as const,
