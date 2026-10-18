@@ -9,7 +9,6 @@ import type { AgentDeviceDebugMetadata } from '../utils/agentDeviceTrace';
 import type { ReadExecutionResult } from './agentReadExecution';
 
 export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported' | 'read';
-export type AgentTurnConfirmationState = 'required' | 'received';
 
 export interface AgentTurnResponse {
     kind: 'response';
@@ -19,9 +18,7 @@ export interface AgentTurnResponse {
 
 export interface AgentTurnPlan {
     kind: 'plan';
-    /** Explicit Core-owned confirmation protocol state. */
-    confirmationState: AgentTurnConfirmationState;
-    /** @deprecated Compatibility metadata; Voice must not infer consent from this field. */
+    /** True when this plan is the Core's response to an explicit natural confirmation. */
     confirmationRequested?: boolean;
     plan: AgentPlanPublicResponse;
     // Core-owned presentation projection — mobile renders this, never reconstructs from plan internals
@@ -130,3 +127,4 @@ export function isAgentTurnClarification(result: AgentTurnResult): result is Age
 export function isAgentTurnUnsupported(result: AgentTurnResult): result is AgentTurnUnsupported {
     return result.kind === 'unsupported';
 }
+
