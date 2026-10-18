@@ -560,10 +560,26 @@ async function tryAnswerTargetEntityClarification(
         ? freshOriginalCandidates.filter((candidate) => candidate.id === selectedOption.id)
         : [];
 
-    // (b) Same-day dueAt match against a resolvable date/weekday phrase.
+    // (b) Match a resolvable date/weekday phrase. A bare weekday is a
+    // semantic weekday selector, not an absolute date: the answer "el del
+    // jueves" must still select a Thursday commitment when the commitment
+    // was created in a previous calendar week. Full dates keep the stricter
+    // same-day comparison.
     if (candidates.length === 0) {
         const parsedDate = parseDateFromText(trimmedAnswer);
-        if (parsedDate) {
+        const weekdayMatch = normalizedAnswer.match(/\\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b/i);
+        if (weekdayMatch) {
+            const weekdays = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+            const normalizedWeekday = weekdayMatch[1].normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+            const targetWeekday = weekdays.findIndex((day) =>
+                day.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '') === normalizedWeekday);
+            if (targetWeekday >= 0) {
+                candidates = freshOriginalCandidates.filter((candidate) => {
+                    if (!candidate.dueAt) return false;
+                    return new Date(candidate.dueAt).getUTCDay() === targetWeekday;
+                });
+            }
+        } else if (parsedDate) {
             const targetDayKey = parsedDate.date.toISOString().slice(0, 10);
             candidates = freshOriginalCandidates.filter((candidate) =>
                 candidate.dueAt && candidate.dueAt.slice(0, 10) === targetDayKey);
