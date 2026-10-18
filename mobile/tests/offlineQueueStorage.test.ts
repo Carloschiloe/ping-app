@@ -33,5 +33,7 @@ describe('offline queue storage', () => {
         expect(source).toContain('const [isQueueHydrated, setIsQueueHydrated] = useState(false);');
         expect(source).toMatch(/if \(!isQueueHydrated\) return;/);
         expect(source).toContain('setIsQueueHydrated(true);');
+        expect(source).toContain('nextAttemptAt: new Date(');
+        expect(source).toContain('Math.min(30000, 1000 * (2 ** retryCount))');
     });
 });
