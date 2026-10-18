@@ -866,10 +866,42 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // conversational target that may be ambiguous. Resolve the cue here for
     // safety/clarification only; the planner remains the sole owner of any
     // responsible-person assignment.
+    // Read continuity is a bounded candidate selector, never an authority
+    // shortcut: any selected canonical id is re-authorized below through
+    // retrieveVisibleCommitmentById(actor, id). A qualifier must narrow to
+    // exactly one prior candidate; otherwise Core asks explicitly.
+    const priorReferents = input.priorReadContext?.commitmentReferents ?? [];
+    const normalizedFollowUp = input.input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const priorMatches = priorReferents.filter((referent) => {
+        const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (/\\bsegunda\\b|\\bsecond\\b/.test(normalizedFollowUp)) return false;
+        if (/\\bprimera\\b|\\bfirst\\b/.test(normalizedFollowUp)) return false;
+        return label && normalizedFollowUp.split(/\\s+/).some((token) => token.length > 2 && label.includes(token));
+    });
+    let priorReferentId: string | undefined;
+    let priorReferentCandidates: Array<{ id: string; label: string }> = [];
+    if (/\\bsegunda\\b|\\bsecond\\b/.test(normalizedFollowUp)) {
+        const candidate = priorReferents[1];
+        if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
+    } else if (/\\bprimera\\b|\\bfirst\\b/.test(normalizedFollowUp)) {
+        const candidate = priorReferents[0];
+        if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
+    } else if (priorMatches.length === 1 && priorMatches[0].canonicalId) {
+        priorReferentId = priorMatches[0].canonicalId;
+    } else if (priorMatches.length > 1) {
+        priorReferentCandidates = priorMatches.filter((candidate) => !!candidate.canonicalId)
+            .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
+    } else if (priorReferents.length > 1 && /\\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\\b/.test(normalizedFollowUp)) {
+        priorReferentCandidates = priorReferents.filter((candidate) => !!candidate.canonicalId)
+            .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
+    }
+
     const canonicalPersonScope: string[] = [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
-    let needsClarification = false;
-    let clarification: AgentClarification | undefined;
+    let needsClarification = priorReferentCandidates.length > 1;
+    let clarification: AgentClarification | undefined = priorReferentCandidates.length > 1
+        ? { reason: 'entity_ambiguous', entityCandidates: priorReferentCandidates }
+        : undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
@@ -938,7 +970,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
         needsClarification = true;
-        clarification = { reason: 'person_ambiguous', candidates: [] };
+        clarification = containsThirdPersonPronoun(input.input)
+            ? { reason: 'person_ambiguous', candidates: [] }
+            : { reason: 'person_not_found', requestedNames: canonicalPersonScope };
     }
 
     // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,
@@ -1044,8 +1078,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                     personScope: !!resolvedPersonId,
                 });
             }
-            if (input.authorizedCommitmentReferentId) {
-                return retrieveVisibleCommitmentById(input.actorUserId, input.authorizedCommitmentReferentId)
+            if (input.authorizedCommitmentReferentId || priorReferentId) {
+                const referentId = input.authorizedCommitmentReferentId ?? priorReferentId!;
+                return retrieveVisibleCommitmentById(input.actorUserId, referentId)
                     .then((commitment) => commitment ? [commitment] : []);
             }
             return retrieveCommitments({
