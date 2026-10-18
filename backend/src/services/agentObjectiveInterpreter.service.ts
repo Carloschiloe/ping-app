@@ -1495,7 +1495,7 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
 // not to a new message. Core uses this narrow adapter when reconciling the
 // existing dialogue objective.
 export function extractCompanionPersonHint(text: string): string | null {
-    const match = text.match(/^\s*(?:es|ser[aá]|será)\s+(?:con|junto\s+a)\s+([\\p{Lu}][\\p{L}]*)\b/iu)
-        ?? text.match(/^\s*(?:con|junto\s+a)\s+([\\p{Lu}][\\p{L}]*)\b/iu);
+    const match = text.match(/^\s*(?:es|ser[aá]|será)\s+(?:con|junto\s+a)\s+([\p{Lu}][\p{L}]*)\b/iu)
+        ?? text.match(/^\s*(?:con|junto\s+a)\s+([\p{Lu}][\p{L}]*)\b/iu);
     return match?.[1] ?? null;
 }
