@@ -819,7 +819,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             // removed (it would wrongly re-truncate a title that itself
             // legitimately contains "para", e.g. "comprar comida para
             // perro").
-            const entityHint = extractRescheduleTargetHint(afterVerb) ?? (/^c[aá]mbia(?:la|lo|los|las)\\b/iu.test(text) ? 'la' : null);
+            const entityHint = extractRescheduleTargetHint(afterVerb) ?? (/^c[aá]mbia(?:la|lo|los|las)\b/iu.test(text) ? 'la' : null);
             const obj = baseObjective('reschedule_existing_commitment', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entityHint ? [entityHint] : [];
             obj.timeConstraints.rawHint = timeHint;
