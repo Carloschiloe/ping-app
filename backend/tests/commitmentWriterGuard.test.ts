@@ -98,4 +98,15 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(commitmentRouteLines.some((line) => line.includes("'/commitments/:id/operation-action'")))
             .toBe(true); // LEGACY SATELLITE WRITER — migrate in future slice.
     });
+
+    it('mantiene los ejecutores de Commitment detrás de la fachada de aplicación', () => {
+        const executorRoot = path.join(SOURCE_ROOT, 'services', 'toolExecutors');
+        const directInternalImport = /from\\s+['"]\\.\\.\\/commitment(?:Proposal)?\\.service['"]/;
+        const bypasses = walk(executorRoot, new Set(['.ts']))
+            .filter((file) => directInternalImport.test(fs.readFileSync(file, 'utf8')))
+            .map((file) => unixRelative(SOURCE_ROOT, file));
+
+        expect(bypasses).toEqual([]);
+    });
+
 });
