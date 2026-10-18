@@ -21,6 +21,19 @@ describe('assertConversationParticipant', () => {
     });
 });
 
+describe('active conversation authorization', () => {
+    it('filters out soft-deleted conversations before accepting membership', async () => {
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { assertConversationParticipant } = await import('../src/utils/authz');
+
+        await expect(assertConversationParticipant('u1', 'c1')).resolves.toMatchObject({ conversation_id: 'c1' });
+        expect(mock.getIsCalls('conversation_participants')).toContainEqual(['conversations.deleted_at', null]);
+    });
+});
+
 describe('resource-scoped authorization', () => {
     it('consulta un mensaje por id y conversación, no sólo por id', async () => {
         const mock = createSupabaseAdminMock({
