@@ -10,7 +10,6 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "update:production": "eas update --channel production --environment production",
-    "update:staging": "eas update --channel staging --environment preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
