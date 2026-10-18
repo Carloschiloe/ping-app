@@ -94,6 +94,40 @@ export async function getSharedProfileIds(userId: string): Promise<string[]> {
     ));
 }
 
+export async function getActiveSharedProfileIds(userId: string): Promise<string[]> {
+    const { data: ownParticipations, error: ownError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+    if (ownError) throw new AppError(ownError.message, 500);
+    const conversationIds = Array.from(new Set((ownParticipations || []).map((row) => row.conversation_id)));
+    if (conversationIds.length === 0) return [];
+
+    // Deleted conversations revoke relationship visibility for private files.
+    const { data: activeConversations, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .in('id', conversationIds)
+        .is('deleted_at', null);
+
+    if (conversationError) throw new AppError(conversationError.message, 500);
+    const activeConversationIds = (activeConversations || []).map((row) => row.id);
+    if (activeConversationIds.length === 0) return [];
+
+    const { data: participants, error: participantError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('user_id')
+        .in('conversation_id', activeConversationIds);
+
+    if (participantError) throw new AppError(participantError.message, 500);
+    return Array.from(new Set(
+        (participants || [])
+            .map((row) => row.user_id)
+            .filter((participantId) => participantId && participantId !== userId)
+    ));
+}
+
 export async function assertCanReferenceProfiles(userId: string, profileIds: string[]) {
     const requestedIds = Array.from(new Set(profileIds.filter((id) => id && id !== userId)));
     if (requestedIds.length === 0) return;
