@@ -1488,7 +1488,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
-        interactionMode: isSocialConversation ? 'conversation' : interpretation.interactionMode,
+        interactionMode: isSocialConversation ? 'conversation' : commitmentSignalConfident ? 'task' : interpretation.interactionMode,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,
