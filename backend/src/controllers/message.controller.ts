@@ -26,7 +26,6 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
             conversationId,
             reply_to_id,
             undefined,
-            undefined,
             meta,
             client_message_id,
         );
