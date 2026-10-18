@@ -193,7 +193,8 @@ select jsonb_build_object(
       and proname in (
         'create_message_attachment_intent', 'complete_message_attachment',
         'register_legacy_message_attachment', 'persist_message_with_attachment',
-        'authorize_message_attachment_read', 'list_expired_message_attachments', 'tombstone_message'
+        'authorize_message_attachment_read', 'list_expired_message_attachments',
+        'claim_expired_message_attachment', 'tombstone_message'
       )
   ),
   'authenticated_grants', (
@@ -213,7 +214,7 @@ select jsonb_build_object(
   check('attachments RLS enabled', schema?.rls === true);
   check('canonical attachments policy exists', schema?.policy === true);
   check('attachment constraints installed', Number(schema?.constraints) >= 13);
-  check('attachment RPCs installed', Number(schema?.rpcs) === 7);
+  check('attachment RPCs installed', Number(schema?.rpcs) === 8);
   check('authenticated has SELECT only', JSON.stringify(schema?.authenticated_grants) === '["SELECT"]');
   check('anon has no attachments grants', Number(schema?.anon_grants) === 0);
 
@@ -313,6 +314,27 @@ select jsonb_build_object(
     .eq('created_by_user_id', a.id)
     .eq('client_upload_id', pendingClientId);
   check('client_upload_id creates one row', pendingCount === 1);
+
+  const expired = await uploadIntent('expired', { upload: false });
+  attachmentIds.add(expired.attachmentId);
+  const { error: expireError } = await admin.from('attachments')
+    .update({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+    .eq('id', expired.attachmentId);
+  if (expireError) throw expireError;
+  const { data: expiredCandidates, error: expiredListError } = await admin.rpc(
+    'list_expired_message_attachments',
+    { p_limit: 100 },
+  );
+  if (expiredListError) throw expiredListError;
+  check('expired attachment is listed for cleanup',
+    expiredCandidates?.some((row) => row.id === expired.attachmentId));
+  const { data: claimedExpired, error: claimExpiredError } = await admin.rpc(
+    'claim_expired_message_attachment',
+    { p_attachment_id: expired.attachmentId },
+  );
+  if (claimExpiredError) throw claimExpiredError;
+  check('expired attachment claim is terminal and inaccessible',
+    claimedExpired?.lifecycle_status === 'expired' && claimedExpired?.message_id === null);
 
   const main = await uploadIntent('main');
   const mainComplete = await complete(main.attachmentId);
