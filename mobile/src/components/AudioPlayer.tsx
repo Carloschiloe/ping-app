@@ -12,6 +12,11 @@ interface AudioPlayerProps {
     transcript?: string;
 }
 
+// Keep the decorative waveform stable across renders. Generating heights with
+// Math.random() during render made every playback-status update redraw the
+// message with a different waveform and violated React's render purity rule.
+const AUDIO_WAVEFORM_HEIGHTS = [8, 14, 11, 18, 9, 16, 12, 20, 10, 15, 7, 13] as const;
+
 // SDK 57 hotfix: migrado de expo-av (Audio.Sound, retirado de Expo Go en SDK
 // 57) a expo-audio. `useAudioPlayer` libera el player automáticamente al
 // desmontar (antes requería un useEffect manual con unloadAsync) y
@@ -49,12 +54,12 @@ export default function AudioPlayer({ url, isMe = false, style, transcript }: Au
             <TouchableOpacity style={styles.audioPlayer} onPress={toggle}>
                 <Ionicons name={status.playing ? 'pause-circle' : 'play-circle'} size={32} color={palette.iconColor} />
                 <View style={styles.audioWave}>
-                    {[...Array(12)].map((_, i) => (
+                    {AUDIO_WAVEFORM_HEIGHTS.map((height, i) => (
                         <View key={i} style={[
                             styles.audioBar,
                             {
                                 backgroundColor: palette.waveColor,
-                                height: 4 + Math.random() * 14,
+                                height,
                                 opacity: status.playing ? 0.9 : 0.55,
                             },
                         ]} />
