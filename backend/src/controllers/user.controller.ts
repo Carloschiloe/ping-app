@@ -4,6 +4,18 @@ import { getSharedProfileIds } from '../utils/authz';
 import { normalizeFullNameInput, normalizePhoneInput } from '../utils/profileValidation';
 import { createContactProof } from '../utils/contactDiscovery';
 
+export function serializeContactMatch(
+    profile: { id: string; full_name?: string | null; avatar_url?: string | null },
+    contactProof: string,
+) {
+    return {
+        id: profile.id,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+        contactProof,
+    };
+}
+
 // GET /users?q=email — search users by email (excludes self)
 export const search = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -80,14 +92,10 @@ export const syncContacts = async (req: Request, res: Response): Promise<void> =
         for (const profile of [...(phoneResult.data || []), ...(emailResult.data || [])]) {
             profiles.set(profile.id, profile);
         }
-        const users = Array.from(profiles.values()).map((profile) => ({
-            id: profile.id,
-            full_name: profile.full_name,
-            avatar_url: profile.avatar_url,
-            phone: profile.phone,
-            email: profile.email,
-            contactProof: createContactProof(requesterUserId, profile.id).proof,
-        }));
+        const users = Array.from(profiles.values()).map((profile) => serializeContactMatch(
+            profile,
+            createContactProof(requesterUserId, profile.id).proof,
+        ));
         res.json({ users });
     } catch (error: any) {
         const status = typeof error?.statusCode === 'number' ? error.statusCode : 500;
