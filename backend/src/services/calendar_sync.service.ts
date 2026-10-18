@@ -207,6 +207,71 @@ export const checkConflictsMs = async (accessToken: string, startIso: string, en
     return response.data.value && response.data.value.length > 0;
 };
 
+export const syncCommitmentToProvider = async (
+    userId: string,
+    commitmentId: string,
+    provider: string
+) => {
+    assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');
+
+    if (!['google', 'outlook'].includes(provider)) {
+        throw new Error('Unsupported calendar provider');
+    }
+
+    const { data: commitment, error: commitmentError } = await supabaseAdmin
+        .from('commitments')
+        .select('*')
+        .eq('id', commitmentId)
+        .eq('owner_user_id', userId)
+        .single();
+
+    if (commitmentError || !commitment) throw new Error('Commitment not found');
+    if (!commitment.due_at) {
+        throw new Error('Only commitments with a due date can be synced to a calendar');
+    }
+
+    const accessToken = await getValidAccessToken(userId, provider);
+    const startDate = new Date(commitment.due_at);
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    let result: any;
+    let eventUrl = '';
+
+    if (provider === 'google') {
+        result = await createGoogleEvent(accessToken, {
+            summary: `Ping: ${commitment.title}`,
+            description: 'Compromiso detectado automáticamente por Ping.',
+            start: { dateTime: startDate.toISOString() },
+            end: { dateTime: endDate.toISOString() },
+        });
+        eventUrl = result.htmlLink;
+    } else {
+        result = await createMsEvent(accessToken, {
+            subject: `Ping: ${commitment.title}`,
+            body: { contentType: 'HTML', content: 'Compromiso detectado automáticamente por Ping.' },
+            start: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
+            end: { dateTime: endDate.toISOString(), timeZone: 'UTC' },
+        });
+        eventUrl = result.webLink;
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from('commitments')
+        .update({
+            meta: {
+                ...commitment.meta,
+                synced_to: provider,
+                cloud_event_id: result.id,
+                external_event_url: eventUrl,
+                sync_status: 'synced',
+                last_sync_at: new Date().toISOString(),
+            },
+        })
+        .eq('id', commitmentId);
+
+    if (updateError) throw updateError;
+    return { ok: true, result };
+};
+
 export const syncCommitmentToCloud = async (userId: string, commitment: any) => {
     try {
         assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');

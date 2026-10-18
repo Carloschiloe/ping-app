@@ -9,7 +9,6 @@ const REPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slice';
 
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
-    ['controllers/calendar.controller.ts:update', LEGACY_WRITER_REASON],
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
     ['services/operation.service.ts:update', LEGACY_WRITER_REASON],
 ]);
@@ -106,6 +105,19 @@ describe('C-2 canonical Commitment writer guard', () => {
             .map((file) => unixRelative(SOURCE_ROOT, file));
 
         expect(bypasses).toEqual([]);
+    });
+
+    it('mantiene Calendar detrás de la fachada de aplicación', () => {
+        const controllerPath = path.join(SOURCE_ROOT, 'controllers', 'calendar.controller.ts');
+        const controller = fs.readFileSync(controllerPath, 'utf8');
+        const actionStart = controller.indexOf('export const syncCommitment = async');
+        const actionSource = actionStart >= 0 ? controller.slice(actionStart) : '';
+
+        expect(controller).toContain(
+            "from '../services/commitmentApplication.service'"
+        );
+        expect(actionSource).toContain('syncCommitmentToProviderThroughCore(');
+        expect(actionSource).not.toContain(".from('commitments')");
     });
 
     it('mantiene el endpoint de Operation detrás de la fachada de aplicación', () => {
