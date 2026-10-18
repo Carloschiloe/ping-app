@@ -14,6 +14,7 @@ import { apiClient, ApiError } from '../api/client';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
 import { getDeviceTimeZone } from '../utils/timeZone';
+import { buildCaptureMetadata } from '../types/capture';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean, scrollToMessageId?: string) {
     const queryClient = useQueryClient();
@@ -115,6 +116,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             client_message_id: clientMessageId,
             meta: {
                 ...(data.meta || {}),
+                ...buildCaptureMetadata('conversation'),
                 clientTimeZone: getDeviceTimeZone(),
             },
         };
