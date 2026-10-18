@@ -13,8 +13,6 @@ const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
     ['services/call-processing.service.ts:insert', LEGACY_WRITER_REASON],
     ['services/operation.service.ts:update', LEGACY_WRITER_REASON],
-    ['scripts/debug_schema.ts:insert', 'LEGACY DIAGNOSTIC WRITER — never runtime'],
-    ['scripts/debug_schema.ts:delete', 'LEGACY DIAGNOSTIC WRITER — never runtime'],
 ]);
 
 const ALLOWED_SQL_DML = new Map<string, string>([
