@@ -553,15 +553,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     let rawInterpretation = options.interpretation
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
-    const isSocialConversation = isSocialConversationInput(input.input)
-        || (rawInterpretation.interactionMode === 'conversation'
-            && deterministicSignals.intent === 'general_context'
-            && deterministicSignals.timeExpression === null
-            && deterministicSignals.temporalIntent === null
-            && !deterministicSignals.wantsCommitments
-            && !deterministicSignals.wantsMessages
-            && !rawInterpretation.wantsCommitments
-            && !rawInterpretation.wantsMessages);
+    const isSocialInput = isSocialConversationInput(input.input);
 
     // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
     // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
@@ -581,6 +573,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    const isSocialConversation = isSocialInput
+        || (rawInterpretation.interactionMode === 'conversation'
+            && deterministicSignals.intent === 'general_context'
+            && deterministicSignals.timeExpression === null
+            && deterministicSignals.temporalIntent === null
+            && !deterministicSignals.wantsCommitments
+            && !deterministicSignals.wantsMessages
+            && !rawInterpretation.wantsCommitments
+            && !rawInterpretation.wantsMessages);
     // Even when this builder is called directly (outside the unified semantic
     // boundary), social turns must remain conversation-only. This prevents a
     // provider-produced hint from reopening retrieval or clarification for a
