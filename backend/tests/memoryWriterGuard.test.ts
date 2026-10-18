@@ -22,8 +22,8 @@ describe('M-2 canonical Memory writer guard', () => {
         for (const file of walk(SOURCE_ROOT)) {
             const source = fs.readFileSync(file, 'utf8');
             const executableSource = source
-                .replace(/\/\*[\\s\\S]*?\\*\//g, '')
-                .replace(/^\\s*\\/\\/.*$/gm, '');
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/^\s*\/\/.*$/gm, '');
             if (directWrite.test(executableSource)) {
                 found.add(path.relative(SOURCE_ROOT, file).replaceAll('\\\\', '/'));
             }
