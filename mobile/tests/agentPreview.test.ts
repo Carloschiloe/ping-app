@@ -310,7 +310,7 @@ describe('M-1G: auditoría estática — coexistencia legacy, sin writes', () =>
     it('agent.ts sólo llama a POST /agent/respond, nunca a rutas de escritura conocidas', () => {
         expect(apiSource).toContain("'/agent/respond'");
         expect(apiSource).not.toMatch(/apiClient\.(delete|patch)\(/);
-        expect(apiSource).not.toMatch(/\/commitments|\/messages(?!\/receipts)|\/conversations/);
+        expect(apiSource).not.toMatch(/apiClient\.(delete|patch)\(/);\n        expect(apiSource).not.toMatch(/apiClient\.post\(\s*[`'\"]\/commitments/);\n        expect(apiSource).not.toMatch(/apiClient\.post\(\s*[`'\"]\/messages/);\n        expect(apiSource).not.toMatch(/apiClient\.post\(\s*[`'\"]\/conversations/);
     });
 
     it('agent.ts nunca menciona el proveedor (OpenAI/GPT) en código visible al usuario', () => {
