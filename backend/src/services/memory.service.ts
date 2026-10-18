@@ -293,6 +293,8 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
     const subjectKey = subjectKeyFor(subject.subjectPersonId, subject.subjectContactId, subject.subjectUnresolvedHint);
     const contentHash = computeContentHash(event.ownerUserId, subjectKey, predicate, objectValueNormalized);
 
+    const status: MemoryStatus = (subject.unresolved || forcedCandidateByPolicy) ? 'candidate' : 'active';
+
     const validFrom = sanitizeTimestamp(candidate.temporalHint?.validFromHint);
     const validUntil = sanitizeTimestamp(candidate.temporalHint?.validUntilHint);
 
