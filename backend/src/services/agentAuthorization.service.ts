@@ -60,18 +60,10 @@ function rowToAuthorization(row: any): AgentAuthorization {
     };
 }
 
-function isShortAuthorizationConfirmation(value: string): boolean {
-    const normalized = value.trim();
-    if (!normalized || normalized.length > 80) return false;
-    return /^(?:sí|si|ok|okay|confirmo|confirmar|confirma|confírmalo|confirmalo|dale|yes)(?:\\s|$)/iu.test(normalized)
-        || /\\b(?:confirma|confirmar|confírmalo|confirmalo)\\b/iu.test(normalized);
-}
-
 async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<string> {
     if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true'
         || !process.env.PING_M7_DATABASE_URL
-        || !input.conversationId
-        || !isShortAuthorizationConfirmation(input.input)) {
+        || !input.conversationId) {
         return input.input;
     }
 
