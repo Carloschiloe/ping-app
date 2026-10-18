@@ -555,6 +555,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
     const isSocialConversation = isSocialConversationInput(input.input)
         || (rawInterpretation.interactionMode === 'conversation'
+            && deterministicSignals.intent === 'general_context'
+            && deterministicSignals.timeExpression === null
+            && deterministicSignals.temporalIntent === null
+            && !deterministicSignals.wantsCommitments
+            && !deterministicSignals.wantsMessages
             && !rawInterpretation.wantsCommitments
             && !rawInterpretation.wantsMessages);
 
