@@ -28,12 +28,24 @@ function commitment(id: string, title: string, dueAt: string | null = null) {
 
 const { retrieveCommitmentsMock } = vi.hoisted(() => ({ retrieveCommitmentsMock: vi.fn(async () => []) }));
 
+vi.mock('../src/utils/commitmentVisibility', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/utils/commitmentVisibility')>();
+    return {
+        ...actual,
+        // The test owns the canonical candidate set through retrieval.service;
+        // no fixture should require a live proposal-response table just to
+        // compute a visibility filter for an unrelated read.
+        getParticipantProposalIds: vi.fn(async () => []),
+    };
+});
+
 vi.mock('../src/services/retrieval.service', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../src/services/retrieval.service')>();
     return {
         ...actual,
         retrieveCommitments: (...args: unknown[]) => retrieveCommitmentsMock(...args),
         retrieveCommitmentProposals: vi.fn(async () => []),
+        retrieveCommitmentEvents: vi.fn(async () => []),
     };
 });
 

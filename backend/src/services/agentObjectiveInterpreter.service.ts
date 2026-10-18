@@ -141,6 +141,29 @@ const COMMUNICATE_VERB = wb('dile|avisa\\w*|av[íi]sale|cu[ée]ntale|comun[íi]c
 const WAIT_MARKER = wb('si');
 const CONDITIONAL_FOLLOWUP_MARKER = /\by\s+si\s+acepta,?\s*/iu;
 
+// A pending plan must remain confirmable when the provider is unavailable.
+// This is a bounded decision control, not a second objective router: it is
+// considered only with an already Core-owned pending plan and only when the
+// utterance contains no target, date, time, question, or negation.
+const PENDING_PLAN_APPROVAL = /^(?:s[ií](?:[,;:]?\s*(?:cr[eé]alo|hazlo|conf[ií]rmalo|adelante))?|yes|ok(?:ay)?|vale|confirm(?:o|ar)?|hazlo|adelante|cr[eé]alo|do it|go ahead)(?:[.!?\s]*(?:por favor|please|ya))?[.!?]*$/iu;
+
+function deterministicPendingPlanDecision(input: string, context: ObjectiveInterpreterContext): AgentObjective | null {
+    if (!context.pendingPlan) return null;
+    const text = input.trim();
+    if (!text || /\?/.test(text) || /\bno\b|\bnot\b|\bnunca\b/iu.test(text)) return null;
+    if (!PENDING_PLAN_APPROVAL.test(text)) return null;
+
+    const objective = baseObjective(context.pendingPlan.objectiveType, input, context.actorUserId, 'deterministic');
+    objective.dialogueAct = 'confirm';
+    objective.constraints.decisionHint = 'approve';
+    objective.confidence = 0.95;
+    objective.targetEntities.entityHints = [];
+    objective.targetEntities.personHints = [];
+    objective.timeConstraints.rawHint = null;
+    objective.slotDelta = { title: null, date: null, time: null };
+    return objective;
+}
+
 function matchVerb(pattern: RegExp, text: string): RegExpMatchArray | null {
     return text.match(pattern);
 }
@@ -670,6 +693,8 @@ function extractNaturalCreateTarget(afterVerbRaw: string): string | null {
 export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpreter {
     async interpret(input: string, context: ObjectiveInterpreterContext): Promise<AgentObjective> {
         const text = input.trim();
+        const pendingDecision = deterministicPendingPlanDecision(input, context);
+        if (pendingDecision) return pendingDecision;
         const timeHint = extractTimeHint(text);
         const { primary: personHint, additional: additionalPersonHint } = extractPersonHints(text);
 

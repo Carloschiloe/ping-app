@@ -125,6 +125,17 @@ function hangingModel(delayMs: number): AgentObjectiveModel {
 }
 
 describe('LlmObjectiveInterpreter: fallback determinístico ante cualquier fallo del proveedor (sección 49, nunca red real)', () => {
+    it('confirma un plan pendiente con una aprobación breve aunque el proveedor no esté disponible', async () => {
+        const interpreter = new LlmObjectiveInterpreter({ model: throwingModel() });
+        const obj = await interpreter.interpret('Sí, créalo.', {
+            ...CTX, pendingPlan: { objectiveType: 'create_personal_commitment' },
+        });
+        expect(obj.objectiveType).toBe('create_personal_commitment');
+        expect(obj.dialogueAct).toBe('confirm');
+        expect(obj.constraints.decisionHint).toBe('approve');
+        expect(obj.source).toBe('llm_fallback');
+    });
+
     it('binds a short structured confirmation to the pending objective without a phrase list', async () => {
         const model = fakeModel(JSON.stringify({
             dialogueAct: 'confirm', objectiveType: 'unsupported', decisionHint: null,

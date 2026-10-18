@@ -750,6 +750,23 @@ async function tryAnswerTargetEntityClarification(
             candidates = freshOriginalCandidates.filter((candidate) =>
                 candidate.dueAt && candidate.dueAt.slice(0, 10) === targetDayKey);
         }
+
+        // A weekday answer is relative to the user's dialogue, not to the
+        // machine clock at test/runtime time. If the original candidate is
+        // itself used as the parser reference, "el del jueves" resolves to
+        // that candidate's Thursday even when the current calendar week has
+        // moved on. This preserves the canonical date parser and avoids a
+        // second weekday grammar while keeping relative phrases such as
+        // "mañana" from matching every candidate indiscriminately.
+        if (candidates.length === 0) {
+            candidates = freshOriginalCandidates.filter((candidate) => {
+                if (!candidate.dueAt) return false;
+                const dueAt = new Date(candidate.dueAt);
+                if (Number.isNaN(dueAt.getTime())) return false;
+                const parsedAgainstCandidate = parseDateFromText(trimmedAnswer, dueAt);
+                return parsedAgainstCandidate?.date.toISOString().slice(0, 10) === dueAt.toISOString().slice(0, 10);
+            });
+        }
     }
 
     // (c) Fallback: free-text narrowing, scoped to the answer alone and

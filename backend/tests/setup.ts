@@ -2,7 +2,11 @@
 // validation. Integration tests may provide their own environment variables
 // before invoking Vitest; these defaults are intentionally non-routable.
 process.env.NODE_ENV ??= 'test';
-process.env.PING_ENVIRONMENT ??= 'test';
+// Keep the application environment semantics used by local architecture
+// tests. NODE_ENV=test already identifies this as a test process; changing
+// PING_ENVIRONMENT would silently disable the explicit local durable-agent
+// paths those tests are meant to exercise.
+process.env.PING_ENVIRONMENT ??= 'local';
 process.env.SUPABASE_URL ??= 'http://127.0.0.1:54321';
 process.env.SUPABASE_ANON_KEY ??= 'test-anon-key';
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key';

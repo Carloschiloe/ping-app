@@ -10,11 +10,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { ingestMemoryFromEventMock } = vi.hoisted(() => ({ ingestMemoryFromEventMock: vi.fn() }));
 
+vi.mock('../src/utils/commitmentVisibility', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/utils/commitmentVisibility')>();
+    return {
+        ...actual,
+        // This suite validates semantic planning, not proposal visibility;
+        // keep its read context independent from a running Supabase instance.
+        getParticipantProposalIds: vi.fn(async () => []),
+    };
+});
+
 vi.mock('../src/services/memory.service', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../src/services/memory.service')>();
     return {
         ...actual,
         ingestMemoryFromEvent: (...args: unknown[]) => ingestMemoryFromEventMock(...args),
+    };
+});
+
+vi.mock('../src/services/retrieval.service', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/services/retrieval.service')>();
+    return {
+        ...actual,
+        retrieveCommitments: vi.fn(async () => []),
+        retrieveCommitmentProposals: vi.fn(async () => []),
+        retrieveCommitmentEvents: vi.fn(async () => []),
     };
 });
 
