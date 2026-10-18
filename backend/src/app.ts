@@ -8,6 +8,7 @@ import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
+import { isAllowedRequestOrigin } from './security/corsPolicy';
 
 dotenv.config();
 
@@ -29,9 +30,13 @@ app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 
-app.use(cors({
+app.use((req, res, next) => cors({
   origin: (origin, callback) => {
-    if (!origin || env.allowedOrigins.includes(origin)) {
+    // Native Ping Voz loads its credential-free client from this same backend
+    // origin inside a WebView. Keep the explicit allowlist, while also
+    // accepting that exact request origin without opening CORS to arbitrary
+    // hosts.
+    if (isAllowedRequestOrigin(req, origin, env.allowedOrigins)) {
       callback(null, true);
       return;
     }
@@ -43,7 +48,7 @@ app.use(cors({
 
     callback(new Error('Origin not allowed by CORS'));
   },
-}));
+})(req, res, next));
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
