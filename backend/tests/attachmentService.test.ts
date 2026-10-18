@@ -105,6 +105,7 @@ describe('Message Attachment Core application boundary', () => {
             lifecycleStatus: 'uploaded',
             sizeBytes: 128,
         });
+        expect(db.getEqCalls('attachments')).toContainEqual(['created_by_user_id', actor]);
         expect(db.getRpcCalls().at(-1)).toEqual({
             name: 'complete_message_attachment',
             args: expect.objectContaining({
