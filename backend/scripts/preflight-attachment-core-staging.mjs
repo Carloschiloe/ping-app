@@ -72,7 +72,7 @@ if (preflight.attachments_before_migration !== null) {
 const closedPolicy = (preflight.policies || []).find((policy) => (
   policy.name === 'ping_chat_media_direct_access_closed'
 ));
-const policyExpression = (value) => String(value || '').replace(/\\s+/g, ' ').toLowerCase();
+const policyExpression = (value) => String(value || '').replace(/\s+/g, ' ').toLowerCase();
 if (
   !closedPolicy
   || closedPolicy.permissive !== false
