@@ -107,6 +107,21 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(bypasses).toEqual([]);
     });
 
+    it('usa la RPC canónica para mutar el progreso de Operation', () => {
+        const source = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain("apply_commitment_operation_action_with_evidence");
+        expect(source).not.toMatch(
+            /\.from\('commitments'\)\s*\.update\(/,
+        );
+        expect(source).not.toMatch(
+            /\.from\('commitment_operation_progress'\)\s*\.upsert\(/,
+        );
+    });
+
     it('mantiene Operation alineado con el modelo canónico de Commitment', () => {
         const source = fs.readFileSync(
             path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
