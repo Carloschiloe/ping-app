@@ -1451,11 +1451,123 @@ const DEFAULT_SYNTHESIS_TIMEOUT_MS = 8000;
 
 function buildSocialConversationResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
     const normalized = context.input.trim().toLocaleLowerCase('es');
-    const isThanks = /\\bgracias\\b|\\bperfecto\\b|\\bgenial\\b|\\bvale\\b|\\bok\\b/u.test(normalized);
-    const asksWellBeing = /c[oó]mo\\s+est[aá]s|como\\s+estas|qu[eé]\\s+tal|todo\\s+bien|bien\\s+y\\s+t[uú]/u.test(normalized);
-    const answer = language === 'es' ? (isThanks ? '¡De nada! ¿Qué necesitas?' : asksWellBeing ? '¡Hola! Muy bien, gracias. ¿En qué te ayudo?' : '¡Hola! ¿En qué te ayudo?') : (isThanks ? 'You’re welcome. What do you need?' : asksWellBeing ? 'Hi! I’m doing well, thanks. How can I help?' : 'Hi! How can I help?');
+    const isThanks = /\bgracias\b|\bperfecto\b|\bgenial\b|\bvale\b|\bok\b/u.test(normalized);
+    const asksWellBeing = /c[oó]mo\s+est[aá]s|como\s+estas|qu[eé]\s+tal|todo\s+bien|bien\s+y\s+t[uú]/u.test(normalized);
+    const answer = language === 'es'
+        ? isThanks
+            ? '¡De nada! ¿Qué necesitas?'
+            : asksWellBeing
+                ? '¡Hola! Muy bien, gracias. ¿En qué te ayudo?'
+                : '¡Hola! ¿En qué te ayudo?'
+        : isThanks
+            ? 'You’re welcome. What do you need?'
+            : asksWellBeing
+                ? 'Hi! I’m doing well, thanks. How can I help?'
+                : 'Hi! How can I help?';
     return { status: 'answered', answer, claims: [], citations: [] };
 }
+
+const CAPABILITY_GAP_MESSAGES: Record<string, { es: string; en: string }> = {
+    global_transcription_scope_not_supported: {
+        es: 'Puedo buscar en un audio dentro de una conversación concreta, pero todavía no puedo buscar en todas tus conversaciones a la vez.',
+        en: 'I can search audio within a specific conversation, but I can\'t yet search across all your conversations at once.',
+    },
+    global_attachment_scope_not_supported: {
+        es: 'Puedo buscar documentos dentro de una conversación concreta, pero todavía no puedo buscar en todas tus conversaciones a la vez.',
+        en: 'I can search documents within a specific conversation, but I can\'t yet search across all your conversations at once.',
+    },
+    // M-1G.1 (Caso F): respuesta honesta y clara para una petición de
+    // escritura -- nunca crea/envía/cancela/modifica nada, y nunca afirma
+    // haberlo hecho.
+    write_action_not_supported: {
+        es: 'Todavía no puedo crear, cancelar, enviar ni modificar nada desde este preview — sólo puedo consultar tus compromisos, mensajes y documentos.',
+        en: 'I can\'t create, cancel, send, or modify anything from this preview yet — I can only look up your commitments, messages, and documents.',
+    },
+};
+
+function buildCapabilityGapResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const gap = context.capabilityGaps[0];
+    const message = gap ? CAPABILITY_GAP_MESSAGES[gap.type]?.[language] : undefined;
+    const answer = message ?? (language === 'es'
+        ? 'Entendí lo que buscas, pero todavía no puedo hacer esa búsqueda de esa forma.'
+        : 'I understood what you\'re looking for, but I can\'t search that way yet.');
+    return { status: 'capability_gap', answer, claims: [], citations: [] };
+}
+
+// ─── Provider abstraction (sección 26) ──────────────────────────────────────
+export interface AgentSynthesisModelRequest {
+    prompt: string;
+}
+
+export interface AgentSynthesisModel {
+    readonly modelName: string;
+    synthesize(request: AgentSynthesisModelRequest): Promise<string>;
+}
+
+// Configurable (sección 27) — nunca asumido como definitivo. Default sólo
+// para desarrollo si no se configura explícitamente.
+const DEFAULT_SYNTHESIS_MODEL = 'gpt-4o-mini';
+function resolveSynthesisModelName(): string {
+    return process.env.AGENT_SYNTHESIS_MODEL?.trim() || DEFAULT_SYNTHESIS_MODEL;
+}
+
+let cachedClient: OpenAI | null = null;
+function getSynthesisClient(): OpenAI {
+    if (!cachedClient) {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const OpenAIClient = require('openai') as typeof OpenAI;
+        cachedClient = new OpenAIClient({ apiKey: process.env.OPENAI_API_KEY!.trim() });
+    }
+    return cachedClient;
+}
+
+export class OpenAiAgentSynthesisModel implements AgentSynthesisModel {
+    readonly modelName = resolveSynthesisModelName();
+
+    async synthesize(request: AgentSynthesisModelRequest): Promise<string> {
+        if (!process.env.OPENAI_API_KEY?.trim()) throw new Error('OPENAI_API_KEY is not configured');
+        const client = getSynthesisClient();
+        const response = await client.chat.completions.create({
+            model: this.modelName,
+            messages: [{ role: 'user', content: request.prompt }],
+            temperature: 0.2, // ligeramente más alto que el interpreter (M-1D.1) — hay algo más de margen de fraseo natural, pero sigue siendo extracción/composición, no creatividad libre
+            max_tokens: 500,
+            response_format: { type: 'json_object' },
+        });
+        return response.choices[0]?.message?.content || '{}';
+    }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('synthesis_timeout')), ms);
+        promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
+    });
+}
+
+// ─── Orquestador (sección 3) ─────────────────────────────────────────────────
+export interface AgentResponseSynthesizer {
+    synthesize(input: AgentSynthesisInput): Promise<AgentResponse>;
+}
+
+export interface LlmResponseSynthesizerOptions {
+    model?: AgentSynthesisModel;
+    timeoutMs?: number;
+    maxContextChars?: number;
+}
+
+function fallbackCommitmentState(status: string, isOverdue: boolean, language: 'es' | 'en'): string {
+    if (isOverdue) return language === 'es' ? 'vencido' : 'overdue';
+    const normalized = status.toLowerCase();
+    if (['resolved', 'completed', 'done'].includes(normalized)) return language === 'es' ? 'resuelto' : 'resolved';
+    if (['cancelled', 'canceled', 'rejected'].includes(normalized)) return language === 'es' ? 'cancelado' : 'cancelled';
+    if (['accepted', 'pending', 'in_progress', 'proposed', 'counter_proposal'].includes(normalized)) {
+        return language === 'es' ? 'pendiente' : 'pending';
+    }
+    return status.trim();
+}
+
+const DEFAULT_SYNTHESIS_TIMEOUT_MS = 8000;
 
 export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
     private readonly model: AgentSynthesisModel;
