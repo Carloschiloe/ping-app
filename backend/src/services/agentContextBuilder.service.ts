@@ -883,14 +883,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // grounding-checked) are used NOWHERE in this loop or its guards — the
     // fix is structural non-participation, not a filter that could
     // theoretically be bypassed by a different LLM phrasing.
-    const creationObjective = options.objective
+    const creationObjective = !!options.objective
         && (options.objective.objectiveType === 'create_personal_commitment'
             || options.objective.objectiveType === 'create_commitment_or_proposal');
-    const contentOnlyPersonalObjective = !!creationObjective
-        && creationObjective.objectiveType === 'create_personal_commitment'
-        && creationObjective.targetEntities.personHints.length === 0
-        && !creationObjective.constraints.responsibleHint
-        && (creationObjective.constraints.commitmentOwnership === 'personal'
+    const contentOnlyPersonalObjective = creationObjective
+        && options.objective?.objectiveType === 'create_personal_commitment'
+        && options.objective.targetEntities.personHints.length === 0
+        && !options.objective.constraints.responsibleHint
+        && (options.objective.constraints.commitmentOwnership === 'personal'
             || rawInterpretation.isWriteActionRequest === true);
     // A creation objective is routed to the planner immediately after this
     // context pass. Its title/content may mention a person, company or place,
