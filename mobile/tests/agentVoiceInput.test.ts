@@ -100,7 +100,7 @@ describe('useAgentVoiceInput.ts — regresión: crash real "Unable to find the n
     it('el cleanup de unmount y cancel() borran la captura local usando un ref JS estable (lastKnownUriRef), nunca el objeto nativo vivo', () => {
         expect(src).toContain('lastKnownUriRef');
         // cancel(): deleteLocalCapture recibe el ref, nunca el recorder nativo.
-        expect(src).toMatch(/deleteLocalCapture\(lastKnownUriRef\.current\);[\s\S]{0,200}setAudioModeAsync\(\{ allowsRecording: false/);
+        expect(src).toMatch(/deleteLocalCapture\(lastKnownUriRef\.current\);[\s\S]{0,200}setAudioModeAsync\(AGENT_IDLE_AUDIO_MODE/);
         // cleanup de unmount: mismo contrato -- se ejecuta después de
         // subscription.remove() y del stop() best-effort, nunca toca
         // recorder.uri.
