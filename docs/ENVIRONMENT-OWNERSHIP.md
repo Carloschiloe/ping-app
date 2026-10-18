@@ -25,8 +25,11 @@ Estado de referencia: 2026-10-18.
 | Estado | Suspendido; proyecto Supabase inactivo; último deploy nuevo cancelado |
 
 Staging no es necesario para producción y no debe restaurarse ni conectarse a
-ella. Sus datos y artefactos sólo se pueden eliminar después de revisar
-dependencias y conservar la evidencia necesaria.
+ella. La rama `codex/staging-beta` queda sólo un commit por delante de
+`codex/phase1-containment` y la comparación no contiene diferencias de archivos;
+no es una línea de producto independiente. Sus datos y artefactos sólo se
+pueden eliminar después de revisar dependencias y conservar la evidencia
+necesaria.
 
 ## Reglas operativas
 
