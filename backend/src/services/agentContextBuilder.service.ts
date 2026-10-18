@@ -157,14 +157,24 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const target = addDays(now, delta);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
     }
-    if (temporalIntent?.kind === 'relative_days') {
-        const target = addDays(now, temporalIntent.daysAhead);
-        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    if (temporalIntent?.kind === 'relative_days' && temporalIntent.futureOnly === true) {
+        // A future horizon starts at the current instant, not at midnight:
+        // commitments earlier today are not upcoming anymore. The upper bound
+        // is exclusive at the next calendar midnight after the requested
+        // number of future days, so “within five days” includes today’s
+        // remaining time plus the next five calendar days.
+        const from = now;
+        const spanDays = Math.min(Math.max(temporalIntent.daysAhead ?? 1, 1), 30);
+        const to = startOfDayInZone(addDays(now, spanDays + 1), timezone);
+        return { from: from.toISOString(), to: to.toISOString() };
     }
-    if (temporalIntent?.kind === 'upcoming_horizon') {
-        const from = startOfDayInZone(now, timezone);
+    if (temporalIntent?.kind === 'upcoming_horizon' && temporalIntent.futureOnly === true) {
+        // “Próximos días” is intentionally bounded to a seven-day horizon
+        // while preserving the current time as the lower bound.
+        const from = now;
         const spanDays = Math.min(Math.max(temporalIntent.daysAhead ?? 7, 1), 30);
-        return { from: from.toISOString(), to: addDays(from, spanDays).toISOString() };
+        const to = startOfDayInZone(addDays(now, spanDays + 1), timezone);
+        return { from: from.toISOString(), to: to.toISOString() };
     }
 
 
@@ -195,6 +205,10 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         return { from: startLastWeek.toISOString(), to: startThisWeek.toISOString() };
     }
     if (/esta semana|this week/.test(expr)) {
+        if (temporalIntent?.futureOnly === true) {
+            const weekStart = startOfWeekInZone(now, timezone);
+            return { from: now.toISOString(), to: addDays(weekStart, 7).toISOString() };
+        }
         return { from: startOfWeekInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
     }
     if (/mes pasado|last month/.test(expr)) {
@@ -872,7 +886,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // exactly one prior candidate; otherwise Core asks explicitly.
     const priorReferents = input.priorReadContext?.commitmentReferents ?? [];
     const normalizedFollowUp = input.input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const priorPronounCue = /\b(?:ese|esa|esto|eso|el|la|lo|the|that|this)\b/.test(normalizedFollowUp);
+    const priorPronounCue = input.priorReadContext?.kind === 'commitment_query'
+        && (
+            interpretation.priorReferenceIntent === 'single_entity'
+            || interpretation.followUpAttribute !== null
+            || /\b(?:ese|esa|esto|eso|el|la|lo|hacerlo|hacerla|hacerlos|hacerlas|the|that|this)\b/.test(normalizedFollowUp)
+        );
     const priorMatches = priorReferents.filter((referent) => {
         const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
