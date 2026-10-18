@@ -41,6 +41,14 @@ function attachment(overrides: Record<string, unknown> = {}) {
     };
 }
 
+const pdfFixture = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37])], {
+    type: 'application/pdf',
+});
+
+const mp4Fixture = new Blob([new Uint8Array([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32,
+])], { type: 'video/mp4' });
+
 describe('Message Attachment Core application boundary', () => {
     beforeEach(() => {
         setSupabaseAdminMock(createSupabaseAdminMock({}));
@@ -106,6 +114,7 @@ describe('Message Attachment Core application boundary', () => {
                 data: [{ name: 'evidence.pdf', metadata: { size: 128, mimetype: 'application/pdf' } }],
                 error: null,
             },
+            download: { data: pdfFixture, error: null },
         });
         setSupabaseAdminMock(db);
         setSupabaseStorageMock(storage);
@@ -154,6 +163,7 @@ describe('Message Attachment Core application boundary', () => {
                 data: [{ name: 'clip.mp4', metadata: { size: justUnderMax, mimetype: 'video/mp4' } }],
                 error: null,
             },
+            download: { data: mp4Fixture, error: null },
         });
         setSupabaseAdminMock(db);
         setSupabaseStorageMock(storage);
