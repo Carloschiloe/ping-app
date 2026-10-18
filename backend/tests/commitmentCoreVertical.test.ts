@@ -179,8 +179,12 @@ describe('C-1 vertical canonical Commitment flow', () => {
             'merge_message_suggested_task',
             'create_commitment_proposal_with_evidence',
             'confirm_commitment_proposal',
+            'ingest_memory_record_atomic',
+            'ingest_memory_record_atomic',
             'apply_commitment_transition_with_evidence',
+            'ingest_memory_record_atomic',
             'apply_commitment_transition_with_evidence',
+            'ingest_memory_record_atomic',
         ]);
         expect(rpcCalls[3].args.p_proposal).toEqual(expect.objectContaining({
             conversation_id: CONVERSATION,
