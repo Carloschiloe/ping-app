@@ -15,7 +15,7 @@ function walk(directory: string): string[] {
 }
 
 describe('M-2 canonical Memory writer guard', () => {
-    it('keeps direct memory_records writes inside memory.service.ts', () => {
+    it('keeps direct memory_records writes out of application services', () => {
         const directWrite = /\.from\s*\(\s*(['"])memory_records\1\s*\)\s*\.\s*(insert|update|upsert|delete)\s*\(/gms;
         const found = new Set<string>();
 
@@ -30,7 +30,7 @@ describe('M-2 canonical Memory writer guard', () => {
             directWrite.lastIndex = 0;
         }
 
-        expect([...found]).toEqual(['services/memory.service.ts']);
+        expect([...found]).toEqual([]);
     });
 
     it('removes authenticated direct-write policies from the canonical migration', () => {
