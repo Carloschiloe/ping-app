@@ -9,6 +9,8 @@ const migrationsDir = join(repositoryRoot, 'supabase', 'migrations');
 const integrationTests = [
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'attachmentCore.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'audioTranscription.integration.sql'),
+  join(repositoryRoot, 'backend', 'tests', 'postgres', 'fullTextRetrieval.integration.sql'),
+  join(repositoryRoot, 'backend', 'tests', 'postgres', 'memoryRls.integration.sql'),
 ];
 const postgresBin = process.env.POSTGRES_BIN ?? '';
 const executable = (name, windowsName = name) => (
