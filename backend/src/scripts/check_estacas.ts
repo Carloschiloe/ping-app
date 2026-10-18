@@ -11,18 +11,20 @@ async function checkAllEstacas() {
     // Search commitments
     const { data: commitments, error: commError } = await supabase
         .from('commitments')
-        .select('*')
+        .select('id')
         .ilike('title', `%${q}%`);
 
-    console.log("ALL Commitments containing 'estacas':", JSON.stringify(commitments, null, 2));
+    console.log("Commitments matching 'estacas':", commitments?.length ?? 0);
+    if (commError) console.error('[check_estacas] Commitment query failed', { code: commError.code });
 
     // Search messages directly
     const { data: messages, error: msgError } = await supabase
         .from('messages')
-        .select('*')
+        .select('id')
         .ilike('text', `%${q}%`);
 
-    console.log("ALL Messages containing 'estacas':", JSON.stringify(messages, null, 2));
+    console.log("Messages matching 'estacas':", messages?.length ?? 0);
+    if (msgError) console.error('[check_estacas] Message query failed', { code: msgError.code });
 }
 
 checkAllEstacas();
