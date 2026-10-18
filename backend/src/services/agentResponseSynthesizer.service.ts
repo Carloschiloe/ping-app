@@ -882,8 +882,8 @@ export function enforceMemoryHistoricalDisclosure(claims: AgentClaim[], evidence
 // enforceCanonicalDominance.
 function buildOverdueClaim(commitment: SerializedContext['commitments'][number], ref: AgentCitation, language: 'es' | 'en'): AgentClaim {
     const text = language === 'es'
-        ? `El compromiso "${commitment.title}" está vencido.`
-        : `The commitment "${commitment.title}" is overdue.`;
+        ? `${commitment.title} está vencido.`
+        : `${commitment.title} is overdue.`;
     return { text, sourceRefs: [ref] };
 }
 
@@ -955,8 +955,8 @@ function buildProposalTruthClaim(commitment: AgentContext['commitments'][number]
             : `The proposal "${commitment.title}" is pending your response.`;
     } else if (waitingOn) {
         base = language === 'es'
-            ? `"${commitment.title}" sigue esperando la respuesta de ${waitingOn}.`
-            : `"${commitment.title}" is still waiting on ${waitingOn}'s response.`;
+            ? `La propuesta "${commitment.title}" sigue esperando la respuesta de ${waitingOn}.`
+            : `The proposal "${commitment.title}" is still waiting on ${waitingOn}'s response.`;
     } else {
         base = language === 'es'
             ? `La propuesta "${commitment.title}" sigue pendiente.`
@@ -1496,11 +1496,31 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
 
         // Secciones 15-17: 3 de los 4 caminos NUNCA llaman al modelo — cero
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
+        if (status === 'answered' && context.wantsOverdueFocus) {
+            const hasActualOverdue = context.commitments.some((c) => isCommitmentOverdue(
+                c.dueAt,
+                c.status,
+                context.now,
+                context.timezone,
+                c.entityType === 'commitment_proposal' ? 'commitment_proposal' : 'commitment',
+            ));
+            if (!hasActualOverdue) {
+                return this.withDiagnostics({
+                    status: 'answered',
+                    answer: language === 'es' ? 'No tienes compromisos vencidos.' : 'You have no overdue commitments.',
+                    claims: [],
+                    citations: [],
+                }, 'deterministic', startedAt, sourceCount);
+            }
+        }
         if (status === 'needs_clarification') {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && isSocialConversationResponseInput(context.input)) {
             return this.withDiagnostics(buildSocialConversationResponse(language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && context.intent.type === 'commitment_query' && !!context.entities.timeRange && context.commitments.length === 0) {
+            return this.withDiagnostics(buildNoEvidenceResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.interactionMode === 'conversation') {
             return this.withDiagnostics(buildConversationalResponse(language), 'deterministic', startedAt, sourceCount);
