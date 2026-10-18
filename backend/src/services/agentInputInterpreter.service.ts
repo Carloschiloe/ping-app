@@ -1215,6 +1215,17 @@ export function generalContextHasRetrievableSignal(
     return !!textQuery || personHints.length > 0 || !!timeExpression || !!wantsOverdueFocus || !!(statusHints && statusHints.length > 0);
 }
 
+export function inferDeterministicFollowUpAttribute(input: string): 'time' | 'date' | 'responsible' | 'status' | 'details' | null {
+    const normalized = input.trim().toLocaleLowerCase('es-CL');
+    if (/\b(?:a\s+qu[eé]\s+hora|qué\s+hora|que\s+hora|hora)\b/iu.test(normalized)
+        && /\b(?:y|para|a)\b/iu.test(normalized)) return 'time';
+    if (/\b(?:para\s+qu[eé]\s+d[ií]a|qué\s+d[ií]a|que\s+d[ií]a|fecha)\b/iu.test(normalized)) return 'date';
+    if (/\b(?:con\s+qui[eé]n|qui[eé]n\s+se\s+encarga|responsable)\b/iu.test(normalized)) return 'responsible';
+    if (/\b(?:sigue\s+pendiente|est[aá]\s+pendiente|estado|status)\b/iu.test(normalized)) return 'status';
+    if (/\b(?:m[aá]s\s+detalles?|cu[eé]ntame\s+(?:un\s+)?poco\s+m[aá]s|detalles?)\b/iu.test(normalized)) return 'details';
+    return null;
+}
+
 export class DeterministicInputInterpreter implements AgentInputInterpreter {
     async interpret(input: string): Promise<Interpretation> {
         const trimmed = input.trim();
@@ -1239,7 +1250,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
             timeExpression,
             temporalComparison,
             urgencyComparison,
-            followUpAttribute: null,
+            followUpAttribute: inferDeterministicFollowUpAttribute(trimmed),
             statusHints,
             requestedTransition,
             wantsCommitments: intent !== 'document_search' && (intent !== 'general_context' || generalContextRetrievable),
