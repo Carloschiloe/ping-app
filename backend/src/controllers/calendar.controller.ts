@@ -46,6 +46,11 @@ export const googleCallback = async (req: Request, res: Response) => {
     }
 };
 
+export const getMsAuthLink = async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    res.json({ url: calendarService.getMsAuthUrl(createOAuthState(userId)) });
+};
+
 export const getMsAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
     const url = calendarService.getMsAuthUrl(createOAuthState(userId));
