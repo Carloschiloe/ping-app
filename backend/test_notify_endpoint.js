@@ -1,18 +1,14 @@
 // Test the REAL endpoint on Render with a real auth token
 require('dotenv').config();
 const https = require('https');
-const { createClient } = require('@supabase/supabase-js');
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
 async function main() {
     console.log('=== Testing live /api/agora/call/notify endpoint ===\n');
 
     // Sign in as Carlos to get a real JWT token
     const anonClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
     const { data: session, error: authErr } = await anonClient.auth.signInWithPassword({
-        email: process.env.TEST_EMAIL || 'carlos@marvex.cl',
-        password: process.env.TEST_PASS || 'test1234',
+        email: process.env.TEST_EMAIL,
+        password: process.env.TEST_PASS,
     });
 
     if (authErr) {
@@ -21,7 +17,7 @@ async function main() {
     }
 
     const token = session?.session?.access_token || 'no-token';
-    console.log('Auth token:', token.slice(0, 20) + '...');
+    // Never print access tokens, even partially; terminals and CI logs are durable.
 
     // Call the real endpoint
     const body = JSON.stringify({
