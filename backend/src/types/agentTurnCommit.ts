@@ -68,6 +68,14 @@ export type SemanticReadTemporalRoleV4 = 'none' | 'filter_range' | 'occurrence_t
 export type SemanticReadLifecycleTransitionV4 = 'action_completed' | 'resolved' | 'cancelled' | 'rejected' | 'reopened' | 'reassigned' | 'accepted';
 export type SemanticReadProposalFocusV4 = 'waiting_for_others' | 'needs_my_response' | 'pending_response_from_person';
 export type SemanticReadMessageRelationshipV4 = 'content' | 'conversation_context' | 'sender' | 'participant';
+export type SemanticObjectiveRelationV4 =
+    | 'answers_pending_slot'
+    | 'continues'
+    | 'corrects'
+    | 'replaces'
+    | 'independent'
+    | 'ambiguous'
+    | 'unrelated';
 
 export type SemanticReadRelationshipV4 =
     | { kind: 'general_recall' }
@@ -92,6 +100,13 @@ export interface SemanticReadMeaningV4 {
 export interface NormalizedSemanticTurnV4 extends Omit<NormalizedSemanticTurnV3, 'version'> {
     version: 4;
     readMeaning: SemanticReadMeaningV4 | null;
+    /**
+     * Semantic relation to the currently open dialogue objective. This is
+     * model-produced meaning, not a Core decision or a canonical identity.
+     * Optional on the TypeScript boundary only for replaying historical V4
+     * checkpoints; normalization supplies a conservative value.
+     */
+    openObjectiveRelation?: SemanticObjectiveRelationV4;
 }
 
 export interface AgentTurnReplayV1 {
