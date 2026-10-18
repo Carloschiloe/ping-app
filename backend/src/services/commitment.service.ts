@@ -649,6 +649,28 @@ export const pingCommitment = async (userId: string, id: string) => {
     return { ok: true };
 };
 
+export const updateCommitmentIntegrationMetadata = async (
+    userId: string,
+    id: string,
+    integration: 'calendar',
+    metadata: Record<string, unknown>,
+) => {
+    await assertCommitmentOwner(userId, id);
+
+    const { data, error } = await supabaseAdmin.rpc(
+        'update_commitment_integration_metadata_with_evidence',
+        {
+            p_commitment_id: id,
+            p_actor_user_id: userId,
+            p_integration: integration,
+            p_metadata: metadata,
+        },
+    );
+
+    if (error) throw error;
+    return data;
+};
+
 export const checkConflict = async (userId: string, dueAt: string, excludeId?: string) => {
     const checkDate = new Date(dueAt);
     if (isNaN(checkDate.getTime())) {

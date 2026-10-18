@@ -51,6 +51,7 @@ export const postponeCommitment = commitmentLifecycle.counterProposeCommitment;
 export const getCommitments = commitmentLifecycle.getCommitments;
 export const pingCommitment = commitmentLifecycle.pingCommitment;
 export const checkConflict = commitmentLifecycle.checkConflict;
+export const updateCommitmentIntegrationMetadata = commitmentLifecycle.updateCommitmentIntegrationMetadata;
 
 const EDIT_FIELDS = [
     'title',

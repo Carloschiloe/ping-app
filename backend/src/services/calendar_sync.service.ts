@@ -3,6 +3,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { getEnvConfig } from '../config/env';
 import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
+import { updateCommitmentIntegrationMetadata } from './commitment.service';
 
 const { encryptionKey } = getEnvConfig();
 const IV_LENGTH = 16;
@@ -254,21 +255,18 @@ export const syncCommitmentToProvider = async (
         eventUrl = result.webLink;
     }
 
-    const { error: updateError } = await supabaseAdmin
-        .from('commitments')
-        .update({
-            meta: {
-                ...commitment.meta,
-                synced_to: provider,
-                cloud_event_id: result.id,
-                external_event_url: eventUrl,
-                sync_status: 'synced',
-                last_sync_at: new Date().toISOString(),
-            },
-        })
-        .eq('id', commitmentId);
-
-    if (updateError) throw updateError;
+    await updateCommitmentIntegrationMetadata(
+        userId,
+        commitmentId,
+        'calendar',
+        {
+            synced_to: provider,
+            cloud_event_id: result.id,
+            external_event_url: eventUrl,
+            sync_status: 'synced',
+            last_sync_at: new Date().toISOString(),
+        },
+    );
     return { ok: true, result };
 };
 
@@ -329,21 +327,20 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
                 eventUrl = result.webLink;
             }
 
-            // 4. Update commitment meta
-            await supabaseAdmin
-                .from('commitments')
-                .update({
-                    meta: {
-                        ...commitment.meta,
-                        synced_to: provider,
-                        cloud_event_id: result.id,
-                        external_event_url: eventUrl,
-                        conflict_detected: hasConflict,
-                        sync_status: 'synced',
-                        last_sync_at: new Date().toISOString()
-                    }
-                })
-                .eq('id', commitment.id);
+            // 4. Persist integration metadata through the canonical Commitment boundary.
+            await updateCommitmentIntegrationMetadata(
+                userId,
+                commitment.id,
+                'calendar',
+                {
+                    synced_to: provider,
+                    cloud_event_id: result.id,
+                    external_event_url: eventUrl,
+                    conflict_detected: hasConflict,
+                    sync_status: 'synced',
+                    last_sync_at: new Date().toISOString(),
+                },
+            );
 
             results.push({ provider, hasConflict, eventUrl });
         }

@@ -9,7 +9,6 @@ const REPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slice';
 
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
-    ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
 ]);
 
 const ALLOWED_SQL_DML = new Map<string, string>([
