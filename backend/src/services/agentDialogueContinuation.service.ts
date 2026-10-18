@@ -796,16 +796,43 @@ export function buildPlanTitleCorrection(
 export function isPendingPlanUnchangedCandidate(input: {
     pendingObjectiveType: AgentObjectiveType;
     candidate: AgentObjective | null | undefined;
+}): boolean {
+    const candidate = input.candidate;
+    if (!candidate || candidate.objectiveType !== input.pendingObjectiveType) return false;
+    if (candidate.dialogueAct && candidate.dialogueAct !== 'other' && candidate.dialogueAct !== 'clarify') return false;
+    if (candidate.constraints.decisionHint) return false;
+    if (candidate.targetEntities.entityHints.length > 0 || candidate.targetEntities.personHints.length > 0) return false;
+    if (candidate.timeConstraints.rawHint?.trim()) return false;
+    const slotDelta = candidate.slotDelta;
+    return !slotDelta?.title?.trim() && !slotDelta?.date?.trim() && !slotDelta?.time?.trim();
 }
 
 export type PendingPlanSemanticRelation =
     | { kind: 'approve' | 'reject' | 'defer' | 'suspend' }
-    | { kind: 'follow_up';
+    | { kind: 'follow_up'; attribute: 'date' | 'time' | 'responsible' | 'status' | 'details' }
+    | { kind: 'none' };
+
+/** Core precedence for semantic signals already produced by the turn interpreter. */
 
 export function classifyPendingPlanSemanticRelation(input: {
     dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
     dialogueControl?: 'resume_suspended' | 'suspend_current' | null;
     followUpAttribute?: 'time' | 'date' | 'responsible' | 'status' | 'details' | null;
+}): PendingPlanSemanticRelation {
+    if (input.dialogueAct === 'confirm') return { kind: 'approve' };
+    if (input.dialogueAct === 'reject') return { kind: 'reject' };
+    if (input.dialogueAct === 'defer') return { kind: 'defer' };
+    // A provider may correctly identify a topic switch as a new objective
+    // without having extracted enough independent slots to plan it yet.  The
+    // Core must suspend the currently authorized-but-unexecuted plan in that
+    // case; otherwise the incomplete candidate falls through to the ordinary
+    // route and the old objective remains active by accident.  A complete
+    // replacement is handled by isCompletePendingPlanReplacement before this
+    // relation is consulted.
+    if (input.dialogueAct === 'new_objective') return { kind: 'suspend' };
+    if (input.dialogueControl === 'suspend_current') return { kind: 'suspend' };
+    if (input.followUpAttribute) return { kind: 'follow_up', attribute: input.followUpAttribute };
+    return { kind: 'none' };
 }
 
 export interface PendingPlanEditResult {
@@ -813,6 +840,12 @@ export interface PendingPlanEditResult {
     correctedObjective?: AgentObjective;
     changedSlots: Array<'title' | 'date' | 'time'>;
 }
+
+/**
+ * Reconciles semantic slot updates against the one plan currently awaiting
+ * authorization. The interpreter proposes slots; Core preserves omitted
+ * slots and invalidates the old plan through the state service.
+ */
 
 export function buildPendingPlanEdit(input: {
     dialogueState: AgentDialogueState;
@@ -827,7 +860,106 @@ export function buildPendingPlanEdit(input: {
     turnId: string;
     now: Date;
     turnSequence?: number;
+}): PendingPlanEditResult {
+    const prior = input.dialogueState.openObjective;
+    if (!prior || input.dialogueState.lifecycle !== 'plan_pending_authorization') {
+        return { isEdit: false, changedSlots: [] };
+    }
+    const sameCommitmentFamily = new Set(['create_commitment_or_proposal', 'create_personal_commitment']);
+    if (!sameCommitmentFamily.has(prior.objectiveType) || !sameCommitmentFamily.has(input.candidate.objectiveType)) {
+        return { isEdit: false, changedSlots: [] };
+    }
+    if (input.candidate.constraints.commitmentOwnership === 'ambiguous') {
+        return { isEdit: false, changedSlots: [] };
+    }
+
+    const nextTitle = input.candidate.slotDelta?.title?.trim()
+        || input.candidate.targetEntities.entityHints[0]?.trim() || null;
+    const deltaDate = input.candidate.slotDelta?.date?.trim() || null;
+    const deltaTime = input.candidate.slotDelta?.time?.trim() || null;
+    const legacyTemporal = input.candidate.timeConstraints.rawHint?.trim() || null;
+    const priorTitle = prior.targetEntities.entityHints[0]?.trim() || null;
+    const priorTime = prior.timeConstraints.rawHint?.trim() || null;
+    const priorDate = priorTime ? extractDateTextSpans(priorTime)[0]?.text?.trim() ?? null : null;
+    const priorClock = priorTime ? extractExplicitTimeHint(priorTime) : null;
+    const candidateDate = deltaDate;
+    const candidateClock = deltaTime;
+    const nextTime = deltaDate || deltaTime
+        ? [candidateDate ?? priorDate, candidateClock ?? priorClock].filter(Boolean).join(' ').trim()
+        : legacyTemporal;
+    const changedSlots: Array<'title' | 'date' | 'time'> = [];
+    if (nextTitle && nextTitle !== priorTitle) changedSlots.push('title');
+    if (candidateDate && candidateDate !== priorDate) changedSlots.push('date');
+    if (candidateClock && candidateClock !== priorClock) changedSlots.push('time');
+    if (!candidateDate && !candidateClock && nextTime && nextTime !== priorTime) changedSlots.push('time');
+    if (changedSlots.length === 0) return { isEdit: false, changedSlots };
+
+    let turnSequence = input.turnSequence ?? input.dialogueState.lastTurnSequence + 1;
+    for (const slot of changedSlots) {
+        input.dialogueService.applyCorrection({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey: input.dialogueScopeKey,
+            slotName: slot === 'title' ? 'targetEntities.entityHints' : 'timeConstraints.rawHint',
+            previousValue: slot === 'title' ? priorTitle : priorTime,
+            newValue: slot === 'title' ? nextTitle! : nextTime!,
+            reason: 'user_correction',
+            turnId: input.turnId,
+            turnSequence,
+        });
+        if (input.turnSequence === undefined) turnSequence += 1;
+    }
+
+    const sourceUtterance = changedSlots.includes('time') || changedSlots.includes('date')
+        ? `${nextTitle ?? priorTitle ?? ''} ${input.candidate.sourceUtterance}`.trim()
+        : `${input.candidate.sourceUtterance} ${prior.sourceUtterance}`.trim();
+    return {
+        isEdit: true,
+        changedSlots,
+        correctedObjective: {
+            ...prior,
+            targetEntities: {
+                ...prior.targetEntities,
+                entityHints: nextTitle ? [nextTitle] : prior.targetEntities.entityHints,
+            },
+            timeConstraints: { rawHint: nextTime ?? priorTime },
+            // A replacement must replace every semantic slot that describes
+            // the proposed work.  Keeping the prior desiredOutcome here
+            // leaves the state internally contradictory: the title/time may
+            // point at the new proposal while the objective summary still
+            // describes the superseded one.  Prefer the candidate's
+            // structured content when it is present; otherwise the canonical
+            // title is the safe fallback for commitment creation.
+            desiredOutcome: changedSlots.includes('title')
+                ? (nextTitle ?? input.candidate.desiredOutcome ?? prior.desiredOutcome)
+                : prior.desiredOutcome,
+            sourceUtterance,
+            ambiguities: [],
+        },
+    };
 }
+
+/**
+ * A structured objective with its own entity/person/time data is an
+ * independent request. It may replace a pending plan, but it must never be
+ * treated as an implicit confirmation of that plan.
+ */
+export function isIndependentWriteObjective(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    if (!objective || objective.objectiveType === 'unsupported') return false;
+    return objective.targetEntities.entityHints.length > 0
+        || objective.targetEntities.personHints.length > 0
+        || Boolean(objective.timeConstraints.rawHint);
+}
+
+/**
+ * A pending-plan turn may be represented by two interpreters: the route
+ * interpreter and the context-aware objective interpreter. The route result
+ * is safe to use directly only when it is self-contained (an explicit
+ * approve/reject decision or an independently specified objective). An empty
+ * write-shaped proposal must be reinterpreted with the pending-plan context;
+ * otherwise a deferral/correction can accidentally open a new objective.
+ */
 
 export function isSelfContainedPendingPlanCandidate(
     objective: AgentObjective | null | undefined,
@@ -861,6 +993,7 @@ export function buildPendingTemporalAnswerObjective(
     };
 }
 
+/** A pending plan can be replaced only by a complete, explicitly new act. */
 export function isCompletePendingPlanReplacement(
     objective: AgentObjective | null | undefined,
 ): boolean {
@@ -927,4 +1060,76 @@ export function groundPendingPlanCandidate(
 
 function normalizeGroundingText(value: string): string {
     return value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/gu, '');
+}
+
+const EXPLICIT_PLAN_CONFIRMATION_PHRASES = new Set([
+    'si',
+    'si crea',
+    'si crealo',
+    'si hazlo',
+    'si adelante',
+    'ok',
+    'ok crea',
+    'ok crealo',
+    'dale',
+    'dale crea',
+    'dale crealo',
+    'confirmo',
+    'confirmar',
+    'crealo',
+    'hazlo',
+    'adelante',
+    'procede',
+    'de acuerdo',
+]);
+
+export function isExplicitPlanConfirmation(rawTurn: string): boolean {
+    const normalized = rawTurn
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('es-CL')
+        .replace(/[¿?¡!.,;:]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return EXPLICIT_PLAN_CONFIRMATION_PHRASES.has(normalized);
+}
+
+export function buildPlanTitleCorrection(
+    dialogueService: { applyCorrection: (input: {
+        actorUserId: string; dialogueScopeKey: string; slotName: string;
+        previousValue: string | null; newValue: string; reason: 'user_correction';
+        turnId: string; turnSequence: number;
+    }) => unknown },
+    dialogueState: AgentDialogueState,
+    dialogueScopeKey: string,
+    actorUserId: string,
+    companionPersonHint: string,
+    turnId: string,
+): PlanCorrectionResult {
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    const previousTitle = priorObjective.targetEntities.entityHints[0] ?? null;
+    const newTitle = previousTitle && !previousTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
+        ? `${previousTitle} con ${companionPersonHint}`
+        : previousTitle ?? companionPersonHint;
+    const turnSequence = dialogueState.lastTurnSequence + 1;
+
+    dialogueService.applyCorrection({
+        actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints',
+        previousValue: previousTitle, newValue: newTitle,
+        reason: 'user_correction', turnId, turnSequence,
+    });
+
+    return {
+        correctedObjective: {
+            ...priorObjective,
+            targetEntities: {
+                ...priorObjective.targetEntities,
+                entityHints: [newTitle],
+            },
+            desiredOutcome: newTitle,
+            sourceUtterance: `${priorObjective.sourceUtterance.trim()} ${companionPersonHint}`.trim(),
+            ambiguities: [],
+        },
+        turnSequence,
+    };
 }
