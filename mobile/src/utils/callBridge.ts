@@ -10,6 +10,15 @@ export type CallBridgeMessage = {
     status: CallBridgeStatus;
 };
 
+export function buildCallPageOriginWhitelist(apiUrl: string): string[] {
+    const origin = new URL(apiUrl).origin;
+    return [`${origin}/*`];
+}
+
+export function getAllowedCallPermissionResources(isVideo: boolean): string[] {
+    return isVideo ? ['AUDIO_CAPTURE', 'VIDEO_CAPTURE'] : ['AUDIO_CAPTURE'];
+}
+
 export function buildCallPageUrl(
     apiUrl: string,
     params: {
