@@ -168,6 +168,10 @@ for each row execute function public.record_agent_audit_event();
 -- client roles; PostgreSQL invokes them through the owning trigger.
 revoke all on function public.prevent_agent_audit_event_mutation() from public, anon, authenticated;
 revoke all on function public.record_agent_audit_event() from public, anon, authenticated;
+-- The backend service role is the only application role that can cause these
+-- trigger functions to run through the canonical writers.
+grant execute on function public.prevent_agent_audit_event_mutation() to service_role;
+grant execute on function public.record_agent_audit_event() to service_role;
 
 -- No INSERT/UPDATE/DELETE policy is granted to client roles. The owner-read
 -- policy above is the only client-facing surface; backend service-role
