@@ -35,6 +35,22 @@ import type { AgentObjective } from '../types/agentPlan';
 export interface InterpreterContext {
     conversationId?: string;
     channel?: string;
+    pendingPlan?: {
+        objectiveType: string;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
+    };
+    activeObjective?: {
+        objectiveType: string;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
+        lifecycle: string;
+    };
+    // Core is reconciling a short turn against already-owned dialogue state.
+    dialogueReconciliation?: 'pending_plan' | 'active_objective';
+    // Core-derived shape of the immediately preceding read. It carries no
+    // canonical IDs or evidence.
+    priorReadSummary?: AgentPriorReadSummary | null;
 }
 
 export interface AgentInputInterpreter {
