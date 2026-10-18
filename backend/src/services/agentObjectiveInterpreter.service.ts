@@ -37,6 +37,18 @@ import { parseDateFromText } from './date-parser.service';
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
     actorUserId: string;
+    pendingPlan?: {
+        objectiveType: AgentObjectiveType;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
+    };
+    activeObjective?: {
+        lifecycle: string;
+        objectiveType: AgentObjectiveType;
+        desiredOutcome?: string | null;
+        timeHint?: string | null;
+    };
+    dialogueReconciliation?: 'pending_plan' | 'active_objective';
 }
 
 export interface AgentObjectiveInterpreter {
