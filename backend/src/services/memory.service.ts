@@ -510,35 +510,29 @@ export async function retrieveMemory(plan: MemoryQueryPlan, traceId?: string): P
 // evidencia, invalida; si quedan otras, sólo se retira esa referencia y la
 // memoria se mantiene (con menos respaldo, pero respaldo real).
 export async function invalidateMemoryForDeletedSource(sourceType: MemorySourceType, sourceId: string, traceId?: string): Promise<void> {
-    const { data: evidenceRows, error } = await supabaseAdmin
-        .from('memory_record_evidence')
-        .select('memory_record_id')
-        .eq('source_type', sourceType)
-        .eq('source_id', sourceId);
+    const { data: cleaned, error } = await supabaseAdmin.rpc(
+        'invalidate_memory_evidence_for_source',
+        {
+            p_source_type: sourceType,
+            p_source_id: sourceId,
+        },
+    );
     if (error) throw error;
 
-    const affectedMemoryIds = Array.from(new Set((evidenceRows || []).map((r: { memory_record_id: string }) => r.memory_record_id)));
-    for (const memoryId of affectedMemoryIds) {
-        const { error: delErr } = await supabaseAdmin
-            .from('memory_record_evidence')
-            .delete()
-            .eq('memory_record_id', memoryId)
-            .eq('source_type', sourceType)
-            .eq('source_id', sourceId);
-        if (delErr) throw delErr;
-        // Una sola sentencia cuando toca invalidar (ver comentario en
-        // syncEvidenceJsonCache): escribir evidence_refs=[] con status
-        // todavía 'active' en un paso separado viola el constraint real de
-        // forma transitoria -- hallazgo empírico contra Postgres real.
-        const remaining = await readEvidenceRefs(memoryId);
-        if (remaining.length === 0) {
-            await supabaseAdmin.from('memory_records').update({ status: 'invalidated', evidence_refs: remaining }).eq('id', memoryId).neq('status', 'deleted');
-        } else {
-            await supabaseAdmin.from('memory_records').update({ evidence_refs: remaining }).eq('id', memoryId);
-        }
-        traceMemory(traceId, 'evidence_cleanup', { memoryId, remainingEvidenceCount: remaining.length, sourceType, reason: 'source_deleted' });
+    for (const row of (cleaned || []) as Array<{
+        memory_record_id: string;
+        remaining_evidence_count: number;
+    }>) {
+        traceMemory(traceId, 'evidence_cleanup', {
+            memoryId: row.memory_record_id,
+            remainingEvidenceCount: row.remaining_evidence_count,
+            sourceType,
+            reason: 'source_deleted',
+            atomic: true,
+        });
     }
 }
+
 
 // Sección 7 del ticket M-2 FINAL ("evidence authorization invariant"): una
 // memoria owner-autorizada NO es suficiente si una de sus fuentes de
@@ -588,28 +582,33 @@ export async function revalidateMemoryEvidenceAuthorization(
         } else {
             await supabaseAdmin.from('memory_records').update({ evidence_refs: remaining }).eq('id', row.id);
         }
-        traceMemory(traceId, 'evidence_cleanup', { memoryId: row.id, remainingEvidenceCount: remaining.length, sourceType, reason: 'authorization_revoked' });
+        traceMemory(traceId, 'evidence_cleanup', { memoryId: row.id, remainingEvidenceCount: remaining.length, sourceType, reason: 'authorizexport async function revalidateMemoryEvidenceAuthorization(
+    ownerUserId: string,
+    sourceType: MemorySourceType,
+    sourceId: string,
+    traceId?: string,
+): Promise<void> {
+    const { data: cleaned, error } = await supabaseAdmin.rpc(
+        'revalidate_memory_evidence_for_owner_source',
+        {
+            p_owner_user_id: ownerUserId,
+            p_source_type: sourceType,
+            p_source_id: sourceId,
+        },
+    );
+    if (error) throw error;
+
+    for (const row of (cleaned || []) as Array<{
+        memory_record_id: string;
+        remaining_evidence_count: number;
+    }>) {
+        traceMemory(traceId, 'evidence_cleanup', {
+            memoryId: row.memory_record_id,
+            remainingEvidenceCount: row.remaining_evidence_count,
+            sourceType,
+            reason: 'authorization_revoked',
+            atomic: true,
+        });
     }
 }
 
-export async function invalidateMemoryForConversationDeletion(conversationId: string): Promise<void> {
-    const { error } = await supabaseAdmin
-        .from('memory_records')
-        .update({ status: 'invalidated' })
-        .eq('conversation_id', conversationId)
-        .neq('status', 'deleted');
-    if (error) throw error;
-}
-
-// FK `owner_user_id references profiles(id) on delete cascade` ya limpia
-// físicamente estas filas si `profiles` borra la fila real. Esta función es
-// el gancho explícito para un futuro flujo de borrado de cuenta que sea un
-// soft-delete (no borra la fila de profiles) en vez de un borrado físico.
-export async function deleteMemoryForAccountDeletion(ownerUserId: string): Promise<void> {
-    const { error } = await supabaseAdmin
-        .from('memory_records')
-        .update({ status: 'deleted' })
-        .eq('owner_user_id', ownerUserId)
-        .neq('status', 'deleted');
-    if (error) throw error;
-}
