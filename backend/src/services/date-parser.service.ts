@@ -250,7 +250,7 @@ function parseExplicitWeekday(
     const referenceCalendar = new Date(Date.UTC(reference.year, reference.month - 1, reference.day));
     const targetWeekday = WEEKDAYS[normalizeSpanish(weekdayMatch[2])];
     const currentWeekday = referenceCalendar.getUTCDay();
-    const explicitTime = explicitTimeFromText(text);
+    const explicitTime = explicitTimeFromText(parserText);
     const hour = explicitTime?.hour ?? 12;
     const minute = explicitTime?.minute ?? 0;
     const qualifier = normalizeSpanish(weekdayMatch[1] || '');
@@ -281,8 +281,16 @@ export const parseDateFromText = (
     referenceDate: Date = new Date(),
     requestedTimeZone?: string | null,
 ): ParsedDateResult | null => {
+    // Mobile/voice transcripts can arrive with a common UTF-8/Latin-1
+    // mojibake sequence. Repair only the known accent pairs before handing
+    // the utterance to the shared date parser; the original utterance remains
+    // untouched in the plan provenance.
+    const parserText = text
+        .replace(/Ã¡/g, 'á').replace(/Ã©/g, 'é').replace(/Ã­/g, 'í')
+        .replace(/Ã³/g, 'ó').replace(/Ãº/g, 'ú').replace(/Ã±/g, 'ñ')
+        .replace(/Ã‰/g, 'É').replace(/Ã‘/g, 'Ñ');
     const timeZone = resolveTimeZone(requestedTimeZone);
-    const explicitWeekday = parseExplicitWeekday(text, referenceDate, timeZone);
+    const explicitWeekday = parseExplicitWeekday(parserText, referenceDate, timeZone);
     if (explicitWeekday) return explicitWeekday;
 
     const reference = wallClockParts(referenceDate, timeZone);
@@ -298,8 +306,8 @@ export const parseDateFromText = (
         reference.second
     );
 
-    const results = chrono.es.parse(text, chronoReference, { forwardDate: true });
-    const result = results[0] || chrono.parse(text, chronoReference, { forwardDate: true })[0];
+    const results = chrono.es.parse(parserText, chronoReference, { forwardDate: true });
+    const result = results[0] || chrono.parse(parserText, chronoReference, { forwardDate: true })[0];
     if (!result) return null;
 
     const parsed = result.start.date();
