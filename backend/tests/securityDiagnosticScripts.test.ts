@@ -12,7 +12,7 @@ describe('diagnostic scripts do not leak credentials', () => {
     it.each(scripts)('redacts secrets from %s logs', (script) => {
         const source = fs.readFileSync(path.join(__dirname, '..', script), 'utf8');
 
-        expect(source).not.toMatch(/console\.log\([^\n]*(token|access_token|expo_push_token)/i);
+        expect(source).not.toMatch(/console\.(?:log|error)\([^\n]*(access_token|expo_push_token|Authorization|Bearer|Auth token:)/i);
         expect(source).not.toContain('test1234');
         expect(source).not.toContain('carlos@marvex.cl');
     });
