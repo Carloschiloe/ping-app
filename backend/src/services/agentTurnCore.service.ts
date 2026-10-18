@@ -1257,7 +1257,16 @@ async function runWriteActionTurn(params: {
     // there is an open dialogue objective, preserve it while invalidating any
     // stale plan digest; otherwise create a clarification state for this
     // turn. The actual identity resolution remains in the canonical planner.
-    if (hasUnresolvedPersonReference(params.content, objectiveForPlanning)) {
+    // A V4 personal-commitment objective with no person slot is content-only:
+    // a name-like phrase in its title/entityHints must not be promoted into
+    // an identity clarification before the canonical planner sees it. Real
+    // person slots (personHints/responsibleHint) remain protected by the
+    // identity boundary below.
+    const contentOnlyPersonalObjective = objectiveForPlanning.objectiveType === 'create_personal_commitment'
+        && objectiveForPlanning.constraints.commitmentOwnership === 'personal'
+        && objectiveForPlanning.targetEntities.personHints.length === 0
+        && !objectiveForPlanning.constraints.responsibleHint;
+    if (hasUnresolvedPersonReference(params.content, objectiveForPlanning) && !contentOnlyPersonalObjective) {
         const clarification = {
             field: 'person_reference',
             question: '¿A qué persona te refieres?',
