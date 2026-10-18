@@ -423,9 +423,9 @@ the retired staging environment.
 for Render services, branches, URLs and Supabase environment ownership.
 **Production:** Render service `ping-app`, branch
 `codex/agent-voice-continuity-hardening`; verify the live SHA and
-`/api/health) before every promotion.
+`/api/health` before every promotion.
 **Retired staging:** `ping-backend-staging`, branch
-`codex/staging-beta), and Supabase ref `oonijgmddgyymhrlnvuu`. The Render
+`codex/staging-beta`, and Supabase ref `oonijgmddgyymhrlnvuu`. The Render
 service is suspended and must not be restored for normal work.
 **Usually do not read:** historical staging runbooks or old staging E2E scripts
 unless recovering audit evidence. Never print secrets.
