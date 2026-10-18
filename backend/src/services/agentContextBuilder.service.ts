@@ -1225,7 +1225,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // own target/authorization separately. This also keeps READ retrieval
     // and WRITE planning as two consumers of the same interpretation rather
     // than making WRITE depend on unrelated read capability.
-    const messagesPromise = !interpretation.isWriteActionRequest
+    const messagesPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
