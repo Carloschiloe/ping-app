@@ -354,11 +354,12 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(ctx.diagnostics?.sourceCounts).toMatchObject({ commitments: 0, messages: 0 });
     });
 
-    it('input sin ninguna señal (sin persona/texto/tiempo) -> needsClarification topic_too_broad', async () => {
+    it('un saludo social no se convierte en una búsqueda ni en una aclaración', async () => {
         const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
         const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input: 'hola' });
-        expect(ctx.needsClarification).toBe(true);
-        expect(ctx.clarification?.reason).toBe('topic_too_broad');
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.clarification).toBeUndefined();
+        expect(ctx.evidenceFound).toBe(false);
     });
 
     it('una conversación social semánticamente identificada no cae en topic_too_broad ni consulta datos', async () => {
