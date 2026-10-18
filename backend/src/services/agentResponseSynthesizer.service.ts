@@ -1335,6 +1335,20 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     return { status: 'no_evidence', answer, claims: [], citations: [] };
 }
 
+
+function isSocialConversationResponseInput(input: string): boolean {
+    return /^[\s¡¿]*(?:(?:hola|holi|hey|buenas?|buenos?\s+d[ií]as|buenas?\s+(?:tardes|noches))\b(?:[\s,!.¡¿?]*(?:cómo\s+estás?|como\s+estas?|qué\s+tal|todo\s+bien|bien\s+y\s+tú))?|(?:qué\s+tal|todo\s+bien|cómo\s+estás?|como\s+estas?|bien\s+y\s+tú)|(?:gracias|muchas\s+gracias|ok|vale|perfecto|genial))[\s.!?¡¿]*$/iu.test(input.trim());
+}
+
+function buildSocialConversationResponse(language: 'es' | 'en'): AgentResponse {
+    return {
+        status: 'answered',
+        answer: language === 'es' ? '¡Hola! ¿En qué te ayudo?' : 'Hi! How can I help?',
+        claims: [],
+        citations: [],
+    };
+}
+
 function buildConversationalResponse(language: 'es' | 'en'): AgentResponse {
     return {
         status: 'answered',
@@ -1484,6 +1498,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
         if (status === 'needs_clarification') {
             return this.withDiagnostics(buildClarificationResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && isSocialConversationResponseInput(context.input)) {
+            return this.withDiagnostics(buildSocialConversationResponse(language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.interactionMode === 'conversation') {
             return this.withDiagnostics(buildConversationalResponse(language), 'deterministic', startedAt, sourceCount);
