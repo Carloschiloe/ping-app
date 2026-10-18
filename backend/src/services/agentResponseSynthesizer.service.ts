@@ -1350,7 +1350,7 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
             ? (context.commitments.length === 0 && context.evidenceFound
                 ? 'No tienes compromisos en el período solicitado.'
                 : 'No encontré compromisos en el período solicitado.')
-            : 'I didn\\'t find any commitments in the requested period.')
+            : 'I didn\'t find any commitments in the requested period.')
         : isComparisonWithoutEvidence
             ? (language === 'es'
                 ? 'No encontré compromisos con fecha para comparar.'
