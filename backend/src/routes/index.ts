@@ -461,6 +461,8 @@ router.post(
 router.get('/insights', requireAuth, insightsController.getInsights);
 
 // Cloud Calendar OAuth & Sync
+router.get('/calendar/auth/google/link', requireAuth, calendarEnabled, calendarController.getGoogleAuthLink);
+router.get('/calendar/auth/outlook/link', requireAuth, calendarEnabled, calendarController.getMsAuthLink);
 router.get('/calendar/auth/google', requireAuth, calendarEnabled, calendarController.getGoogleAuth);
 router.get('/calendar/auth/google/callback', calendarEnabled, calendarController.googleCallback);
 router.get('/calendar/auth/outlook', requireAuth, calendarEnabled, calendarController.getMsAuth);

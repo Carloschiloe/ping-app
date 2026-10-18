@@ -4,6 +4,13 @@ import { syncCommitmentToProvider as syncCommitmentToProviderThroughCore } from 
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createOAuthState, verifyOAuthState } from '../utils/oauthState';
 
+// The mobile client requests the provider URL through an authenticated
+// API call. The JWT never travels in a browser URL or OAuth redirect.
+export const getGoogleAuthLink = async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    res.json({ url: calendarService.getGoogleAuthUrl(createOAuthState(userId)) });
+};
+
 export const getGoogleAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
     const url = calendarService.getGoogleAuthUrl(createOAuthState(userId));
@@ -44,6 +51,11 @@ export const googleCallback = async (req: Request, res: Response) => {
         console.error('[Google OAuth Callback] Error:', error);
         res.status(500).send('Error connecting Google Calendar: ' + error.message);
     }
+};
+
+export const getMsAuthLink = async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    res.json({ url: calendarService.getMsAuthUrl(createOAuthState(userId)) });
 };
 
 export const getMsAuth = async (req: Request, res: Response) => {
