@@ -36,7 +36,7 @@ type AttachmentRow = {
     mime_type: string;
     size_bytes: number | null;
     original_filename: string;
-    lifecycle_status: 'pending' | 'uploaded' | 'attached' | 'tombstoned';
+    lifecycle_status: 'pending' | 'uploaded' | 'attached' | 'expired' | 'tombstoned';
     expires_at: string;
     duration_ms: number | null;
     duration_source: 'client_recorder' | null;
