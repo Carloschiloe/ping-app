@@ -553,7 +553,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     let rawInterpretation = options.interpretation
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
-    const isSocialConversation = isSocialConversationInput(input.input);
+    const isSocialConversation = isSocialConversationInput(input.input)
+        || (rawInterpretation.interactionMode === 'conversation'
+            && !rawInterpretation.wantsCommitments
+            && !rawInterpretation.wantsMessages);
 
     // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
     // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
@@ -598,7 +601,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
         ? rawTimeExpression
         : null;
-    const normalizedTimeExpression = deterministicSignals.timeExpression ?? groundedRawTimeExpression;
+    const normalizedTimeExpression = isSocialConversation
+        ? null
+        : deterministicSignals.timeExpression ?? groundedRawTimeExpression;
     const ungroundedRawTemporalClaim = rawTimeExpression !== null
         && deterministicSignals.timeExpression === null
         && groundedRawTimeExpression === null;
@@ -922,7 +927,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
         if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) return false;
-        return label && normalizedFollowUp.split(/\s+/).some((token) => token.length > 2 && label.includes(token));
+        const followUpTokens = normalizedFollowUp
+            .split(/\s+/)
+            .map((token) => token.replace(/[^\p{L}\p{N}]/gu, ''))
+            .filter((token) => token.length > 2);
+        return label && followUpTokens.some((token) => label.includes(token));
     });
     let priorReferentId: string | undefined;
     let priorReferentCandidates: Array<{ id: string; label: string }> = [];
@@ -1127,7 +1136,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !needsClarification && !personScopeBlocked && !interpretation.proposalFocus
+    const commitmentsPromise = interpretation.wantsCommitments && !needsClarification && !priorReferentAmbiguous && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -1207,6 +1216,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && !overdueOnlyQuery
         && !futureOnlyTemporal
         && !priorReferentId
+        && !needsClarification
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
