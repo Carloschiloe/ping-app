@@ -1068,7 +1068,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // produces the same routing, independent of whether/how the LLM phrased
     // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
-    if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
+    if (!needsClarification && !priorReferentId && !isSocialConversation
+        && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
         clarification = {
             reason: 'person_ambiguous',
@@ -1089,6 +1090,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // interpretation.personHints (LLM-sourced, advisory-only from this point
     // on) — an LLM-only hint can never block a source it has no authority
     // over.
+    if (isSocialConversation) {
+        // Social turns are conversation-only even when a provider or a
+        // grammatical heuristic noticed a word such as "día" or "contigo".
+        needsClarification = false;
+        clarification = undefined;
+    }
+
     const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
