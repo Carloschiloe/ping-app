@@ -5,6 +5,7 @@ export * from './agentTurnCore.service';
 import { runAgentTurn as runCoreAgentTurn } from './agentTurnCore.service';
 import {
     forgetReadFollowupReferent,
+    rememberVerifiedReadReferent,
     resolveVerifiedReadFollowup,
 } from './agentReadFollowupReferent.service';
 import {
@@ -36,17 +37,29 @@ export async function runAgentTurn(
     const selectedReadCandidate = clarificationSelection.kind === 'resolved'
         ? clarificationSelection
         : null;
+    const rememberReadContext: NonNullable<RunAgentTurnOptions['onReadContext']> = (readContext) => {
+        rememberVerifiedReadReferent({
+            ...readContext,
+            actorUserId: input.actorUserId,
+            conversationId: input.conversationId,
+        });
+        options.onReadContext?.(readContext);
+    };
+    const shouldRememberReadContext = clarificationSelection.kind !== 'unmatched';
+    const coreOptions = selectedReadCandidate
+        ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId, responseInput: content, onReadContext: rememberReadContext }
+        : followup
+            ? { ...options, authorizedCommitmentReferentId: followup.sourceId, responseInput: content, onReadContext: rememberReadContext }
+            : shouldRememberReadContext
+                ? { ...options, onReadContext: rememberReadContext }
+                : options;
     const result = await runCoreAgentTurn(
         followup
             ? { ...input, input: followup.query }
             : selectedReadCandidate
                 ? { ...input, input: selectedReadCandidate.query }
                 : input,
-        selectedReadCandidate
-            ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId }
-            : followup
-                ? { ...options, authorizedCommitmentReferentId: followup.sourceId }
-                : options,
+        coreOptions,
     );
 
     if (followup) {

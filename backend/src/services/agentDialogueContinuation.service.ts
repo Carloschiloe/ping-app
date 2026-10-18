@@ -22,9 +22,19 @@ import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
 import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
-import { parseDateFromText } from './date-parser.service';
+import {
+    extractDateTextSpans,
+    extractExplicitTimeHint,
+    mergeTemporalCorrection,
+    parseDateFromText,
+} from './date-parser.service';
 import { DeterministicInputInterpreter } from './agentInputInterpreter.service';
-import { LlmObjectiveInterpreter, extractCompanionPersonHint, extractTimeHint, stripTrailingDateSpan } from './agentObjectiveInterpreter.service';
+import {
+    DeterministicObjectiveInterpreter,
+    LlmObjectiveInterpreter,
+    extractTimeHint,
+    stripTrailingDateSpan,
+} from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
 
 // PING — M-7B: only these two objective types are in scope for continuation
@@ -97,67 +107,201 @@ export function isDialogueTrackedObjectiveType(objectiveType: AgentObjectiveType
         || PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(objectiveType);
 }
 
-const EXPLICIT_PLAN_CONFIRMATION_PHRASES = new Set([
-    'si',
-    'si crea',
-    'si crealo',
-    'si hazlo',
-    'si adelante',
-    'ok',
-    'ok crea',
-    'ok crealo',
-    'dale',
-    'dale crea',
-    'dale crealo',
-    'confirmo',
-    'confirmar',
-    'crealo',
-    'hazlo',
-    'adelante',
-    'procede',
-    'de acuerdo',
-]);
-
 /**
  * Core-owned confirmation operator. It is deliberately limited to short,
  * affirmative utterances and is only meaningful while a plan is pending.
  * Anything that carries a new object, date, or negation remains a new turn
  * or a plan correction and must not authorize an old plan implicitly.
  */
-export function isExplicitPlanConfirmation(rawTurn: string): boolean {
-    const normalized = rawTurn
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLocaleLowerCase('es-CL')
-        .replace(/[¿?¡!.,;:]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    return EXPLICIT_PLAN_CONFIRMATION_PHRASES.has(normalized);
-}
-
 /**
- * Interprets an already structured objective as an operator on the plan that
- * is currently awaiting authorization. The language model may propose the
- * decision; Core still decides whether it is applicable to the open plan.
- * This deliberately does not inspect wording or add another phrase catalog.
+ * Interprets a pending-plan decision from the structured objective proposed
+ * by the existing objective interpreter. Core uses this only while a plan is
+ * pending and only when the proposal does not name a new target. This keeps
+ * confirmation/rejection semantic rather than dependent on a phrase list.
  */
 export function classifyPendingPlanDecision(
     objective: AgentObjective | null | undefined,
-): 'approve' | 'reject' | null {
-    if (!objective) return null;
+): 'approve' | 'reject' | 'defer' | null {
+    if (!objective || objective.objectiveType === 'unsupported') return null;
+    const slotDelta = objective.slotDelta;
+    const hasMaterialSlotDelta = Boolean(slotDelta?.title || slotDelta?.date || slotDelta?.time);
+    if (objective.dialogueAct === 'correct' || hasMaterialSlotDelta) return null;
+    // The model exposes the speech act separately from the optional decision
+    // hint. Core may use that structured act for an elliptical answer to the
+    // pending plan, but only when the turn introduces no new slots/target.
+    // This keeps confirmation semantic while avoiding a vocabulary list.
+    if (objective.dialogueAct === 'confirm') return 'approve';
+    if (objective.dialogueAct === 'reject') return 'reject';
+    if (objective.dialogueAct === 'defer') return 'defer';
     const hasExplicitTarget = objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0;
     if (hasExplicitTarget) return null;
-    if (objective.constraints.decisionHint === 'approve') return 'approve';
-    if (objective.constraints.decisionHint === 'reject') return 'reject';
-    return null;
+    // A target-less lifecycle cancellation is never an approval of the
+    // currently shown plan, even if an upstream model emitted contradictory
+    // decision metadata. A targeted cancellation remains an independent
+    // canonical cancel action and must continue to the planner.
+    if (objective.objectiveType === 'cancel_existing_commitment') return 'reject';
+    const decisionHint = objective.constraints.decisionHint;
+    if (decisionHint !== 'approve' && decisionHint !== 'reject' && decisionHint !== 'defer') return null;
+    return decisionHint;
 }
 
 /**
- * A structured objective with its own target/slot is a candidate replacement
- * for an open plan. This is intentionally semantic: no raw-text matching is
- * performed here, and an unsupported or targetless proposal is never allowed
- * to erase the current dialogue state.
+ * Conservative lifecycle fallback for a provider proposal that stays inside
+ * the already-owned objective family but carries no current-turn material
+ * value and no lifecycle act.  Core must not turn that structurally empty
+ * proposal into a fresh plan: doing so can create a second plan from an
+ * utterance that did not supply a title, person, date, or time.  The caller
+ * keeps the existing plan pending and reports no mutation; it does not infer
+ * authorization or execute anything.
+ */
+export function isPendingPlanUnchangedCandidate(input: {
+    pendingObjectiveType: AgentObjectiveType;
+    candidate: AgentObjective | null | undefined;
+}): boolean {
+    const candidate = input.candidate;
+    if (!candidate || candidate.objectiveType !== input.pendingObjectiveType) return false;
+    if (candidate.dialogueAct && candidate.dialogueAct !== 'other' && candidate.dialogueAct !== 'clarify') return false;
+    if (candidate.constraints.decisionHint) return false;
+    if (candidate.targetEntities.entityHints.length > 0 || candidate.targetEntities.personHints.length > 0) return false;
+    if (candidate.timeConstraints.rawHint?.trim()) return false;
+    const slotDelta = candidate.slotDelta;
+    return !slotDelta?.title?.trim() && !slotDelta?.date?.trim() && !slotDelta?.time?.trim();
+}
+
+export type PendingPlanSemanticRelation =
+    | { kind: 'approve' | 'reject' | 'defer' | 'suspend' }
+    | { kind: 'follow_up'; attribute: 'date' | 'time' | 'responsible' | 'status' | 'details' }
+    | { kind: 'none' };
+
+/** Core precedence for semantic signals already produced by the turn interpreter. */
+export function classifyPendingPlanSemanticRelation(input: {
+    dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
+    dialogueControl?: 'resume_suspended' | 'suspend_current' | null;
+    followUpAttribute?: 'time' | 'date' | 'responsible' | 'status' | 'details' | null;
+}): PendingPlanSemanticRelation {
+    if (input.dialogueAct === 'confirm') return { kind: 'approve' };
+    if (input.dialogueAct === 'reject') return { kind: 'reject' };
+    if (input.dialogueAct === 'defer') return { kind: 'defer' };
+    // A provider may correctly identify a topic switch as a new objective
+    // without having extracted enough independent slots to plan it yet.  The
+    // Core must suspend the currently authorized-but-unexecuted plan in that
+    // case; otherwise the incomplete candidate falls through to the ordinary
+    // route and the old objective remains active by accident.  A complete
+    // replacement is handled by isCompletePendingPlanReplacement before this
+    // relation is consulted.
+    if (input.dialogueAct === 'new_objective') return { kind: 'suspend' };
+    if (input.dialogueControl === 'suspend_current') return { kind: 'suspend' };
+    if (input.followUpAttribute) return { kind: 'follow_up', attribute: input.followUpAttribute };
+    return { kind: 'none' };
+}
+
+export interface PendingPlanEditResult {
+    isEdit: boolean;
+    correctedObjective?: AgentObjective;
+    changedSlots: Array<'title' | 'date' | 'time'>;
+}
+
+/**
+ * Reconciles semantic slot updates against the one plan currently awaiting
+ * authorization. The interpreter proposes slots; Core preserves omitted
+ * slots and invalidates the old plan through the state service.
+ */
+export function buildPendingPlanEdit(input: {
+    dialogueState: AgentDialogueState;
+    candidate: AgentObjective;
+    dialogueService: { applyCorrection: (value: {
+        actorUserId: string; dialogueScopeKey: string; slotName: string;
+        previousValue: string | null; newValue: string; reason: 'user_correction';
+        turnId: string; turnSequence: number;
+    }) => unknown };
+    dialogueScopeKey: string;
+    actorUserId: string;
+    turnId: string;
+    now: Date;
+    turnSequence?: number;
+}): PendingPlanEditResult {
+    const prior = input.dialogueState.openObjective;
+    if (!prior || input.dialogueState.lifecycle !== 'plan_pending_authorization') {
+        return { isEdit: false, changedSlots: [] };
+    }
+    const sameCommitmentFamily = new Set(['create_commitment_or_proposal', 'create_personal_commitment']);
+    if (!sameCommitmentFamily.has(prior.objectiveType) || !sameCommitmentFamily.has(input.candidate.objectiveType)) {
+        return { isEdit: false, changedSlots: [] };
+    }
+    if (input.candidate.constraints.commitmentOwnership === 'ambiguous') {
+        return { isEdit: false, changedSlots: [] };
+    }
+
+    const nextTitle = input.candidate.slotDelta?.title?.trim()
+        || input.candidate.targetEntities.entityHints[0]?.trim() || null;
+    const deltaDate = input.candidate.slotDelta?.date?.trim() || null;
+    const deltaTime = input.candidate.slotDelta?.time?.trim() || null;
+    const legacyTemporal = input.candidate.timeConstraints.rawHint?.trim() || null;
+    const priorTitle = prior.targetEntities.entityHints[0]?.trim() || null;
+    const priorTime = prior.timeConstraints.rawHint?.trim() || null;
+    const priorDate = priorTime ? extractDateTextSpans(priorTime)[0]?.text?.trim() ?? null : null;
+    const priorClock = priorTime ? extractExplicitTimeHint(priorTime) : null;
+    const candidateDate = deltaDate;
+    const candidateClock = deltaTime;
+    const nextTime = deltaDate || deltaTime
+        ? [candidateDate ?? priorDate, candidateClock ?? priorClock].filter(Boolean).join(' ').trim()
+        : legacyTemporal;
+    const changedSlots: Array<'title' | 'date' | 'time'> = [];
+    if (nextTitle && nextTitle !== priorTitle) changedSlots.push('title');
+    if (candidateDate && candidateDate !== priorDate) changedSlots.push('date');
+    if (candidateClock && candidateClock !== priorClock) changedSlots.push('time');
+    if (!candidateDate && !candidateClock && nextTime && nextTime !== priorTime) changedSlots.push('time');
+    if (changedSlots.length === 0) return { isEdit: false, changedSlots };
+
+    let turnSequence = input.turnSequence ?? input.dialogueState.lastTurnSequence + 1;
+    for (const slot of changedSlots) {
+        input.dialogueService.applyCorrection({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey: input.dialogueScopeKey,
+            slotName: slot === 'title' ? 'targetEntities.entityHints' : 'timeConstraints.rawHint',
+            previousValue: slot === 'title' ? priorTitle : priorTime,
+            newValue: slot === 'title' ? nextTitle! : nextTime!,
+            reason: 'user_correction',
+            turnId: input.turnId,
+            turnSequence,
+        });
+        if (input.turnSequence === undefined) turnSequence += 1;
+    }
+
+    const sourceUtterance = changedSlots.includes('time') || changedSlots.includes('date')
+        ? `${nextTitle ?? priorTitle ?? ''} ${input.candidate.sourceUtterance}`.trim()
+        : `${input.candidate.sourceUtterance} ${prior.sourceUtterance}`.trim();
+    return {
+        isEdit: true,
+        changedSlots,
+        correctedObjective: {
+            ...prior,
+            targetEntities: {
+                ...prior.targetEntities,
+                entityHints: nextTitle ? [nextTitle] : prior.targetEntities.entityHints,
+            },
+            timeConstraints: { rawHint: nextTime ?? priorTime },
+            // A replacement must replace every semantic slot that describes
+            // the proposed work.  Keeping the prior desiredOutcome here
+            // leaves the state internally contradictory: the title/time may
+            // point at the new proposal while the objective summary still
+            // describes the superseded one.  Prefer the candidate's
+            // structured content when it is present; otherwise the canonical
+            // title is the safe fallback for commitment creation.
+            desiredOutcome: changedSlots.includes('title')
+                ? (nextTitle ?? input.candidate.desiredOutcome ?? prior.desiredOutcome)
+                : prior.desiredOutcome,
+            sourceUtterance,
+            ambiguities: [],
+        },
+    };
+}
+
+/**
+ * A structured objective with its own entity/person/time data is an
+ * independent request. It may replace a pending plan, but it must never be
+ * treated as an implicit confirmation of that plan.
  */
 export function isIndependentWriteObjective(
     objective: AgentObjective | null | undefined,
@@ -165,7 +309,22 @@ export function isIndependentWriteObjective(
     if (!objective || objective.objectiveType === 'unsupported') return false;
     return objective.targetEntities.entityHints.length > 0
         || objective.targetEntities.personHints.length > 0
-        || objective.timeConstraints.rawHint !== null;
+        || Boolean(objective.timeConstraints.rawHint);
+}
+
+/**
+ * A pending-plan turn may be represented by two interpreters: the route
+ * interpreter and the context-aware objective interpreter. The route result
+ * is safe to use directly only when it is self-contained (an explicit
+ * approve/reject decision or an independently specified objective). An empty
+ * write-shaped proposal must be reinterpreted with the pending-plan context;
+ * otherwise a deferral/correction can accidentally open a new objective.
+ */
+export function isSelfContainedPendingPlanCandidate(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    return classifyPendingPlanDecision(objective) !== null
+        || isIndependentWriteObjective(objective);
 }
 
 export interface ContinuationClassification {
@@ -206,11 +365,6 @@ export function classifyContinuation(
     // any LLM-side continuation claim -- the objective type mismatch alone
     // is structural proof of a different request.
     if (newTurnObjective.objectiveType !== openType) {
-        if (extractCompanionPersonHint(newTurnObjective.sourceUtterance)
-            && newTurnObjective.targetEntities.entityHints.length === 0
-            && newTurnObjective.targetEntities.personHints.length === 1) {
-            return { isContinuation: true, reason: 'companion_fragment_continuation' };
-        }
         return { isContinuation: false, reason: 'new_turn_different_objective_type' };
     }
 
@@ -260,13 +414,6 @@ export function reconcileContinuationObjective(
     const personHints = priorObjective.targetEntities.personHints.length > 0
         ? priorObjective.targetEntities.personHints
         : newTurnObjective.targetEntities.personHints;
-    const companionPersonHint = extractCompanionPersonHint(newTurnObjective.sourceUtterance);
-    const priorTitle = entityHints[0] ?? null;
-    const enrichedTitle = companionPersonHint && priorTitle
-        && !priorTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
-        ? `${priorTitle} con ${companionPersonHint}`
-        : priorTitle;
-    const companionFilled = Boolean(companionPersonHint && enrichedTitle && enrichedTitle !== priorTitle);
 
     // The new turn's own timeConstraints.rawHint (LLM-extracted semantic
     // time phrase) or, failing that, its raw sourceUtterance fragment, is
@@ -275,25 +422,20 @@ export function reconcileContinuationObjective(
     // caller will simply re-ask the same clarification.
     const newTimeText = newTurnObjective.timeConstraints.rawHint ?? newTurnObjective.sourceUtterance.trim();
     const priorHadNoDate = !priorObjective.timeConstraints.rawHint && !hasExplicitDateWord(priorObjective.sourceUtterance);
-    const filledField: ReconciledObjectiveResult['filledField'] = companionFilled
-        ? 'title'
-        : priorHadNoDate && newTimeText.length > 0 ? 'time' : 'none';
+    const filledField: ReconciledObjectiveResult['filledField'] = priorHadNoDate && newTimeText.length > 0 ? 'time' : 'none';
 
-    const reconciledSourceUtterance = companionFilled
-        ? `${priorObjective.sourceUtterance.trim()} ${newTurnObjective.sourceUtterance.trim()}`.trim()
-        : filledField === 'time'
+    const reconciledSourceUtterance = filledField === 'time'
         ? `${priorObjective.sourceUtterance.trim()} ${newTimeText}`.trim()
         : priorObjective.sourceUtterance;
 
     const reconciled: AgentObjective = {
         ...priorObjective,
-        targetEntities: { entityHints: enrichedTitle ? [enrichedTitle] : entityHints, personHints },
+        targetEntities: { entityHints, personHints },
         timeConstraints: { rawHint: priorObjective.timeConstraints.rawHint ?? newTurnObjective.timeConstraints.rawHint },
         sourceUtterance: reconciledSourceUtterance,
         // Ambiguities are always re-derived fresh by the planner from the
         // reconciled objective -- never carried forward stale.
         ambiguities: [],
-        desiredOutcome: enrichedTitle ?? priorObjective.desiredOutcome,
         confidence: Math.max(priorObjective.confidence, newTurnObjective.confidence),
     };
 
@@ -333,6 +475,57 @@ function hasExplicitDateWord(text: string): boolean {
 // instead of candidate selection -- a materially different shape) remains
 // explicitly a later, separate task -- never silently widened here.
 const ANSWERABLE_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set(['person_ambiguous', 'targetEntity']);
+
+// Temporal planner clarifications are not entity selections.  They still
+// belong to the already-open create objective, but the answer is a structured
+// date/time fragment that must be merged before the normal planner runs.
+// Keeping this as a field contract (rather than a phrase detector) lets the
+// same path serve every natural-language way of supplying the missing time.
+const TEMPORAL_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set([
+    'dueAt', 'date', 'time', 'time_ambiguous', 'newDueAt',
+]);
+
+export function buildPendingTemporalAnswerObjective(
+    dialogueState: AgentDialogueState | null,
+    rawAnswer: string,
+): AgentObjective | null {
+    if (!dialogueState?.openObjective
+        || (dialogueState.lifecycle !== 'clarifying' && dialogueState.lifecycle !== 'collecting')
+        || !dialogueState.pendingClarification
+        || !TEMPORAL_CLARIFICATION_FIELDS.has(dialogueState.pendingClarification.field)
+        || !isContinuationEligibleObjectiveType(dialogueState.openObjective.objectiveType)) {
+        return null;
+    }
+    const timeHint = extractTimeHint(rawAnswer.trim());
+    if (!timeHint) return null;
+    return {
+        ...dialogueState.openObjective,
+        sourceUtterance: rawAnswer.trim(),
+        timeConstraints: { rawHint: timeHint },
+        ambiguities: [],
+    };
+}
+
+/** A pending plan can be replaced only by a complete, explicitly new act. */
+export function isCompletePendingPlanReplacement(
+    objective: AgentObjective | null | undefined,
+): boolean {
+    if (objective?.dialogueAct !== 'new_objective' || !isIndependentWriteObjective(objective)) {
+        return false;
+    }
+
+    // A pending-plan replacement is complete only when it carries the
+    // minimum structured slots needed to enter the normal planning path.
+    // An entity/title alone is still an open objective: routing it as a
+    // replacement would discard the suspended plan before the new objective
+    // has enough information to be planned. Core must suspend the old plan
+    // until the new objective is independently actionable. This is a
+    // structural slot contract, not a phrase or vocabulary rule.
+    const hasContent = objective.targetEntities.entityHints.length > 0
+        || objective.targetEntities.personHints.length > 0;
+    const hasTemporalConstraint = Boolean(objective.timeConstraints.rawHint?.trim());
+    return hasContent && hasTemporalConstraint;
+}
 
 // Reuses TARGET_ENTITY_ELIGIBLE_OBJECTIVE_TYPES defined above (alongside
 // isDialogueTrackedObjectiveType) -- never a second, divergent copy here.
@@ -557,6 +750,23 @@ async function tryAnswerTargetEntityClarification(
             candidates = freshOriginalCandidates.filter((candidate) =>
                 candidate.dueAt && candidate.dueAt.slice(0, 10) === targetDayKey);
         }
+
+        // A weekday answer is relative to the user's dialogue, not to the
+        // machine clock at test/runtime time. If the original candidate is
+        // itself used as the parser reference, "el del jueves" resolves to
+        // that candidate's Thursday even when the current calendar week has
+        // moved on. This preserves the canonical date parser and avoids a
+        // second weekday grammar while keeping relative phrases such as
+        // "mañana" from matching every candidate indiscriminately.
+        if (candidates.length === 0) {
+            candidates = freshOriginalCandidates.filter((candidate) => {
+                if (!candidate.dueAt) return false;
+                const dueAt = new Date(candidate.dueAt);
+                if (Number.isNaN(dueAt.getTime())) return false;
+                const parsedAgainstCandidate = parseDateFromText(trimmedAnswer, dueAt);
+                return parsedAgainstCandidate?.date.toISOString().slice(0, 10) === dueAt.toISOString().slice(0, 10);
+            });
+        }
     }
 
     // (c) Fallback: free-text narrowing, scoped to the answer alone and
@@ -657,27 +867,110 @@ export async function classifyPlanCorrection(
     rawTurn: string,
     actorUserId: string,
     conversationId: string | undefined,
+    candidateObjective: AgentObjective | null = null,
 ): Promise<PlanCorrectionClassification> {
-    if (!dialogueState || dialogueState.lifecycle !== 'plan_pending_authorization' || !dialogueState.openObjective) {
+    if (!dialogueState || !dialogueState.openObjective) {
         return { isCorrection: false, reason: 'no_plan_pending' };
     }
-    if (!PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(dialogueState.openObjective.objectiveType)) {
+    const pendingPlan = dialogueState.lifecycle === 'plan_pending_authorization';
+    const openObjectiveCanReceiveDateCorrection = PLAN_DATE_CORRECTION_ELIGIBLE_OBJECTIVE_TYPES.has(
+        dialogueState.openObjective.objectiveType,
+    );
+    if (!pendingPlan && !openObjectiveCanReceiveDateCorrection) {
         return { isCorrection: false, reason: 'objective_type_not_eligible' };
     }
     const trimmed = rawTurn.trim();
     if (!trimmed) {
         return { isCorrection: false, reason: 'empty_turn' };
     }
+    const companionCorrection = /^\s*(?:es|era|será|sera)\s+con\s+(.+?)\s*$/iu.test(trimmed);
+    if (pendingPlan && companionCorrection) {
+        return { isCorrection: true, reason: 'title_correction' };
+    }
     const newTimeHint = extractTimeHint(trimmed);
-    const companionPersonHint = extractCompanionPersonHint(trimmed);
-    if (!newTimeHint && !companionPersonHint) {
+    if (!newTimeHint) {
         return { isCorrection: false, reason: 'no_date_expression' };
     }
+    // Once the user has explicitly returned to an open create objective, a
+    // target-less reschedule-shaped semantic candidate is a correction of
+    // that objective's date, not a request to find a separate persisted
+    // commitment. A candidate carrying its own entity/person remains an
+    // independent canonical mutation and must not be absorbed here.
+    // Pending plans intentionally defer provider objective interpretation until
+    // after this gate. Use the existing structural objective interpreter only
+    // to recognize a target-less reschedule shape, so a second temporal
+    // correction cannot be mistaken for a new objective merely because the
+    // provider omitted the correction lifecycle in its output.
+    const structuralCandidate = candidateObjective ?? await new DeterministicObjectiveInterpreter().interpret(trimmed, {
+        actorUserId,
+        conversationId,
+        pendingPlan: { objectiveType: dialogueState.openObjective.objectiveType },
+    });
+    const targetlessDateCorrection = structuralCandidate.objectiveType === 'reschedule_existing_commitment'
+        && structuralCandidate.targetEntities.entityHints.length === 0
+        && structuralCandidate.targetEntities.personHints.length === 0;
+    if (!pendingPlan && !targetlessDateCorrection) {
+        return { isCorrection: false, reason: 'not_targetless_open_objective_correction' };
+    }
     const escape = await classifyExplicitEscape(trimmed, actorUserId, conversationId);
-    if (escape.escaped) {
+    if (escape.escaped && !targetlessDateCorrection) {
         return { isCorrection: false, reason: 'explicit_escape' };
     }
-    return { isCorrection: true, reason: companionPersonHint ? 'title_correction' : 'date_correction' };
+    return { isCorrection: true, reason: pendingPlan ? 'date_correction' : 'open_objective_date_correction' };
+}
+
+/**
+ * A pending-plan candidate is an interpretation of the current utterance,
+ * not a second copy of the open plan. Ground temporal state at this Core
+ * boundary so a provider cannot carry or concatenate a previous date/time
+ * before replacement or correction is classified.
+ */
+export function groundPendingPlanCandidate(
+    candidate: AgentObjective,
+    currentInput: string,
+): AgentObjective {
+    // Lifecycle decisions are not replacement objectives. Their empty slot
+    // shape is intentional: grounding a generic temporal word such as
+    // "ahora" from a rejection/defer utterance could turn the decision back
+    // into a plan edit and bypass the pending-plan lifecycle path.
+    if (candidate.constraints.decisionHint) return candidate;
+    const normalizedInput = normalizeGroundingText(currentInput);
+    const isGroundedInCurrentTurn = (hint: string): boolean => {
+        const normalizedHint = normalizeGroundingText(hint);
+        return normalizedHint.length > 0 && normalizedInput.includes(normalizedHint);
+    };
+    const isNewObjective = candidate.dialogueAct === 'new_objective';
+    return {
+        ...candidate,
+        // A provider may echo the active plan's title/person while deciding
+        // an elliptical turn. Those values are not current-turn evidence and
+        // must not make a confirmation/rejection look like a replacement.
+        // A structurally declared new objective is the only case where the
+        // provider may introduce a new target, and Core still sends it
+        // through the normal planner/resolution boundary.
+        targetEntities: isNewObjective
+            ? candidate.targetEntities
+            : {
+                entityHints: candidate.targetEntities.entityHints.filter(isGroundedInCurrentTurn),
+                personHints: candidate.targetEntities.personHints.filter(isGroundedInCurrentTurn),
+            },
+        // Some providers expose the same temporal proposal in both the
+        // legacy raw hint and structured slotDelta fields. Clear the
+        // provider-owned date/time slots before Core derives them from the
+        // current utterance, otherwise one stale field can reintroduce the
+        // superseded value during pending-plan reconciliation.
+        slotDelta: candidate.slotDelta
+            ? { ...candidate.slotDelta, date: null, time: null }
+            : candidate.slotDelta,
+        timeConstraints: {
+            ...candidate.timeConstraints,
+            rawHint: extractTimeHint(currentInput),
+        },
+    };
+}
+
+function normalizeGroundingText(value: string): string {
+    return value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/gu, '');
 }
 
 export interface PlanCorrectionResult {
@@ -708,14 +1001,16 @@ export function buildPlanDateCorrection(
     turnId: string,
     now: Date,
     timezone: string,
+    admittedTurnSequence?: number,
 ): PlanCorrectionResult {
     const priorObjective = dialogueState.openObjective as AgentObjective;
     const previousRawHint = priorObjective.timeConstraints.rawHint;
-    const turnSequence = dialogueState.lastTurnSequence + 1;
+    const mergedTimeHint = mergeTemporalCorrection(previousRawHint, newTimeHint);
+    const turnSequence = admittedTurnSequence ?? dialogueState.lastTurnSequence + 1;
 
     dialogueService.applyCorrection({
         actorUserId, dialogueScopeKey, slotName: 'timeConstraints.rawHint',
-        previousValue: previousRawHint, newValue: newTimeHint,
+        previousValue: previousRawHint, newValue: mergedTimeHint,
         reason: 'user_correction', turnId, turnSequence,
     });
 
@@ -732,50 +1027,24 @@ export function buildPlanDateCorrection(
 
     const correctedObjective: AgentObjective = {
         ...priorObjective,
-        timeConstraints: { rawHint: newTimeHint },
-        sourceUtterance: `${utteranceWithoutOldDate} ${newTimeHint}`.trim(),
+        timeConstraints: { rawHint: mergedTimeHint },
+        sourceUtterance: `${utteranceWithoutOldDate} ${mergedTimeHint}`.trim(),
         ambiguities: [],
     };
 
     return { correctedObjective, turnSequence };
 }
 
+
 export function buildPlanTitleCorrection(
-    dialogueService: { applyCorrection: (input: {
-        actorUserId: string; dialogueScopeKey: string; slotName: string;
-        previousValue: string | null; newValue: string; reason: 'user_correction';
-        turnId: string; turnSequence: number;
-    }) => unknown },
-    dialogueState: AgentDialogueState,
-    dialogueScopeKey: string,
-    actorUserId: string,
-    companionPersonHint: string,
-    turnId: string,
+    dialogueService: { applyCorrection: (input: { actorUserId: string; dialogueScopeKey: string; slotName: string; previousValue: string | null; newValue: string; reason: 'user_correction'; turnId: string; turnSequence: number }) => unknown },
+    dialogueState: AgentDialogueState, dialogueScopeKey: string, actorUserId: string, companionPersonHint: string, turnId: string,
 ): PlanCorrectionResult {
     const priorObjective = dialogueState.openObjective as AgentObjective;
     const previousTitle = priorObjective.targetEntities.entityHints[0] ?? null;
     const newTitle = previousTitle && !previousTitle.toLocaleLowerCase().includes(companionPersonHint.toLocaleLowerCase())
-        ? `${previousTitle} con ${companionPersonHint}`
-        : previousTitle ?? companionPersonHint;
+        ? previousTitle + ' con ' + companionPersonHint : previousTitle ?? companionPersonHint;
     const turnSequence = dialogueState.lastTurnSequence + 1;
-
-    dialogueService.applyCorrection({
-        actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints',
-        previousValue: previousTitle, newValue: newTitle,
-        reason: 'user_correction', turnId, turnSequence,
-    });
-
-    return {
-        correctedObjective: {
-            ...priorObjective,
-            targetEntities: {
-                ...priorObjective.targetEntities,
-                entityHints: [newTitle],
-            },
-            desiredOutcome: newTitle,
-            sourceUtterance: `${priorObjective.sourceUtterance.trim()} ${companionPersonHint}`.trim(),
-            ambiguities: [],
-        },
-        turnSequence,
-    };
+    dialogueService.applyCorrection({ actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints', previousValue: previousTitle, newValue: newTitle, reason: 'user_correction', turnId, turnSequence });
+    return { correctedObjective: { ...priorObjective, targetEntities: { ...priorObjective.targetEntities, entityHints: [newTitle] }, desiredOutcome: newTitle, sourceUtterance: priorObjective.sourceUtterance.trim() + ' ' + companionPersonHint, ambiguities: [] }, turnSequence };
 }

@@ -27,6 +27,7 @@ vi.mock('../src/services/retrieval.service', async (importOriginal) => {
         retrieveMessages: vi.fn(async () => []),
         retrieveTranscriptions: vi.fn(async () => []),
         retrieveAttachments: vi.fn(async () => []),
+        resolvePerson: vi.fn(async () => ({ resolved: null, ambiguous: false, candidates: [] })),
         resolveDirectConversation: vi.fn(async () => ({ conversationId: null, ambiguous: false, candidateCount: 0 })),
         retrieveVisibleCommitmentById: vi.fn(async () => null),
         dedupeProvenance: (items: unknown[]) => items,

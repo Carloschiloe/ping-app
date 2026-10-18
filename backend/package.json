@@ -25,7 +25,8 @@
     "test:m7-agent-admission:postgres": "node scripts/test-agent-turn-admission-postgres.mjs",
     "test:m4-agent:local-e2e": "node scripts/e2e-agent-m4-local.mjs",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "cleanup:expired-attachments": "node dist/scripts/cleanup-expired-message-attachments.js"
   },
   "keywords": [],
   "author": "",
@@ -33,9 +34,9 @@
   "description": "",
   "overrides": {
     "qs": "6.16.0",
-    "ip-address": "^10.7.4",
-    "proxy-addr": "^2.0.8",
-    "undici": "^7.29.1"
+    "ip-address": "10.7.4",
+    "proxy-addr": "2.0.8",
+    "undici": "7.30.1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",

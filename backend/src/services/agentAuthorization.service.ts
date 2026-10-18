@@ -9,6 +9,7 @@ import { AppError } from '../utils/AppError';
 import { runAgentPlanning, resolveDeterministicRouting, type AgentPlanOrchestratorInput } from './agentPlanOrchestrator.service';
 import { canAuthorize } from './agentAuthorizationPolicy.service';
 import { traceAuth } from '../utils/executionTrace';
+import { isPlanDigestNonExecutable, loadPendingDialogueObjective } from './agentPlanInvalidationGuard.service';
 import type { AgentAuthorization, AgentAuthorizationStatus } from '../types/agentExecution';
 import type { AgentPlanStep } from '../types/agentPlan';
 import type { AgentInputEnvelope, ContextReferent } from '../types/agentInput';
@@ -59,11 +60,38 @@ function rowToAuthorization(row: any): AgentAuthorization {
     };
 }
 
+async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<string> {
+    if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true'
+        || !process.env.PING_M7_DATABASE_URL
+        || !input.conversationId) {
+        return input.input;
+    }
+
+    const pendingObjective = await loadPendingDialogueObjective({
+        actorUserId: input.actorUserId,
+        conversationId: input.conversationId,
+        channel: input.channel,
+        inputEnvelope: input.inputEnvelope,
+        planDigest: input.planDigest,
+    });
+    return pendingObjective?.sourceUtterance?.trim() || input.input;
+}
+
 export async function authorizePlan(input: AuthorizePlanInput): Promise<AuthorizePlanResult> {
     const now = input.now ?? new Date();
+    if (await isPlanDigestNonExecutable({
+        actorUserId: input.actorUserId,
+        conversationId: input.conversationId,
+        channel: input.channel,
+        inputEnvelope: input.inputEnvelope,
+        planDigest: input.planDigest,
+    })) {
+        return { ok: false, failureCode: 'plan_rejected', message: 'The confirmed plan is no longer executable.' };
+    }
+    const replanInput = await replanInputForAuthorization(input);
     const orchestratorInput: AgentPlanOrchestratorInput = {
         actorUserId: input.actorUserId,
-        input: input.input,
+        input: replanInput,
         conversationId: input.conversationId,
         channel: input.channel,
         locale: input.locale,
@@ -87,7 +115,7 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     // final plan-status owner (semantic enrichment, LLM fallback,
     // validation, digest — all unchanged, all still exclusively there).
     // authorizePlan itself contains zero interpreter-selection policy.
-    const routing = await resolveDeterministicRouting(input.input, {
+    const routing = await resolveDeterministicRouting(replanInput, {
         actorUserId: input.actorUserId,
         conversationId: input.conversationId,
     });

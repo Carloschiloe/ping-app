@@ -134,9 +134,49 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
-export function resolveTimeExpression(expression: string | null, now: Date, timezone: string): RetrievalTimeRange | null {
+export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: import('../types/agentContext').TemporalIntent | null): RetrievalTimeRange | null {
     if (!expression) return null;
     const expr = expression.toLowerCase();
+    const normalizedExpression = expression.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (/pasado\s+manana|day\s+after\s+tomorrow/.test(normalizedExpression)) {
+        const target = addDays(now, 2);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
+    if (/proxima\s+semana|next\s+week/.test(normalizedExpression)) {
+        const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
+        return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
+    }
+    const weekday = normalizedExpression.match(/\b(?:el\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+    if (weekday) {
+        const weekdays: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+        const startToday = startOfDayInZone(now, timezone);
+        const offsetMs = timeZoneOffsetMs(startToday, timezone);
+        const localToday = new Date(startToday.getTime() + offsetMs);
+        let delta = (weekdays[weekday[1]] - localToday.getUTCDay() + 7) % 7;
+        if (delta === 0) delta = 7;
+        const target = addDays(now, delta);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
+    if (temporalIntent?.kind === 'relative_days' && temporalIntent.futureOnly === true) {
+        // A future horizon starts at the current instant, not at midnight:
+        // commitments earlier today are not upcoming anymore. The upper bound
+        // is exclusive at the next calendar midnight after the requested
+        // number of future days, so “within five days” includes today’s
+        // remaining time plus the next five calendar days.
+        const from = now;
+        const spanDays = Math.min(Math.max(temporalIntent.daysAhead ?? 1, 1), 30);
+        const to = startOfDayInZone(addDays(now, spanDays + 1), timezone);
+        return { from: from.toISOString(), to: to.toISOString() };
+    }
+    if (temporalIntent?.kind === 'upcoming_horizon' && temporalIntent.futureOnly === true) {
+        // “Próximos días” is intentionally bounded to a seven-day horizon
+        // while preserving the current time as the lower bound.
+        const from = now;
+        const spanDays = Math.min(Math.max(temporalIntent.daysAhead ?? 7, 1), 30);
+        const to = startOfDayInZone(addDays(now, spanDays + 1), timezone);
+        return { from: from.toISOString(), to: to.toISOString() };
+    }
+
 
     if (/hoy|today/.test(expr)) {
         return { from: startOfDayInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
@@ -165,6 +205,10 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         return { from: startLastWeek.toISOString(), to: startThisWeek.toISOString() };
     }
     if (/esta semana|this week/.test(expr)) {
+        if (temporalIntent?.futureOnly === true) {
+            const weekStart = startOfWeekInZone(now, timezone);
+            return { from: now.toISOString(), to: addDays(weekStart, 7).toISOString() };
+        }
         return { from: startOfWeekInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
     }
     if (/mes pasado|last month/.test(expr)) {
@@ -509,7 +553,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
 
     let rawInterpretation = options.interpretation
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
-    const isSocialConversation = isSocialConversationInput(input.input);
+    const isSocialInput = isSocialConversationInput(input.input);
 
     // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
     // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
@@ -529,16 +573,43 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    const isSocialConversation = isSocialInput
+        || (rawInterpretation.interactionMode === 'conversation'
+            && deterministicSignals.intent === 'general_context'
+            && deterministicSignals.timeExpression === null
+            && deterministicSignals.temporalIntent === null
+            && !deterministicSignals.wantsCommitments
+            && !deterministicSignals.wantsMessages
+            && !rawInterpretation.wantsCommitments
+            && !rawInterpretation.wantsMessages);
     // Even when this builder is called directly (outside the unified semantic
     // boundary), social turns must remain conversation-only. This prevents a
     // provider-produced hint from reopening retrieval or clarification for a
     // simple greeting.
-    if (isSocialConversation) rawInterpretation = deterministicSignals;
+    if (isSocialConversation) {
+        rawInterpretation = {
+            ...deterministicSignals,
+            wantsCommitments: false,
+            wantsMessages: false,
+            wantsTranscriptions: false,
+            wantsAttachments: false,
+            personHints: [],
+            proposalFocus: null,
+            textQuery: null,
+            topicHints: [],
+            timeExpression: null,
+            temporalIntent: null,
+            wantsOverdueFocus: false,
+            ambiguityHints: [],
+        };
+    }
     const rawTimeExpression = rawInterpretation.timeExpression?.trim() || null;
     const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
         ? rawTimeExpression
         : null;
-    const normalizedTimeExpression = deterministicSignals.timeExpression ?? groundedRawTimeExpression;
+    const normalizedTimeExpression = isSocialConversation
+        ? null
+        : deterministicSignals.timeExpression ?? groundedRawTimeExpression;
     const ungroundedRawTemporalClaim = rawTimeExpression !== null
         && deterministicSignals.timeExpression === null
         && groundedRawTimeExpression === null;
@@ -635,6 +706,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && normalizedTimeExpression !== null
         && deterministicSignals.statusHints === null
         && !deterministicSignals.wantsOverdueFocus;
+    const futureOnlyTemporal = deterministicSignals.temporalIntent?.futureOnly === true
+        || rawInterpretation.temporalIntent?.futureOnly === true;
     const normalizedIntent = commitmentSignalConfident || !ungroundedRawTemporalClaim
         ? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent)
         : 'general_context';
@@ -697,7 +770,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // against, never a retrieval-narrowing status filter).
         statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection || ungroundedRawTemporalClaim
             ? null
-            : rawInterpretation.statusHints,
+            : futureOnlyTemporal
+                ? ['accepted']
+                : rawInterpretation.statusHints,
         topicHints: ungroundedRawTemporalClaim
             ? []
             : commitmentSignalConfident
@@ -753,7 +828,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         proposalFocus: interpretation.proposalFocus,
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
     });
-    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone);
+    const explicitTimeRange = resolveTimeExpression(interpretation.timeExpression, now, timezone, interpretation.temporalIntent);
     const timeRange: RetrievalTimeRange | null = explicitTimeRange
         ?? ((isTemporalComparisonQuery(input.input) || urgencyComparison !== null) && input.priorReadContext?.kind === 'commitment_query'
             ? input.priorReadContext.timeRange
@@ -819,9 +894,15 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // grounding-checked) are used NOWHERE in this loop or its guards — the
     // fix is structural non-participation, not a filter that could
     // theoretically be bypassed by a different LLM phrasing.
-    const creationObjective = options.objective
+    const creationObjective = !!options.objective
         && (options.objective.objectiveType === 'create_personal_commitment'
             || options.objective.objectiveType === 'create_commitment_or_proposal');
+    const contentOnlyPersonalObjective = creationObjective
+        && options.objective?.objectiveType === 'create_personal_commitment'
+        && options.objective.targetEntities.personHints.length === 0
+        && !options.objective.constraints.responsibleHint
+        && (options.objective.constraints.commitmentOwnership === 'personal'
+            || rawInterpretation.isWriteActionRequest === true);
     // A creation objective is routed to the planner immediately after this
     // context pass. Its title/content may mention a person, company or place,
     // but that mention is not read-side identity scope. The planner remains
@@ -829,12 +910,65 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // objective's semantic ownership is third_party. This prevents a
     // personal action such as "llamar a ..." from being rejected by the
     // unrelated read pipeline before the plan is built.
-    const canonicalPersonScope: string[] = creationObjective
+    // A write objective does not make a named person authoritative for
+    // ownership, but it must not erase a real person cue before Core has
+    // resolved it. For example, "Tengo que llamar a Pedro" is a personal
+    // commitment whose title remains personal, while Pedro is still the
+    // conversational target that may be ambiguous. Resolve the cue here for
+    // safety/clarification only; the planner remains the sole owner of any
+    // responsible-person assignment.
+    // Read continuity is a bounded candidate selector, never an authority
+    // shortcut: any selected canonical id is re-authorized below through
+    // retrieveVisibleCommitmentById(actor, id). A qualifier must narrow to
+    // exactly one prior candidate; otherwise Core asks explicitly.
+    const priorReferents = input.priorReadContext?.commitmentReferents ?? [];
+    const normalizedFollowUp = input.input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const priorPronounCue = input.priorReadContext?.kind === 'commitment_query'
+        && (
+            interpretation.priorReferenceIntent === 'single_entity'
+            || interpretation.followUpAttribute !== null
+            || /\b(?:ese|esa|esto|eso|el|la|lo|hacerlo|hacerla|hacerlos|hacerlas|the|that|this)\b/.test(normalizedFollowUp)
+        );
+    const priorMatches = priorReferents.filter((referent) => {
+        const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
+        if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) return false;
+        const followUpTokens = normalizedFollowUp
+            .split(/\s+/)
+            .map((token) => token.replace(/[^\p{L}\p{N}]/gu, ''))
+            .filter((token) => token.length > 2);
+        return label && followUpTokens.some((token) => label.includes(token));
+    });
+    let priorReferentId: string | undefined;
+    let priorReferentCandidates: Array<{ id: string; label: string }> = [];
+    if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) {
+        const candidate = priorReferents[1];
+        if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
+    } else if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) {
+        const candidate = priorReferents[0];
+        if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
+    } else if (priorMatches.length === 1 && priorMatches[0].canonicalId) {
+        priorReferentId = priorMatches[0].canonicalId;
+    } else if (priorReferents.length === 1 && priorPronounCue && priorReferents[0].canonicalId) {
+        priorReferentId = priorReferents[0].canonicalId;
+    } else if (priorMatches.length > 1) {
+        priorReferentCandidates = priorMatches.filter((candidate) => !!candidate.canonicalId)
+            .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
+    } else if (priorReferents.length > 1 && priorPronounCue) {
+        priorReferentCandidates = priorReferents.filter((candidate) => !!candidate.canonicalId)
+            .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
+    }
+
+    const canonicalPersonScope: string[] = contentOnlyPersonalObjective || !!priorReferentId || isSocialConversation
         ? []
         : [...deterministicSignals.personHints];
     const people: PersonResolutionResult[] = [];
-    let needsClarification = false;
-    let clarification: AgentClarification | undefined;
+    const priorReferentAmbiguous = priorReferentCandidates.length > 1
+        || (priorReferents.length > 1 && priorPronounCue && !priorReferentId);
+    let needsClarification = priorReferentAmbiguous;
+    let clarification: AgentClarification | undefined = priorReferentAmbiguous
+        ? { reason: 'entity_ambiguous', entityCandidates: priorReferentCandidates }
+        : undefined;
     let resolvedPersonId: string | undefined;
     // PING — PRONOUN ANTECEDENT UNIQUENESS: `resolvedPersonId` above only
     // ever records the FIRST hint that resolved (see the `!resolvedPersonId`
@@ -903,7 +1037,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // que se especifique el nombre, sin inventar opciones falsas).
     if (!needsClarification && personAttributionUnresolved && !resolvedPersonId) {
         needsClarification = true;
-        clarification = { reason: 'person_ambiguous', candidates: [] };
+        const writeLikeInput = interpretation.isWriteActionRequest
+            && !/^\s*[¿?]/u.test(input.input);
+        clarification = {
+            reason: writeLikeInput ? 'person_not_found' : 'person_ambiguous',
+            candidates: [],
+            requestedNames: canonicalPersonScope,
+        };
     }
 
     // PING — REMOVE LLM OWNERSHIP OF PRONOUN AMBIGUITY GATE (root fix,
@@ -943,9 +1083,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // produces the same routing, independent of whether/how the LLM phrased
     // ambiguityHints. Never a phrase-specific check -- containsThirdPersonPronoun
     // is a grammatical detector, not a "Spiderman"/"lo de" heuristic.
-    if (!needsClarification && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
+    if (!needsClarification && !priorReferentId && !isSocialConversation
+        && containsThirdPersonPronoun(input.input) && distinctResolvedPersonIds.size !== 1) {
         needsClarification = true;
-        clarification = { reason: 'person_ambiguous', candidates: [] };
+        clarification = {
+            reason: 'person_ambiguous',
+            candidates: [],
+            requestedNames: canonicalPersonScope,
+        };
     }
 
     // Retrieval-plan guard (sección 4): si hay un personHint explícito y
@@ -960,6 +1105,13 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // interpretation.personHints (LLM-sourced, advisory-only from this point
     // on) — an LLM-only hint can never block a source it has no authority
     // over.
+    if (isSocialConversation) {
+        // Social turns are conversation-only even when a provider or a
+        // grammatical heuristic noticed a word such as "día" or "contigo".
+        needsClarification = false;
+        clarification = undefined;
+    }
+
     const personScopeBlocked = (canonicalPersonScope.length > 0 || !!input.authorizedPersonReferentId) && !resolvedPersonId;
 
     // ─── M-2 — Memory query plan ────────────────────────────────────────────
@@ -990,7 +1142,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // "aprobación pendiente") -- pedirlos igual sería tráfico/carga de DB
     // ciento por ciento desperdiciada. Nunca cambia el resultado final,
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
-    const commitmentsPromise = interpretation.wantsCommitments && !personScopeBlocked && !interpretation.proposalFocus
+    const commitmentsPromise = interpretation.wantsCommitments && !needsClarification && !priorReferentAmbiguous && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
@@ -1009,8 +1161,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                     personScope: !!resolvedPersonId,
                 });
             }
-            if (input.authorizedCommitmentReferentId) {
-                return retrieveVisibleCommitmentById(input.actorUserId, input.authorizedCommitmentReferentId)
+            if (input.authorizedCommitmentReferentId || priorReferentId) {
+                const referentId = input.authorizedCommitmentReferentId ?? priorReferentId!;
+                return retrieveVisibleCommitmentById(input.actorUserId, referentId)
                     .then((commitment) => commitment ? [commitment] : []);
             }
             return retrieveCommitments({
@@ -1064,7 +1217,12 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // person/time ya son exactos vía SQL (FTS real desde esta misma
     // entrega) -- un solo fetch basta, sin pérdida posible.
     const overdueOnlyQuery = interpretation.wantsOverdueFocus && interpretation.proposalFocus === null;
-    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments && !personScopeBlocked && !overdueOnlyQuery
+    const commitmentProposalsPromise: Promise<ProposalFocusFillResult> = interpretation.wantsCommitments
+        && !personScopeBlocked
+        && !overdueOnlyQuery
+        && !futureOnlyTemporal
+        && !priorReferentId
+        && !needsClarification
         ? (() => {
             retrievalPlan.push({ step: 'retrieveCommitmentProposals', params: { personId: !!proposalsPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, proposalFocus: interpretation.proposalFocus, paginated: interpretation.proposalFocus !== null } });
             if (interpretation.proposalFocus !== null) {
@@ -1083,7 +1241,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // own target/authorization separately. This also keeps READ retrieval
     // and WRITE planning as two consumers of the same interpretation rather
     // than making WRITE depend on unrelated read capability.
-    const messagesPromise = !interpretation.isWriteActionRequest
+    const messagesPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsMessages && !personScopeBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMessages', params: { conversationId: !!conversationId, personId: !!resolvedPersonId, hasTextQuery: !!interpretation.textQuery } });
@@ -1127,7 +1286,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         });
     }
 
-    const transcriptionsPromise = !interpretation.isWriteActionRequest
+    const transcriptionsPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsTranscriptions && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveTranscriptions', params: { conversationId: true, hasTextQuery: !!interpretation.textQuery } });
@@ -1135,7 +1295,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve([]);
 
-    const attachmentsPromise = !interpretation.isWriteActionRequest
+    const attachmentsPromise = !needsClarification
+        && !interpretation.isWriteActionRequest
         && interpretation.wantsAttachments && conversationId
         ? (() => {
             retrievalPlan.push({ step: 'retrieveAttachments', params: { conversationId: true, kind: 'document' } });
@@ -1148,7 +1309,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // siempre `.eq('owner_user_id', ...)`); memoryBlocked es sólo el mismo
     // principio de "nunca ampliar el scope semántico" ya aplicado a
     // commitments/messages, no una segunda barrera de autorización.
-    const memoryPromise: Promise<RetrievalMemory[]> = !interpretation.isWriteActionRequest
+    const memoryPromise: Promise<RetrievalMemory[]> = !needsClarification
+        && !interpretation.isWriteActionRequest
         && memoryIntentSignal.wantsMemory && !memoryBlocked
         ? (() => {
             retrievalPlan.push({ step: 'retrieveMemory', params: { subjectPersonId: !!memorySubjectPersonId, freshness: memoryIntentSignal.memoryFreshness, hasTopicQuery: !!memoryTopicQuery } });
@@ -1170,9 +1332,23 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // uniformidad/defensa en profundidad, nunca cambia el resultado. El
     // budget final se aplica DESPUÉS del filtro, nunca antes.
     const sortedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, interpretation.wantsOverdueFocus);
-    const semanticallyFilteredCommitments = overdueOnlyQuery
-        ? sortedCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
+    // Retrieval implementations should honor the range, but Core also
+    // filters the returned set defensively so a broad adapter or a stale
+    // cache cannot leak an item outside an explicit temporal request.
+    const timeFilteredCommitments = timeRange && interpretation.temporalIntent?.futureOnly === true
+        ? (() => {
+            const fromMs = Date.parse(timeRange.from ?? '');
+            const toMs = Date.parse(timeRange.to ?? '');
+            return sortedCommitments.filter((commitment) => {
+                const dueMs = commitment.dueAt ? Date.parse(commitment.dueAt) : NaN;
+                return Number.isFinite(dueMs) && Number.isFinite(fromMs) && Number.isFinite(toMs)
+                    && dueMs >= fromMs && dueMs < toMs;
+            });
+        })()
         : sortedCommitments;
+    const semanticallyFilteredCommitments = overdueOnlyQuery
+        ? timeFilteredCommitments.filter((c) => isCommitmentOverdue(c.dueAt, c.status, now.toISOString(), timezone, c.entityType))
+        : timeFilteredCommitments;
     const filteredCommitments = filterByProposalFocus(semanticallyFilteredCommitments, interpretation.proposalFocus, resolvedPersonId);
     const commitments = filteredCommitments.slice(0, budget.commitments);
 
@@ -1418,6 +1594,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // del servidor (Render). Siempre presente (resolveAgentTimezone ya
         // garantiza un fallback a 'UTC', nunca undefined).
         timezone,
+        interactionMode: isSocialConversation ? 'conversation' : commitmentSignalConfident ? 'task' : interpretation.interactionMode,
         intent: { type: interpretation.intent, confidence: interpretation.intentConfidence },
         wantsOverdueFocus: interpretation.wantsOverdueFocus,
         requestedTransition: interpretation.requestedTransition,
@@ -1475,3 +1652,4 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         },
     };
 }
+

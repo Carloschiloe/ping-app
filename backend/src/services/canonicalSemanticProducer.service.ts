@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { isAiConfigured } from './synthesis.service';
 import { normalizeSemanticTurnV2 } from './agentTurnSemanticV2.service';
 import { AGENT_TURN_SEMANTIC_V2, type NormalizedSemanticTurnV2, type NormalizedSemanticTurnV3, type NormalizedSemanticTurnV4, type TemporalFactV3, type SemanticReadMeaningV4 } from '../types/agentTurnCommit';
@@ -11,6 +12,12 @@ export interface SemanticDialogueContext {
     missingSlotType: string | null;
     suspendedObjectiveType: string | null;
     referentHints: string[];
+    activeObjective?: {
+        objectiveType: string;
+        desiredOutcome: string;
+        knownSlots: Record<string, string>;
+        targetHints: string[];
+    } | null;
 }
 
 export interface CanonicalSemanticProducerInput {
@@ -37,6 +44,49 @@ export interface SemanticModel {
     readonly modelName: string;
     interpret(request: SemanticModelRequest): Promise<unknown>;
 }
+
+export type SemanticV4ProviderErrorClass = 'http' | 'timeout' | 'network' | 'sdk' | 'configuration' | 'unknown';
+export type SemanticV4FallbackReason =
+    | 'provider_error'
+    | 'refusal'
+    | 'empty_content'
+    | 'invalid_json'
+    | 'schema_invalid'
+    | 'truncated_output'
+    | 'content_filter'
+    | 'normalization_error'
+    | null;
+
+export interface SemanticV4UsageDiagnostics {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+    reasoningTokens: number | null;
+}
+
+export type SemanticV4ProviderCallResult =
+    | {
+        kind: 'response';
+        content: string | null;
+        finishReason: string | null;
+        refusalPresent: boolean;
+        usage: SemanticV4UsageDiagnostics;
+        latencyMs: number;
+    }
+    | {
+        kind: 'error';
+        errorClass: SemanticV4ProviderErrorClass;
+        httpStatus: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        latencyMs: number;
+    };
+
+export interface SemanticModelWithDiagnostics extends SemanticModel {
+    interpretWithDiagnostics(request: SemanticModelRequest): Promise<SemanticV4ProviderCallResult>;
+}
+
+const semanticScalarSchema = z.union([z.string().max(500), z.number(), z.boolean(), z.null()]);
 
 const outputSchema = z.object({
     kind: z.enum(['read_request', 'write_request', 'slot_answer', 'lifecycle_command', 'unknown']),
@@ -85,35 +135,406 @@ const readMeaningSchema = z.object({
     commitmentStatus: z.enum(['pending']).nullable().optional(),
 }).strict();
 
-const outputSchemaV4 = outputSchema.extend({ readMeaning: readMeaningSchema.nullable() }).strict();
+const objectiveRelationValues = ['answers_pending_slot', 'continues', 'corrects', 'replaces', 'independent', 'ambiguous', 'unrelated'] as const;
+const objectiveRelationSchema = z.enum(objectiveRelationValues);
+const outputSchemaV4 = outputSchema.extend({
+    readMeaning: readMeaningSchema.nullable(),
+    // Historical internal callers may omit this until normalization; the
+    // provider contract below remains strict and requires it.
+    openObjectiveRelation: objectiveRelationSchema.default('ambiguous'),
+}).strict();
+
+// The canonical runtime shape remains the source of truth. OpenAI's strict
+// structured-output subset cannot represent arbitrary object maps reliably,
+// so the provider transport represents slots as bounded key/value entries.
+// The parser below converts that transport back to the canonical slots map
+// before Zod validation and normalization.
+const providerTemporalFactSchema = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('absolute_date'), precision: z.literal('date'), year: z.number().int(), month: z.number().int().min(1).max(12), day: z.number().int().min(1).max(31) }).strict(),
+    z.object({ kind: z.literal('absolute_datetime'), precision: z.enum(['minute', 'second']), year: z.number().int(), month: z.number().int().min(1).max(12), day: z.number().int().min(1).max(31), hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59), second: z.number().int().min(0).max(59).nullable(), meridiem: z.enum(['24h', 'am', 'pm']) }).strict(),
+    z.object({ kind: z.literal('relative_date'), precision: z.literal('date'), amount: z.number().int().positive().max(366), unit: z.enum(['days', 'weeks']) }).strict(),
+    z.object({ kind: z.literal('relative_target_offset'), precision: z.literal('elapsed'), amount: z.number().int().positive().max(100000), unit: z.enum(['minutes', 'hours', 'days', 'weeks']) }).strict(),
+    z.object({ kind: z.literal('relative_duration'), precision: z.literal('duration'), amount: z.number().int().positive().max(100000), unit: z.enum(['minutes', 'hours', 'days', 'weeks']) }).strict(),
+    z.object({ kind: z.literal('weekday'), precision: z.literal('date'), weekday: z.number().int().min(0).max(6), relation: z.enum(['this_or_next', 'next']) }).strict(),
+    z.object({ kind: z.literal('time_only'), precision: z.enum(['minute', 'second']), hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59), second: z.number().int().min(0).max(59).nullable(), meridiem: z.enum(['24h', 'am', 'pm', 'unknown']), ambiguity: z.enum(['none', 'clock']) }).strict(),
+]);
+
+const providerReadMeaningSchema = z.object({
+    queryShape: z.enum(['focused', 'collection', 'count']),
+    explicitCollection: z.boolean(),
+    targetShape: z.enum(['none', 'person', 'commitment', 'proposal', 'message', 'conversation', 'attachment', 'transcription', 'topic']),
+    relationship: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('general_recall') }).strict(),
+        z.object({ kind: z.literal('current_state') }).strict(),
+        z.object({ kind: z.literal('lifecycle_transition'), transition: z.enum(['action_completed', 'resolved', 'cancelled', 'rejected', 'reopened', 'reassigned', 'accepted']) }).strict(),
+        z.object({ kind: z.literal('proposal_focus'), focus: z.enum(['waiting_for_others', 'needs_my_response', 'pending_response_from_person']) }).strict(),
+        z.object({ kind: z.literal('person_relationship') }).strict(),
+        z.object({ kind: z.literal('message_relationship'), relationship: z.enum(['content', 'conversation_context', 'sender', 'participant']) }).strict(),
+        z.object({ kind: z.literal('attachment_content') }).strict(),
+        z.object({ kind: z.literal('transcription_content') }).strict(),
+    ]),
+    temporalRole: z.enum(['none', 'filter_range', 'occurrence_time', 'target_date', 'elapsed', 'duration']),
+    commitmentStatus: z.enum(['pending']).nullable(),
+}).strict();
+
+const providerSlotSchema = z.object({ key: z.string().max(80), value: semanticScalarSchema }).strict();
+const providerOutputBaseSchemaV4 = z.object({
+    domain: z.enum(['commitment', 'messaging', 'people', 'historical_read', 'generic', 'unknown']),
+    objectiveCompleteness: z.enum(['complete', 'incomplete', 'unknown']),
+    lifecycleCommand: z.enum(['none', 'abandon', 'resume']),
+    lifecycleTarget: z.enum(['active', 'suspended', 'unspecified']),
+    lifecycleEvidence: z.enum(['explicit', 'implicit', 'unknown']),
+    pendingSlotAnswer: z.enum(['likely', 'not_a_slot_answer', 'unknown']),
+    continuationLike: z.enum(['yes', 'no', 'unknown']),
+    candidateSlotType: z.string().max(80).nullable(),
+    independentObjective: z.enum(['yes', 'no', 'unknown']),
+    objectiveType: z.string().max(120).nullable(),
+    entityHints: z.array(z.string().max(200)).max(10),
+    slots: z.array(providerSlotSchema).max(50),
+    ambiguityFields: z.array(z.string().max(80)).max(10),
+    confidence: z.number().min(0).max(1),
+    temporalFact: providerTemporalFactSchema.nullable(),
+}).strict();
+
+// The legacy flat parser keeps the complete enum for historical artifacts.
+// The provider contract below narrows the enum per semantic kind so that
+// impossible combinations are rejected before they reach normalization.
+const providerOutputCommonSchemaV4 = providerOutputBaseSchemaV4.extend({
+    openObjectiveRelation: objectiveRelationSchema,
+}).strict();
+
+// The provider contract is a tagged union. Keeping the tag and its dependent
+// fields in the same branch makes an invalid pair such as
+// { kind: 'read_request', readMeaning: null } unrepresentable at the
+// Structured Outputs boundary. The runtime normalizer remains the second
+// line of defence for historical/legacy payloads and internal callers.
+const providerReadOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.literal('read_request'),
+    openObjectiveRelation: z.enum(['continues', 'independent', 'ambiguous', 'unrelated']),
+    readMeaning: providerReadMeaningSchema,
+}).strict();
+const providerWriteOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
+    kind: z.literal('write_request'),
+    openObjectiveRelation: z.enum(['continues', 'corrects', 'replaces', 'independent', 'ambiguous']),
+    readMeaning: z.null(),
+}).strict();
+const providerSlotAnswerOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
+    kind: z.literal('slot_answer'),
+    openObjectiveRelation: z.enum(['answers_pending_slot', 'continues', 'corrects', 'ambiguous']),
+    readMeaning: z.null(),
+}).strict();
+const providerLifecycleOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
+    kind: z.literal('lifecycle_command'),
+    openObjectiveRelation: z.enum(['continues', 'corrects', 'ambiguous', 'unrelated']),
+    readMeaning: z.null(),
+}).strict();
+const providerUnknownOutputSchemaV4 = providerOutputBaseSchemaV4.extend({
+    kind: z.literal('unknown'),
+    openObjectiveRelation: z.enum(['ambiguous', 'unrelated']),
+    readMeaning: z.null(),
+}).strict();
+
+const providerTurnSchemaV4 = z.discriminatedUnion('kind', [
+    providerReadOutputSchemaV4,
+    providerWriteOutputSchemaV4,
+    providerSlotAnswerOutputSchemaV4,
+    providerLifecycleOutputSchemaV4,
+    providerUnknownOutputSchemaV4,
+]);
+
+// OpenAI Structured Outputs requires an object root, so the semantic union
+// lives under one required property rather than making the root itself anyOf.
+const providerEnvelopeSchemaV4 = z.object({ turn: providerTurnSchemaV4 }).strict();
+
+// Historical M-7 artifacts used the former flat transport. This schema is
+// parser-only compatibility; it is never exported as the provider schema and
+// is never sent to OpenAI.
+const legacyProviderOutputSchemaV4 = providerOutputCommonSchemaV4.extend({
+    kind: z.enum(['read_request', 'write_request', 'slot_answer', 'lifecycle_command', 'unknown']),
+    readMeaning: providerReadMeaningSchema.nullable(),
+    openObjectiveRelation: objectiveRelationSchema.optional(),
+}).strict();
+
+type JsonSchema = Record<string, any>;
+
+function providerJsonSchema(): JsonSchema {
+    const generated = z.toJSONSchema(providerEnvelopeSchemaV4, { target: 'draft-7' }) as JsonSchema;
+    const rewrite = (value: unknown, path: string): JsonSchema | unknown => {
+        if (Array.isArray(value)) return value.map((item, index) => rewrite(item, `${path}[${index}]`));
+        if (!value || typeof value !== 'object') return value;
+        const source = value as JsonSchema;
+        const result: JsonSchema = {};
+        for (const [key, child] of Object.entries(source)) {
+            if (key === '$schema') continue;
+            if (key === 'oneOf') {
+                const branches = child as JsonSchema[];
+                const discriminators = branches.map((branch) => branch?.properties?.kind?.const);
+                if (branches.length === 0 || discriminators.some((item) => typeof item !== 'string')
+                    || new Set(discriminators).size !== discriminators.length) {
+                    throw new Error(`Semantic V4 provider union is not safely discriminated at ${path}`);
+                }
+                result.anyOf = branches.map((branch, index) => rewrite(branch, `${path}.anyOf[${index}]`));
+                continue;
+            }
+            result[key] = rewrite(child, `${path}.${key}`);
+        }
+        if (result.type === 'object' && result.properties && typeof result.properties === 'object') {
+            result.additionalProperties = false;
+            result.required = Object.keys(result.properties);
+        }
+        return result;
+    };
+    const schema = rewrite(generated, 'root') as JsonSchema;
+    if (schema.type !== 'object' || schema.additionalProperties !== false || !Array.isArray(schema.required)) {
+        throw new Error('Semantic V4 provider schema must be a strict root object');
+    }
+    return schema;
+}
+
+export const SEMANTIC_V4_PROVIDER_SCHEMA = providerJsonSchema();
+export const SEMANTIC_V4_PROVIDER_SCHEMA_HASH = createHash('sha256')
+    .update(JSON.stringify(SEMANTIC_V4_PROVIDER_SCHEMA), 'utf8')
+    .digest('hex');
+export const SEMANTIC_V4_PROVIDER_SCHEMA_NAME = 'ping_semantic_turn_v4';
 
 const MODEL_NAME = 'gpt-4o-mini';
 let client: OpenAI | null = null;
 function openAi(): OpenAI { return client ?? (client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })); }
 
-function buildPrompt(request: SemanticModelRequest): string {
+function finiteNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function usageDiagnostics(usage: unknown): SemanticV4UsageDiagnostics {
+    const record = usage && typeof usage === 'object' ? usage as Record<string, unknown> : {};
+    const completionDetails = record.completion_tokens_details && typeof record.completion_tokens_details === 'object'
+        ? record.completion_tokens_details as Record<string, unknown>
+        : {};
+    return {
+        inputTokens: finiteNumber(record.prompt_tokens),
+        outputTokens: finiteNumber(record.completion_tokens),
+        totalTokens: finiteNumber(record.total_tokens),
+        reasoningTokens: finiteNumber(completionDetails.reasoning_tokens),
+    };
+}
+
+function sanitizeProviderErrorMessage(value: unknown): string | null {
+    if (typeof value !== 'string' || value.length === 0) return null;
+    return value
+        .slice(0, 1000)
+        .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+        .replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]')
+        .replace(/OPENAI_API_KEY\s*[:=]\s*\S+/gi, 'OPENAI_API_KEY=[redacted]')
+        .replace(/(authorization\s*[:=]\s*)\S+/gi, '$1[redacted]');
+}
+
+function providerErrorDetails(error: unknown): {
+    errorClass: SemanticV4ProviderErrorClass;
+    httpStatus: number | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+} {
+    const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+    const status = finiteNumber(record.status);
+    const name = typeof record.name === 'string' ? record.name : '';
+    const code = typeof record.code === 'string' ? record.code : '';
+    const type = typeof record.type === 'string' ? record.type : '';
+    const errorCode = code || type || null;
+    const errorMessage = sanitizeProviderErrorMessage(record.message);
+    if (name === 'APITimeoutError' || code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+        return { errorClass: 'timeout', httpStatus: status, errorCode, errorMessage };
+    }
+    if (status !== null) return { errorClass: 'http', httpStatus: status, errorCode, errorMessage };
+    if (['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(code)) {
+        return { errorClass: 'network', httpStatus: null, errorCode, errorMessage };
+    }
+    return { errorClass: 'sdk', httpStatus: null, errorCode, errorMessage };
+}
+
+function isSemanticModelWithDiagnostics(model: SemanticModel): model is SemanticModelWithDiagnostics {
+    return typeof (model as Partial<SemanticModelWithDiagnostics>).interpretWithDiagnostics === 'function';
+}
+
+export function buildSemanticV4Prompt(request: SemanticModelRequest): string {
     return [
         'Interpret one Ping turn into semantic facts only. Do not decide disposition, identity, authorization, execution, or mutation.',
-        'Return exactly the JSON fields in the supplied contract. Preserve unknown and ambiguity; never guess.',
-        'A complete independent objective must not be represented as a slot answer. A bare value may be a slot answer only when dialogue context supports it.',
+        'Return one top-level turn object with exactly the fields in the selected contract branch. Preserve unknown and ambiguity; never guess.',
+        'Classify openObjectiveRelation explicitly: answers_pending_slot only when the current meaning answers the pending field; continues for the same objective; corrects for a correction; replaces when the current objective supersedes the open one; independent for a separate objective; unrelated for a different non-objective turn; ambiguous when the evidence supports more than one reading.',
+        'A pending slot is context, not authority: a turn that does not semantically answer that field must not be represented as answers_pending_slot. A complete or explicit replacement objective must not be represented as a slot answer. Preserve unknown and ambiguity; never guess.',
+        'Resolve relation by the identity and desired outcome of the active objective, not by surface word overlap. Use this precedence: an explicit correction of an existing outcome is corrects; a different desired action that takes the active focus is replaces; a separate objective that leaves the prior one intact is independent; a direct value that answers the requested missing field, without correction or replacement semantics, is answers_pending_slot; otherwise use continues or ambiguous as supported by the evidence.',
+        'A correction may also mention a pending field, but explicit revision of a condition takes precedence over answers_pending_slot even when that field has no known value yet. answers_pending_slot is reserved for a plain first provision of the requested datum. A replacement may be phrased as a correction, but if the desired action/outcome changes, classify it as replaces. The bounded activeObjective context, when present, is the authority for comparing desired outcome and known raw-text slots; never invent missing objective facts.',
+        'Changing a property of the same desired outcome — such as its time, date, responsible person, or another slot — is corrects, even if the operation-specific objectiveType changes to describe that property. The objectiveType label alone must never turn an unchanged desired outcome into replaces.',
+        'If the user withholds a decision, expresses unresolved uncertainty, or says the next step cannot yet be determined without introducing a different objective, preserve ambiguous. Use unrelated only when the turn clearly changes to a non-objective subject or operation.',
         'Lifecycle command means conversational abandon/resume only when the language and context support that reading; ambiguous cancel language must remain lifecycleEvidence=unknown.',
-        `Contract: {kind,domain,objectiveCompleteness,lifecycleCommand,lifecycleTarget,lifecycleEvidence,pendingSlotAnswer,continuationLike,candidateSlotType,independentObjective,objectiveType,entityHints,slots,ambiguityFields,confidence,temporalFact${request.semanticVersion === 4 ? ',readMeaning (including commitmentStatus=pending when applicable)' : ''}}`,
+        'The turn is discriminated by kind: read_request requires a complete non-null readMeaning object; every other kind requires readMeaning=null. The provider transport uses slots as an array of {key,value}; the runtime parser converts it to the canonical slots map. temporalFact and openObjectiveRelation are always present; temporalFact may be null.',
+        `Provider schema hash: ${SEMANTIC_V4_PROVIDER_SCHEMA_HASH}`,
         `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
         `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,
         `User turn: ${request.text}`,
     ].join('\n');
 }
 
-class OpenAiSemanticModel implements SemanticModel {
-    readonly modelName = MODEL_NAME;
+function reasoningModelOmitsTemperature(modelName: string): boolean {
+    // GPT-5.x reasoning models use their model default when reasoning_effort
+    // is omitted. OpenAI rejects sampling temperature alongside active
+    // reasoning, so the adapter must omit it for this family only.
+    return /^gpt-5(?:\.\d+)?(?:-|$)/i.test(modelName.trim());
+}
+
+function reasoningCompletionBudget(modelName: string): number {
+    if (!reasoningModelOmitsTemperature(modelName)) return 450;
+    const configured = Number.parseInt(process.env.M7_BLIND_MAX_COMPLETION_TOKENS ?? '', 10);
+    // Evaluation-only robustness knob. It changes transport budget only and
+    // is ignored for non-reasoning models; invalid values preserve baseline.
+    return Number.isInteger(configured) && configured > 0 && configured <= 4096 ? configured : 450;
+}
+
+export function buildSemanticChatCompletionParams(modelName: string, request: SemanticModelRequest): Record<string, unknown> {
+    const isV4 = request.semanticVersion === 4;
+    const params: Record<string, unknown> = {
+        model: modelName,
+        messages: [{ role: 'user', content: isV4 ? buildSemanticV4Prompt(request) : buildLegacySemanticPrompt(request) }],
+        response_format: isV4
+            ? { type: 'json_schema', json_schema: { name: SEMANTIC_V4_PROVIDER_SCHEMA_NAME, strict: true, schema: SEMANTIC_V4_PROVIDER_SCHEMA } }
+            : { type: 'json_object' },
+    };
+    if (reasoningModelOmitsTemperature(modelName)) {
+        params.max_completion_tokens = reasoningCompletionBudget(modelName);
+    } else {
+        params.temperature = 0.1;
+        params.max_tokens = 450;
+    }
+    return params;
+}
+
+export class OpenAiSemanticModel implements SemanticModel {
+    readonly modelName: string;
+    public constructor(modelName = MODEL_NAME) { this.modelName = modelName; }
+
+    private async createCompletion(request: SemanticModelRequest): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+        return await openAi().chat.completions.create(buildSemanticChatCompletionParams(this.modelName, request) as any);
+    }
+
     async interpret(request: SemanticModelRequest): Promise<unknown> {
         if (!isAiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
-        const response = await openAi().chat.completions.create({
-            model: MODEL_NAME, messages: [{ role: 'user', content: buildPrompt(request) }],
-            temperature: 0.1, max_tokens: 350, response_format: { type: 'json_object' },
-        });
+        const response = await this.createCompletion(request);
         return JSON.parse(response.choices[0]?.message?.content ?? '{}');
     }
+
+    async interpretWithDiagnostics(request: SemanticModelRequest): Promise<SemanticV4ProviderCallResult> {
+        const startedAt = Date.now();
+        if (!isAiConfigured()) {
+            return { kind: 'error', errorClass: 'configuration', httpStatus: null, errorCode: null, errorMessage: null, latencyMs: Date.now() - startedAt };
+        }
+        try {
+            const response = await this.createCompletion(request);
+            const choice = response.choices[0];
+            const message = choice?.message;
+            return {
+                kind: 'response',
+                content: typeof message?.content === 'string' ? message.content : null,
+                finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+                refusalPresent: typeof message?.refusal === 'string' && message.refusal.length > 0,
+                usage: usageDiagnostics(response.usage),
+                latencyMs: Date.now() - startedAt,
+            };
+        } catch (error) {
+            const details = providerErrorDetails(error);
+            return { kind: 'error', ...details, latencyMs: Date.now() - startedAt };
+        }
+    }
+}
+
+function buildLegacySemanticPrompt(request: SemanticModelRequest): string {
+    return [
+        'Interpret one Ping turn into semantic facts only. Do not decide identity, authorization, execution, or mutation.',
+        'Return exactly the legacy semantic fields requested by the caller. Preserve unknown and ambiguity; never guess.',
+        `Input modality: ${request.modality}; locale: ${request.locale ?? 'unknown'}; timezone: ${request.timezone ?? 'unknown'}`,
+        `Bounded dialogue context: ${JSON.stringify(request.dialogue)}`,
+        `User turn: ${request.text}`,
+    ].join('\n');
+}
+
+export type SemanticV4ParseFailure = 'invalid_json' | 'schema_invalid' | 'normalization_error';
+export interface SemanticV4ParseDiagnostics {
+    schemaValid: boolean;
+    failure: SemanticV4ParseFailure | null;
+}
+
+export interface SemanticV4Diagnostics extends SemanticV4ParseDiagnostics {
+    providerRequestSucceeded: boolean;
+    providerFailure: boolean;
+    providerErrorClass: SemanticV4ProviderErrorClass | null;
+    providerHttpStatus: number | null;
+    providerErrorCode: string | null;
+    providerErrorMessage: string | null;
+    finishReason: string | null;
+    refusalPresent: boolean;
+    contentPresent: boolean;
+    contentLength: number;
+    normalizationSuccess: boolean;
+    fallbackReason: SemanticV4FallbackReason;
+    model: string;
+    latencyMs: number;
+    usage: SemanticV4UsageDiagnostics;
+}
+
+function canonicalizeProviderPayload(value: unknown): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const root = value as Record<string, unknown>;
+    const turn = root.turn && typeof root.turn === 'object' && !Array.isArray(root.turn)
+        ? root.turn as Record<string, unknown>
+        : root;
+    const record = { ...turn };
+    if (Array.isArray(record.slots)) {
+        const slots: Record<string, string | number | boolean | null> = {};
+        for (const entry of record.slots) {
+            if (!entry || typeof entry !== 'object') continue;
+            const item = entry as Record<string, unknown>;
+            if (typeof item.key === 'string') slots[item.key] = item.value as string | number | boolean | null;
+        }
+        record.slots = slots;
+    }
+    for (const key of ['temporalFact']) {
+        const fact = record[key];
+        if (fact === null) {
+            delete record[key];
+            continue;
+        }
+        if (fact && typeof fact === 'object' && (fact as Record<string, unknown>).second === null) {
+            record[key] = { ...(fact as Record<string, unknown>) };
+            delete (record[key] as Record<string, unknown>).second;
+        }
+    }
+    return record;
+}
+
+export function parseSemanticV4ModelOutput(raw: unknown): { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4ParseDiagnostics } {
+    let parsed: unknown;
+    try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
+    catch { return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'invalid_json' } }; }
+    const canonical = outputSchemaV4.safeParse(canonicalizeProviderPayload(parsed));
+    const provider = providerEnvelopeSchemaV4.safeParse(parsed);
+    const legacyProvider = legacyProviderOutputSchemaV4.safeParse(parsed);
+    if (!canonical.success) return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'schema_invalid' } };
+    const temporal = temporalFactSchema.safeParse((canonical.data as Record<string, unknown>).temporalFact);
+    if ((canonical.data as Record<string, unknown>).temporalFact !== undefined && !temporal.success) {
+        return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'schema_invalid' } };
+    }
+    const { temporalFact: _rawTemporal, readMeaning, ...baseData } = canonical.data;
+    try {
+        return {
+            semantic: normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) }),
+            diagnostics: { schemaValid: provider.success || legacyProvider.success, failure: provider.success || legacyProvider.success ? null : 'schema_invalid' },
+        };
+    } catch {
+        return { semantic: unknownTurnV4(), diagnostics: { schemaValid: false, failure: 'normalization_error' } };
+    }
+}
+
+/** Offline contract probe used by M-7 structural tests; no provider call. */
+export function isSemanticV4ProviderPayloadValid(raw: unknown): boolean {
+    return providerEnvelopeSchemaV4.safeParse(raw).success;
 }
 
 function unknownTurn(): NormalizedSemanticTurnV2 {
@@ -126,8 +547,68 @@ function unknownTurn(): NormalizedSemanticTurnV2 {
     };
 }
 
+function emptyUsageDiagnostics(): SemanticV4UsageDiagnostics {
+    return { inputTokens: null, outputTokens: null, totalTokens: null, reasoningTokens: null };
+}
+
+function diagnosticBase(model: string, latencyMs: number): SemanticV4Diagnostics {
+    return {
+        schemaValid: false,
+        failure: null,
+        providerRequestSucceeded: false,
+        providerFailure: false,
+        providerErrorClass: null,
+        providerHttpStatus: null,
+        providerErrorCode: null,
+        providerErrorMessage: null,
+        finishReason: null,
+        refusalPresent: false,
+        contentPresent: false,
+        contentLength: 0,
+        normalizationSuccess: false,
+        fallbackReason: null,
+        model,
+        latencyMs,
+        usage: emptyUsageDiagnostics(),
+    };
+}
+
+function fallbackReasonForResponse(
+    response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }>,
+    parsed: SemanticV4ParseDiagnostics,
+): SemanticV4FallbackReason {
+    if (response.refusalPresent) return 'refusal';
+    if (!response.content) return 'empty_content';
+    if (response.finishReason === 'length') return 'truncated_output';
+    if (response.finishReason === 'content_filter') return 'content_filter';
+    return parsed.failure;
+}
+
+function diagnosticsForParsedResponse(
+    model: string,
+    response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }>,
+    parsed: { semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4ParseDiagnostics },
+): SemanticV4Diagnostics {
+    const normalized = parsed.semantic.source === 'llm';
+    return {
+        ...diagnosticBase(model, response.latencyMs),
+        providerRequestSucceeded: true,
+        finishReason: response.finishReason,
+        refusalPresent: response.refusalPresent,
+        contentPresent: Boolean(response.content),
+        contentLength: response.content?.length ?? 0,
+        schemaValid: parsed.diagnostics.schemaValid,
+        failure: parsed.diagnostics.failure,
+        normalizationSuccess: normalized,
+        fallbackReason: normalized ? null : fallbackReasonForResponse(response, parsed.diagnostics),
+        usage: response.usage,
+    };
+}
+
 export class CanonicalSemanticProducer {
     public constructor(private readonly model: SemanticModel = new OpenAiSemanticModel()) {}
+
+    public get modelName(): string { return this.model.modelName; }
 
     public async produce(input: CanonicalSemanticProducerInput): Promise<NormalizedSemanticTurnV2> {
         if (input.authoritativeSemantic) return normalizeSemanticTurnV2({ version: 2, ...input.authoritativeSemantic });
@@ -157,17 +638,73 @@ export class CanonicalSemanticProducer {
     }
 
     public async produceV4(input: CanonicalSemanticProducerInput): Promise<NormalizedSemanticTurnV4> {
-        if (input.authoritativeSemanticV4) return normalizeSemanticTurnV4({ version: 4, ...input.authoritativeSemanticV4 });
+        return (await this.produceV4WithDiagnostics(input)).semantic;
+    }
+
+    public async produceV4WithDiagnostics(input: CanonicalSemanticProducerInput): Promise<{ semantic: NormalizedSemanticTurnV4; diagnostics: SemanticV4Diagnostics }> {
+        if (input.authoritativeSemanticV4) return {
+            semantic: normalizeSemanticTurnV4({ version: 4, ...input.authoritativeSemanticV4 }),
+            diagnostics: {
+                ...diagnosticBase(this.modelName, 0),
+                schemaValid: true,
+                normalizationSuccess: true,
+            },
+        };
+        if (isSemanticModelWithDiagnostics(this.model)) {
+            const response = await this.model.interpretWithDiagnostics({ ...input, dialogue: input.dialogue ?? null, semanticVersion: 4 });
+            if (response.kind === 'error') {
+                return {
+                    semantic: unknownTurnV4(),
+                    diagnostics: {
+                        ...diagnosticBase(this.modelName, response.latencyMs),
+                        providerErrorClass: response.errorClass,
+                        providerHttpStatus: response.httpStatus,
+                        providerErrorCode: response.errorCode,
+                        providerErrorMessage: response.errorMessage,
+                        providerFailure: true,
+                        fallbackReason: 'provider_error',
+                    },
+                };
+            }
+            try {
+                const parsed = parseSemanticV4ModelOutput(response.content);
+                return { semantic: parsed.semantic, diagnostics: diagnosticsForParsedResponse(this.modelName, response, parsed) };
+            } catch {
+                return {
+                    semantic: unknownTurnV4(),
+                    diagnostics: {
+                        ...diagnosticBase(this.modelName, response.latencyMs),
+                        providerRequestSucceeded: true,
+                        finishReason: response.finishReason,
+                        refusalPresent: response.refusalPresent,
+                        contentPresent: Boolean(response.content),
+                        contentLength: response.content?.length ?? 0,
+                        fallbackReason: response.refusalPresent ? 'refusal' : 'normalization_error',
+                        usage: response.usage,
+                    },
+                };
+            }
+        }
+        const startedAt = Date.now();
         try {
-            const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null });
-            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-            const base = outputSchemaV4.safeParse(parsed);
-            if (!base.success) return unknownTurnV4();
-            const temporal = temporalFactSchema.safeParse((parsed as Record<string, unknown>).temporalFact);
-            if ((parsed as Record<string, unknown>).temporalFact !== undefined && !temporal.success) return unknownTurnV4();
-            const { temporalFact: _rawTemporal, readMeaning, ...baseData } = base.data;
-            return normalizeSemanticTurnV4({ ...baseData, version: 4, source: 'llm', readMeaning: readMeaning as SemanticReadMeaningV4 | null, ...(temporal.success ? { temporalFact: temporal.data as TemporalFactV3 } : {}) });
-        } catch { return unknownTurnV4(); }
+            const raw = await this.model.interpret({ ...input, dialogue: input.dialogue ?? null, semanticVersion: 4 });
+            const parsed = parseSemanticV4ModelOutput(raw);
+            const response: Extract<SemanticV4ProviderCallResult, { kind: 'response' }> = {
+                kind: 'response', content: typeof raw === 'string' ? raw : JSON.stringify(raw), finishReason: null,
+                refusalPresent: false, usage: emptyUsageDiagnostics(), latencyMs: Date.now() - startedAt,
+            };
+            return { semantic: parsed.semantic, diagnostics: diagnosticsForParsedResponse(this.modelName, response, parsed) };
+        } catch {
+            return {
+                semantic: unknownTurnV4(),
+                diagnostics: {
+                    ...diagnosticBase(this.modelName, Date.now() - startedAt),
+                    providerFailure: true,
+                    providerErrorClass: 'unknown',
+                    fallbackReason: 'provider_error',
+                },
+            };
+        }
     }
 }
 

@@ -12,22 +12,8 @@ async function debug() {
         console.log('Columns:', columns.join(', '));
     }
 
-    console.log('\n--- Testing Insert with Minimal Payload ---');
-    const userId = '33cea535-c781-41ad-9b6e-a22762d44958'; // User from logs
-    const testPayload = {
-        title: 'TEST SCHEMA',
-        owner_user_id: userId,
-        status: 'pending'
-    };
-
-    const { data: ins, error: insErr } = await supabaseAdmin.from('commitments').insert(testPayload).select().single();
-    if (insErr) {
-        console.error('Insert Failed:', insErr);
-    } else {
-        console.log('Insert Worked! ID:', ins.id);
-        // Clean up
-        await supabaseAdmin.from('commitments').delete().eq('id', ins.id);
-    }
+    console.log('\n--- Read-only schema check complete ---');
+    console.log('No test rows are inserted or deleted by this diagnostic.');
 }
 
 debug();

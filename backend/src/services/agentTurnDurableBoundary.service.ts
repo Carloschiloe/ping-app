@@ -1,4 +1,3 @@
-import { getEnvConfig } from '../config/env';
 import { AppError } from '../utils/AppError';
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentTurnInput, AgentTurnResult } from '../types/agentTurn';
@@ -12,6 +11,7 @@ import { AgentDialogueCheckpointService, type DialogueCheckpointLoadResult } fro
 import { AgentTurnCommitService, toAgentTurnReplayV1, toAgentTurnReplayV2 } from './agentTurnCommit.service';
 import { resolveTextSurface } from './agentInputEnvelope.service';
 import { verifyVoiceInputToken } from './agentInputEnvelope.service';
+import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
 
 const DIALOGUE_STATE_ENVELOPE = 'agent_dialogue_state_v1' as const;
 
@@ -27,11 +27,21 @@ export type AgentTurnDurableBoundaryDeps = {
     runTurn?: typeof runAgentTurn;
 };
 
+export type DurableTurnPostProcessContext = {
+    result: AgentTurnResult;
+    dialogueService: AgentDialogueStateService;
+    actorUserId: string;
+    dialogueScopeKey: string;
+    turnId: string;
+    turnSequence: number;
+};
+
+export type DurableTurnPostProcess = (
+    context: DurableTurnPostProcessContext,
+) => Promise<AgentTurnResult>;
+
 export function isDurableGeneralAgentTurnEnabled(): boolean {
-    const environment = getEnvConfig().environmentName;
-    return (environment === 'local' || environment === 'staging')
-        && process.env.PING_ENABLE_DURABLE_AGENT_TURN === 'true'
-        && Boolean(process.env.PING_M7_DATABASE_URL);
+    return isCanonicalDurableAgentRuntimeEnabled();
 }
 
 export function durableDialogueScopeKey(input: AgentTurnInput, now = new Date()): string {
@@ -165,6 +175,7 @@ export async function runDurableAgentTurn(
     options: RunAgentTurnOptions,
     idempotencyKey: string,
     dependencies: AgentTurnDurableBoundaryDeps = defaultDependencies(),
+    postProcess?: DurableTurnPostProcess,
 ): Promise<AgentTurnResult> {
     const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
     const dialogueScopeKey = durableDialogueScopeKey(input, options.now);
@@ -199,8 +210,23 @@ export async function runDurableAgentTurn(
             : null;
         const dialogueService = new AgentDialogueStateService({
             repository: createInMemoryDialogueStateRepository(restoredState ?? undefined),
+            allowSameTurnSequence: true,
         });
-        const result = await (dependencies.runTurn ?? runAgentTurn)(input, { ...options, dialogueService });
+        const result = await (dependencies.runTurn ?? runAgentTurn)(input, {
+            ...options,
+            dialogueService,
+            dialogueTurnSequence: claimedAdmission.turnSequence,
+        });
+        const processedResult = postProcess
+            ? await postProcess({
+                result,
+                dialogueService,
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: claimedAdmission.turnId,
+                turnSequence: claimedAdmission.turnSequence,
+            })
+            : result;
         const nextState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
 
         // Read-only turns do not need to create or mutate a dialogue row.
@@ -208,9 +234,9 @@ export async function runDurableAgentTurn(
         if (!nextState) {
             await dependencies.admission.complete(
                 claimedAdmission,
-                (result.kind === 'read' ? toAgentTurnReplayV2(result) : toAgentTurnReplayV1(result)) as unknown as Record<string, unknown>,
+                (processedResult.kind === 'read' ? toAgentTurnReplayV2(processedResult) : toAgentTurnReplayV1(processedResult)) as unknown as Record<string, unknown>,
             );
-            return result;
+            return processedResult;
         }
 
         const expectedDialogueVersion = checkpoint.status === 'found' ? checkpoint.snapshot.version : 0;
@@ -225,7 +251,7 @@ export async function runDurableAgentTurn(
                 activeDialogue: { kind: DIALOGUE_STATE_ENVELOPE, state: nextState },
                 suspendedDialogue: null,
                 expiresAt: nextState.expiresAt,
-                result,
+                result: processedResult,
             });
             return replayToResult(applied.replay as unknown as Record<string, unknown>);
         } catch (error) {

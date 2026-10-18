@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as calendarService from '../services/calendar_sync.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createOAuthState, verifyOAuthState } from '../utils/oauthState';
+import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 export const getGoogleAuth = async (req: Request, res: Response) => {
     const userId = req.user!.id;
@@ -43,6 +44,11 @@ export const googleCallback = async (req: Request, res: Response) => {
         console.error('[Google OAuth Callback] Error:', error);
         res.status(500).send('Error connecting Google Calendar: ' + error.message);
     }
+};
+
+export const getMsAuthLink = async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    res.json({ url: calendarService.getMsAuthUrl(createOAuthState(userId)) });
 };
 
 export const getMsAuth = async (req: Request, res: Response) => {
@@ -141,6 +147,8 @@ export const disconnectAccount = async (req: Request, res: Response) => {
 
 export const syncCommitment = async (req: Request, res: Response) => {
     try {
+        assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');
+
         const userId = req.user!.id;
         const { commitmentId, provider } = req.body;
 
@@ -157,6 +165,9 @@ export const syncCommitment = async (req: Request, res: Response) => {
             .single();
 
         if (commError || !commitment) throw new Error('Commitment not found');
+        if (!commitment.due_at) {
+            return res.status(400).json({ error: 'Only commitments with a due date can be synced to a calendar' });
+        }
 
         // 2. Get valid access token
         const accessToken = await calendarService.getValidAccessToken(userId, provider);
@@ -203,6 +214,6 @@ export const syncCommitment = async (req: Request, res: Response) => {
         res.json({ ok: true, result });
     } catch (error: any) {
         console.error('[Sync Commitment] Error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error?.statusCode || 500).json({ error: error.message });
     }
 };

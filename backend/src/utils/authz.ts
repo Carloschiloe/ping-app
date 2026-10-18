@@ -4,15 +4,47 @@ import { AppError } from './AppError';
 export async function assertConversationParticipant(userId: string, conversationId: string) {
     const { data, error } = await supabaseAdmin
         .from('conversation_participants')
-        .select('conversation_id, role')
+        // Membership in a soft-deleted conversation is no longer active
+        // authorization. Keep the check in the canonical authz primitive so
+        // every caller fails closed consistently.
+        .select('conversation_id, role, conversations!inner(deleted_at)')
         .eq('conversation_id', conversationId)
         .eq('user_id', userId)
+        .is('conversations.deleted_at', null)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
     if (!data) throw new AppError('You do not have access to this conversation', 403);
 
     return data;
+}
+
+/** Load a message only through conversations in which the user participates. */
+export async function getMessageForParticipant(userId: string, messageId: string) {
+    const { data: participations, error: participationError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+    if (participationError) throw new AppError(participationError.message, 500);
+
+    const conversationIds = Array.from(new Set(
+        (participations || [])
+            .map((row: { conversation_id?: string }) => row.conversation_id)
+            .filter((conversationId): conversationId is string => Boolean(conversationId))
+    ));
+
+    if (conversationIds.length === 0) return null;
+
+    const { data: message, error: messageError } = await supabaseAdmin
+        .from('messages')
+        .select('*')
+        .eq('id', messageId)
+        .in('conversation_id', conversationIds)
+        .maybeSingle();
+
+    if (messageError) throw new AppError(messageError.message, 500);
+    return message || null;
 }
 
 export async function assertMessageInConversation(messageId: string, conversationId: string) {
@@ -55,8 +87,43 @@ export async function getSharedProfileIds(userId: string): Promise<string[]> {
 
     const { data: participants, error: participantError } = await supabaseAdmin
         .from('conversation_participants')
+        .select('user_id, conversations!inner(deleted_at)')
+        .in('conversation_id', conversationIds)
+        .is('conversations.deleted_at', null);
+
+    if (participantError) throw new AppError(participantError.message, 500);
+    return Array.from(new Set(
+        (participants || [])
+            .map((row) => row.user_id)
+            .filter((participantId) => participantId && participantId !== userId)
+    ));
+}
+
+export async function getActiveSharedProfileIds(userId: string): Promise<string[]> {
+    const { data: ownParticipations, error: ownError } = await supabaseAdmin
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+    if (ownError) throw new AppError(ownError.message, 500);
+    const conversationIds = Array.from(new Set((ownParticipations || []).map((row) => row.conversation_id)));
+    if (conversationIds.length === 0) return [];
+
+    // Deleted conversations revoke relationship visibility for private files.
+    const { data: activeConversations, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .in('id', conversationIds)
+        .is('deleted_at', null);
+
+    if (conversationError) throw new AppError(conversationError.message, 500);
+    const activeConversationIds = (activeConversations || []).map((row) => row.id);
+    if (activeConversationIds.length === 0) return [];
+
+    const { data: participants, error: participantError } = await supabaseAdmin
+        .from('conversation_participants')
         .select('user_id')
-        .in('conversation_id', conversationIds);
+        .in('conversation_id', activeConversationIds);
 
     if (participantError) throw new AppError(participantError.message, 500);
     return Array.from(new Set(

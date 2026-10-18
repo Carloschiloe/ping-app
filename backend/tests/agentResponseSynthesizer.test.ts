@@ -1074,7 +1074,7 @@ describe('M-1H: commitment_proposal — citas honestas + guardas de dominancia/o
         const response = await synthesizer.synthesize({ input: '¿Qué estoy esperando?', context: ctx });
 
         expect(response.answer).toBe(permitted);
-        expect(response.answer).toContain('La propuesta "Revisar propuesta"');
+        expect(response.answer).toContain('Entrenar');
         expect(response.answer.toLowerCase()).not.toContain('está vencido');
     });
 

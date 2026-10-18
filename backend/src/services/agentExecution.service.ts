@@ -215,9 +215,24 @@ export function buildResult(authorizationId: string, stepResults: AgentExecution
     // ejecución -- nunca "Hecho" salvo verificación real, nunca prosa
     // independientemente alucinada.
     const lines: string[] = [];
-    for (const s of executedSteps) lines.push(`✓ ${s.toolId} completado y verificado.`);
-    for (const s of waitingSteps) lines.push(`⏳ ${s.toolId} queda pendiente${s.waitingOn ? `: ${s.waitingOn}` : ' de una condición futura'} (requiere nueva autorización cuando se resuelva).`);
-    for (const s of failedSteps) lines.push(`✗ ${s.toolId} no se ejecutó (${s.failureCode ?? 'motivo desconocido'}).`);
+    const describeTool = (toolId: string, kind: 'success' | 'waiting' | 'failure', detail?: string) => {
+        if (toolId === 'send_message') {
+            if (kind === 'success') return '✓ El mensaje fue enviado y verificado.';
+            if (kind === 'failure') return `✗ No se pudo enviar el mensaje (${detail ?? 'motivo desconocido'}).`;
+        }
+        if (toolId === 'create_commitment') {
+            if (kind === 'success') return '✓ El compromiso fue creado y verificado.';
+            if (kind === 'waiting') return `⏳ La creación del compromiso queda pendiente${detail ? `: ${detail}` : ' de una condición futura'} (requiere nueva autorización cuando se resuelva).`;
+        }
+        return kind === 'success'
+            ? `✓ ${toolId} completado y verificado.`
+            : kind === 'waiting'
+                ? `⏳ ${toolId} queda pendiente${detail ? `: ${detail}` : ' de una condición futura'} (requiere nueva autorización cuando se resuelva).`
+                : `✗ ${toolId} no se ejecutó (${detail ?? 'motivo desconocido'}).`;
+    };
+    for (const s of executedSteps) lines.push(describeTool(s.toolId, 'success'));
+    for (const s of waitingSteps) lines.push(describeTool(s.toolId, 'waiting', s.waitingOn));
+    for (const s of failedSteps) lines.push(describeTool(s.toolId, 'failure', s.failureCode));
     const humanReadableSummary = lines.length > 0 ? lines.join('\n') : 'No se ejecutó ningún paso.';
 
     return {

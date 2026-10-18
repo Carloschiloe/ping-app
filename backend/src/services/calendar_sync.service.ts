@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import axios from 'axios';
 import crypto from 'crypto';
 import { getEnvConfig } from '../config/env';
+import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 const { encryptionKey } = getEnvConfig();
 const IV_LENGTH = 16;
@@ -208,6 +209,9 @@ export const checkConflictsMs = async (accessToken: string, startIso: string, en
 
 export const syncCommitmentToCloud = async (userId: string, commitment: any) => {
     try {
+        assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');
+        if (!commitment?.due_at) return null;
+
         // 1. Find connected accounts with auto-sync enabled
         const { data: accounts, error } = await supabaseAdmin
             .from('user_calendar_accounts')

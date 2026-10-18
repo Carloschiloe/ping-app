@@ -157,7 +157,8 @@ export function resolveTextSurface(channel?: string): AgentSurface {
     return channel === 'web' ? 'web'
         : channel === 'desktop' ? 'desktop'
             : channel === 'tablet' ? 'tablet'
-                : channel === 'car' ? 'car'
+                : channel === 'mobile_voice' ? 'mobile_voice'
+                    : channel === 'car' ? 'car'
                     : channel === 'device' ? 'device'
                         : 'mobile_text';
 }

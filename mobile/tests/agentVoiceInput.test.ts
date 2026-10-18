@@ -73,7 +73,7 @@ describe('useAgentVoiceInput.ts — auditoría de código (sección 8: cleanup e
 
     it('unmount limpia el listener de AppState y desactiva el modo de grabación (nunca deja el micrófono "armado")', () => {
         expect(src).toMatch(/mountedRef\.current = false;[\s\S]{0,200}subscription\.remove\(\)/);
-        expect(src).toContain('setAudioModeAsync({ allowsRecording: false');
+        expect(src).toContain('setAudioModeAsync(AGENT_IDLE_AUDIO_MODE');
     });
 
     it('nunca inicia una captura sin comprobar permisos primero (start() siempre chequea antes de grabar)', () => {
@@ -100,7 +100,7 @@ describe('useAgentVoiceInput.ts — regresión: crash real "Unable to find the n
     it('el cleanup de unmount y cancel() borran la captura local usando un ref JS estable (lastKnownUriRef), nunca el objeto nativo vivo', () => {
         expect(src).toContain('lastKnownUriRef');
         // cancel(): deleteLocalCapture recibe el ref, nunca el recorder nativo.
-        expect(src).toMatch(/deleteLocalCapture\(lastKnownUriRef\.current\);[\s\S]{0,200}setAudioModeAsync\(\{ allowsRecording: false/);
+        expect(src).toMatch(/deleteLocalCapture\(lastKnownUriRef\.current\);[\s\S]{0,200}setAudioModeAsync\(AGENT_IDLE_AUDIO_MODE/);
         // cleanup de unmount: mismo contrato -- se ejecuta después de
         // subscription.remove() y del stop() best-effort, nunca toca
         // recorder.uri.

@@ -46,6 +46,17 @@ export class AgentTurnDispositionService {
             });
         }
 
+        // A validated V4 replacement is an explicit objective boundary. It
+        // supersedes the active dialogue and must not inherit its stale slots,
+        // scope, or pending authorization.
+        if (turn.openObjectiveRelation === 'replaces' && dialogue?.activeDialogue && turn.objective) {
+            return decision('new_objective', 'explicit_objective_replacement', {
+                kind: 'replace_active',
+                activeDialogue: { objective: turn.objective, source: 'normalized_semantic_turn' },
+                suspendedDialogue: null,
+            });
+        }
+
         // 2. A complete independent objective beats a possible slot answer.
         const objective = turn.objective;
         if (objective?.complete) {

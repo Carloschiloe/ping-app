@@ -119,7 +119,8 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
 
         expect(interpretation.intent).toBe('commitment_query');
         expect(interpretation.textQuery).toBeNull();
-        expect(context.commitments).toHaveLength(2);
+        const futureOnlyQuery = /próximos días/i.test(input);
+        expect(context.commitments).toHaveLength(futureOnlyQuery ? 1 : 2);
         expect(retrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: undefined }), expect.any(Number));
         expect(context.needsClarification).toBe(false);
     });

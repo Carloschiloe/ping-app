@@ -11,7 +11,7 @@ afterEach(() => {
     else process.env.EAS_BUILD = originalEasBuild;
 });
 
-describe('identidad de la build staging', () => {
+describe('identidad de la build staging heredada (opt-in explícito)', () => {
     it('usa una versión superior y una marca visible para impedir confundirla con la build anterior', () => {
         process.env.APP_VARIANT = 'staging';
         delete process.env.EAS_BUILD;
@@ -21,7 +21,7 @@ describe('identidad de la build staging', () => {
         expect(config.name).toBe('Ping Staging');
         expect(config.version).toBe('1.0.3');
         expect(config.android?.package).toBe('com.carloschiloe.ping.staging');
-        expect(config.android?.versionCode).toBe(5);
-        expect(config.extra?.buildLabel).toBe('STAGING 1.0.4 (5) · M8 LIVE VOICE SPIKE');
+        expect(config.android?.versionCode).toBe(4);
+        expect(config.extra?.buildLabel).toBe('STAGING 1.0.3 (4) · AUTH UI V1');
     });
 });

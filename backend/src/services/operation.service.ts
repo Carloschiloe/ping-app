@@ -3,6 +3,7 @@ import { insertSystemMessage } from './message.service';
 import { NotificationService } from './notification.service';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { assertConversationAdmin, assertConversationParticipant } from '../utils/authz';
+import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -708,6 +709,8 @@ export async function registerCommitmentOperationAction(
     completionNote?: string | null,
     completionOutcome?: 'resolved' | 'pending_followup' | 'needs_review' | null
 ) {
+    assertLegacySatelliteWriterEnabled('ENABLE_OPERATION_MODULE', 'Operation');
+
     const { data: commitment, error: commitmentError } = await supabaseAdmin
         .from('commitments')
         .select('*')

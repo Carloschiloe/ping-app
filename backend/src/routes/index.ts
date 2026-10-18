@@ -88,6 +88,14 @@ const agentVoiceRateLimiter = rateLimit({
     keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
 });
 
+const agentVoiceCaptureRateLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
+});
+
 const agentVoiceSessionRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 6,
@@ -456,6 +464,7 @@ router.post(
 router.get('/insights', requireAuth, insightsController.getInsights);
 
 // Cloud Calendar OAuth & Sync
+router.get('/calendar/auth/outlook/link', requireAuth, calendarEnabled, calendarController.getMsAuthLink);
 router.get('/calendar/auth/google', requireAuth, calendarEnabled, calendarController.getGoogleAuth);
 router.get('/calendar/auth/google/callback', calendarEnabled, calendarController.googleCallback);
 router.get('/calendar/auth/outlook', requireAuth, calendarEnabled, calendarController.getMsAuth);

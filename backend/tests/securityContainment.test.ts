@@ -3,6 +3,8 @@ import { createOAuthState, verifyOAuthState } from '../src/utils/oauthState';
 import { serializeForInlineScript } from '../src/utils/inlineScript';
 import { validateTrustedStorageUrl } from '../src/utils/trustedMedia';
 import {
+    assertLegacySatelliteWriterEnabled,
+    isLegacySatelliteWriterEnabled,
     requireFeature,
     requirePrivateFileFeature,
 } from '../src/middleware/featureGate';
@@ -260,5 +262,43 @@ describe('feature gates', () => {
         expect(calls.next).toHaveBeenCalledTimes(1);
         expect(calendar.status).toHaveBeenCalledWith(503);
         expect(operation.status).toHaveBeenCalledWith(503);
+    });
+
+    it.each([
+        ['ENABLE_CALLS', 'Calls'],
+        ['ENABLE_OPERATION_MODULE', 'Operation'],
+        ['ENABLE_CALENDAR_INTEGRATION', 'Calendar'],
+    ] as const)('mantiene cerrado el writer legacy de %s por defecto', (capability, writerName) => {
+        delete process.env.ENABLE_NON_MVP_CAPABILITIES;
+        delete process.env.ENABLE_LEGACY_SATELLITE_WRITERS;
+        delete process.env[capability];
+
+        expect(isLegacySatelliteWriterEnabled(capability)).toBe(false);
+        expect(() => assertLegacySatelliteWriterEnabled(capability, writerName)).toThrowError(
+            `${writerName} legacy satellite writer is disabled`,
+        );
+    });
+
+    it.each([
+        'ENABLE_CALLS',
+        'ENABLE_OPERATION_MODULE',
+        'ENABLE_CALENDAR_INTEGRATION',
+    ] as const)('abre el writer legacy de %s sólo con capability, flag explícito y master', (capability) => {
+        process.env[capability] = 'true';
+        process.env.ENABLE_LEGACY_SATELLITE_WRITERS = 'true';
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
+        expect(isLegacySatelliteWriterEnabled(capability)).toBe(false);
+
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
+        expect(isLegacySatelliteWriterEnabled(capability)).toBe(true);
+        expect(() => assertLegacySatelliteWriterEnabled(capability, 'Test')).not.toThrow();
+    });
+
+    it('no acepta valores no booleanos para abrir writers legacy', () => {
+        process.env.ENABLE_CALLS = 'true';
+        process.env.ENABLE_LEGACY_SATELLITE_WRITERS = '1';
+        process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
+
+        expect(isLegacySatelliteWriterEnabled('ENABLE_CALLS')).toBe(false);
     });
 });

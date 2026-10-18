@@ -14,5 +14,8 @@ export function isCanonicalDurableAgentRuntimeEnabled(): boolean {
     if (!hasAdmissionTransport) return false;
     if (environment === 'staging') return Boolean(process.env.PING_M7_DATABASE_URL);
     if (environment === 'production') return process.env.PING_ENABLE_DURABLE_AGENT_TURN === 'true';
-    return environment === 'local' && process.env.PING_ENABLE_DURABLE_AGENT_TURN === 'true';
+    // Vitest uses the isolated test environment name; an explicit flag
+    // plus the private transport keeps this opt-in just as strict as local.
+    return (environment === 'local' || environment === 'test')
+        && process.env.PING_ENABLE_DURABLE_AGENT_TURN === 'true';
 }
