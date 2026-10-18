@@ -38,7 +38,11 @@ export async function runAgentTurn(
         ? clarificationSelection
         : null;
     const rememberReadContext = (readContext: Parameters<typeof rememberVerifiedReadReferent>[0]) => {
-        rememberVerifiedReadReferent(readContext);
+        rememberVerifiedReadReferent({
+            ...readContext,
+            actorUserId: input.actorUserId,
+            conversationId: input.conversationId,
+        });
         options.onReadContext?.(readContext);
     };
     const coreOptions = selectedReadCandidate
