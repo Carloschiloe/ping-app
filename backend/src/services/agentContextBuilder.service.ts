@@ -800,7 +800,10 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         ? advisoryPersonHints
         : [];
     const canonicalPersonScope: string[] = Array.from(new Set([
-        ...(!isWritePlanning || writeKeepsIdentityScope ? deterministicSignals.personHints : []),
+        // Resolve deterministic person cues even for personal write objectives.
+        // They clarify the conversational target; planner-only ownership remains
+        // governed by objectiveResponsibleHint above.
+        ...deterministicSignals.personHints,
         ...(!isWritePlanning || writeKeepsIdentityScope ? semanticActionPersonHints : []),
         ...objectiveResponsibleHint,
     ]));
