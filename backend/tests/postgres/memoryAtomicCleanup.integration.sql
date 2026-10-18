@@ -104,6 +104,56 @@ select 1 / case when exists (
       and evidence_refs = '[]'::jsonb
 ) then 1 else 0 end;
 
+insert into public.memory_records (
+    id, owner_user_id, memory_type, predicate, object_value, canonical_text,
+    source_type, source_id, evidence_refs, observed_at, status, confidence,
+    sensitivity, visibility_scope, extraction_method, content_hash
+)
+values (
+    'a5300000-0000-4000-8000-000000000113',
+    'a5300000-0000-4000-8000-000000000101',
+    'episodic', 'mentioned', 'project', 'Owner mentioned project',
+    'manual', 'a5300000-0000-4000-8000-000000000130',
+    '[{"sourceType":"manual","sourceId":"a5300000-0000-4000-8000-000000000130","conversationId":"a5300000-0000-4000-8000-000000000131"}]'::jsonb,
+    now(), 'active', 1.0, 'normal', 'private', 'manual',
+    'memory-atomic-conversation-evidence'
+);
+
+insert into public.memory_record_evidence (
+    memory_record_id, source_type, source_id, conversation_id, occurred_at
+)
+values (
+    'a5300000-0000-4000-8000-000000000113',
+    'manual',
+    'a5300000-0000-4000-8000-000000000130',
+    'a5300000-0000-4000-8000-000000000131',
+    now()
+);
+
+select 1 / case when count(*) = 1 then 1 else 0 end
+from public.invalidate_memory_evidence_for_conversation(
+    'a5300000-0000-4000-8000-000000000131'
+);
+
+select 1 / case when exists (
+    select 1
+    from public.memory_records
+    where id = 'a5300000-0000-4000-8000-000000000113'
+      and status = 'invalidated'
+      and evidence_refs = '[]'::jsonb
+) then 1 else 0 end;
+
+select 1 / case when count(*) = 2 then 1 else 0 end
+from public.delete_memory_for_account(
+    'a5300000-0000-4000-8000-000000000101'
+);
+
+select 1 / case when count(*) = 3 then 1 else 0 end
+from public.memory_records
+where owner_user_id = 'a5300000-0000-4000-8000-000000000101'
+  and status = 'deleted'
+  and evidence_refs = '[]'::jsonb;
+
 reset role;
 
 do $$
@@ -111,11 +161,17 @@ begin
     if has_function_privilege('anon', 'public.invalidate_memory_evidence_for_source(text,uuid)', 'execute')
        or has_function_privilege('authenticated', 'public.invalidate_memory_evidence_for_source(text,uuid)', 'execute')
        or has_function_privilege('anon', 'public.revalidate_memory_evidence_for_owner_source(uuid,text,uuid)', 'execute')
-       or has_function_privilege('authenticated', 'public.revalidate_memory_evidence_for_owner_source(uuid,text,uuid)', 'execute') then
+       or has_function_privilege('authenticated', 'public.revalidate_memory_evidence_for_owner_source(uuid,text,uuid)', 'execute')
+       or has_function_privilege('anon', 'public.invalidate_memory_evidence_for_conversation(uuid)', 'execute')
+       or has_function_privilege('authenticated', 'public.invalidate_memory_evidence_for_conversation(uuid)', 'execute')
+       or has_function_privilege('anon', 'public.delete_memory_for_account(uuid)', 'execute')
+       or has_function_privilege('authenticated', 'public.delete_memory_for_account(uuid)', 'execute') then
         raise exception 'memory cleanup RPCs are exposed to client roles';
     end if;
     if not has_function_privilege('service_role', 'public.invalidate_memory_evidence_for_source(text,uuid)', 'execute')
-       or not has_function_privilege('service_role', 'public.revalidate_memory_evidence_for_owner_source(uuid,text,uuid)', 'execute') then
+       or not has_function_privilege('service_role', 'public.revalidate_memory_evidence_for_owner_source(uuid,text,uuid)', 'execute')
+       or not has_function_privilege('service_role', 'public.invalidate_memory_evidence_for_conversation(uuid)', 'execute')
+       or not has_function_privilege('service_role', 'public.delete_memory_for_account(uuid)', 'execute') then
         raise exception 'service_role cannot execute memory cleanup RPCs';
     end if;
 end;
