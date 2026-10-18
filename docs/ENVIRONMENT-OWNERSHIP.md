@@ -30,7 +30,7 @@ compatibilidad de migraciones.
 | URL | `https://ping-backend-staging.onrender.com` |
 | Rama | `codex/staging-beta` |
 | Supabase | `Ping Staging V2`, ref `oonijgmddgyymhrlnvuu` |
-| Estado | No requerido por producción; proyecto Supabase inactivo y último deploy de Render cancelado |
+| Estado | Suspendido; proyecto Supabase inactivo y último deploy nuevo cancelado |
 
 Este entorno no debe restaurarse ni conectarse a producción. El proyecto
 Supabase de staging contiene datos y artefactos de pruebas; antes de eliminarlo
