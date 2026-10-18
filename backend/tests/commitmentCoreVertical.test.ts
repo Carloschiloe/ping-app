@@ -191,13 +191,21 @@ describe('C-1 vertical canonical Commitment flow', () => {
             source_message_id: MESSAGE,
             source_kind: 'ai_suggestion',
         }));
-        expect(rpcCalls[5].args).toEqual(expect.objectContaining({
+        const followUpCall = rpcCalls.find(
+            (call) => call.name === 'apply_commitment_transition_with_evidence'
+                && call.args.p_event_type === 'follow_up_scheduled',
+        );
+        const resolvedCall = rpcCalls.find(
+            (call) => call.name === 'apply_commitment_transition_with_evidence'
+                && call.args.p_event_type === 'resolved',
+        );
+        expect(followUpCall?.args).toEqual(expect.objectContaining({
             p_event_type: 'follow_up_scheduled',
             p_patch: expect.objectContaining({
                 follow_up_at: '2026-08-30T15:00:00.000Z',
             }),
         }));
-        expect(rpcCalls[6].args).toEqual(expect.objectContaining({
+        expect(resolvedCall?.args).toEqual(expect.objectContaining({
             p_event_type: 'resolved',
             p_patch: expect.objectContaining({
                 status: 'resolved',
