@@ -241,6 +241,24 @@ describe('M-1E: deriveStatus (sección 6) — siempre determinístico', () => {
     });
 });
 
+describe('Ping Core — conversación social', () => {
+    it('responde naturalmente a "hola, ¿cómo estás?" sin pedir una aclaración ni invocar al modelo', async () => {
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({
+            input: 'Hola, ¿cómo estás?',
+            locale: 'es-CL',
+            context: baseContext({ input: 'Hola, ¿cómo estás?', intent: { type: 'general_context', confidence: 0.3 } }),
+        });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).toMatch(/hola/i);
+        expect(response.answer).toMatch(/ayudo/i);
+        expect(response.answer).not.toMatch(/m[aá]s detalle/i);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+});
+
 describe('M-7 continuity: commitment due times remain in the actor timezone', () => {
     it('serializes and falls back to the actor-local due time instead of exposing UTC', async () => {
         const target = commitment('cm-santiago', {

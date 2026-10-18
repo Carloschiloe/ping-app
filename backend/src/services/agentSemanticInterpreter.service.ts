@@ -14,6 +14,7 @@ import {
     DeterministicInputInterpreter,
     fallbackInterpretation,
     extractUrgencyComparison,
+    isSocialConversationInput,
     isTemporalComparisonQuery,
     LlmInputInterpreter,
     type AgentInputInterpreter,
@@ -67,6 +68,10 @@ export async function interpretAgentSemanticTurn(
     context: { actorUserId: string; conversationId?: string; channel?: string },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
+    if (isSocialConversationInput(input)) {
+        const interpretation = await new DeterministicInputInterpreter().interpret(input);
+        return { route: 'read', interpretation, objective: null };
+    }
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
     const interpretation = await interpretInput(input, {
         conversationId: context.conversationId,

@@ -38,6 +38,7 @@ import {
     isTemporalComparisonQuery,
     extractTemporalComparison,
     extractUrgencyComparison,
+    isSocialConversationInput,
     type AgentInputInterpreter,
 } from './agentInputInterpreter.service';
 import type {
@@ -506,8 +507,9 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const timezoneSource: 'input' | 'fallback' = input.timezone?.trim() && timezone === input.timezone.trim() ? 'input' : 'fallback';
     const conversationId = input.conversationId; // ÚNICA fuente de conversationId — nunca el intérprete.
 
-    const rawInterpretation = options.interpretation
+    let rawInterpretation = options.interpretation
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
+    const isSocialConversation = isSocialConversationInput(input.input);
 
     // M-1H — "DETERMINISTIC QUERY SEMANTICS & EXHAUSTIVE ANSWER CONTRACTS":
     // "el LLM puede sugerir, el Core decide" (sección 0/3 del ticket).
@@ -527,6 +529,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    // Even when this builder is called directly (outside the unified semantic
+    // boundary), social turns must remain conversation-only. This prevents a
+    // provider-produced hint from reopening retrieval or clarification for a
+    // simple greeting.
+    if (isSocialConversation) rawInterpretation = deterministicSignals;
     const rawTimeExpression = rawInterpretation.timeExpression?.trim() || null;
     const groundedRawTimeExpression = isTemporalExpressionGroundedInInput(rawTimeExpression, input.input)
         ? rawTimeExpression
@@ -1348,7 +1355,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // canonicalPersonScope, never interpretation.personHints — an LLM-only
     // hallucinated hint (advisory, no authority) must never count as "real
     // signal exists" any more than it may block a source.
-    if (!needsClarification && !evidenceFound && interpretation.intent === 'general_context'
+    if (!isSocialConversation && !needsClarification && !evidenceFound && interpretation.intent === 'general_context'
         && canonicalPersonScope.length === 0 && !input.authorizedPersonReferentId && !interpretation.textQuery && !interpretation.timeExpression) {
         needsClarification = true;
         clarification = { reason: 'topic_too_broad' };

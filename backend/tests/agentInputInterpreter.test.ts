@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     LlmInputInterpreter, DeterministicInputInterpreter, isPersonHintGroundedInInput, classifyQueryCardinality,
     generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition, classifyAgentInputProviderError,
+    isSocialConversationInput,
     inferDeterministicFollowUpAttribute,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
@@ -1816,6 +1817,14 @@ describe('CANONICAL RETRIEVAL ROUTING: generalContextHasRetrievableSignal — th
 });
 
 describe('CANONICAL RETRIEVAL ROUTING: DeterministicInputInterpreter — domain selection, no per-phrase heuristics', () => {
+    it.each(['Hola', 'Hola, ¿cómo estás?', 'Buenos días', '¿Qué tal?', 'Gracias'])('reconoce conversación social sin convertirla en búsqueda: %s', (input) => {
+        expect(isSocialConversationInput(input)).toBe(true);
+    });
+
+    it.each(['¿Qué compromisos tengo hoy?', 'Anota llamar a Juan mañana', '¿Qué hablamos del viaje?'])('no confunde una consulta o acción real con conversación social: %s', (input) => {
+        expect(isSocialConversationInput(input)).toBe(false);
+    });
+
     it('"Hola" (saludo puro, cero señal real) -> wantsCommitments=false, wantsMessages=false', async () => {
         const r = await new DeterministicInputInterpreter().interpret('Hola', {});
         expect(r.intent).toBe('general_context');

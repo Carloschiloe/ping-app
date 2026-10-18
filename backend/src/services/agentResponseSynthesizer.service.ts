@@ -48,6 +48,7 @@ import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 // session) -- re-exported here under the original name so no other call
 // site in this file needs to change.
 import { detectAgentLanguage as detectTemplateLanguage } from '../utils/agentLanguage';
+import { isSocialConversationInput } from './agentInputInterpreter.service';
 
 // ─── Status (sección 6) ──────────────────────────────────────────────────────
 export function deriveStatus(context: AgentContext): AgentResponseStatus {
@@ -1329,6 +1330,24 @@ function buildNoEvidenceResponse(context: AgentContext, language: 'es' | 'en'): 
     return { status: 'no_evidence', answer, claims: [], citations: [] };
 }
 
+function buildSocialConversationResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const normalized = context.input.trim().toLocaleLowerCase('es');
+    const isThanks = /\bgracias\b|\bperfecto\b|\bgenial\b|\bvale\b|\bok\b/u.test(normalized);
+    const asksWellBeing = /c[oó]mo\s+est[aá]s|como\s+estas|qu[eé]\s+tal|todo\s+bien|bien\s+y\s+t[uú]/u.test(normalized);
+    const answer = language === 'es'
+        ? isThanks
+            ? '¡De nada! ¿Qué necesitas?'
+            : asksWellBeing
+                ? '¡Hola! Muy bien, gracias. ¿En qué te ayudo?'
+                : '¡Hola! ¿En qué te ayudo?'
+        : isThanks
+            ? 'You’re welcome. What do you need?'
+            : asksWellBeing
+                ? 'Hi! I’m doing well, thanks. How can I help?'
+                : 'Hi! How can I help?';
+    return { status: 'answered', answer, claims: [], citations: [] };
+}
+
 const CAPABILITY_GAP_MESSAGES: Record<string, { es: string; en: string }> = {
     global_transcription_scope_not_supported: {
         es: 'Puedo buscar en un audio dentro de una conversación concreta, pero todavía no puedo buscar en todas tus conversaciones a la vez.',
@@ -1448,6 +1467,10 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         const status = deriveStatus(context); // SIEMPRE determinístico, nunca decidido por el modelo (sección 6)
         const language = detectTemplateLanguage(input.input, input.locale);
         const sourceCount = context.commitments.length + context.events.length + context.messages.length + context.transcriptions.length + context.attachments.length + (context.memoryFacts?.length ?? 0) + (context.historicalMemoryFacts?.length ?? 0);
+
+        if (isSocialConversationInput(context.input)) {
+            return this.withDiagnostics(buildSocialConversationResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
 
         // [PING_OVERDUE_TRACE] TEMPORARY — status derivado ANTES de cualquier
         // rama determinística. Si status !== 'answered' aquí, el modelo NUNCA
