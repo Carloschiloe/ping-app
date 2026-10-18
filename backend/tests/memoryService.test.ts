@@ -631,12 +631,10 @@ describe('M-2: deletion/retention hooks', () => {
 describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
     it('genera un evento determinístico (extractionMethod=deterministic) que cierra el ciclo de dominancia canónica', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [
-                { data: null, error: null }, // existingSame
-                { data: null, error: null }, // findActiveSameFact
-                { data: { id: 'derived-id' }, error: null }, // insert
-            ],
-            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+            'rpc:ingest_memory_record_atomic': [{
+                data: [{ outcome: 'inserted', memory_id: 'derived-id', superseded_id: null, status: 'active' }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { deriveMemoryFromCommitmentStatusChange } = await import('../src/services/memory.service');
@@ -645,7 +643,7 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
             conversationId: null, occurredAt: '2026-01-01T00:00:00Z',
         });
         expect(result).toEqual({ kind: 'inserted', id: 'derived-id', status: 'active' });
-        const inserted = mock.getInsertCalls('memory_records')[0];
+        const inserted = mock.getRpcCalls()[0].args.p_memory_record;
         expect(inserted.extraction_method).toBe('deterministic');
         expect(inserted.predicate).toBe('commitment_status:cm1');
         expect(inserted.object_value).toBe('accepted');
@@ -662,12 +660,10 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
     // y object_value="resolved".
     it('newStatus="resolved" (transición action_complete/resolve, el caso real "Ver Spiderman") también genera el registro determinístico correcto', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [
-                { data: null, error: null }, // existingSame
-                { data: null, error: null }, // findActiveSameFact
-                { data: { id: 'derived-id-2' }, error: null }, // insert
-            ],
-            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+            'rpc:ingest_memory_record_atomic': [{
+                data: [{ outcome: 'inserted', memory_id: 'derived-id-2', superseded_id: null, status: 'active' }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { deriveMemoryFromCommitmentStatusChange } = await import('../src/services/memory.service');
@@ -676,7 +672,7 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
             conversationId: null, occurredAt: '2026-09-10T20:00:00Z',
         });
         expect(result).toEqual({ kind: 'inserted', id: 'derived-id-2', status: 'active' });
-        const inserted = mock.getInsertCalls('memory_records')[0];
+        const inserted = mock.getRpcCalls()[0].args.p_memory_record;
         expect(inserted.extraction_method).toBe('deterministic');
         expect(inserted.predicate).toBe('commitment_status:spiderman-id');
         expect(inserted.object_value).toBe('resolved');
@@ -693,12 +689,10 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
     // applyCommitmentTransition efectivamente llama.
     it('dispatchCommitmentStatusMemoryEvent (el wrapper real que invoca applyCommitmentTransition) también escribe el registro para newStatus="resolved"', async () => {
         const mock = createSupabaseAdminMock({
-            memory_records: [
-                { data: null, error: null },
-                { data: null, error: null },
-                { data: { id: 'derived-id-3' }, error: null },
-            ],
-            memory_record_evidence: [{ data: null, error: null }],
+            'rpc:ingest_memory_record_atomic': [{
+                data: [{ outcome: 'inserted', memory_id: 'derived-id-3', superseded_id: null, status: 'active' }],
+                error: null,
+            }],
         });
         setSupabaseAdminMock(mock);
         const { dispatchCommitmentStatusMemoryEvent } = await import('../src/services/canonicalMemoryEvents.service');
@@ -706,7 +700,7 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
             ownerUserId: 'owner1', sourceType: 'commitment', sourceId: 'spiderman-id', title: 'Ver Spiderman', newStatus: 'resolved',
             conversationId: null,
         });
-        const inserted = mock.getInsertCalls('memory_records')[0];
+        const inserted = mock.getRpcCalls()[0].args.p_memory_record;
         expect(inserted.predicate).toBe('commitment_status:spiderman-id');
         expect(inserted.object_value).toBe('resolved');
         expect(inserted.extraction_method).toBe('deterministic');
