@@ -189,6 +189,40 @@ describe('processUserMessage (mensaje humano)', () => {
         expect(mock.getRpcCalls()[0].args.p_client_message_id).toBe(clientMessageId);
     });
 
+    it('conserva la procedencia de captura en el mensaje canonico', async () => {
+        const clientMessageId = '66666666-6666-4666-8666-666666666666';
+        const mock = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
+            messages: [{ data: { id: 'm-capture', conversation_id: 'c1', sender_id: 'u1', content: 'captura' }, error: null }],
+            'rpc:persist_message_with_attachment': [{ data: [{ message_id: 'm-capture', idempotent_replay: false }], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+
+        const { processUserMessage } = await import('../src/services/message.service');
+        await processUserMessage(
+            'u1',
+            'captura',
+            'c1',
+            undefined,
+            undefined,
+            {
+                capture: {
+                    source: 'quick_capture',
+                    capturedAt: '2026-10-18T12:00:00.000Z',
+                    initiatedBy: 'user_action',
+                },
+            },
+            clientMessageId,
+        );
+
+        expect(mock.getRpcCalls()[0].args.p_client_message_id).toBe(clientMessageId);
+        expect(mock.getRpcCalls()[0].args.p_metadata.capture).toEqual({
+            source: 'quick_capture',
+            capturedAt: '2026-10-18T12:00:00.000Z',
+            initiatedBy: 'user_action',
+        });
+    });
+
     it('persiste audio canonico y despierta el worker sin esperar transcripcion', async () => {
         wakeAudioTranscriptionWorker.mockClear();
         aiMocks.transcribeAudio.mockClear();

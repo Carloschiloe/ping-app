@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSendMessage } from '../api/queries';
+import { buildCaptureRequest } from '../types/capture';
 import * as Haptics from 'expo-haptics';
 
 const PRESET_LABELS = ['Llamar', 'Enviar', 'Reunión', 'Entregar', 'Ver', 'Confirmar'];
@@ -22,8 +23,8 @@ export default function QuickCaptureScreen() {
         setSaving(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         try {
-            await sendMessage(trimmed);
-            Alert.alert('✅ Capturado', 'Tu nota fue guardada en Mis Recordatorios.', [
+            await sendMessage(buildCaptureRequest(trimmed, 'quick_capture'));
+            Alert.alert('✅ Capturado', 'Tu mensaje quedó guardado para seguimiento.', [
                 { text: 'OK', onPress: () => navigation.goBack() }
             ]);
         } catch (e: any) {
@@ -83,7 +84,7 @@ export default function QuickCaptureScreen() {
                     activeOpacity={0.8}
                 >
                     <Ionicons name="save" size={20} color="white" />
-                    <Text style={styles.saveBtnText}>{saving ? 'Guardando…' : 'Guardar en Mis Recordatorios'}</Text>
+                    <Text style={styles.saveBtnText}>{saving ? 'Guardando…' : 'Capturar mensaje'}</Text>
                 </TouchableOpacity>
             </ScrollView>
         </KeyboardAvoidingView>

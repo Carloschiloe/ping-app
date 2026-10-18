@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../client';
+import { buildCaptureRequest, type CaptureRequest } from '../../types/capture';
 
 export const useMessages = () => {
     return useQuery({
@@ -14,7 +15,17 @@ export const useMessages = () => {
 export const useSendMessage = () => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (text: string) => apiClient.post('/messages', { text }),
+        mutationFn: async (input: CaptureRequest | string) => {
+            const request = typeof input === 'string'
+                ? buildCaptureRequest(input, 'quick_capture')
+                : input;
+
+            return apiClient.post('/messages', {
+                text: request.text,
+                client_message_id: request.clientMessageId,
+                meta: request.meta,
+            });
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['messages'] });
             queryClient.invalidateQueries({ queryKey: ['commitments'] });

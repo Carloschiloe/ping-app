@@ -13,7 +13,7 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const { text, reply_to_id } = req.body;
+        const { text, reply_to_id, meta, client_message_id } = req.body;
         if (!text) {
             res.status(400).json({ error: 'Message text is required' });
             return;
@@ -25,6 +25,9 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
             text,
             conversationId,
             reply_to_id,
+            undefined,
+            meta,
+            client_message_id,
         );
         res.status(201).json(result);
     } catch (error: any) {
