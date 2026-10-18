@@ -10,6 +10,7 @@ export const OFFLINE_QUEUE_MAX_ITEMS = 50;
 export const OFFLINE_QUEUE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_QUEUE_MAX_SERIALIZED_BYTES = 256 * 1024;
 const MAX_OFFLINE_TEXT_LENGTH = 10_000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type PersistablePendingMessage = {
     id?: string;
@@ -46,6 +47,8 @@ export function sanitizePendingQueue(
     if (!Array.isArray(input)) return [];
 
     const minimumCreatedAt = now - OFFLINE_QUEUE_RETENTION_MS;
+    const seenClientMessageIds = new Set<string>();
+
     return input
         .filter((item): item is PersistablePendingMessage =>
             Boolean(item && typeof item === 'object'))
@@ -54,6 +57,7 @@ export function sanitizePendingQueue(
                 ? item.createdAt
                 : new Date(now).toISOString();
             const clientMessageId = typeof item.clientMessageId === 'string'
+                && UUID_PATTERN.test(item.clientMessageId)
                 ? item.clientMessageId
                 : createClientMessageId();
             const text = typeof item.text === 'string'
@@ -116,6 +120,14 @@ export function sanitizePendingQueue(
         .filter((item) =>
             Date.parse(item.createdAt) >= minimumCreatedAt
             && !looksLikeTransientCredential(item.text))
+        .filter((item) => {
+            // clientMessageId is the durable idempotency identity. Keep the
+            // first copy so a corrupted/repeated persisted queue entry can
+            // never cause a second visual or network send.
+            if (seenClientMessageIds.has(item.clientMessageId)) return false;
+            seenClientMessageIds.add(item.clientMessageId);
+            return true;
+        })
         .slice(-OFFLINE_QUEUE_MAX_ITEMS);
 }
 
