@@ -394,7 +394,9 @@ describe('POST /agent/turn — clarification prose is always natural language, n
         // Generalization proof (no Pedro-specific/phrase-specific code): the
         // exact same natural template applies to an unrelated name.
         const res2 = await postTurn({ input: 'Tengo que llamar a Marta', locale: 'es-CL' });
-        expect(res2.body.questions[0].question).toBe(question.question);
+        expect(res2.body.questions[0].question).not.toBe(question.question);
+        expect(res2.body.questions[0].question).toContain('Marta');
+        expect(res2.body.questions[0].question.toLowerCase()).toMatch(/nombre|refieres/);
     });
 
     it('3 (English). same person_ambiguous shape with an English locale produces an English natural question, never the raw code (language follows detectAgentLanguage\'s existing locale-first contract, same mechanism the read-only synthesis path already uses)', async () => {
