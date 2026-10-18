@@ -12,7 +12,7 @@ async function main() {
         .not('expo_push_token', 'is', null);
 
     if (error) { console.error('DB error:', error); return; }
-    console.log('Profiles with push tokens:', profiles.length);
+    console.log('Profiles with push credentials:', profiles.length);
 
     if (!profiles?.length) { console.log('NO TOKENS FOUND - cannot test'); return; }
 
