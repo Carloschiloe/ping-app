@@ -35,7 +35,10 @@ const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}
           select jsonb_agg(jsonb_build_object(
             'name', policyname,
             'roles', roles,
-            'command', cmd
+            'command', cmd,
+            'permissive', permissive,
+            'qual', qual,
+            'with_check', with_check
           ) order by policyname)
           from pg_policies
           where schemaname = 'storage' and tablename = 'objects'
@@ -64,6 +67,25 @@ if (!preflight?.bucket) throw new Error('chat-media bucket not found');
 if (preflight.bucket.public !== false) throw new Error('chat-media bucket is not private');
 if (preflight.attachments_before_migration !== null) {
   throw new Error('Unexpected pre-existing public.attachments table');
+}
+
+const closedPolicy = (preflight.policies || []).find((policy) => (
+  policy.name === 'ping_chat_media_direct_access_closed'
+));
+const policyExpression = (value) => String(value || '').replace(/\s+/g, ' ').toLowerCase();
+if (
+  !closedPolicy
+  || closedPolicy.permissive !== false
+  || closedPolicy.command !== 'ALL'
+  || !Array.isArray(closedPolicy.roles)
+  || !closedPolicy.roles.includes('anon')
+  || !closedPolicy.roles.includes('authenticated')
+  || !policyExpression(closedPolicy.qual).includes('bucket_id')
+  || !policyExpression(closedPolicy.qual).includes('chat-media')
+  || !policyExpression(closedPolicy.with_check).includes('bucket_id')
+  || !policyExpression(closedPolicy.with_check).includes('chat-media')
+) {
+  throw new Error('chat-media direct-access policy is not closed fail-closed');
 }
 
 process.stdout.write(`${JSON.stringify({ projectRef, ...preflight }, null, 2)}\n`);
