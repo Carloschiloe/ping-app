@@ -38,7 +38,10 @@ describe('private file authorization', () => {
                 },
                 error: null,
             }],
-            conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+            conversation_participants: [
+                { data: [{ conversation_id: conversationId }], error: null },
+                { data: { conversation_id: conversationId, role: 'member' }, error: null },
+            ],
             conversations: [{ data: { id: conversationId, deleted_at: null }, error: null }],
             attachments: [{ data: null, error: null }],
         });
@@ -67,14 +70,15 @@ describe('private file authorization', () => {
                 },
                 error: null,
             }],
-            conversation_participants: [{ data: null, error: null }],
+            conversation_participants: [{ data: [], error: null }],
         });
         const storage = createSupabaseStorageMock();
         setSupabaseAdminMock(db);
         setSupabaseStorageMock(storage);
 
         await expect(createPrivateFileReadUrl(otherUserId, 'message', messageId))
-            .rejects.toMatchObject({ statusCode: 403 });
+            .rejects.toMatchObject({ statusCode: 404 });
+        expect(db.getCalledTables()).toEqual(['conversation_participants']);
         expect(storage.createSignedUrl).not.toHaveBeenCalled();
     });
 
@@ -91,8 +95,9 @@ describe('private file authorization', () => {
         const db = createSupabaseAdminMock({
             messages: [messageReference, messageReference],
             conversation_participants: [
+                { data: [{ conversation_id: conversationId }], error: null },
                 { data: { conversation_id: conversationId, role: 'member' }, error: null },
-                { data: null, error: null },
+                { data: [], error: null },
             ],
             conversations: [{ data: { id: conversationId, deleted_at: null }, error: null }],
             attachments: [{ data: null, error: null }],
