@@ -1795,21 +1795,12 @@ describe('Phase 3C: retrieval lifecycle safety', () => {
 
     it('transcription retrieval rejects uploaded-but-not-attached audio', async () => {
         const mock = createSupabaseAdminMock({
-            attachments: [{
-                data: {
-                    id: 'att-1',
-                    message_id: 'msg-1',
-                    context_conversation_id: 'conv-1',
-                    kind: 'audio',
-                    lifecycle_status: 'uploaded',
-                },
-                error: null,
-            }],
+            conversation_participants: [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { retrieveTranscriptionForAttachment } = await import('../src/services/retrieval.service');
 
         await expect(retrieveTranscriptionForAttachment('u1', 'att-1')).resolves.toBeNull();
-        expect(mock.getCalledTables()).toEqual(['attachments']);
+        expect(mock.getCalledTables()).toEqual(['conversation_participants']);
     });
 });
