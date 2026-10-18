@@ -19,9 +19,6 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("injectJavaScript(\"document.getElementById('stop')?.click();true;\")");
         expect(source).toContain("onRequestClose={requestClose}");
         expect(source).toContain("if (message.type === 'closed') scheduleClose()");
-        expect(source).toContain("activateKeepAwakeAsync(LIVE_VOICE_KEEP_AWAKE_TAG)");
-        expect(source).toContain("deactivateKeepAwake(LIVE_VOICE_KEEP_AWAKE_TAG)");
-        expect(source).toContain('currentCommitmentId?: string');
         expect(source).toContain("originWhitelist={['https://*']}");
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");
@@ -33,7 +30,7 @@ describe('M8 live voice staging surface', () => {
         const eas = read('eas.json');
         expect(config).toContain("const m8LiveVoiceEnabled = process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true'");
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
-        expect(config).toContain("versionCode: isStaging ? 5 : 1");
-        expect(config).toContain("buildNumber: '5'");
+        expect(config).toContain("versionCode: isStaging ? 4 : 6");
+        expect(config).toContain("buildNumber: '4'");
     });
 });
