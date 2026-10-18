@@ -108,10 +108,10 @@ async function getAttachmentForActor(userId: string, attachmentId: string): Prom
         .from('attachments')
         .select('id, kind, created_by_user_id, context_conversation_id, message_id, bucket, object_path, mime_type, size_bytes, original_filename, lifecycle_status, expires_at')
         .eq('id', attachmentId)
+        .eq('created_by_user_id', userId)
         .maybeSingle();
     if (error) throw new AppError(error.message, 500);
     if (!data) throw new AppError('Attachment not found', 404);
-    if (data.created_by_user_id !== userId) throw new AppError('Attachment not found', 404);
     return data as AttachmentRow;
 }
 
