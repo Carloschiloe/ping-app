@@ -202,3 +202,31 @@ describe('private file authorization', () => {
         expect(storage.list).not.toHaveBeenCalled();
     });
 });
+
+
+describe('private profile file authorization', () => {
+    it('no firma el avatar de un perfil compartido sólo por una conversación eliminada', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [
+                { data: [{ conversation_id: 'deleted-conversation' }], error: null },
+                { data: [{ user_id: otherUserId }], error: null },
+            ],
+            conversations: [{ data: [], error: null }],
+            profiles: [{
+                data: {
+                    id: otherUserId,
+                    avatar_bucket: 'chat-media',
+                    avatar_object_path: 'profiles/other/avatar/photo.png',
+                },
+                error: null,
+            }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(createPrivateFileReadUrl(userId, 'profile', otherUserId))
+            .rejects.toMatchObject({ statusCode: 403 });
+        expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    });
+});
