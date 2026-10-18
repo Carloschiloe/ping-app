@@ -45,11 +45,14 @@ export async function runAgentTurn(
         });
         options.onReadContext?.(readContext);
     };
+    const shouldRememberReadContext = clarificationSelection.kind !== 'unmatched';
     const coreOptions = selectedReadCandidate
         ? { ...options, authorizedCommitmentReferentId: selectedReadCandidate.sourceId, responseInput: content, onReadContext: rememberReadContext }
         : followup
             ? { ...options, authorizedCommitmentReferentId: followup.sourceId, responseInput: content, onReadContext: rememberReadContext }
-            : { ...options, onReadContext: rememberReadContext };
+            : shouldRememberReadContext
+                ? { ...options, onReadContext: rememberReadContext }
+                : options;
     const result = await runCoreAgentTurn(
         followup
             ? { ...input, input: followup.query }
