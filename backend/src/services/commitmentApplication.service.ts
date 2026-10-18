@@ -11,6 +11,7 @@ export const createProposal = commitmentProposals.createProposal;
 export const createSharedProposal = commitmentProposals.createSharedProposal;
 export const respondToSharedProposal = commitmentProposals.respondToSharedProposal;
 export const getAgreementProposals = commitmentProposals.getAgreementProposals;
+export const attachAgreementResponses = commitmentProposals.attachAgreementResponses;
 export const confirmProposal = commitmentProposals.confirmProposal;
 export const rejectProposal = commitmentProposals.rejectProposal;
 

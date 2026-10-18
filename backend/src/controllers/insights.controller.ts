@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { tryNormalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { toLegacyCommitmentListShape } from '../utils/commitmentCompat';
-import { attachAgreementResponses } from '../services/commitmentProposal.service';
+import { attachAgreementResponses } from '../services/commitmentApplication.service';
 import {
     buildCommitmentVisibilityFilter,
     getParticipantProposalIds,
