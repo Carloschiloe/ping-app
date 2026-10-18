@@ -142,6 +142,22 @@ export function hasUnresolvedPersonReference(
 const NATURAL_RECALL_KEYWORDS = wordBounded('acuerd(?:as|o|a|an|amos)|recuerd(?:as|o)|remember(?:s|ed)?');
 const NATURAL_WRITE_ACTION_PHRASES = /(?:acordarme\s+de|acu[ée]rdate\s+de|puedes\s+recordarme(?:\s+que)?|me\s+puedes\s+recordar(?:me)?(?:\s+que)?|no\s+olvidar(?:me)?|no\s+se\s+me\s+olvide|ay(?:u|\u00fa)dame\s+a|me\s+ayudas?\s+a|hazte\s+cargo\s+de|organiza\w*|coordina\w*|planifica\w*|organize|coordinate|planify)/iu;
 
+
+// Bounded social-turn classifier; greetings/courtesy never fan out retrieval.
+const SOCIAL_CONVERSATION_PATTERN = /^[\\s¡¿]*(?:(?:hola|holi|hey|buenas?|buenos?\\s+d[ií]as|buenas?\\s+(?:tardes|noches))\\b(?:[\\s,!.¡¿?]*(?:c[oó]mo\\s+est[aá]s?|como\\s+estas?|qu[eé]\\s+tal|todo\\s+bien|bien\\s+y\\s+t[uú]))?|(?:qu[eé]\\s+tal|todo\\s+bien|c[oó]mo\\s+est[aá]s?|como\\s+estas?|bien\\s+y\\s+t[uú])|(?:gracias|muchas\\s+gracias|ok|vale|perfecto|genial))[\\s.!?¡¿]*$/iu;
+export function isSocialConversationInput(input: string): boolean { return SOCIAL_CONVERSATION_PATTERN.test(input.trim()); }
+
+export function inferDeterministicFollowUpAttribute(input: string): 'time' | 'date' | 'responsible' | 'status' | 'details' | null {
+    const text = input.trim();
+    if (!text || text.length > 40) return null;
+    if (/^(?:[¿?¡!\\s]*)(?:y\\s+)?a\\s+qu[eé]\\s+hora[?!.\\s]*$/iu.test(text) || /^(?:[¿?¡!\\s]*)(?:y\\s+)?qu[eé]\\s+hora[?!.\\s]*$/iu.test(text)) return 'time';
+    if (/^(?:[¿?¡!\\s]*)(?:y\\s+)?para\\s+qu[eé]\\s+d[ií]a[?!.\\s]*$/iu.test(text)) return 'date';
+    if (/^(?:[¿?¡!\\s]*)(?:y\\s+)?con\\s+qui[eé]n[?!.\\s]*$/iu.test(text)) return 'responsible';
+    if (/^(?:[¿?¡!\\s]*)(?:sigue\\s+)?pendiente[?!.\\s]*$/iu.test(text)) return 'status';
+    if (/^(?:[¿?¡!\\s]*)(?:me\\s+das\\s+)?m[aá]s\\s+detalles[?!.\\s]*$/iu.test(text)) return 'details';
+    return null;
+}
+
 const COMMITMENT_KEYWORDS = wordBounded('promet[íi]\\w*|promise[ds]?|pendientes?|pending|tareas?|tasks?|compromisos?|commitments?|debo|owe');
 const DOCUMENT_KEYWORDS = wordBounded('contrato|contract|documentos?|documents?|archivos?|files?|adjuntos?|attachments?|mandaron|enviaron|sent');
 // Comparative temporal questions are commitment reads even when the user
