@@ -6,6 +6,9 @@ vi.mock('../src/services/message.service', () => ({
     processUserMessage: vi.fn(),
     getMessages: vi.fn(),
 }));
+vi.mock('../src/services/conversation.service', () => ({
+    getOrCreateSelfConversationId: vi.fn(async () => 'self-c1'),
+}));
 
 function responseMock() {
     const res: any = {
@@ -14,6 +17,47 @@ function responseMock() {
     };
     return res;
 }
+
+describe('legacy message adapter', () => {
+    it('forwardea idempotencia y procedencia al writer canonico', async () => {
+        const messageService = await import('../src/services/message.service');
+        vi.mocked(messageService.processUserMessage).mockResolvedValueOnce({
+            message: { id: 'm1' },
+        } as never);
+
+        const { createMessage } = await import('../src/controllers/message.controller');
+        const captureMeta = {
+            capture: {
+                source: 'quick_capture',
+                capturedAt: '2026-10-18T12:00:00.000Z',
+                initiatedBy: 'user_action',
+            },
+        };
+        const req: any = {
+            user: { id: 'u1' },
+            body: {
+                text: 'captura',
+                reply_to_id: 'reply-1',
+                meta: captureMeta,
+                client_message_id: '77777777-7777-4777-8777-777777777777',
+            },
+        };
+        const res = responseMock();
+
+        await createMessage(req, res);
+
+        expect(messageService.processUserMessage).toHaveBeenCalledWith(
+            'u1',
+            'captura',
+            'self-c1',
+            'reply-1',
+            undefined,
+            captureMeta,
+            '77777777-7777-4777-8777-777777777777',
+        );
+        expect(res.status).toHaveBeenCalledWith(201);
+    });
+});
 
 describe('message receipt authorization adapter', () => {
     it('rechaza a quien no posee un receipt para el mensaje', async () => {
