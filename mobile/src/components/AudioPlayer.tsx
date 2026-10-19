@@ -5,12 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
 import { getAudioMessagePalette } from '../utils/messagePresentation';
 import { shouldRestartAudioPlayback } from '../utils/audioPlayback';
+import { formatRecordingDuration } from '../utils/audioRecording';
 
 interface AudioPlayerProps {
     url: string;
     isMe?: boolean;
     style?: any;
     transcript?: string;
+    durationMs?: number | null;
 }
 
 // Keep the decorative waveform stable across renders. Generating heights with
@@ -23,7 +25,7 @@ const AUDIO_WAVEFORM_HEIGHTS = [8, 14, 11, 18, 9, 16, 12, 20, 10, 15, 7, 13] as 
 // desmontar (antes requería un useEffect manual con unloadAsync) y
 // `useAudioPlayerStatus` refleja `playing` de forma reactiva -- ya no hace
 // falta un listener manual para saber cuándo terminó la reproducción.
-export default function AudioPlayer({ url, isMe = false, style, transcript }: AudioPlayerProps) {
+export default function AudioPlayer({ url, isMe = false, style, transcript, durationMs }: AudioPlayerProps) {
     const { theme } = useAppTheme();
     const palette = getAudioMessagePalette(isMe, theme.colors);
     const player = useAudioPlayer(url);
@@ -78,6 +80,11 @@ export default function AudioPlayer({ url, isMe = false, style, transcript }: Au
                 <Text style={[styles.audioLabel, { color: palette.labelColor }]}>
                     {status.playing ? 'Detener' : 'Audio'}
                 </Text>
+                {Number.isFinite(durationMs) && Number(durationMs) > 0 && (
+                    <Text style={[styles.audioDuration, { color: palette.labelColor }]}>
+                        {formatRecordingDuration(Number(durationMs))}
+                    </Text>
+                )}
             </TouchableOpacity>
             {transcript && (
                 <Text style={[styles.transcriptText, { color: palette.transcriptColor }]}>
@@ -93,6 +100,7 @@ const styles = StyleSheet.create({
     audioWave: { flexDirection: 'row', alignItems: 'center', gap: 2, flex: 1 },
     audioBar: { width: 3, borderRadius: 2 },
     audioLabel: { fontSize: 11, opacity: 0.78 },
+    audioDuration: { fontSize: 11, fontVariant: ['tabular-nums'], opacity: 0.78 },
     transcriptText: {
         fontSize: 12,
         fontStyle: 'italic',

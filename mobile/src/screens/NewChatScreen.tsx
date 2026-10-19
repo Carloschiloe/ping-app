@@ -14,6 +14,7 @@ import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { apiClient } from '../api/client';
 import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
+import { normalizePingInviteUrl } from '../utils/pingInvitation';
 
 type RegisteredContact = NonNullable<DeviceContact['registered']>;
 
@@ -187,13 +188,18 @@ export default function NewChatScreen({ navigation }: any) {
     const inviteContact = async (contact: DeviceContact) => {
         setBusyContactId(contact.id);
         try {
-            const appUrl = Linking.createURL('/');
+            // Invitations must always target the installed Ping application.
+            // Expo Go can generate an `exp://` URL while developing, but that
+            // URL is not useful to an invitee and incorrectly sends them to
+            // Expo Go. Normalize it to Ping's production scheme instead.
+            const appUrl = normalizePingInviteUrl(Linking.createURL('invite'));
             await Share.share({
                 title: 'Invitación a Ping',
                 message: [
                     `Hola ${contact.name}, te invito a conversar conmigo en Ping.`,
-                    'Instala Expo Go y abre este enlace para entrar a nuestra beta:',
+                    'Si ya tienes Ping instalada, abre este enlace desde tu teléfono:',
                     appUrl,
+                    'Si todavía no la tienes instalada, instala la aplicación Ping y vuelve a abrir el enlace.',
                 ].join('\n\n'),
             });
         } catch (error: any) {

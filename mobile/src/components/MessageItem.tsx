@@ -313,6 +313,14 @@ const MessageItemComponent = ({
         && !isVideo
     ) || trimmedText.startsWith('[document='));
     const isLocationShare = !isTombstoned && meta?.messageType === 'location_share';
+    const audioDurationMs = [
+        item?.attachment?.durationMs,
+        item?.attachment?.duration_ms,
+        meta?.attachment?.durationMs,
+        meta?.attachment?.duration_ms,
+        item?.media_metadata?.durationMs,
+        item?.media_metadata?.duration_ms,
+    ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
 
     let mediaUrl: string | null = hasPrivateAttachment ? privateMediaUrl : null;
     let documentName = hasPrivateAttachment
@@ -576,7 +584,7 @@ const MessageItemComponent = ({
                             </View>
                         ) : isAudio && mediaUrl ? (
                             <View>
-                                <AudioPlayer url={mediaUrl as string} isMe={isMe} />
+                                <AudioPlayer url={mediaUrl as string} isMe={isMe} durationMs={audioDurationMs ? Number(audioDurationMs) : null} />
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { paddingHorizontal: 12, paddingBottom: 4, fontSize: 13, opacity: 0.8 }]}>{description}</Text> : null}
                             </View>
                         ) : isDocument && mediaUrl ? (

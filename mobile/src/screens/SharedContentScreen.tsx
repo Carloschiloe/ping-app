@@ -28,7 +28,7 @@ function AudioRow({ item, onMessage }: { item: SharedContentItem; onMessage: () 
         <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <Text style={[styles.title, { color: theme.colors.text.primary }]}>{item.sender.name}</Text>
             {state === 'loading' && <ActivityIndicator style={styles.audioLoading} />}
-            {state === 'available' && url && <AudioPlayer url={url} style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceMuted }]} />}
+            {state === 'available' && url && <AudioPlayer url={url} durationMs={item.file?.durationMs} style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceMuted }]} />}
             {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={{ color: theme.colors.danger }}>Audio no disponible · Reintentar</Text></TouchableOpacity>}
             <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
                 {[formatSharedDateTime(item.createdAt), formatSharedDuration(item.file?.durationMs)].filter(Boolean).join(' · ')}

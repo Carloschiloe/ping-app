@@ -92,7 +92,7 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
                 </TouchableOpacity>
                 <View style={{ flex: 1, paddingHorizontal: 4 }}>
                     <View style={styles.audioPreviewContainer}>
-                        <AudioPlayer url={recordingUri} isMe={false} />
+                        <AudioPlayer url={recordingUri} isMe={false} durationMs={recordingDurationMs} />
                     </View>
                 </View>
                 <TouchableOpacity 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
@@ -37,6 +38,8 @@ function voiceLocale(): string {
 export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [microphoneCanAskAgain, setMicrophoneCanAskAgain] = useState(true);
+    const [microphoneReady, setMicrophoneReady] = useState(false);
     const [sessionKey, setSessionKey] = useState(0);
     const webViewRef = useRef<WebView>(null);
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,12 +58,34 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     useEffect(() => {
         if (!visible) return;
         setError(null);
+        setAuthorization(null);
+        setMicrophoneReady(false);
         let active = true;
-        void getAuthHeaders().then((headers) => {
-            if (active) setAuthorization(headers.Authorization || null);
-        }).catch(() => { if (active) setError('No se pudo autenticar la sesión de voz.'); });
-        return () => { active = false; setAuthorization(null); };
-    }, [visible]);
+
+        void (async () => {
+            try {
+                let permission = await getRecordingPermissionsAsync();
+                if (!permission.granted && permission.canAskAgain) {
+                    permission = await requestRecordingPermissionsAsync();
+                }
+                if (!active) return;
+                setMicrophoneCanAskAgain(permission.canAskAgain);
+                if (!permission.granted) {
+                    setError(permission.canAskAgain
+                        ? 'Ping necesita permiso para usar el micrófono.'
+                        : 'El micrófono está bloqueado para Ping. Habilítalo en la configuración del teléfono.');
+                    return;
+                }
+
+                setMicrophoneReady(true);
+                const headers = await getAuthHeaders();
+                if (active) setAuthorization(headers.Authorization || null);
+            } catch {
+                if (active) setError('No se pudo preparar el micrófono para la conversación de voz.');
+            }
+        })();
+        return () => { active = false; setAuthorization(null); setMicrophoneReady(false); };
+    }, [visible, sessionKey]);
 
     const injected = config
         ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
@@ -69,8 +94,21 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         if (injected) webViewRef.current?.injectJavaScript(injected);
     };
     const retry = () => {
+        if (!microphoneCanAskAgain) {
+            void Linking.openSettings();
+            return;
+        }
         setError(null);
         setSessionKey((value) => value + 1);
+    };
+    const handleWebViewPermissionRequest = (request: any) => {
+        const resources = Array.isArray(request?.resources) ? request.resources : [];
+        const audioResources = resources.filter((resource: string) => resource === 'AUDIO_CAPTURE');
+        if (audioResources.length === resources.length && audioResources.length > 0) {
+            request.grant(audioResources);
+            return;
+        }
+        request.deny();
     };
     const scheduleClose = () => {
         if (closeTimerRef.current) return;
@@ -112,9 +150,9 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
             {visible && (error ? <View style={styles.error}>
                 <Text style={styles.errorText}>{error}</Text>
                 <TouchableOpacity onPress={retry} accessibilityRole="button" accessibilityLabel="Reintentar Ping Voz">
-                    <Text style={styles.retry}>Reintentar</Text>
+                    <Text style={styles.retry}>{microphoneCanAskAgain ? 'Reintentar' : 'Abrir configuración'}</Text>
                 </TouchableOpacity>
-            </View> : config ? <WebView
+            </View> : microphoneReady && config ? <WebView
                 key={sessionKey}
                 ref={webViewRef}
                 source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }}
@@ -123,6 +161,13 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 onMessage={handleMessage}
                 onError={() => setError('No se pudo cargar la interfaz de voz.')}
                 onHttpError={() => setError('El servidor de voz no está disponible.')}
+                // react-native-webview implements Android's permission callback
+                // but older bundled type declarations do not expose it. Keep
+                // the platform-specific native props isolated in a spread so
+                // the runtime behavior is explicit without weakening the rest
+                // of this component's types.
+                {...(Platform.OS === 'android' ? { onPermissionRequest: handleWebViewPermissionRequest } : {})}
+                {...(Platform.OS === 'ios' ? { mediaCapturePermissionGrantType: 'grant' } : {})}
                 javaScriptEnabled
                 mediaPlaybackRequiresUserAction={false}
                 allowsInlineMediaPlayback
