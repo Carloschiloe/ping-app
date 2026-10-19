@@ -9,6 +9,7 @@ import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
 import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/corsPolicy';
+import { AppError } from './utils/AppError';
 
 dotenv.config();
 
@@ -46,7 +47,7 @@ app.use((req, res, next) => cors({
       return;
     }
 
-    callback(new Error('Origin not allowed by CORS'));
+    callback(new AppError('Origin not allowed by CORS', 403));
   },
 })(req, res, next));
 
