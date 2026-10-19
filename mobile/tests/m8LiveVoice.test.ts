@@ -20,6 +20,9 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("onRequestClose={requestClose}");
         expect(source).toContain("if (message.type === 'closed') scheduleClose()");
         expect(source).toContain("originWhitelist={['https://*']}");
+        expect(source).toContain('getRecordingPermissionsAsync');
+        expect(source).toContain('requestRecordingPermissionsAsync');
+        expect(source).not.toContain('onPermissionRequest');
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");
         expect(source).not.toContain("/agent/authorize");

@@ -101,15 +101,6 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         setError(null);
         setSessionKey((value) => value + 1);
     };
-    const handleWebViewPermissionRequest = (request: any) => {
-        const resources = Array.isArray(request?.resources) ? request.resources : [];
-        const audioResources = resources.filter((resource: string) => resource === 'AUDIO_CAPTURE');
-        if (audioResources.length === resources.length && audioResources.length > 0) {
-            request.grant(audioResources);
-            return;
-        }
-        request.deny();
-    };
     const scheduleClose = () => {
         if (closeTimerRef.current) return;
         closeTimerRef.current = setTimeout(() => {
@@ -161,12 +152,11 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 onMessage={handleMessage}
                 onError={() => setError('No se pudo cargar la interfaz de voz.')}
                 onHttpError={() => setError('El servidor de voz no está disponible.')}
-                // react-native-webview implements Android's permission callback
-                // but older bundled type declarations do not expose it. Keep
-                // the platform-specific native props isolated in a spread so
-                // the runtime behavior is explicit without weakening the rest
-                // of this component's types.
-                {...(Platform.OS === 'android' ? { onPermissionRequest: handleWebViewPermissionRequest } : {})}
+                // Android's react-native-webview implementation maps the
+                // WebView getUserMedia request to the native RECORD_AUDIO
+                // permission declared by the app. The native WebChromeClient
+                // owns that callback; no custom JavaScript permission
+                // callback is needed here.
                 {...(Platform.OS === 'ios' ? { mediaCapturePermissionGrantType: 'grant' } : {})}
                 javaScriptEnabled
                 mediaPlaybackRequiresUserAction={false}
