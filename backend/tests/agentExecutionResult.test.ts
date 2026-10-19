@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildResult, isStepReadyNow } from '../src/services/agentExecution.service';
+import { buildResult, isKnownAgentExecutionStatus, isStepReadyNow } from '../src/services/agentExecution.service';
 import type { AgentExecutionStepResult } from '../src/types/agentExecution';
 import type { AgentPlanStep } from '../src/types/agentPlan';
 
@@ -22,6 +22,15 @@ function step(overrides: Partial<AgentExecutionStepResult> = {}): AgentExecution
 }
 
 describe('buildResult — status priority (M-4 sección 7, "STAGING PUBLICATION")', () => {
+    it('un estado persistido desconocido se reconoce como inválido y nunca se publica como éxito', () => {
+        expect(isKnownAgentExecutionStatus('succeeded')).toBe(true);
+        expect(isKnownAgentExecutionStatus('running')).toBe(true);
+        expect(isKnownAgentExecutionStatus('mystery_state')).toBe(false);
+        const result = buildResult('auth-1', [step({ status: 'blocked', failureCode: 'execution_state_unknown', verified: false })]);
+        expect(result.status).toBe('failed');
+        expect(result.humanReadableSummary).toContain('execution_state_unknown');
+        expect(result.humanReadableSummary).not.toContain('completado y verificado');
+    });
     it('todos los pasos succeeded -> status="done", humanReadableSummary lista cada uno como completado y verificado', () => {
         const result = buildResult('auth-1', [step({ stepId: 's1', toolId: 'send_message' }), step({ stepId: 's2', toolId: 'create_commitment' })]);
         expect(result.status).toBe('done');

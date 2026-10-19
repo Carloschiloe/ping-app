@@ -44,8 +44,8 @@ services:
       - key: ENABLE_CALENDAR_INTEGRATION
         value: "false"
       - key: ENABLE_CALLS
-      - key: ENABLE_LEGACY_SATELLITE_WRITERS
         value: "false"
+      - key: ENABLE_LEGACY_SATELLITE_WRITERS
         value: "false"
       - key: ENABLE_PRIVATE_FILE_READS
         value: "true"

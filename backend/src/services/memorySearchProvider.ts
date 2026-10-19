@@ -57,6 +57,122 @@ function mapRowToRetrievalMemory(row: Record<string, unknown>, nowMs: number): R
     };
 }
 
+interface NormalizedEvidenceRow {
+    memory_record_id: string;
+    source_type: MemorySourceType;
+    source_id: string;
+    message_id: string | null;
+    conversation_id: string | null;
+    occurred_at: string | null;
+}
+
+function mapEvidenceRowToRef(row: NormalizedEvidenceRow): MemoryEvidenceRef {
+    return {
+        sourceType: row.source_type,
+        sourceId: row.source_id,
+        messageId: row.message_id,
+        conversationId: row.conversation_id,
+        timestamp: row.occurred_at,
+    };
+}
+
+/**
+ * A memory row is owner-scoped, but its provenance is not automatically
+ * authorized just because the memory itself belongs to that owner.  The
+ * normalized evidence table is checked in one batch so a secondary
+ * conversation reference cannot keep leaking through the denormalized cache.
+ *
+ * This is intentionally a read-time defense in depth.  The deletion hook in
+ * memory.service.ts removes revoked conversation evidence asynchronously; this
+ * filter keeps retrieval safe during that interval and after a failed hook.
+ */
+async function filterByEvidenceAuthorization(
+    results: RetrievalMemory[],
+    ownerUserId: string,
+    traceId?: string,
+): Promise<RetrievalMemory[]> {
+    if (results.length === 0) return results;
+
+    const memoryIds = results.map((result) => result.id);
+    const { data: normalizedData, error: evidenceError } = await supabaseAdmin
+        .from('memory_record_evidence')
+        .select('memory_record_id, source_type, source_id, message_id, conversation_id, occurred_at')
+        .in('memory_record_id', memoryIds);
+    if (evidenceError) throw evidenceError;
+
+    const normalizedAvailable = Array.isArray(normalizedData);
+    const evidenceByMemory = new Map<string, NormalizedEvidenceRow[]>();
+    for (const raw of (normalizedData || []) as NormalizedEvidenceRow[]) {
+        const rows = evidenceByMemory.get(raw.memory_record_id) || [];
+        rows.push(raw);
+        evidenceByMemory.set(raw.memory_record_id, rows);
+    }
+
+    const conversationIds = new Set<string>();
+    for (const result of results) {
+        if (result.conversationId) conversationIds.add(result.conversationId);
+        for (const ref of result.evidenceRefs) {
+            if (ref.conversationId) conversationIds.add(ref.conversationId);
+        }
+        for (const evidence of evidenceByMemory.get(result.id) || []) {
+            if (evidence.conversation_id) conversationIds.add(evidence.conversation_id);
+        }
+    }
+    if (conversationIds.size === 0) return results;
+
+    const conversationIdList = Array.from(conversationIds);
+    const { data: liveConversations, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .in('id', conversationIdList)
+        .is('deleted_at', null);
+    if (conversationError) throw conversationError;
+
+    const liveConversationIds = new Set((liveConversations || []).map((row: { id: string }) => row.id));
+    let participantRows: Array<{ conversation_id: string }> = [];
+    if (liveConversationIds.size > 0) {
+        const { data, error: participantError } = await supabaseAdmin
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('user_id', ownerUserId)
+            .in('conversation_id', Array.from(liveConversationIds));
+        if (participantError) throw participantError;
+        participantRows = data || [];
+    }
+
+    const authorizedConversationIds = new Set((participantRows || []).map((row: { conversation_id: string }) => row.conversation_id));
+    const beforeCount = results.length;
+    const filtered = results.flatMap((result) => {
+        // The direct source conversation remains a hard boundary for the
+        // memory row itself. Secondary evidence is narrowed below, so an
+        // unrelated revoked citation cannot poison an otherwise authorized
+        // memory when another valid source remains.
+        if (result.conversationId && !authorizedConversationIds.has(result.conversationId)) return [];
+
+        const normalizedEvidence = evidenceByMemory.get(result.id);
+        if (!normalizedAvailable || !normalizedEvidence) {
+            const visibleCachedEvidence = result.evidenceRefs.filter(
+                (ref) => !ref.conversationId || authorizedConversationIds.has(ref.conversationId),
+            );
+            if (result.evidenceRefs.length > 0 && visibleCachedEvidence.length === 0) return [];
+            return [{ ...result, evidenceRefs: visibleCachedEvidence }];
+        }
+
+        const visibleEvidence = normalizedEvidence
+            .filter((evidence) => !evidence.conversation_id || authorizedConversationIds.has(evidence.conversation_id))
+            .map(mapEvidenceRowToRef);
+        if (normalizedEvidence.length > 0 && visibleEvidence.length === 0) return [];
+        return [{ ...result, evidenceRefs: visibleEvidence }];
+    });
+
+    if (filtered.length !== beforeCount) {
+        traceMemory(traceId, 'evidence_authorization_suppressed_at_read', {
+            suppressedCount: beforeCount - filtered.length,
+        });
+    }
+    return filtered;
+}
+
 // candidate/invalidated/deleted NUNCA son devueltos al Agent -- 'candidate'
 // significa "todavía no es verdad validada" (ej. identidad sin resolver),
 // 'invalidated'/'deleted' significa "ya no hay evidencia verificable" (ver
@@ -101,32 +217,9 @@ export class PostgresMemorySearchProvider implements MemorySearchProvider {
         const nowMs = Date.now();
         let results = (data || []).map((row) => mapRowToRetrievalMemory(row as Record<string, unknown>, nowMs));
 
-        // M-2 ABSOLUTE FINAL (Blocker B, sección 7, "defense-in-depth read
-        // contract") — verificación EN TIEMPO DE LECTURA, en lote (nunca
-        // N+1): una memoria owner-autorizada no basta si la conversación de
-        // la que proviene su evidencia ya no es accesible para este owner
-        // (ej. dejó de ser participante) SIN que ningún evento de
-        // borrado/limpieza haya corrido todavía. Cierra el caso decisivo del
-        // ticket: "sin escritura adicional de memoria, la consulta
-        // inmediatamente después de perder autorización no debe exponer el
-        // hecho." Una sola consulta batched sobre los conversation_id
-        // DISTINTOS de este batch ya acotado por `plan.limit` -- nunca una
-        // verificación por fila.
-        const conversationIds = Array.from(new Set(results.map((r) => r.conversationId).filter((id): id is string => !!id)));
-        if (conversationIds.length > 0) {
-            const { data: authorizedRows, error: authErr } = await supabaseAdmin
-                .from('conversation_participants')
-                .select('conversation_id')
-                .eq('user_id', plan.ownerUserId)
-                .in('conversation_id', conversationIds);
-            if (authErr) throw authErr;
-            const authorizedConversationIds = new Set((authorizedRows || []).map((r: { conversation_id: string }) => r.conversation_id));
-            const beforeCount = results.length;
-            results = results.filter((r) => !r.conversationId || authorizedConversationIds.has(r.conversationId));
-            if (results.length !== beforeCount) {
-                traceMemory(traceId, 'evidence_authorization_suppressed_at_read', { suppressedCount: beforeCount - results.length });
-            }
-        }
+        // Defense in depth: validate the primary conversation and every
+        // normalized secondary evidence reference in one batched read.
+        results = await filterByEvidenceAuthorization(results, plan.ownerUserId, traceId);
 
         // Ranking dependiente de la consulta (sección 22 del cierre
         // absoluto), no un genérico "más reciente primero" incondicional:

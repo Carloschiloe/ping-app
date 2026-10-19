@@ -194,20 +194,30 @@ async function resolveMemorySubject(
 // (jsonb) es sólo una caché de lectura rápida, SIEMPRE recalculada desde esta
 // tabla en cada escritura -- nunca una segunda fuente de verdad independiente
 // que pueda desincronizarse.
-async function upsertEvidenceRows(memoryRecordId: string, evidenceRefs: MemoryEvidenceRef[]): Promise<void> {
-    if (evidenceRefs.length === 0) return;
-    const rows = evidenceRefs.map((e) => ({
-        memory_record_id: memoryRecordId,
-        source_type: e.sourceType,
-        source_id: e.sourceId,
-        message_id: e.messageId ?? null,
-        conversation_id: e.conversationId ?? null,
-        occurred_at: e.timestamp ?? null,
-    }));
-    const { error } = await supabaseAdmin
-        .from('memory_record_evidence')
-        .upsert(rows, { onConflict: 'memory_record_id,source_type,source_id', ignoreDuplicates: true });
+async function appendEvidenceAtomic(memoryRecordId: string, evidenceRefs: MemoryEvidenceRef[]): Promise<void> {
+    const { error } = await supabaseAdmin.rpc('append_memory_evidence_atomic', {
+        p_memory_record_id: memoryRecordId,
+        p_evidence_rows: evidenceRefs,
+    });
     if (error) throw error;
+}
+
+async function insertMemoryAtomic(
+    memoryRecord: Record<string, unknown>,
+    evidenceRefs: MemoryEvidenceRef[],
+    supersedesId: string | null,
+): Promise<string> {
+    const { data, error } = await supabaseAdmin.rpc('insert_memory_record_with_evidence_atomic', {
+        p_memory_record: memoryRecord,
+        p_evidence_rows: evidenceRefs,
+        p_supersedes_id: supersedesId,
+    });
+    if (error) throw error;
+    const memoryId = Array.isArray(data) ? data[0]?.memory_id : (data as { memory_id?: unknown } | null)?.memory_id;
+    if (typeof memoryId !== 'string' || memoryId.length === 0) {
+        throw new Error('Atomic Memory ingestion RPC returned no memory id');
+    }
+    return memoryId;
 }
 
 async function readEvidenceRefs(memoryRecordId: string): Promise<MemoryEvidenceRef[]> {
@@ -225,26 +235,9 @@ async function readEvidenceRefs(memoryRecordId: string): Promise<MemoryEvidenceR
     }));
 }
 
-// Recalcula evidence_refs (jsonb) desde memory_record_evidence y lo persiste
-// -- el ÚNICO camino de escritura de esa columna a partir de aquí. Devuelve
-// la lista resultante para que el llamador pueda decidir invalidar sin una
-// segunda lectura.
-//
-// IMPORTANTE: esta función NUNCA cambia `status` -- un caller que también
-// necesite invalidar (evidencia llegó a cero) NO debe llamarla y luego hacer
-// un segundo update de status por separado: `evidence_refs=[]` con
-// `status='active'` todavía vigente viola el constraint
-// `memory_records_evidence_required_when_promoted` de forma transitoria y
-// real (hallazgo empírico -- ver invalidateMemoryForDeletedSource /
-// revalidateMemoryEvidenceAuthorization, que escriben AMBOS campos en UNA
-// sola sentencia cuando toca invalidar, nunca en dos pasos).
-async function syncEvidenceJsonCache(memoryRecordId: string): Promise<MemoryEvidenceRef[]> {
-    const refs = await readEvidenceRefs(memoryRecordId);
-    const { error: updateErr } = await supabaseAdmin.from('memory_records').update({ evidence_refs: refs }).eq('id', memoryRecordId);
-    if (updateErr) throw updateErr;
-    return refs;
-}
-
+// The read path remains direct for authorization and invalidation. All
+// ingestion writes go through the transactional RPCs above so the normalized
+// evidence table and its JSON cache cannot diverge.
 interface MemoryRow {
     id: string;
     object_value: string;
@@ -336,8 +329,7 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
         .maybeSingle();
     if (existingErr) throw existingErr;
     if (existingSame) {
-        await upsertEvidenceRows(existingSame.id, event.evidenceRefs);
-        await syncEvidenceJsonCache(existingSame.id);
+        await appendEvidenceAtomic(existingSame.id, event.evidenceRefs);
         traceMemory(traceId, 'duplicate', { existingId: existingSame.id, sourceType: event.sourceType });
         return { kind: 'duplicate', existingId: existingSame.id };
     }
@@ -401,12 +393,10 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
         content_hash: contentHash,
     };
 
-    const { data: inserted, error: insertErr } = await supabaseAdmin
-        .from('memory_records')
-        .insert(insertRow)
-        .select('id')
-        .single();
-    if (insertErr) {
+    let insertedId: string;
+    try {
+        insertedId = await insertMemoryAtomic(insertRow, event.evidenceRefs, supersedesId);
+    } catch (insertErr) {
         // Carrera real: dos ingestas concurrentes del mismo hecho pueden
         // perder la lectura previa de "existingSame" -- el índice único de
         // (owner_user_id, content_hash) en la migración es la garantía real,
@@ -420,8 +410,7 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
                 .neq('status', 'deleted')
                 .maybeSingle();
             if (raceExisting) {
-                await upsertEvidenceRows(raceExisting.id, event.evidenceRefs);
-                await syncEvidenceJsonCache(raceExisting.id);
+                await appendEvidenceAtomic(raceExisting.id, event.evidenceRefs);
                 traceMemory(traceId, 'duplicate', { existingId: raceExisting.id, sourceType: event.sourceType, race: true });
                 return { kind: 'duplicate', existingId: raceExisting.id };
             }
@@ -429,19 +418,13 @@ export async function ingestMemoryFromEvent(event: MemoryIngestionSourceEvent, t
         throw insertErr;
     }
 
-    await upsertEvidenceRows(inserted.id, event.evidenceRefs);
-
     if (supersedesId) {
-        await supabaseAdmin
-            .from('memory_records')
-            .update({ status: 'superseded', superseded_by: inserted.id, superseded_at: event.observedAt })
-            .eq('id', supersedesId);
-        traceMemory(traceId, 'superseded', { newId: inserted.id, supersededId: supersedesId, sourceType: event.sourceType });
-        return { kind: 'superseded', id: inserted.id, supersededId: supersedesId };
+        traceMemory(traceId, 'superseded', { newId: insertedId, supersededId: supersedesId, sourceType: event.sourceType });
+        return { kind: 'superseded', id: insertedId, supersededId: supersedesId };
     }
 
-    traceMemory(traceId, 'inserted', { id: inserted.id, status, sourceType: event.sourceType, memoryType: candidate.memoryTypeHint });
-    return { kind: 'inserted', id: inserted.id, status };
+    traceMemory(traceId, 'inserted', { id: insertedId, status, sourceType: event.sourceType, memoryType: candidate.memoryTypeHint });
+    return { kind: 'inserted', id: insertedId, status };
 }
 
 // Helper determinístico (extractionMethod='deterministic', sin LLM) para
@@ -593,12 +576,60 @@ export async function revalidateMemoryEvidenceAuthorization(
 }
 
 export async function invalidateMemoryForConversationDeletion(conversationId: string): Promise<void> {
-    const { error } = await supabaseAdmin
-        .from('memory_records')
-        .update({ status: 'invalidated' })
-        .eq('conversation_id', conversationId)
-        .neq('status', 'deleted');
-    if (error) throw error;
+    // A conversation can be only secondary evidence for a memory whose
+    // primary source lives elsewhere.  Reverse-lookup both shapes before
+    // mutating anything; filtering only memory_records.conversation_id leaves
+    // those secondary citations alive after the conversation is tombstoned.
+    const [{ data: evidenceRows, error: evidenceError }, { data: directRows, error: directError }] = await Promise.all([
+        supabaseAdmin
+            .from('memory_record_evidence')
+            .select('memory_record_id')
+            .eq('conversation_id', conversationId),
+        supabaseAdmin
+            .from('memory_records')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .neq('status', 'deleted'),
+    ]);
+    if (evidenceError) throw evidenceError;
+    if (directError) throw directError;
+
+    const directMemoryIds = new Set((directRows || []).map((row: { id: string }) => row.id));
+    const affectedMemoryIds = Array.from(new Set([
+        ...Array.from(directMemoryIds),
+        ...(evidenceRows || []).map((row: { memory_record_id: string }) => row.memory_record_id),
+    ]));
+
+    for (const memoryId of affectedMemoryIds) {
+        const { error: deleteEvidenceError } = await supabaseAdmin
+            .from('memory_record_evidence')
+            .delete()
+            .eq('memory_record_id', memoryId)
+            .eq('conversation_id', conversationId);
+        if (deleteEvidenceError) throw deleteEvidenceError;
+
+        const remaining = await readEvidenceRefs(memoryId);
+        const updatePayload: Record<string, unknown> = {
+            evidence_refs: remaining,
+        };
+        if (remaining.length === 0) {
+            updatePayload.status = 'invalidated';
+        }
+        // The direct conversation reference is no longer an authorized source
+        // once the conversation is deleted.  If another evidence source
+        // survives, clear the stale shortcut so retrieval does not suppress a
+        // still-supported memory based on a deleted primary conversation.
+        if (directMemoryIds.has(memoryId) && remaining.length > 0) {
+            updatePayload.conversation_id = null;
+        }
+
+        const { error: updateError } = await supabaseAdmin
+            .from('memory_records')
+            .update(updatePayload)
+            .eq('id', memoryId)
+            .neq('status', 'deleted');
+        if (updateError) throw updateError;
+    }
 }
 
 // FK `owner_user_id references profiles(id) on delete cascade` ya limpia

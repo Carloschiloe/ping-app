@@ -179,21 +179,25 @@ describe('C-1 vertical canonical Commitment flow', () => {
             'merge_message_suggested_task',
             'create_commitment_proposal_with_evidence',
             'confirm_commitment_proposal',
+            'insert_memory_record_with_evidence_atomic',
+            'insert_memory_record_with_evidence_atomic',
             'apply_commitment_transition_with_evidence',
+            'insert_memory_record_with_evidence_atomic',
             'apply_commitment_transition_with_evidence',
+            'insert_memory_record_with_evidence_atomic',
         ]);
         expect(rpcCalls[3].args.p_proposal).toEqual(expect.objectContaining({
             conversation_id: CONVERSATION,
             source_message_id: MESSAGE,
             source_kind: 'ai_suggestion',
         }));
-        expect(rpcCalls[5].args).toEqual(expect.objectContaining({
+        expect(rpcCalls[7].args).toEqual(expect.objectContaining({
             p_event_type: 'follow_up_scheduled',
             p_patch: expect.objectContaining({
                 follow_up_at: '2026-08-30T15:00:00.000Z',
             }),
         }));
-        expect(rpcCalls[6].args).toEqual(expect.objectContaining({
+        expect(rpcCalls[9].args).toEqual(expect.objectContaining({
             p_event_type: 'resolved',
             p_patch: expect.objectContaining({
                 status: 'resolved',

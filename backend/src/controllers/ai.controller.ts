@@ -47,13 +47,18 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
         // not only the ones they created.
         const { data: participations, error: participationError } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', userId);
+            .select('conversation_id, conversations!inner(deleted_at)')
+            .eq('user_id', userId)
+            .is('conversations.deleted_at', null);
         if (participationError) throw participationError;
 
-        const conversationIds = Array.from(new Set(
-            (participations || []).map((row: any) => row.conversation_id).filter(Boolean)
-        ));
+        const activeConversationIds = new Set(
+            (participations || [])
+                .map((row: any) => row.conversation_id)
+                .filter(Boolean),
+        );
+
+        const conversationIds = Array.from(activeConversationIds);
         const visibilityFilters = [
             `owner_user_id.eq.${userId}`,
             `assigned_to_user_id.eq.${userId}`,
@@ -70,6 +75,13 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
 
         if (commError) throw commError;
 
+        // Ownership/assignment visibility is still valid for commitments
+        // without a conversation, but a commitment attached to a deleted
+        // conversation must not reach this legacy AI route.
+        const activeCommitments = (commitments || []).filter((commitment: any) =>
+            !commitment.conversation_id || activeConversationIds.has(commitment.conversation_id),
+        );
+
         // --- Persistence: Store User Query ---
         await supabaseAdmin.from('ai_messages').insert({
             user_id: userId,
@@ -80,7 +92,7 @@ export const askPing = async (req: Request, res: Response): Promise<void> => {
         // 2. Call AI Service
         const nowIso = new Date().toISOString();
         const answer = await askPingService(processingText, nowIso, {
-            commitments: commitments || []
+            commitments: activeCommitments,
         });
 
         // --- Persistence: Store AI Answer ---
@@ -173,6 +185,7 @@ export const summarize = async (req: Request, res: Response, next: NextFunction)
             .from('messages')
             .select('*, profiles!sender_id(full_name, email)')
             .eq('conversation_id', conversationId)
+            .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(limit);
 
@@ -202,8 +215,9 @@ export const analyzeMessage = async (req: Request, res: Response, next: NextFunc
         // a client-supplied message id can never select an unauthorized conversation.
         const { data: participations, error: participationError } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', userId);
+            .select('conversation_id, conversations!inner(deleted_at)')
+            .eq('user_id', userId)
+            .is('conversations.deleted_at', null);
         if (participationError) throw participationError;
         const authorizedConversationIds = Array.from(new Set(
             (participations || []).map((row: any) => row.conversation_id).filter(Boolean),
@@ -218,6 +232,7 @@ export const analyzeMessage = async (req: Request, res: Response, next: NextFunc
             .select('*')
             .in('conversation_id', authorizedConversationIds)
             .eq('id', id)
+            .is('deleted_at', null)
             .single();
 
         if (msgError || !message) {

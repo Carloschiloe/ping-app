@@ -119,10 +119,11 @@ export async function persistAgentExecutionConversationEvent(input: {
     await assertConversationParticipant(input.actorUserId, input.conversationId);
     const { data: source, error: sourceError } = await supabaseAdmin
         .from('agent_conversation_turns')
-        .select('input_text, input_mode, result')
+        .select('input_text, input_mode, result, conversations!inner(deleted_at)')
         .eq('conversation_id', input.conversationId)
         .eq('actor_user_id', input.actorUserId)
         .eq('client_turn_key', input.sourceTurnKey)
+        .is('conversations.deleted_at', null)
         .maybeSingle();
     if (sourceError) throw new AppError('Could not resolve the source Agent turn', 500);
     if (!source || source.result?.kind !== 'plan' || !source.result.presentation) {
@@ -152,9 +153,10 @@ export async function listAgentConversationTurns(
     await assertConversationParticipant(actorUserId, conversationId);
     const { data, error } = await supabaseAdmin
         .from('agent_conversation_turns')
-        .select('id, conversation_id, actor_user_id, client_turn_key, input_text, input_mode, result_kind, result, created_at')
+        .select('id, conversation_id, actor_user_id, client_turn_key, input_text, input_mode, result_kind, result, created_at, conversations!inner(deleted_at)')
         .eq('conversation_id', conversationId)
         .eq('actor_user_id', actorUserId)
+        .is('conversations.deleted_at', null)
         .order('created_at', { ascending: true })
         .limit(Math.min(Math.max(limit, 1), 200));
 

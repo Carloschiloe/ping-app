@@ -14,6 +14,15 @@ import type {
     AgentExecutionEntityRef, AgentExecutionFailureCode,
 } from '../types/agentExecution';
 
+const KNOWN_EXECUTION_STATUSES = new Set<AgentExecutionStepResult['status']>([
+    'pending', 'running', 'succeeded', 'failed_retryable', 'failed_terminal',
+    'skipped_condition', 'blocked', 'cancelled',
+]);
+
+export function isKnownAgentExecutionStatus(value: unknown): value is AgentExecutionStepResult['status'] {
+    return typeof value === 'string' && KNOWN_EXECUTION_STATUSES.has(value as AgentExecutionStepResult['status']);
+}
+
 export interface ExecuteAuthorizationInput {
     authorizationId: string;
     actorUserId: string;
@@ -131,16 +140,46 @@ export async function executeAuthorization(input: ExecuteAuthorizationInput): Pr
             // Replay idempotente real, o una request concurrente distinta
             // ya está ejecutando este paso ahora mismo (sección 53 J) --
             // NUNCA se re-invoca el executor en ninguno de los dos casos.
-            const idempotentReplay = execution.status === 'succeeded';
-            if (execution.status === 'succeeded') succeededStepIds.add(step.stepId);
-            traceExecution(input.traceId, 'STEP_REPLAY_OR_CONCURRENT', { stepId: step.stepId, status: execution.status, idempotentReplay });
+            const persistedStatus = isKnownAgentExecutionStatus(execution?.status)
+                ? execution.status
+                : 'blocked';
+            const unknownState = persistedStatus === 'blocked' && !isKnownAgentExecutionStatus(execution?.status);
+            const idempotentReplay = persistedStatus === 'succeeded';
+            if (persistedStatus === 'succeeded') succeededStepIds.add(step.stepId);
+            traceExecution(input.traceId, unknownState ? 'STEP_UNKNOWN_STATE_BLOCKED' : 'STEP_REPLAY_OR_CONCURRENT', {
+                stepId: step.stepId,
+                status: execution?.status ?? null,
+                idempotentReplay,
+            });
             stepResults.push({
                 stepId: step.stepId, toolId: step.toolId,
-                status: execution.status === 'running' ? 'blocked' : execution.status,
-                failureCode: execution.failure_code ?? undefined,
+                status: persistedStatus === 'running' ? 'blocked' : persistedStatus,
+                failureCode: unknownState ? 'execution_state_unknown' : execution.failure_code ?? undefined,
                 createdEntityRefs: refsFromResultRef(execution.result_ref, 'createdEntityRefs'),
                 updatedEntityRefs: refsFromResultRef(execution.result_ref, 'updatedEntityRefs'),
-                messageSent: !!execution.result_ref?.messageId, verified: execution.status === 'succeeded', idempotentReplay,
+                messageSent: !!execution.result_ref?.messageId, verified: persistedStatus === 'succeeded', idempotentReplay,
+            });
+            continue;
+        }
+
+        // The RPC contract returns a freshly claimed row in `running` state.
+        // If a drifted/legacy response violates that contract, fail closed:
+        // never invoke a side-effecting executor for an unknown state.
+        if (execution.status !== 'running') {
+            traceExecution(input.traceId, 'STEP_INVALID_CLAIM_STATE_BLOCKED', {
+                stepId: step.stepId,
+                status: execution.status ?? null,
+            });
+            stepResults.push({
+                stepId: step.stepId,
+                toolId: step.toolId,
+                status: 'blocked',
+                failureCode: 'execution_state_unknown',
+                createdEntityRefs: [],
+                updatedEntityRefs: [],
+                messageSent: false,
+                verified: false,
+                idempotentReplay: false,
             });
             continue;
         }

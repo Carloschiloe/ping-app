@@ -24,13 +24,20 @@ const COMMITMENT_SELECT = `
 // (nunca en `meta`, que ya no es fuente primaria de datos criticos), mas
 // contraparte (usuario asignado o contacto externo) y status V2. `meta` no
 // se usa como fuente de busqueda.
-async function searchCommitmentsV2(userId: string, q: string) {
+async function searchCommitmentsV2(userId: string, q: string, activeConversationIds: ReadonlySet<string>) {
     const participantProposalIds = await getParticipantProposalIds(userId);
     const ownershipFilter = buildCommitmentVisibilityFilter(userId, participantProposalIds);
     const resultsById = new Map<string, any>();
 
     const addAll = (rows: any[] | null | undefined) => {
-        for (const row of rows || []) resultsById.set(row.id, row);
+        for (const row of rows || []) {
+            // A commitment without a conversation is still visible through
+            // owner/assignee scope. Conversation-bound commitments require
+            // membership in a live conversation; this also excludes rows
+            // attached to soft-deleted conversations from the legacy search.
+            if (row.conversation_id && !activeConversationIds.has(row.conversation_id)) continue;
+            resultsById.set(row.id, row);
+        }
     };
 
     // 1. Texto libre: title/description/expected_result/next_action.
@@ -76,7 +83,7 @@ async function searchCommitmentsV2(userId: string, q: string) {
             (assignee.full_name || '').toLowerCase().includes(qLower)
             || (assignee.email || '').toLowerCase().includes(qLower)
         );
-        if (assigneeMatch) resultsById.set(row.id, row);
+        if (assigneeMatch) addAll([row]);
     }
 
     // 4. Mensaje de origen: contenido del mensaje que genero el compromiso.
@@ -86,10 +93,11 @@ async function searchCommitmentsV2(userId: string, q: string) {
             .from('messages')
             .select('id')
             .in('id', messageIds)
+            .is('deleted_at', null)
             .ilike('content', `%${q}%`);
         const matchingMessageIds = new Set((matchingMessages || []).map((m) => m.id));
         for (const row of ownScope || []) {
-            if (row.message_id && matchingMessageIds.has(row.message_id)) resultsById.set(row.id, row);
+            if (row.message_id && matchingMessageIds.has(row.message_id)) addAll([row]);
         }
     }
 
@@ -99,7 +107,7 @@ async function searchCommitmentsV2(userId: string, q: string) {
     const normalizedQueryStatus = tryNormalizeCommitmentStatus(q) ?? (isCanonicalCommitmentStatus(qLower) ? normalizeCommitmentStatus(qLower) : null);
     if (normalizedQueryStatus) {
         for (const row of ownScope || []) {
-            if (row.status === normalizedQueryStatus) resultsById.set(row.id, row);
+            if (row.status === normalizedQueryStatus) addAll([row]);
         }
     }
 
@@ -150,10 +158,14 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         // 1. Get user's conversation IDs
         const { data: participations } = await supabaseAdmin
             .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', userId);
+            .select('conversation_id, conversations!inner(deleted_at)')
+            .eq('user_id', userId)
+            .is('conversations.deleted_at', null);
 
-        const convIds = (participations || []).map(p => p.conversation_id);
+        const activeConversationIds = new Set(
+            (participations || []).map((p: any) => p.conversation_id).filter(Boolean),
+        );
+        const convIds = Array.from(activeConversationIds);
 
         // 2. Search messages in those conversations
         // V2: content reemplaza text.
@@ -174,7 +186,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         // 3. Search commitments: title/description/expected_result/next_action,
         // contraparte (usuario o contacto externo), status V2, fecha, y
         // mensaje de origen. Nunca busca dentro de `meta`.
-        const commitmentsById = new Map<string, any>((await searchCommitmentsV2(userId, searchTerm)).map((c: any) => [c.id, c]));
+        const commitmentsById = new Map<string, any>((await searchCommitmentsV2(userId, searchTerm, activeConversationIds)).map((c: any) => [c.id, c]));
 
         // 4. Search Profiles only inside the user's already-authorized
         // conversation scope. Service role must not expose a global directory.
@@ -197,6 +209,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             .from('conversations')
             .select('id, name, avatar_url, conversation_type')
             .in('id', convIds)
+            .is('deleted_at', null)
             .eq('conversation_type', 'group')
             .ilike('name', `%${searchTerm}%`)
             .limit(20);
