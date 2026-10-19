@@ -307,7 +307,10 @@ export function useMediaPicker({
         try {
             await dismissComposerKeyboard(isComposerFocused, blurComposer);
             const result = await DocumentPicker.getDocumentAsync({
-                type: ['application/pdf', 'image/*', 'video/*'],
+                // Keep the native picker aligned with the private attachment
+                // allowlist: PDFs, visual media and standalone audio files
+                // are all rendered by the chat/shared-content surfaces.
+                type: ['application/pdf', 'image/*', 'video/*', 'audio/*'],
                 copyToCacheDirectory: true,
             });
 

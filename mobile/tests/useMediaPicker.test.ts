@@ -610,6 +610,9 @@ describe('useMediaPicker — canonical size policy consumed from getAppConfig() 
         await openDocumentPicker();
 
         expect(uploadPrivateMessageAttachment).toHaveBeenCalledTimes(1);
+        expect(getDocumentAsync).toHaveBeenCalledWith(expect.objectContaining({
+            type: expect.arrayContaining(['application/pdf', 'image/*', 'video/*', 'audio/*']),
+        }));
     });
 
     it('un backend con política distinta (stale/desactualizado en mobile) no puede ser sobrepasado: si getAppConfig devuelve un límite MÁS BAJO que lo que el mobile cacheaba antes, el nuevo límite (más estricto) se respeta', async () => {
