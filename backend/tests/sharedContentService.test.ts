@@ -100,6 +100,46 @@ describe('Shared Content canonical read model', () => {
         expect(JSON.stringify(result)).not.toContain('conversations/c/legacy');
     });
 
+    it('classifies historical message_type/media_metadata rows without exposing private URLs', () => {
+        const historicalImage = message('m-image', 'Imagen', {
+            message_type: 'image',
+            media_metadata: { mime_type: 'image/jpeg', file_name: 'foto.jpg' },
+            media_bucket: 'chat-media',
+            media_object_path: 'conversations/c/image.jpg',
+            media_url: 'https://storage.example/public-looking-url.jpg',
+        });
+        const historicalAudio = message('m-audio', 'Audio', {
+            message_type: 'audio',
+            media_metadata: { mimeType: 'audio/m4a', fileName: 'nota.m4a' },
+            media_bucket: 'chat-media',
+            media_object_path: 'conversations/c/audio.m4a',
+        });
+
+        const result = buildSharedContent({
+            messages: [historicalImage, historicalAudio],
+            attachments: [],
+            category: 'summary',
+            limit: 30,
+        });
+
+        expect(result.summary).toMatchObject({ photos: 1, audios: 1 });
+        expect(result.items.find((item) => item.messageId === 'm-image')).toMatchObject({
+            type: 'image',
+            file: { name: 'foto.jpg', mimeType: 'image/jpeg' },
+        });
+        const audioResult = buildSharedContent({
+            messages: [historicalImage, historicalAudio],
+            attachments: [],
+            category: 'audio',
+            limit: 30,
+        });
+        expect(audioResult.items.find((item) => item.messageId === 'm-audio')).toMatchObject({
+            type: 'audio',
+            file: { name: 'nota.m4a', mimeType: 'audio/m4a' },
+        });
+        expect(JSON.stringify(result)).not.toContain('public-looking-url');
+    });
+
     it('excludes message and attachment tombstones', () => {
         const result = buildSharedContent({
             messages: [

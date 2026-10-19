@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
-import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveReactionEmoji } from '../utils/messageCompat';
+import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveMessageAttachmentPresentation, resolveReactionEmoji } from '../utils/messageCompat';
 import {
     getPrivateFileRefreshDelay,
     isRetryablePrivateFileReadError,
@@ -298,14 +298,14 @@ const MessageItemComponent = ({
     // stale cached attachment.mimeType or a stale legacy-prefix text body
     // can never re-derive a media layout for a message whose deleted_at is
     // already canonically set.
-    const privateMimeType = isTombstoned || pendingAttachmentState
-        ? ''
-        : String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
-    const hasPrivateAttachment = !isTombstoned
-        && (!!canonicalAttachmentId || (!!item.media_bucket && !!item.media_object_path));
-    let isImage = !isTombstoned && (privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]'));
-    const isAudio = !isTombstoned && (privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]'));
-    let isVideo = !isTombstoned && (privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]'));
+    const attachmentPresentation = isTombstoned
+        ? { kind: null, mimeType: '', fileName: '', hasPrivateReference: false, legacyUrl: null }
+        : resolveMessageAttachmentPresentation(item, Boolean(pendingAttachmentState));
+    const privateMimeType = attachmentPresentation.mimeType;
+    const hasPrivateAttachment = !isTombstoned && attachmentPresentation.hasPrivateReference;
+    let isImage = !isTombstoned && (attachmentPresentation.kind === 'image' || privateMimeType.startsWith('image/') || trimmedText.startsWith('[imagen]'));
+    const isAudio = !isTombstoned && (attachmentPresentation.kind === 'audio' || privateMimeType.startsWith('audio/') || trimmedText.startsWith('[audio]'));
+    let isVideo = !isTombstoned && (attachmentPresentation.kind === 'video' || privateMimeType.startsWith('video/') || trimmedText.startsWith('[video]'));
     const isDocument = !isTombstoned && ((
         hasPrivateAttachment
         && !isImage
@@ -316,7 +316,7 @@ const MessageItemComponent = ({
 
     let mediaUrl: string | null = hasPrivateAttachment ? privateMediaUrl : null;
     let documentName = hasPrivateAttachment
-        ? (item?.attachment?.originalFilename || meta?.attachment?.fileName || 'Archivo')
+        ? (attachmentPresentation.fileName || item?.attachment?.originalFilename || meta?.attachment?.fileName || 'Archivo')
         : '';
 
     let description = '';
@@ -327,15 +327,15 @@ const MessageItemComponent = ({
         return { url: match[1], desc: match[2].trim() };
     };
 
-    if (!hasPrivateAttachment && isImage) {
+    if (!hasPrivateAttachment && isImage && trimmedText.startsWith('[imagen]')) {
         const res = extractUrlAndDescription(msgText, 8);
         mediaUrl = res.url;
         description = res.desc;
-    } else if (!hasPrivateAttachment && isAudio) {
+    } else if (!hasPrivateAttachment && isAudio && trimmedText.startsWith('[audio]')) {
         const res = extractUrlAndDescription(msgText, 7);
         mediaUrl = res.url;
         description = res.desc;
-    } else if (!hasPrivateAttachment && isVideo) {
+    } else if (!hasPrivateAttachment && isVideo && trimmedText.startsWith('[video]')) {
         const res = extractUrlAndDescription(msgText, 7);
         mediaUrl = res.url;
         description = res.desc;
@@ -351,6 +351,8 @@ const MessageItemComponent = ({
                 description = fullRest.slice(firstSpace + 1);
             }
         }
+    } else if (!hasPrivateAttachment && attachmentPresentation.legacyUrl) {
+        mediaUrl = attachmentPresentation.legacyUrl;
     }
 
     if (isImage && mediaUrl && (mediaUrl.toLowerCase().includes('.mp4') || mediaUrl.toLowerCase().includes('.mov'))) {
@@ -766,6 +768,9 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.item.status === next.item.status &&
         prev.item.content === next.item.content &&
         prev.item.text === next.item.text &&
+        JSON.stringify(prev.item.attachment) === JSON.stringify(next.item.attachment) &&
+        prev.item.message_type === next.item.message_type &&
+        JSON.stringify(prev.item.media_metadata) === JSON.stringify(next.item.media_metadata) &&
         prev.item.media_bucket === next.item.media_bucket &&
         prev.item.media_object_path === next.item.media_object_path &&
         JSON.stringify(prev.item.message_reactions) === JSON.stringify(next.item.message_reactions) &&

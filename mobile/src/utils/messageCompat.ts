@@ -11,6 +11,91 @@ export function resolveMessageMetadata(message: any): Record<string, any> {
     return message?.metadata ?? message?.meta ?? {};
 }
 
+export type MessageAttachmentKind = 'image' | 'video' | 'audio' | 'document';
+
+export type MessageAttachmentPresentation = {
+    kind: MessageAttachmentKind | null;
+    mimeType: string;
+    fileName: string;
+    hasPrivateReference: boolean;
+    legacyUrl: string | null;
+};
+
+function attachmentRecord(value: unknown): Record<string, any> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, any>
+        : {};
+}
+
+function attachmentKind(value: unknown): MessageAttachmentKind | null {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['image', 'photo', 'picture', 'fotografia', 'imagen'].includes(normalized)) return 'image';
+    if (['video', 'movie', 'clip', 'pelicula'].includes(normalized)) return 'video';
+    if (['audio', 'voice', 'voicenote', 'nota_de_voz', 'nota-de-voz'].includes(normalized)) return 'audio';
+    if (['document', 'file', 'archivo', 'file_attachment'].includes(normalized)) return 'document';
+    return null;
+}
+
+function attachmentKindFromMime(value: unknown): MessageAttachmentKind | null {
+    const mimeType = String(value || '').toLowerCase();
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType && mimeType !== 'application/octet-stream') return 'document';
+    return null;
+}
+
+function safeLegacyUrl(value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    try {
+        const url = new URL(value.trim());
+        return ['http:', 'https:'].includes(url.protocol) && !url.search && !url.hash ? url.toString() : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Derives one attachment presentation contract from canonical and historical
+ * message shapes. This is metadata-only; private bytes still require a
+ * server-issued signed URL.
+ */
+export function resolveMessageAttachmentPresentation(message: any, pending = false): MessageAttachmentPresentation {
+    const metadata = attachmentRecord(resolveMessageMetadata(message));
+    const mediaMetadata = attachmentRecord(message?.media_metadata);
+    const candidates = [
+        attachmentRecord(message?.attachment),
+        attachmentRecord(metadata.attachment),
+        mediaMetadata,
+    ];
+    const mimeType = pending ? '' : String(
+        candidates.map((candidate) => candidate.mimeType || candidate.mime_type || candidate.mimetype).find(Boolean)
+        || '',
+    );
+    const messageText = String(resolveMessageContent(message)).trim();
+    const legacyTag = messageText.match(/^\[(imagen|video|audio|document)=?/i);
+    const kind = candidates.map((candidate) => attachmentKind(candidate.kind || candidate.type)).find(Boolean)
+        || attachmentKindFromMime(mimeType)
+        || attachmentKind(message?.message_type || message?.type)
+        || (legacyTag ? attachmentKind(legacyTag[1]) : null);
+    const fileName = String(
+        candidates.map((candidate) => candidate.originalFilename || candidate.fileName || candidate.file_name || candidate.name).find(Boolean)
+        || '',
+    );
+    const hasPrivateReference = Boolean(message?.attachment?.id && message?.attachment?.lifecycleStatus === 'attached')
+        || Boolean(message?.media_bucket && message?.media_object_path);
+
+    return {
+        kind,
+        mimeType,
+        fileName,
+        hasPrivateReference,
+        // Historical public URLs are accepted only as a URL-shaped fallback;
+        // private bucket/path messages intentionally return no URL here.
+        legacyUrl: hasPrivateReference ? null : safeLegacyUrl(message?.media_url),
+    };
+}
+
 export function isMessageFromUser(message: any, userId?: string | null): boolean {
     if (!userId) return false;
     return message?.sender_id === userId;

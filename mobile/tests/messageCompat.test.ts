@@ -7,6 +7,7 @@ import {
     hasLiveAttachment,
     resolvableAttachmentId,
     resolveDeletedMessageLabel,
+    resolveMessageAttachmentPresentation,
     resolveReactionEmoji,
 } from '../src/utils/messageCompat';
 
@@ -178,6 +179,45 @@ describe('resolvableAttachmentId — el id que MessageItem.tsx puede pasar a res
         expect(resolvableAttachmentId({ attachment: { id: 'v1', lifecycleStatus: 'attached', mimeType: 'video/mp4' } })).toBe('v1');
         expect(resolvableAttachmentId({ attachment: { id: 'p2', lifecycleStatus: 'tombstoned' } })).toBeNull();
         expect(resolvableAttachmentId({ attachment: { id: 'v2', lifecycleStatus: 'tombstoned' } })).toBeNull();
+    });
+});
+
+describe('resolveMessageAttachmentPresentation', () => {
+    it('normalizes historical message_type/media_metadata while keeping private bytes behind a reference', () => {
+        expect(resolveMessageAttachmentPresentation({
+            message_type: 'image',
+            content: 'Imagen',
+            media_metadata: { mime_type: 'image/jpeg', file_name: 'foto.jpg' },
+            media_bucket: 'chat-media',
+            media_object_path: 'conversations/c/foto.jpg',
+            media_url: 'https://storage.example/public-looking-url.jpg',
+        })).toMatchObject({
+            kind: 'image',
+            mimeType: 'image/jpeg',
+            fileName: 'foto.jpg',
+            hasPrivateReference: true,
+            legacyUrl: null,
+        });
+    });
+
+    it('supports a safe historical URL only when there is no private bucket reference', () => {
+        expect(resolveMessageAttachmentPresentation({
+            message_type: 'audio',
+            media_url: 'https://legacy.example/audio.m4a',
+        })).toMatchObject({ kind: 'audio', legacyUrl: 'https://legacy.example/audio.m4a' });
+        expect(resolveMessageAttachmentPresentation({
+            message_type: 'audio',
+            media_url: 'https://legacy.example/audio.m4a?token=secret',
+        }).legacyUrl).toBeNull();
+    });
+
+    it('treats the server attachment lifecycle as the source of truth for private reads', () => {
+        expect(resolveMessageAttachmentPresentation({
+            attachment: { id: 'a1', lifecycleStatus: 'uploaded', mimeType: 'image/jpeg' },
+        }).hasPrivateReference).toBe(false);
+        expect(resolveMessageAttachmentPresentation({
+            attachment: { id: 'a1', lifecycleStatus: 'attached', mimeType: 'image/jpeg' },
+        }).hasPrivateReference).toBe(true);
     });
 });
 

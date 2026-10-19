@@ -1,6 +1,10 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertConversationParticipant } from '../utils/authz';
+import {
+    hasLegacyMessageAttachmentReference,
+    resolveMessageAttachmentMetadata,
+} from '../utils/messageAttachmentCompat';
 
 export type SharedContentCategory = 'summary' | 'visual' | 'audio' | 'document' | 'link';
 export type SharedContentKind = 'image' | 'video';
@@ -88,9 +92,10 @@ function legacyDescriptor(message: any) {
     const content = String(message.content || '').trim();
     const metadata = message.metadata || {};
     const attachmentMeta = metadata.attachment || {};
+    const resolved = resolveMessageAttachmentMetadata(message);
     let type: SharedContentItem['type'] | null = null;
-    let name = attachmentMeta.fileName || 'Archivo';
-    let mimeType = attachmentMeta.mimeType || 'application/octet-stream';
+    let name = resolved.fileName || attachmentMeta.fileName || 'Archivo';
+    let mimeType = resolved.mimeType || attachmentMeta.mimeType || 'application/octet-stream';
     let taggedUrl: string | undefined;
 
     if (/^\[imagen\]/i.test(content)) {
@@ -106,18 +111,13 @@ function legacyDescriptor(message: any) {
         }
     }
 
-    if (!type && (message.media_bucket || message.media_object_path || message.media_url)) {
-        const kind = attachmentMeta.kind;
-        const mime = String(attachmentMeta.mimeType || '');
-        type = ['image', 'video', 'audio', 'document'].includes(kind)
-            ? kind
-            : mime.startsWith('image/') ? 'image'
-                : mime.startsWith('video/') ? 'video'
-                    : mime.startsWith('audio/') ? 'audio'
-                        : 'document';
-        name = attachmentMeta.fileName || content || 'Archivo';
-        mimeType = mime || mimeType;
-        taggedUrl = message.media_url;
+    if (!type && hasLegacyMessageAttachmentReference(message)) {
+        type = resolved.kind || 'document';
+        name = resolved.fileName || content || 'Archivo';
+        mimeType = resolved.mimeType || mimeType;
+        // A private bucket/path is resolved by the authenticated read endpoint
+        // on the client. Never echo media_url as a bypass for that path.
+        taggedUrl = message.media_bucket && message.media_object_path ? undefined : message.media_url;
     }
 
     return type ? { type, name, mimeType, legacyUrl: safeLegacyUrl(taggedUrl) } : null;
@@ -259,7 +259,7 @@ async function loadRows(userId: string, conversationId: string) {
             .order('created_at', { ascending: false })
             .order('id', { ascending: false })),
         readAll(() => supabaseAdmin.from('messages')
-            .select('id, content, created_at, sender_id, deleted_at, metadata, media_url, media_bucket, media_object_path, profiles!sender_id(id, email, full_name, avatar_url)')
+            .select('id, content, message_type, media_metadata, created_at, sender_id, deleted_at, metadata, media_url, media_bucket, media_object_path, profiles!sender_id(id, email, full_name, avatar_url)')
             .eq('conversation_id', conversationId)
             .is('deleted_at', null)
             .order('created_at', { ascending: false })
