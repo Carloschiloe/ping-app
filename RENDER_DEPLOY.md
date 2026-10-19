@@ -12,7 +12,7 @@ la rama `main`. El servicio activo es:
 - Rama desplegada: `codex/agent-voice-continuity-hardening`.
 - Health check: `/api/health`.
 - Auto-deploy: desactivado; los despliegues se ejecutan de forma explícita.
-- Último commit verificado en producción: `e7feb3154528e5c1aa99a3e5a5d693c47f4d14a6`.
+- Último commit verificado en producción: `7ae2d88367efccc0797cfb7cb16ae46fdaf457a9`.
 
 ### Compuerta actual antes del siguiente deploy
 
