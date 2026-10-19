@@ -11,8 +11,6 @@ const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slic
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
     ['controllers/calendar.controller.ts:update', LEGACY_WRITER_REASON],
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
-    ['services/call-processing.service.ts:insert', LEGACY_WRITER_REASON],
-    ['services/operation.service.ts:update', LEGACY_WRITER_REASON],
 ]);
 
 const ALLOWED_SQL_DML = new Map<string, string>([
@@ -97,5 +95,21 @@ describe('C-2 canonical Commitment writer guard', () => {
         expect(bypasses).toEqual([]);
         expect(commitmentRouteLines.some((line) => line.includes("'/commitments/:id/operation-action'")))
             .toBe(true); // LEGACY SATELLITE WRITER — migrate in future slice.
+    });
+
+    it('routes legacy Call and Operation adapters through the application boundary', () => {
+        const callProcessor = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'call-processing.service.ts'),
+            'utf8'
+        );
+        expect(callProcessor).toContain('commitmentApplication.createProposal');
+        expect(callProcessor).not.toMatch(/\.from\(['"]commitments['"]\)\s*\.insert\s*\(/);
+
+        const operation = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'operation.service.ts'),
+            'utf8'
+        );
+        expect(operation).toContain("from './commitmentApplication.service'");
+        expect(operation).not.toMatch(/\.from\(['"]commitments['"]\)\s*\.update\s*\(/);
     });
 });
