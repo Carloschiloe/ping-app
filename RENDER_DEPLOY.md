@@ -14,6 +14,17 @@ la rama `main`. El servicio activo es:
 - Auto-deploy: desactivado; los despliegues se ejecutan de forma explícita.
 - Último commit verificado en producción: `e7feb3154528e5c1aa99a3e5a5d693c47f4d14a6`.
 
+### Compuerta actual antes del siguiente deploy
+
+Los commits posteriores al deploy `7ae2d88` incluyen el boundary transaccional
+de Memory (`supabase/migrations/20261018010000_atomic_memory_ingestion.sql`).
+Ese runtime llama RPCs que deben existir en el Supabase productivo antes de
+activar el backend. El orden obligatorio es: backup/precheck productivo,
+aplicar y verificar la migración contra el proyecto `wbigqhtuzfmpnxservlf`,
+verificar rollback/advisors, y sólo entonces disparar el deploy de Render al
+commit validado. Nunca desplegar el runtime nuevo contra la base histórica sin
+esa verificación; el health endpoint por sí solo no prueba el flujo Memory.
+
 El servicio histórico `ping-backend-staging` (`srv-d9kllvqjobas73fqgrq0`)
 apunta a `codex/staging-beta`, está suspendido y no es producción. No se debe
 reactivar ni usar para validar cambios sin una decisión específica de staging.
