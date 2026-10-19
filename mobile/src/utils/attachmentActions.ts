@@ -1,6 +1,8 @@
 import { File, Paths } from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { setImageAsync } from 'expo-clipboard';
 import { isAvailableAsync, shareAsync, type SharingOptions } from 'expo-sharing';
+import { Platform } from 'react-native';
 
 export type AttachmentMimeKind = 'image' | 'video' | 'audio' | 'document' | 'unknown';
 
@@ -13,6 +15,8 @@ export type AttachmentActionErrorCode =
     | 'gallery_adapter_missing'
     | 'gallery_unsupported_type'
     | 'gallery_save_failed'
+    | 'save_cancelled'
+    | 'save_failed'
     | 'clipboard_unsupported_type'
     | 'clipboard_failed';
 
@@ -66,6 +70,8 @@ export type GallerySaveOptions = CreateTemporaryAttachmentOptions & Readonly<{
 export type CopyAttachmentOptions = CreateTemporaryAttachmentOptions & Readonly<{
     cleanup?: boolean;
 }>;
+
+export type SaveAttachmentOptions = ShareAttachmentOptions;
 
 const DEFAULT_MIME_TYPE = 'application/octet-stream';
 const TEMPORARY_FILE_PREFIX = 'ping-attachment-';
@@ -291,6 +297,55 @@ export async function shareAttachmentAsync(
 
     try {
         await shareLocalAttachmentAsync(temporaryAttachment, options);
+    } finally {
+        if (options.cleanup !== false) cleanupTemporaryAttachment(temporaryAttachment);
+    }
+}
+
+/**
+ * Downloads any attachment and saves it through the platform's file flow.
+ * Android uses the Storage Access Framework so the user chooses a folder
+ * without broad filesystem permissions. iOS uses the system share sheet,
+ * which includes "Guardar en Archivos" and other safe destinations.
+ */
+export async function saveAttachmentToDeviceAsync(
+    attachment: SignedAttachment,
+    options: SaveAttachmentOptions = {},
+): Promise<void> {
+    const temporaryAttachment = await createTemporaryAttachmentAsync(attachment, options);
+
+    try {
+        if (Platform.OS === 'android') {
+            const directory = await LegacyFileSystem.StorageAccessFramework
+                .requestDirectoryPermissionsAsync();
+            if (!directory.granted) {
+                throw new AttachmentActionError(
+                    'save_cancelled',
+                    'Guardado cancelado por el usuario.',
+                );
+            }
+
+            const destination = await LegacyFileSystem.StorageAccessFramework.createFileAsync(
+                directory.directoryUri,
+                temporaryAttachment.fileName,
+                temporaryAttachment.mimeType,
+            );
+            await LegacyFileSystem.StorageAccessFramework.copyAsync({
+                from: temporaryAttachment.localUri,
+                to: destination,
+            });
+            return;
+        }
+
+        await shareLocalAttachmentAsync(temporaryAttachment, {
+            dialogTitle: options.dialogTitle || 'Guardar archivo',
+        });
+    } catch (error) {
+        if (error instanceof AttachmentActionError) throw error;
+        throw new AttachmentActionError(
+            'save_failed',
+            'No se pudo guardar el archivo en el dispositivo.',
+        );
     } finally {
         if (options.cleanup !== false) cleanupTemporaryAttachment(temporaryAttachment);
     }

@@ -80,6 +80,12 @@ describe('SDK57 hotfix: AudioPlayer migrado a expo-audio', () => {
         expect(src).toContain('status.playing');
     });
 
+    it('muestra la duración real del archivo cuando el mensaje no trae metadata', () => {
+        expect(src).toContain('status.duration');
+        expect(src).toContain('resolvedDurationMs');
+        expect(src).toContain('Math.round(Number(status.duration) * 1000)');
+    });
+
     it('play/pause: toggle llama player.play()/player.pause() según status.playing', () => {
         expect(src).toContain('player.pause()');
         expect(src).toContain('player.play()');

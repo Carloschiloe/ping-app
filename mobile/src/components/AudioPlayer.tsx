@@ -30,6 +30,13 @@ export default function AudioPlayer({ url, isMe = false, style, transcript, dura
     const palette = getAudioMessagePalette(isMe, theme.colors);
     const player = useAudioPlayer(url);
     const status = useAudioPlayerStatus(player);
+    // Older messages may not have duration metadata. expo-audio knows the
+    // real duration after loading the source, so use it as a fallback.
+    const resolvedDurationMs = Number.isFinite(durationMs) && Number(durationMs) > 0
+        ? Number(durationMs)
+        : Number.isFinite(status.duration) && Number(status.duration) > 0
+            ? Math.round(Number(status.duration) * 1000)
+            : null;
 
     const toggle = async () => {
         if (status.playing) {
@@ -80,9 +87,9 @@ export default function AudioPlayer({ url, isMe = false, style, transcript, dura
                 <Text style={[styles.audioLabel, { color: palette.labelColor }]}>
                     {status.playing ? 'Detener' : 'Audio'}
                 </Text>
-                {Number.isFinite(durationMs) && Number(durationMs) > 0 && (
+                {resolvedDurationMs !== null && (
                     <Text style={[styles.audioDuration, { color: palette.labelColor }]}>
-                        {formatRecordingDuration(Number(durationMs))}
+                        {formatRecordingDuration(resolvedDurationMs)}
                     </Text>
                 )}
             </TouchableOpacity>

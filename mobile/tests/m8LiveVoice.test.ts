@@ -22,7 +22,8 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("originWhitelist={['https://*']}");
         expect(source).toContain('getRecordingPermissionsAsync');
         expect(source).toContain('requestRecordingPermissionsAsync');
-        expect(source).not.toContain('onPermissionRequest');
+        expect(source).toContain('onPermissionRequest');
+        expect(source).toContain("resource === 'AUDIO_CAPTURE'");
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");
         expect(source).not.toContain("/agent/authorize");
@@ -34,11 +35,13 @@ describe('M8 live voice staging surface', () => {
         const packageJson = read('package.json');
         const updateScript = read('scripts/update-production.mjs');
         expect(config).toContain("const m8LiveVoiceEnabled = process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true'");
+        expect(config).toContain("'android.permission.RECORD_AUDIO'");
+        expect(config).toContain("'android.permission.MODIFY_AUDIO_SETTINGS'");
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
         expect(packageJson).toContain('"update:production": "node scripts/update-production.mjs"');
         expect(updateScript).toContain("EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true'");
         expect(updateScript).toContain("APP_VARIANT: 'production'");
-        expect(config).toContain("versionCode: isStaging ? 4 : 10");
+        expect(config).toContain("versionCode: isStaging ? 4 : 11");
         expect(config).toContain("buildNumber: '4'");
     });
 

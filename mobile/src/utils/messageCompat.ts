@@ -77,12 +77,20 @@ export function resolveMessageAttachmentPresentation(message: any, pending = fal
     const kind = candidates.map((candidate) => attachmentKind(candidate.kind || candidate.type)).find(Boolean)
         || attachmentKindFromMime(mimeType)
         || attachmentKind(message?.message_type || message?.type)
-        || (legacyTag ? attachmentKind(legacyTag[1]) : null);
+        || (legacyTag ? attachmentKind(legacyTag[1]) : null)
+        // A canonical attachment can legitimately have a generic MIME type
+        // (for example application/octet-stream). Keep it actionable instead
+        // of dropping the file actions from the message menu.
+        || (!pending && candidates.some((candidate) => Boolean(
+            candidate.id || candidate.originalFilename || candidate.fileName || candidate.file_name,
+        )) ? 'document' : null);
     const fileName = String(
         candidates.map((candidate) => candidate.originalFilename || candidate.fileName || candidate.file_name || candidate.name).find(Boolean)
         || '',
     );
-    const hasPrivateReference = Boolean(message?.attachment?.id && message?.attachment?.lifecycleStatus === 'attached')
+    const attachmentLifecycleStatus = message?.attachment?.lifecycleStatus
+        ?? message?.attachment?.lifecycle_status;
+    const hasPrivateReference = Boolean(message?.attachment?.id && attachmentLifecycleStatus === 'attached')
         || Boolean(message?.media_bucket && message?.media_object_path);
 
     return {
@@ -133,7 +141,9 @@ export function isMessageTombstoned(message: any): boolean {
 // non-'attached' attachment AND a deleted message must independently
 // short-circuit to zero signed-read attempts, for different reasons.
 export function hasLiveAttachment(message: any): boolean {
-    return Boolean(message?.attachment?.id) && message?.attachment?.lifecycleStatus === 'attached';
+    const lifecycleStatus = message?.attachment?.lifecycleStatus
+        ?? message?.attachment?.lifecycle_status;
+    return Boolean(message?.attachment?.id) && lifecycleStatus === 'attached';
 }
 
 // The exact id MessageItem.tsx is allowed to pass to resolveAttachmentUrl().

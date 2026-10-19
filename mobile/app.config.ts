@@ -82,24 +82,27 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: isStaging ? 4 : 10,
+            // Native permission changes require a real Android update. Keep
+            // the production version code monotonic so the final APK can be
+            // installed over the current production baseline.
+            versionCode: isStaging ? 4 : 11,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.
+            // Microphone access is a core capability of the installed app:
+            // chat audio recording and Ping Voz both use it. It must be part
+            // of every production manifest; an OTA update cannot add a new
+            // Android permission to an already-installed APK.
             permissions: [
                 'android.permission.CAMERA',
                 'android.permission.READ_CONTACTS',
-                ...(m8LiveVoiceEnabled ? [
-                    'android.permission.RECORD_AUDIO',
-                    'android.permission.MODIFY_AUDIO_SETTINGS',
-                ] : []),
+                'android.permission.RECORD_AUDIO',
+                'android.permission.MODIFY_AUDIO_SETTINGS',
             ],
             blockedPermissions: [
-                ...(m8LiveVoiceEnabled
-                    ? blockedBetaPermissions.filter((permission) =>
-                        permission !== 'android.permission.RECORD_AUDIO'
-                        && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS')
-                    : blockedBetaPermissions),
+                ...blockedBetaPermissions.filter((permission) =>
+                    permission !== 'android.permission.RECORD_AUDIO'
+                    && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS'),
                 ...(m8LiveVoiceEnabled ? ['android.permission.WRITE_CONTACTS'] : []),
             ],
         },

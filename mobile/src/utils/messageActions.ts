@@ -22,12 +22,15 @@ export function canDeleteMessages(messages: any[], userId: string | null | undef
 export function isForwardableMessage(message: any) {
     const text = String(message?.text || message?.content || '').trim();
     const metadata = message?.metadata ?? message?.meta;
-    const hasCanonicalAttachment = message?.attachment?.lifecycleStatus === 'attached'
+    const lifecycleStatus = message?.attachment?.lifecycleStatus
+        ?? message?.attachment?.lifecycle_status;
+    const hasCanonicalAttachment = lifecycleStatus === 'attached'
         && Boolean(message?.attachment?.id);
+    const hasContent = Boolean(text || hasCanonicalAttachment);
 
     return Boolean(
         isConfirmedMessageId(message?.id)
-        && text
+        && hasContent
         && !metadata?.isSystem
         && (!MEDIA_CONTENT_PREFIXES.some((prefix) => text.startsWith(prefix)) || hasCanonicalAttachment)
     );

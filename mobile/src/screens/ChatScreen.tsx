@@ -68,6 +68,7 @@ import { PingActivityCard } from '../components/PingActivityCard';
 import * as MediaLibrary from 'expo-media-library';
 import {
     copyAttachmentImageAsync,
+    saveAttachmentToDeviceAsync,
     saveAttachmentToGalleryAsync,
     shareAttachmentAsync,
 } from '../utils/attachmentActions';
@@ -612,23 +613,32 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 return;
             }
 
-            const permission = await MediaLibrary.requestPermissionsAsync(true, []);
-            if (permission.status !== 'granted') {
-                Alert.alert('Permiso necesario', 'Permite guardar archivos multimedia para continuar.');
-                return;
+            if (attachment.kind === 'image' || attachment.kind === 'video') {
+                const permission = await MediaLibrary.requestPermissionsAsync(true, []);
+                if (permission.status !== 'granted') {
+                    Alert.alert('Permiso necesario', 'Permite guardar archivos multimedia para continuar.');
+                    return;
+                }
+                await saveAttachmentToGalleryAsync(attachment, {
+                    saveLocalFileAsync: async (file) => {
+                        await MediaLibrary.createAssetAsync(file.localUri);
+                    },
+                });
+            } else {
+                await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
             }
-            await saveAttachmentToGalleryAsync(attachment, {
-                saveLocalFileAsync: async (file) => {
-                    await MediaLibrary.createAssetAsync(file.localUri);
-                },
-            });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert('Guardado', 'El archivo se guardó en la galería del dispositivo.');
+            Alert.alert('Guardado', attachment.kind === 'image' || attachment.kind === 'video'
+                ? 'El archivo se guardó en la galería del dispositivo.'
+                : 'El archivo se guardó en el dispositivo.');
         } catch (error) {
             console.warn('[Chat] Attachment action failed', {
                 action,
                 code: error && typeof error === 'object' && 'code' in error ? (error as any).code : 'unknown',
             });
+            if (error && typeof error === 'object' && 'code' in error && (error as any).code === 'save_cancelled') {
+                return;
+            }
             Alert.alert('No se pudo completar', 'El archivo no pudo procesarse. Inténtalo nuevamente.');
         } finally {
             setIsAttachmentActionBusy(false);
@@ -1106,8 +1116,16 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setSelectedMsg(null);
                     }}
                     onForward={() => {
-                        toggleSelect(selectedMsg.id);
+                        const message = selectedMsg;
                         setSelectedMsg(null);
+                        if (!message || !isForwardableMessage(message)) {
+                            Alert.alert(
+                                'No se puede reenviar',
+                                'Este mensaje todavía no está disponible para reenviar.',
+                            );
+                            return;
+                        }
+                        setMultiSelect([message.id]);
                         setForwardModalVisible(true);
                     }}
                     onCopy={async () => {

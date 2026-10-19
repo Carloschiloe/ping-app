@@ -46,7 +46,7 @@ describe('contacts/media picker — SDK 57 API and least-privilege build contrac
         expect(blocked).not.toContain('android.permission.READ_CONTACTS');
     });
 
-    it('declares the image picker plugin without adding a microphone permission', () => {
+    it('declares the image picker plugin without adding a duplicate microphone permission', () => {
         process.env.APP_VARIANT = 'production';
         process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED = 'true';
         const config = createConfig({ config: {} } as any);
@@ -58,5 +58,10 @@ describe('contacts/media picker — SDK 57 API and least-privilege build contrac
             'expo-image-picker',
             expect.objectContaining({ microphonePermission: false }),
         ]);
+        expect(config.android?.permissions).toEqual(expect.arrayContaining([
+            'android.permission.RECORD_AUDIO',
+            'android.permission.MODIFY_AUDIO_SETTINGS',
+        ]));
+        expect(config.android?.blockedPermissions).not.toContain('android.permission.RECORD_AUDIO');
     });
 });

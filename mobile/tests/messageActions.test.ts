@@ -35,6 +35,11 @@ describe('message actions', () => {
             text: '[imagen]',
             attachment: { id: 'a5', lifecycleStatus: 'attached', mimeType: 'image/jpeg' },
         })).toBe(true);
+        expect(isForwardableMessage({
+            id: 'm6',
+            text: '',
+            attachment: { id: 'a6', lifecycle_status: 'attached', mimeType: 'audio/m4a' },
+        })).toBe(true);
     });
 
     it('preserves chronological order when forwarding a block', () => {
@@ -110,14 +115,11 @@ describe('PING — USER-WRITTEN TEXT COPY / PASTE: normal chat own-message bubbl
         expect(body).not.toMatch(/isOwnMessage|isMe|sender_id ===/);
     });
 
-    it('MessageActionsModal renders the Copiar action row unconditionally -- unlike Eliminar (deliberately gated on isOwnMessage), Copiar has no such gate', () => {
+    it('MessageActionsModal renders Copiar for text/images, not for audio/document files', () => {
         const copyRowIndex = modalSource.indexOf('onPress={onCopy}');
         const deleteGateIndex = modalSource.indexOf('{isOwnMessage && (');
         expect(copyRowIndex).toBeGreaterThan(-1);
-        // Copiar's TouchableOpacity is not wrapped in an isOwnMessage conditional --
-        // it appears strictly before the isOwnMessage-gated Eliminar block.
         expect(copyRowIndex).toBeLessThan(deleteGateIndex);
-        const copyBlock = modalSource.slice(Math.max(0, copyRowIndex - 120), copyRowIndex);
-        expect(copyBlock).not.toMatch(/isOwnMessage &&/);
+        expect(modalSource).toContain("(!isAttachment || attachmentKind === 'image')");
     });
 });

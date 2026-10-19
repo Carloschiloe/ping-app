@@ -219,6 +219,30 @@ describe('resolveMessageAttachmentPresentation', () => {
             attachment: { id: 'a1', lifecycleStatus: 'attached', mimeType: 'image/jpeg' },
         }).hasPrivateReference).toBe(true);
     });
+
+    it('keeps a canonical generic-MIME attachment actionable as a document', () => {
+        expect(resolveMessageAttachmentPresentation({
+            attachment: {
+                id: 'a-generic',
+                lifecycle_status: 'attached',
+                mime_type: 'application/octet-stream',
+                file_name: 'archivo.bin',
+            },
+        })).toMatchObject({
+            kind: 'document',
+            fileName: 'archivo.bin',
+            hasPrivateReference: true,
+        });
+    });
+
+    it('accepts the canonical snake_case lifecycle alias for private attachments', () => {
+        expect(hasLiveAttachment({
+            attachment: { id: 'a-snake', lifecycle_status: 'attached' },
+        })).toBe(true);
+        expect(resolvableAttachmentId({
+            attachment: { id: 'a-snake', lifecycle_status: 'attached' },
+        })).toBe('a-snake');
+    });
 });
 
 describe('resolveDeletedMessageLabel — PING: REMOVE EMPTY MEDIA BUBBLE AFTER DELETE (universal label, never invented from stripped kind)', () => {

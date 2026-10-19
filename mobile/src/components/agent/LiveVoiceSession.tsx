@@ -152,11 +152,20 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 onMessage={handleMessage}
                 onError={() => setError('No se pudo cargar la interfaz de voz.')}
                 onHttpError={() => setError('El servidor de voz no está disponible.')}
-                // Android's react-native-webview implementation maps the
-                // WebView getUserMedia request to the native RECORD_AUDIO
-                // permission declared by the app. The native WebChromeClient
-                // owns that callback; no custom JavaScript permission
-                // callback is needed here.
+                // Android WebView does not grant getUserMedia implicitly.
+                // The native permission is requested above, then this
+                // callback grants only audio capture to this trusted voice
+                // origin. Video/camera capture is deliberately not exposed.
+                onPermissionRequest={(request: any) => {
+                    const audioResources = request.resources.filter(
+                        (resource: string) => resource === 'AUDIO_CAPTURE',
+                    );
+                    if (audioResources.length > 0) {
+                        request.grant(audioResources);
+                    } else {
+                        request.deny();
+                    }
+                }}
                 {...(Platform.OS === 'ios' ? { mediaCapturePermissionGrantType: 'grant' } : {})}
                 javaScriptEnabled
                 mediaPlaybackRequiresUserAction={false}

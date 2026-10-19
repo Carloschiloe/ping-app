@@ -67,20 +67,22 @@ export function MessageActionsModal({
                             <Ionicons name="arrow-redo-outline" size={22} color="#2563eb" />
                             <Text style={styles.actionLabel}>Reenviar</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionRow} onPress={onCopy}>
-                            <Ionicons name={attachmentKind === 'image' ? 'copy-outline' : 'copy-outline'} size={22} color={theme.colors.secondary} />
-                            <Text style={styles.actionLabel}>{attachmentKind === 'image' ? 'Copiar imagen' : 'Copiar'}</Text>
-                        </TouchableOpacity>
+                        {(!isAttachment || attachmentKind === 'image') && (
+                            <TouchableOpacity style={styles.actionRow} onPress={onCopy}>
+                                <Ionicons name="copy-outline" size={22} color={theme.colors.secondary} />
+                                <Text style={styles.actionLabel}>{attachmentKind === 'image' ? 'Copiar imagen' : 'Copiar'}</Text>
+                            </TouchableOpacity>
+                        )}
                         {isAttachment && onShare && (
                             <TouchableOpacity style={styles.actionRow} onPress={onShare}>
                                 <Ionicons name="share-social-outline" size={22} color="#0f766e" />
                                 <Text style={styles.actionLabel}>Compartir archivo</Text>
                             </TouchableOpacity>
                         )}
-                        {isAttachment && onSave && (attachmentKind === 'image' || attachmentKind === 'video') && (
+                        {isAttachment && onSave && (
                             <TouchableOpacity style={styles.actionRow} onPress={onSave}>
                                 <Ionicons name="download-outline" size={22} color="#15803d" />
-                                <Text style={styles.actionLabel}>Guardar en el dispositivo</Text>
+                                <Text style={styles.actionLabel}>Guardar archivo</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.actionRow} onPress={onToggleSelect}>

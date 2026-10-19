@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { downloadFileAsync, deleteFile, base64, isAvailableAsync, shareAsync, setImageAsync } = vi.hoisted(() => ({
+const { downloadFileAsync, deleteFile, base64, isAvailableAsync, shareAsync, setImageAsync, requestDirectoryPermissionsAsync, createFileAsync, copyAsync } = vi.hoisted(() => ({
     downloadFileAsync: vi.fn(),
     deleteFile: vi.fn(),
     base64: vi.fn(),
     isAvailableAsync: vi.fn(),
     shareAsync: vi.fn(),
     setImageAsync: vi.fn(),
+    requestDirectoryPermissionsAsync: vi.fn(),
+    createFileAsync: vi.fn(),
+    copyAsync: vi.fn(),
 }));
 
 vi.mock('expo-file-system', () => ({
@@ -34,8 +37,20 @@ vi.mock('expo-sharing', () => ({
     shareAsync,
 }));
 
+vi.mock('expo-file-system/legacy', () => ({
+    StorageAccessFramework: {
+        requestDirectoryPermissionsAsync,
+        createFileAsync,
+        copyAsync,
+    },
+}));
+
 vi.mock('expo-clipboard', () => ({
     setImageAsync,
+}));
+
+vi.mock('react-native', () => ({
+    Platform: { OS: 'ios' },
 }));
 
 import {
@@ -45,6 +60,7 @@ import {
     createSafeAttachmentFileName,
     createTemporaryAttachmentAsync,
     prepareAttachmentForGalleryAsync,
+    saveAttachmentToDeviceAsync,
     saveAttachmentToGalleryAsync,
     shareAttachmentAsync,
 } from '../src/utils/attachmentActions';
@@ -60,6 +76,9 @@ beforeEach(() => {
     isAvailableAsync.mockResolvedValue(true);
     shareAsync.mockResolvedValue(undefined);
     setImageAsync.mockResolvedValue(undefined);
+    requestDirectoryPermissionsAsync.mockResolvedValue({ granted: false });
+    createFileAsync.mockResolvedValue('content://destination/file');
+    copyAsync.mockResolvedValue(undefined);
 });
 
 describe('attachmentActions', () => {
@@ -133,6 +152,22 @@ describe('attachmentActions', () => {
         );
 
         expect(deleteFile).not.toHaveBeenCalled();
+    });
+
+    it('usa el flujo de archivos del sistema para guardar documentos', async () => {
+        await saveAttachmentToDeviceAsync({
+            signedUrl: SIGNED_URL,
+            mimeType: 'application/pdf',
+            fileName: 'contrato.pdf',
+        });
+
+        // Vitest runs with a non-Android platform, so the portable fallback
+        // is the system share sheet and not a gallery-only adapter.
+        expect(shareAsync).toHaveBeenCalledWith(
+            expect.stringMatching(/^file:\/\/\/cache\/ping-attachment-/),
+            { mimeType: 'application/pdf', dialogTitle: 'Guardar archivo' },
+        );
+        expect(deleteFile).toHaveBeenCalled();
     });
 
     it('copia la imagen usando los bytes base64 del archivo local y limpia por defecto', async () => {
