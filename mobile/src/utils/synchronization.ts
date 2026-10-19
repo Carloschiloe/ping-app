@@ -34,6 +34,25 @@ type PersistablePendingMessage = {
     } | null;
 };
 
+const sanitizeOfflineLocation = (value: unknown): Record<string, unknown> | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const input = value as Record<string, unknown>;
+    const latitude = input.latitude;
+    const longitude = input.longitude;
+    if (
+        typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+        || typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    ) return undefined;
+
+    const safe: Record<string, unknown> = { latitude, longitude };
+    for (const key of ['label', 'address'] as const) {
+        if (typeof input[key] === 'string' && input[key].length <= 300) {
+            safe[key] = input[key];
+        }
+    }
+    return safe;
+};
+
 const sanitizeOfflineMeta = (value: unknown): Record<string, unknown> | undefined => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     const input = value as Record<string, unknown>;
@@ -43,6 +62,13 @@ const sanitizeOfflineMeta = (value: unknown): Record<string, unknown> | undefine
     }
     if (typeof input.forwarded === 'boolean') {
         safe.forwarded = input.forwarded;
+    }
+    if (input.messageType === 'location_share') {
+        const location = sanitizeOfflineLocation(input.location);
+        if (location) {
+            safe.messageType = 'location_share';
+            safe.location = location;
+        }
     }
     return Object.keys(safe).length > 0 ? safe : undefined;
 };
@@ -73,6 +99,36 @@ export function sanitizePendingQueue(
             const text = typeof item.text === 'string'
                 ? item.text.slice(0, MAX_OFFLINE_TEXT_LENGTH)
                 : '';
+            const hasAttachment = Boolean(item.attachment);
+            const attachment = item.attachment
+                && typeof item.attachment.mimeType === 'string'
+                && typeof item.attachment.fileName === 'string'
+                && typeof item.attachment.attachmentId === 'string'
+                ? {
+                    attachmentId: item.attachment.attachmentId,
+                    mimeType: item.attachment.mimeType.slice(0, 100),
+                    fileName: item.attachment.fileName.slice(0, 200),
+                    durationMs: Number.isInteger(item.attachment.durationMs)
+                        && Number(item.attachment.durationMs) > 0
+                        && Number(item.attachment.durationMs) <= 14_400_000
+                        ? Number(item.attachment.durationMs)
+                        : undefined,
+                }
+                : item.attachment
+                    && item.attachment.bucket === 'chat-media'
+                    && typeof item.attachment.objectPath === 'string'
+                    && item.attachment.objectPath.startsWith('conversations/')
+                    && !item.attachment.objectPath.includes('..')
+                    && typeof item.attachment.mimeType === 'string'
+                    && typeof item.attachment.fileName === 'string'
+                    ? {
+                        bucket: 'chat-media' as const,
+                        objectPath: item.attachment.objectPath.slice(0, 500),
+                        mimeType: item.attachment.mimeType.slice(0, 100),
+                        fileName: item.attachment.fileName.slice(0, 200),
+                    }
+                    : null;
+            if (hasAttachment && !attachment) return null;
             return {
                 id: typeof item.id === 'string' ? item.id : `offline-${clientMessageId}`,
                 conversationId: typeof item.conversationId === 'string'
@@ -98,39 +154,14 @@ export function sanitizePendingQueue(
                     ? item.nextAttemptAt
                     : null,
                 meta: sanitizeOfflineMeta(item.meta),
-                attachment: item.attachment
-                    && typeof item.attachment.mimeType === 'string'
-                    && typeof item.attachment.fileName === 'string'
-                    && typeof item.attachment.attachmentId === 'string'
-                    ? {
-                        attachmentId: item.attachment.attachmentId,
-                        mimeType: item.attachment.mimeType.slice(0, 100),
-                        fileName: item.attachment.fileName.slice(0, 200),
-                        durationMs: Number.isInteger(item.attachment.durationMs)
-                            && Number(item.attachment.durationMs) > 0
-                            && Number(item.attachment.durationMs) <= 14_400_000
-                            ? Number(item.attachment.durationMs)
-                            : undefined,
-                    }
-                    : item.attachment
-                        && item.attachment.bucket === 'chat-media'
-                        && typeof item.attachment.objectPath === 'string'
-                        && item.attachment.objectPath.startsWith('conversations/')
-                        && !item.attachment.objectPath.includes('..')
-                        && typeof item.attachment.mimeType === 'string'
-                        && typeof item.attachment.fileName === 'string'
-                        ? {
-                            bucket: 'chat-media' as const,
-                            objectPath: item.attachment.objectPath.slice(0, 500),
-                            mimeType: item.attachment.mimeType.slice(0, 100),
-                            fileName: item.attachment.fileName.slice(0, 200),
-                        }
-                        : null,
+                attachment,
             };
         })
-        .filter((item) =>
-            Date.parse(item.createdAt) >= minimumCreatedAt
-            && !looksLikeTransientCredential(item.text))
+        .filter((item): item is NonNullable<typeof item> => {
+            if (!item) return false;
+            return Date.parse(item.createdAt) >= minimumCreatedAt
+                && !looksLikeTransientCredential(item.text);
+        })
         .slice(-OFFLINE_QUEUE_MAX_ITEMS);
 }
 

@@ -90,11 +90,28 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
             const rpcQueue = queue[`rpc:${name}`] || [];
             const idx = rpcCursors[name] || 0;
             rpcCursors[name] = idx + 1;
-            return Promise.resolve(
-                rpcQueue[idx]
-                ?? rpcQueue[rpcQueue.length - 1]
-                ?? { data: null, error: null }
-            );
+            const explicitResponse = rpcQueue[idx] ?? rpcQueue[rpcQueue.length - 1];
+            if (explicitResponse) return Promise.resolve(explicitResponse);
+
+            // Backwards-compatible fixture bridge for tests that still model
+            // the old direct insert queue. Production uses only the RPC; this
+            // keeps legacy unit fixtures focused on the resulting payload
+            // while the new RPC-specific tests can provide explicit results.
+            if (name === 'insert_memory_record_with_evidence_atomic') {
+                (inserts.memory_records = inserts.memory_records || []).push(args.p_memory_record);
+                const tableQueue = queue.memory_records || [];
+                const tableIdx = cursors.memory_records || 0;
+                const legacyResponse = tableQueue[tableIdx] ?? tableQueue[tableQueue.length - 1];
+                if (legacyResponse) {
+                    cursors.memory_records = tableIdx + 1;
+                    if (legacyResponse.error) return Promise.resolve(legacyResponse);
+                    if (legacyResponse.data?.id) {
+                        return Promise.resolve({ data: [{ memory_id: legacyResponse.data.id }], error: null });
+                    }
+                }
+                return Promise.resolve({ data: [{ memory_id: 'mock-memory-id' }], error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
         }),
         // Helpers de inspeccion para aserciones en los tests.
         getInsertCalls: (table: string) => inserts[table] || [],

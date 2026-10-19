@@ -336,9 +336,9 @@ describe('M-2: ingestMemoryFromEvent', () => {
             memory_records: [
                 { data: null, error: null },
                 { data: null, error: null },
-                { data: { id: 'auto-id' }, error: null },
+                { data: null, error: null },
             ],
-            memory_record_evidence: [{ data: null, error: null }],
+            'rpc:insert_memory_record_with_evidence_atomic': [{ data: [{ memory_id: 'auto-id' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
@@ -351,46 +351,38 @@ describe('M-2: ingestMemoryFromEvent', () => {
             memory_records: [
                 { data: null, error: null }, // existingSame -> ninguno
                 { data: null, error: null }, // findActiveSameFact -> ninguno
-                { data: { id: 'new-id' }, error: null }, // insert
+                { data: null, error: null }, // findActiveSameFact
             ],
-            memory_record_evidence: [
-                { data: null, error: null }, // upsertEvidenceRows
-            ],
+            'rpc:insert_memory_record_with_evidence_atomic': [{ data: [{ memory_id: 'new-id' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
         const result = await ingestMemoryFromEvent(baseEvent() as any);
         expect(result).toEqual({ kind: 'inserted', id: 'new-id', status: 'active' });
-        const inserted = mock.getInsertCalls('memory_records')[0];
-        expect(inserted.status).toBe('active');
-        expect(inserted.subject_person_id).toBe('owner1'); // isSelf -> el propio owner
-        expect(inserted.extraction_method).toBe('llm');
-        expect(inserted.confidence).toBeLessThanOrEqual(0.9); // llm sin confidenceHint -> tope 0.7, nunca 1.0
-        expect(mock.getUpsertCalls('memory_record_evidence')[0].payload).toHaveLength(1); // evidencia escrita también en la tabla relacional
+        const rpc = mock.getRpcCalls()[0];
+        expect(rpc.name).toBe('insert_memory_record_with_evidence_atomic');
+        expect(rpc.args.p_memory_record.status).toBe('active');
+        expect(rpc.args.p_memory_record.subject_person_id).toBe('owner1'); // isSelf -> el propio owner
+        expect(rpc.args.p_memory_record.extraction_method).toBe('llm');
+        expect(rpc.args.p_memory_record.confidence).toBeLessThanOrEqual(0.9); // llm sin confidenceHint -> tope 0.7, nunca 1.0
+        expect(rpc.args.p_evidence_rows).toHaveLength(1);
     });
 
     it('DUPLICATE-COLLAPSE: mismo hecho ya existente -> se fusiona evidencia (tabla relacional), nunca una segunda fila', async () => {
         const mock = createSupabaseAdminMock({
             memory_records: [
                 { data: { id: 'existing-id', evidence_refs: [{ sourceType: 'message', sourceId: 'other-msg' }] }, error: null }, // existingSame -> match
-                { data: null, error: null }, // update de evidence_refs (syncEvidenceJsonCache)
             ],
-            memory_record_evidence: [
-                { data: null, error: null }, // upsertEvidenceRows (nueva ref)
-                { // syncEvidenceJsonCache: lee AMBAS refs desde la tabla relacional (autoridad real)
-                    data: [
-                        { source_type: 'message', source_id: 'other-msg', message_id: null, conversation_id: null, occurred_at: null },
-                        { source_type: 'message', source_id: 'msg-src-1', message_id: null, conversation_id: null, occurred_at: null },
-                    ], error: null,
-                },
-            ],
+            'rpc:append_memory_evidence_atomic': [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
         const result = await ingestMemoryFromEvent(baseEvent() as any);
         expect(result).toEqual({ kind: 'duplicate', existingId: 'existing-id' });
-        const updatePayload = mock.getUpdateCalls('memory_records')[0];
-        expect(updatePayload.evidence_refs).toHaveLength(2); // fusionado, nunca reemplazado ni duplicado
+        const rpc = mock.getRpcCalls()[0];
+        expect(rpc.name).toBe('append_memory_evidence_atomic');
+        expect(rpc.args.p_memory_record_id).toBe('existing-id');
+        expect(rpc.args.p_evidence_rows).toHaveLength(1); // la fusión queda dentro del RPC transaccional
         expect(mock.getInsertCalls('memory_records')).toHaveLength(0); // nunca una segunda fila
     });
 
@@ -399,17 +391,16 @@ describe('M-2: ingestMemoryFromEvent', () => {
             memory_records: [
                 { data: null, error: null }, // existingSame -> ninguno
                 { data: { id: 'old-id', object_value: 'tea', observed_at: '2026-01-01T00:00:00Z', evidence_refs: [] }, error: null }, // findActiveSameFact -> match, valor distinto
-                { data: { id: 'new-id' }, error: null }, // insert
-                { data: null, error: null }, // update del viejo -> superseded
+                { data: null, error: null }, // findActiveSameFact is not called again
             ],
-            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+            'rpc:insert_memory_record_with_evidence_atomic': [{ data: [{ memory_id: 'new-id' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
         const result = await ingestMemoryFromEvent(baseEvent({ observedAt: '2026-02-01T00:00:00Z' }) as any);
         expect(result).toEqual({ kind: 'superseded', id: 'new-id', supersededId: 'old-id' });
-        const updatePayload = mock.getUpdateCalls('memory_records')[0];
-        expect(updatePayload).toEqual({ status: 'superseded', superseded_by: 'new-id', superseded_at: '2026-02-01T00:00:00Z' });
+        const rpc = mock.getRpcCalls()[0];
+        expect(rpc.args.p_supersedes_id).toBe('old-id');
     });
 
     it('OUT-OF-ORDER: un hecho más VIEJO que el activo actual nunca lo reemplaza -- se inserta directo como histórico', async () => {
@@ -417,18 +408,18 @@ describe('M-2: ingestMemoryFromEvent', () => {
             memory_records: [
                 { data: null, error: null }, // existingSame -> ninguno
                 { data: { id: 'current-id', object_value: 'tea', observed_at: '2026-03-01T00:00:00Z', evidence_refs: [] }, error: null }, // findActiveSameFact -> más nuevo que el entrante
-                { data: { id: 'late-id' }, error: null }, // insert
+                { data: null, error: null }, // no direct memory insert
             ],
-            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+            'rpc:insert_memory_record_with_evidence_atomic': [{ data: [{ memory_id: 'late-id' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
         const result = await ingestMemoryFromEvent(baseEvent({ observedAt: '2026-01-01T00:00:00Z' }) as any);
         expect(result).toEqual({ kind: 'inserted', id: 'late-id', status: 'superseded' });
         expect(mock.getUpdateCalls('memory_records')).toHaveLength(0); // nunca toca el activo vigente
-        const inserted = mock.getInsertCalls('memory_records')[0];
-        expect(inserted.status).toBe('superseded');
-        expect(inserted.superseded_by).toBe('current-id');
+        const rpc = mock.getRpcCalls()[0];
+        expect(rpc.args.p_memory_record.status).toBe('superseded');
+        expect(rpc.args.p_memory_record.superseded_by).toBe('current-id');
     });
 
     it('IDENTIDAD NO RESUELTA: un subjectHint que no resuelve a nadie real nunca se inventa -- la fila queda en "candidate", nunca "active"', async () => {
@@ -437,9 +428,9 @@ describe('M-2: ingestMemoryFromEvent', () => {
             contacts: [{ data: [], error: null }], // búsqueda de contacto por nombre -> sin match
             memory_records: [
                 { data: null, error: null }, // existingSame -> ninguno
-                { data: { id: 'candidate-id' }, error: null }, // insert (nunca llega a findActiveSameFact -- se salta)
+                { data: null, error: null }, // no direct memory insert
             ],
-            memory_record_evidence: [{ data: null, error: null }], // upsertEvidenceRows
+            'rpc:insert_memory_record_with_evidence_atomic': [{ data: [{ memory_id: 'candidate-id' }], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
@@ -447,10 +438,10 @@ describe('M-2: ingestMemoryFromEvent', () => {
             candidate: { memoryTypeHint: 'semantic', subjectHint: { name: 'Persona Inexistente' }, predicateHint: 'lives_in', objectValueHint: 'Iquique', canonicalTextHint: 'x vive en Iquique' },
         }) as any);
         expect(result).toEqual({ kind: 'inserted', id: 'candidate-id', status: 'candidate' });
-        const inserted = mock.getInsertCalls('memory_records')[0];
-        expect(inserted.subject_person_id).toBeNull();
-        expect(inserted.subject_contact_id).toBeNull();
-        expect(inserted.subject_unresolved_hint).toBe('Persona Inexistente'); // preservado, nunca descartado ni inventado como id
+        const rpc = mock.getRpcCalls()[0];
+        expect(rpc.args.p_memory_record.subject_person_id).toBeNull();
+        expect(rpc.args.p_memory_record.subject_contact_id).toBeNull();
+        expect(rpc.args.p_memory_record.subject_unresolved_hint).toBe('Persona Inexistente'); // preservado, nunca descartado ni inventado como id
     });
 
     it('IDEMPOTENCIA ante carrera: 23505 (duplicate key) en el insert se resuelve como duplicate, nunca como error fatal', async () => {
@@ -460,12 +451,8 @@ describe('M-2: ingestMemoryFromEvent', () => {
                 { data: null, error: null }, // findActiveSameFact -> ninguno
                 { data: null, error: { code: '23505', message: 'duplicate key' } }, // insert choca con el índice único
                 { data: { id: 'race-winner-id', evidence_refs: [] }, error: null }, // re-lectura tras la carrera
-                { data: null, error: null }, // update de evidence_refs (syncEvidenceJsonCache)
             ],
-            memory_record_evidence: [
-                { data: null, error: null }, // upsertEvidenceRows
-                { data: [{ source_type: 'message', source_id: 'msg-src-1', message_id: null, conversation_id: null, occurred_at: null }], error: null }, // syncEvidenceJsonCache select
-            ],
+            'rpc:append_memory_evidence_atomic': [{ data: [], error: null }],
         });
         setSupabaseAdminMock(mock);
         const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
@@ -598,14 +585,34 @@ describe('M-2: retrieveMemory', () => {
     it('defensa en profundidad: una memoria con conversation_id al que el owner YA NO pertenece se excluye del resultado, en UNA sola consulta batched (nunca N+1)', async () => {
         const mock = createSupabaseAdminMock({
             memory_records: [{ data: [row({ id: 'm1', conversation_id: 'conv-lost' }), row({ id: 'm2', conversation_id: 'conv-still-member' })], error: null }],
+            memory_record_evidence: [{ data: [], error: null }],
+            conversations: [{ data: [{ id: 'conv-still-member' }], error: null }], // conv-lost está tombstoned/no disponible
             conversation_participants: [{ data: [{ conversation_id: 'conv-still-member' }], error: null }], // sólo conv-still-member sigue autorizada
         });
         setSupabaseAdminMock(mock);
         const { retrieveMemory } = await import('../src/services/memory.service');
         const results = await retrieveMemory(basePlan());
         expect(results.map((r) => r.id)).toEqual(['m2']);
-        // UNA sola llamada batched sobre los conversation_id distintos, nunca una por fila.
-        expect(mock.getInCalls('conversation_participants')).toContainEqual(['conversation_id', ['conv-lost', 'conv-still-member']]);
+        // Una sola consulta batched de conversaciones y otra de participantes,
+        // nunca una por memoria/evidencia.
+        expect(mock.getInCalls('conversations')).toContainEqual(['id', ['conv-lost', 'conv-still-member']]);
+        expect(mock.getInCalls('conversation_participants')).toContainEqual(['conversation_id', ['conv-still-member']]);
+    });
+
+    it('defensa secundaria: una evidencia de una conversación tombstoned se elimina del DTO y no expone la memoria si era la única fuente', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [{ data: [{ ...row({ id: 'm-secondary', conversation_id: null }), evidence_refs: [{ sourceType: 'message', sourceId: 'msg-lost', conversationId: 'conv-lost' }] }], error: null }],
+            memory_record_evidence: [{ data: [{
+                memory_record_id: 'm-secondary', source_type: 'message', source_id: 'msg-lost',
+                message_id: 'msg-lost', conversation_id: 'conv-lost', occurred_at: null,
+            }], error: null }],
+            conversations: [{ data: [], error: null }],
+            conversation_participants: [{ data: [], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMemory } = await import('../src/services/memory.service');
+        const results = await retrieveMemory(basePlan());
+        expect(results).toEqual([]);
     });
 });
 
@@ -672,13 +679,43 @@ describe('M-2: deletion/retention hooks', () => {
         expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'invalidated', evidence_refs: [] });
     });
 
-    it('invalidateMemoryForConversationDeletion invalida todo lo asociado a esa conversación', async () => {
-        const mock = createSupabaseAdminMock({ memory_records: [{ data: null, error: null }] });
+    it('invalidateMemoryForConversationDeletion invalida también una memoria cuya única relación era evidencia secundaria', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_record_evidence: [
+                { data: [{ memory_record_id: 'm-secondary' }], error: null }, // reverse lookup por conversation_id
+                { data: null, error: null }, // delete de evidencia secundaria
+                { data: [], error: null }, // no queda evidencia
+            ],
+            memory_records: [
+                { data: [], error: null }, // no hay referencia directa a la conversación
+                { data: null, error: null }, // invalidación combinada
+            ],
+        });
         setSupabaseAdminMock(mock);
         const { invalidateMemoryForConversationDeletion } = await import('../src/services/memory.service');
         await invalidateMemoryForConversationDeletion('conv1');
-        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ status: 'invalidated' });
-        expect(mock.getEqCalls('memory_records')).toContainEqual(['conversation_id', 'conv1']);
+        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ evidence_refs: [], status: 'invalidated' });
+        expect(mock.getEqCalls('memory_record_evidence')).toContainEqual(['conversation_id', 'conv1']);
+    });
+
+    it('invalidateMemoryForConversationDeletion conserva una memoria si sobrevive evidencia no relacionada', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_record_evidence: [
+                { data: [{ memory_record_id: 'm-secondary' }], error: null },
+                { data: null, error: null }, // delete de evidencia de conv1
+                { data: [{ source_type: 'commitment', source_id: 'cm1', message_id: null, conversation_id: null, occurred_at: null }], error: null },
+            ],
+            memory_records: [
+                { data: [], error: null },
+                { data: null, error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+        const { invalidateMemoryForConversationDeletion } = await import('../src/services/memory.service');
+        await invalidateMemoryForConversationDeletion('conv1');
+        expect(mock.getUpdateCalls('memory_records')[0]).toEqual({ evidence_refs: [{
+            sourceType: 'commitment', sourceId: 'cm1', messageId: null, conversationId: null, timestamp: null,
+        }] });
     });
 
     it('deleteMemoryForAccountDeletion marca deleted todo lo del owner (gancho para soft-delete de cuenta)', async () => {

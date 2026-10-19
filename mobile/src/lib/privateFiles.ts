@@ -46,6 +46,21 @@ export function getPrivateFileRefreshDelay(expiresIn: number): number {
     return Math.max(5_000, (Math.max(0, expiresIn) - PRIVATE_FILE_REFRESH_BUFFER_SECONDS) * 1_000);
 }
 
+/**
+ * Signed-read failures that can recover without changing the attachment are
+ * retryable. Other 4xx responses indicate an authorization/lifecycle failure
+ * and must not create an unbounded refresh loop in the message list.
+ */
+export function isRetryablePrivateFileReadError(error: unknown): boolean {
+    const status = error && typeof error === 'object' && 'status' in error
+        ? (error as { status?: unknown }).status
+        : undefined;
+    if (typeof status === 'number') {
+        return status === 408 || status === 429 || status >= 500;
+    }
+    return true;
+}
+
 export function clearPrivateFileReadCache() {
     privateFileReadCache.clear();
 }

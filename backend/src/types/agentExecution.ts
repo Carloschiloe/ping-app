@@ -68,6 +68,11 @@ export type AgentExecutionFailureCode =
     | 'condition_not_met'
     | 'idempotent_replay'
     | 'verification_failed'
+    // Defensive application-level classification for a row whose persisted
+    // status is outside the current contract. The database CHECK constraint
+    // should prevent this, but treating it as blocked is safer than allowing
+    // an unknown value to fall through as a successful execution.
+    | 'execution_state_unknown'
     | 'transient_failure'
     | 'policy_blocked';
 
