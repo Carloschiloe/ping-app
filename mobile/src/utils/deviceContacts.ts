@@ -17,7 +17,7 @@ type ContactDetails = {
     id: string;
     fullName?: string | null;
     phones?: Array<{ number?: string | null }>;
-    emails?: Array<{ email?: string | null }>;
+    emails?: Array<{ address?: string | null; email?: string | null }>;
 };
 
 export function normalizePhone(raw: string): string | null {
@@ -38,7 +38,7 @@ export function mapDeviceContacts(details: ContactDetails[]): DeviceContact[] {
             .map((entry) => entry.number ? normalizePhone(entry.number) : null)
             .find((value): value is string => !!value);
         const email = (contact.emails || [])
-            .map((entry) => entry.email?.trim().toLowerCase())
+            .map((entry) => (entry.address || entry.email)?.trim().toLowerCase())
             .find((value): value is string => !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
         if (!phone && !email) continue;
         contacts.push({

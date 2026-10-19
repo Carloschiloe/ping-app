@@ -56,7 +56,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: isStaging ? 'Ping Staging' : 'Ping',
-        version: isStaging ? '1.0.3' : '1.0.1',
+        version: isStaging ? '1.0.3' : '1.0.2',
         runtimeVersion: { policy: 'appVersion' },
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
@@ -71,7 +71,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: isStaging ? 4 : 6,
+            versionCode: isStaging ? 4 : 7,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.

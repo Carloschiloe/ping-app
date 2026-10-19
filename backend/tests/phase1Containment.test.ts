@@ -27,6 +27,26 @@ describe('Phase 1 containment', () => {
         expect(request.query).toEqual({ limit: 25 });
     });
 
+    it('normalizes Express 5 getter-backed query objects without throwing', async () => {
+        const request = { body: {}, params: {} } as any;
+        Object.defineProperty(request, 'query', {
+            configurable: true,
+            enumerable: true,
+            get: () => ({ limit: '30' }),
+        });
+        const next = vi.fn();
+        const schema = z.object({
+            body: z.object({}),
+            query: z.object({ limit: z.coerce.number().default(10) }),
+            params: z.object({}),
+        });
+
+        await validateRequest(schema)(request, {} as any, next);
+
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(request.query).toEqual({ limit: 30 });
+    });
+
     it('does not expose matched contact phone or email', () => {
         const result = serializeContactMatch(
             {
