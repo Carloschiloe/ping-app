@@ -23,6 +23,7 @@ type PersistablePendingMessage = {
     state?: PendingSyncState;
     lastError?: string | null;
     nextAttemptAt?: string | null;
+    meta?: Record<string, unknown> | null;
     attachment?: {
         attachmentId?: string;
         bucket?: 'chat-media';
@@ -31,6 +32,19 @@ type PersistablePendingMessage = {
         fileName: string;
         durationMs?: number;
     } | null;
+};
+
+const sanitizeOfflineMeta = (value: unknown): Record<string, unknown> | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const input = value as Record<string, unknown>;
+    const safe: Record<string, unknown> = {};
+    if (typeof input.clientTimeZone === 'string' && input.clientTimeZone.length <= 100) {
+        safe.clientTimeZone = input.clientTimeZone;
+    }
+    if (typeof input.forwarded === 'boolean') {
+        safe.forwarded = input.forwarded;
+    }
+    return Object.keys(safe).length > 0 ? safe : undefined;
 };
 
 const looksLikeTransientCredential = (value: string) =>
@@ -83,6 +97,7 @@ export function sanitizePendingQueue(
                 nextAttemptAt: typeof item.nextAttemptAt === 'string'
                     ? item.nextAttemptAt
                     : null,
+                meta: sanitizeOfflineMeta(item.meta),
                 attachment: item.attachment
                     && typeof item.attachment.mimeType === 'string'
                     && typeof item.attachment.fileName === 'string'

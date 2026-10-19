@@ -3,6 +3,7 @@ import fs from 'fs';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from './transcription.service';
 import { extractCommitment } from './commitment.service';
+import * as commitmentApplication from './commitmentApplication.service';
 import { isLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 
 let openai: OpenAI | null = null;
@@ -116,15 +117,24 @@ Transcripción:
         }).select().single();
 
         if (extraction.hasCommitment && msgData) {
-            // LEGACY SATELLITE WRITER — migrate in future slice.
-            // Commitment Core writers must delegate to commitmentApplication.service.
-            // Commitment Core writers must delegate to commitmentApplication.service.
-            await supabaseAdmin.from('commitments').insert({
+            // A call transcript is an AI interpretation, never human
+            // confirmation. Keep the legacy call path behind its feature gate,
+            // but persist only a proposal through the canonical application
+            // boundary. A later explicit confirmation is required to create a
+            // Commitment.
+            const actorUserId = call.meta?.callerId;
+            if (!actorUserId) {
+                console.warn('[Call Processing] Commitment proposal skipped: missing caller identity', { callId });
+                return;
+            }
+
+            await commitmentApplication.createProposal(actorUserId, {
+                conversation_id: call.conversation_id,
+                source_message_id: msgData.id,
+                source_kind: 'ai_suggestion',
                 title: extraction.title,
                 due_at: extraction.dueAt,
-                assigned_to_user_id: call.conversation_id, 
-                message_id: msgData.id,
-                status: 'pending'
+                type: 'task',
             });
         }
     } catch (err) {

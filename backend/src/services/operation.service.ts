@@ -4,6 +4,7 @@ import { NotificationService } from './notification.service';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { assertConversationAdmin, assertConversationParticipant } from '../utils/authz';
 import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
+import * as commitmentApplication from './commitmentApplication.service';
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
@@ -735,49 +736,23 @@ export async function registerCommitmentOperationAction(
         .maybeSingle();
 
     const now = new Date().toISOString();
-    const currentMeta = commitment.meta || {};
-    const operational = currentMeta.operational || {};
-    const nextOperational = { ...operational };
-    const updates: any = {
-        meta: {
-            ...currentMeta,
-        },
-    };
+    const canonicalStatus = normalizeCommitmentStatus(commitment.status);
+    let canonicalCommitment = commitment;
 
-    if (action === 'acknowledged') {
-        nextOperational.acknowledged_at = now;
-        nextOperational.acknowledged_by_user_id = userId;
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
-            updates.status = 'accepted';
-            if (!commitment.assigned_to_user_id) {
-                updates.assigned_to_user_id = userId;
-            }
-        }
-    }
-
-    if (action === 'arrived') {
-        nextOperational.arrived_at = now;
-        nextOperational.arrived_by_user_id = userId;
-        if (locationMessageId) {
-            nextOperational.arrived_location_message_id = locationMessageId;
-        }
-        if (commitment.status === 'proposed' || commitment.status === 'pending') {
-            updates.status = 'accepted';
-            if (!commitment.assigned_to_user_id) {
-                updates.assigned_to_user_id = userId;
-            }
+    // Operation is a compatibility adapter. Its lifecycle changes must still
+    // use the Commitment Core so the row, event and audit evidence are written
+    // atomically. Operational details remain in commitment_operation_progress.
+    if (action === 'acknowledged' || action === 'arrived') {
+        if (canonicalStatus === 'proposed' || canonicalStatus === 'counter_proposal') {
+            canonicalCommitment = await commitmentApplication.acceptCommitment(userId, commitmentId);
+        } else if (canonicalStatus !== 'accepted') {
+            throw new Error(`Cannot acknowledge commitment in status ${canonicalStatus}`);
         }
     }
 
     if (action === 'completed') {
-        nextOperational.completed_at = now;
-        nextOperational.completed_by_user_id = userId;
-        nextOperational.completion_note = completionNote || null;
-        nextOperational.completion_outcome = completionOutcome || 'resolved';
-        updates.status = 'completed';
+        canonicalCommitment = await commitmentApplication.markActionCompleted(userId, commitmentId);
     }
-
-    updates.meta.operational = nextOperational;
 
     const progressPayload: any = {
         commitment_id: commitmentId,
@@ -797,19 +772,6 @@ export async function registerCommitmentOperationAction(
         .upsert(progressPayload, { onConflict: 'commitment_id,user_id' });
 
     if (progressError) throw progressError;
-
-    const { data, error } = await supabaseAdmin
-        .from('commitments')
-        .update(updates)
-        .eq('id', commitmentId)
-        .select(`
-            *,
-            owner:owner_user_id(id, full_name, email, avatar_url),
-            assignee:assigned_to_user_id(id, full_name, email, avatar_url)
-        `)
-        .single();
-
-    if (error) throw error;
 
     await addOperationReaction(commitment.message_id, userId, action);
 
@@ -849,5 +811,5 @@ export async function registerCommitmentOperationAction(
         }
     }
 
-    return mergeCommitmentWithProgress(data, { ...existingProgress, ...progressPayload });
+    return mergeCommitmentWithProgress(canonicalCommitment, { ...existingProgress, ...progressPayload });
 }

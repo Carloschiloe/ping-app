@@ -65,6 +65,30 @@ describe('basic message synchronization', () => {
         expect(serialized).not.toContain('temporary-secret');
     });
 
+    it('preserves only allowlisted offline metadata', () => {
+        const now = Date.parse('2026-07-28T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-safe-meta',
+            conversationId: 'conversation-1',
+            text: 'Mensaje pendiente',
+            meta: {
+                clientTimeZone: 'America/Santiago',
+                forwarded: true,
+                accessToken: 'must-not-persist',
+            },
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+        }], now);
+
+        expect(JSON.parse(serialized)[0].meta).toEqual({
+            clientTimeZone: 'America/Santiago',
+            forwarded: true,
+        });
+        expect(serialized).not.toContain('must-not-persist');
+    });
+
     it('removes expired entries and enforces the item retention limit', () => {
         const now = Date.parse('2026-07-28T12:00:00.000Z');
         const items = Array.from({ length: OFFLINE_QUEUE_MAX_ITEMS + 5 }, (_, index) => ({

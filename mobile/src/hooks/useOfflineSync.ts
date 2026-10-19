@@ -38,18 +38,31 @@ export interface PendingMessage {
 export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<SyncResult>) => {
     const [isConnected, setIsConnected] = useState<boolean | null>(true);
     const [queue, setQueue] = useState<PendingMessage[]>([]);
+    const [isQueueHydrated, setIsQueueHydrated] = useState(false);
     const isSyncing = useRef(false);
+    const queueHydratedRef = useRef(false);
+    const pendingAddsBeforeHydration = useRef<PendingMessage[]>([]);
 
     // 1. Load queue from storage on mount
     useEffect(() => {
         const loadQueue = async () => {
             try {
                 const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-                if (stored) {
-                    setQueue(sanitizePendingQueue(JSON.parse(stored)) as PendingMessage[]);
-                }
+                const storedQueue = stored
+                    ? sanitizePendingQueue(JSON.parse(stored)) as PendingMessage[]
+                    : [];
+                const pendingAdds = pendingAddsBeforeHydration.current;
+                pendingAddsBeforeHydration.current = [];
+                queueHydratedRef.current = true;
+                setQueue(sanitizePendingQueue([...storedQueue, ...pendingAdds]) as PendingMessage[]);
             } catch (e) {
                 console.error('[OfflineSync] Failed to load queue', e);
+                const pendingAdds = pendingAddsBeforeHydration.current;
+                pendingAddsBeforeHydration.current = [];
+                queueHydratedRef.current = true;
+                setQueue((current) => sanitizePendingQueue([...current, ...pendingAdds]) as PendingMessage[]);
+            } finally {
+                setIsQueueHydrated(true);
             }
         };
         loadQueue();
@@ -57,6 +70,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
 
     // 2. Persist queue changes
     useEffect(() => {
+        if (!isQueueHydrated) return;
         const saveQueue = async () => {
             try {
                 const serialized = serializePendingQueue(queue);
@@ -70,7 +84,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             }
         };
         saveQueue();
-    }, [queue]);
+    }, [queue, isQueueHydrated]);
 
     // 3. Listen to Network changes
     useEffect(() => {
@@ -114,9 +128,17 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
                     }));
                 }
             } catch {
+                const retryAt = (retryCount: number) =>
+                    new Date(Date.now() + Math.min(30000, 1000 * (2 ** retryCount))).toISOString();
                 setQueue((current) => current.map((item) =>
                     item.id === msg.id
-                        ? { ...item, state: 'result_unknown', lastError: 'Resultado desconocido', retryCount: item.retryCount + 1 }
+                        ? {
+                            ...item,
+                            state: 'result_unknown',
+                            lastError: 'Resultado desconocido',
+                            retryCount: item.retryCount + 1,
+                            nextAttemptAt: retryAt(item.retryCount + 1),
+                        }
                         : item
                 ));
             }
@@ -148,6 +170,9 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             createdAt: new Date().toISOString(),
             state: 'pending',
         };
+        if (!queueHydratedRef.current) {
+            pendingAddsBeforeHydration.current.push(newMsg);
+        }
         setQueue(prev =>
             sanitizePendingQueue([...prev, newMsg]) as PendingMessage[]);
     }, []);
