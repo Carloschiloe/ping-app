@@ -1,5 +1,5 @@
 const LOCAL_MESSAGE_PREFIXES = ['temp-', 'offline-'];
-const NON_FORWARDABLE_CONTENT_PREFIXES = ['[imagen]', '[video]', '[audio]', '[document='];
+const MEDIA_CONTENT_PREFIXES = ['[imagen]', '[video]', '[audio]', '[document='];
 
 export function isConfirmedMessageId(messageId: string | null | undefined) {
     return Boolean(
@@ -22,12 +22,14 @@ export function canDeleteMessages(messages: any[], userId: string | null | undef
 export function isForwardableMessage(message: any) {
     const text = String(message?.text || message?.content || '').trim();
     const metadata = message?.metadata ?? message?.meta;
+    const hasCanonicalAttachment = message?.attachment?.lifecycleStatus === 'attached'
+        && Boolean(message?.attachment?.id);
 
     return Boolean(
         isConfirmedMessageId(message?.id)
         && text
         && !metadata?.isSystem
-        && !NON_FORWARDABLE_CONTENT_PREFIXES.some((prefix) => text.startsWith(prefix))
+        && (!MEDIA_CONTENT_PREFIXES.some((prefix) => text.startsWith(prefix)) || hasCanonicalAttachment)
     );
 }
 

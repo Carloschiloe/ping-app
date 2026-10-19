@@ -15,7 +15,11 @@ import {
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
-import { markConversationRead, markConversationUnread } from '../services/messagingApplication.service';
+import {
+    forwardMessage as forwardMessageApplication,
+    markConversationRead,
+    markConversationUnread,
+} from '../services/messagingApplication.service';
 import { getLegacyConversationMedia, getSharedContent } from '../services/sharedContent.service';
 
 // POST /conversations — create or find existing 1-on-1 conversation
@@ -430,6 +434,49 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to send message' : error.message });
+    }
+};
+
+// POST /conversations/:id/messages/:messageId/forward
+export const forwardMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const actorUserId = req.user!.id;
+        const sourceConversationId = String(req.params.id || '');
+        const sourceMessageId = String(req.params.messageId || '');
+        const destinationConversationId = String(
+            req.body?.targetConversationId
+            || req.body?.target_conversation_id
+            || req.body?.destinationConversationId
+            || req.body?.destination_conversation_id
+            || '',
+        );
+        const clientMessageId = req.body?.clientMessageId ?? req.body?.client_message_id;
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+        if (
+            !uuidPattern.test(sourceConversationId)
+            || !uuidPattern.test(sourceMessageId)
+            || !uuidPattern.test(destinationConversationId)
+        ) {
+            res.status(400).json({ error: 'Valid source, message, and destination identifiers are required' });
+            return;
+        }
+        if (clientMessageId !== undefined && clientMessageId !== null && !uuidPattern.test(String(clientMessageId))) {
+            res.status(400).json({ error: 'clientMessageId must be a valid UUID' });
+            return;
+        }
+
+        const result = await forwardMessageApplication({
+            actorUserId,
+            sourceConversationId,
+            sourceMessageId,
+            destinationConversationId,
+            clientMessageId: clientMessageId ? String(clientMessageId) : undefined,
+        });
+        res.status(result.idempotentReplay ? 200 : 201).json(result);
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to forward message' : error.message });
     }
 };
 

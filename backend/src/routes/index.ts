@@ -204,6 +204,7 @@ router.get(
 );
 router.get('/conversations/:id/media', requireAuth, conversationController.getConversationMedia);
 router.post('/conversations/:id/messages', requireAuth, validateRequest(messageSchema.sendMessageSchema), conversationController.sendMessage);
+router.post('/conversations/:id/messages/:messageId/forward', requireAuth, conversationController.forwardMessage);
 router.get('/conversations/:id/participants', requireAuth, groupController.getParticipants);
 router.get('/conversations/:id/operation-state', requireAuth, operationEnabled, operationController.getConversationOperationState);
 router.patch('/conversations/:id/mode', requireAuth, operationEnabled, validateRequest(operationSchema.updateConversationModeSchema), operationController.updateConversationMode);

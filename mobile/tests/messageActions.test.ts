@@ -25,11 +25,16 @@ describe('message actions', () => {
         ], 'u1')).toBe(false);
     });
 
-    it('does not forward system or file-bearing messages as plain text', () => {
+    it('does not forward system or legacy file-bearing messages as plain text, but allows canonical attachments', () => {
         expect(isForwardableMessage({ id: 'm1', text: 'Hola' })).toBe(true);
         expect(isForwardableMessage({ id: 'm2', text: 'Sistema', meta: { isSystem: true } })).toBe(false);
         expect(isForwardableMessage({ id: 'm3', text: '[imagen]private/path' })).toBe(false);
         expect(isForwardableMessage({ id: 'm4', text: '[document=archivo]private/path' })).toBe(false);
+        expect(isForwardableMessage({
+            id: 'm5',
+            text: '[imagen]',
+            attachment: { id: 'a5', lifecycleStatus: 'attached', mimeType: 'image/jpeg' },
+        })).toBe(true);
     });
 
     it('preserves chronological order when forwarding a block', () => {

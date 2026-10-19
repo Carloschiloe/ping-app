@@ -52,13 +52,26 @@ import {
     isForwardableMessage,
     orderMessagesForForward,
 } from '../utils/messageActions';
-import { resolveMessageMetadata, resolveReactionEmoji } from '../utils/messageCompat';
+import {
+    resolveMessageAttachmentPresentation,
+    resolveMessageContent,
+    resolveMessageMetadata,
+    resolvableAttachmentId,
+    resolveReactionEmoji,
+} from '../utils/messageCompat';
 import { resolveMediaTapPresentation } from '../utils/messagePresentation';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { getMessageFocusDecision } from '../utils/messageFocus';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { PingActivityCard } from '../components/PingActivityCard';
+import * as MediaLibrary from 'expo-media-library';
+import {
+    copyAttachmentImageAsync,
+    saveAttachmentToGalleryAsync,
+    shareAttachmentAsync,
+} from '../utils/attachmentActions';
+import { resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -139,6 +152,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const [forwardModalVisible, setForwardModalVisible] = useState(false);
     const [isForwarding, setIsForwarding] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isAttachmentActionBusy, setIsAttachmentActionBusy] = useState(false);
     const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
     const [suggestionData, setSuggestionData] = useState<any>(null);
     const [viewingReactionsMsg, setViewingReactionsMsg] = useState<any>(null);
@@ -530,11 +544,102 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         confirmDelete(selectedMessages.map((message) => message.id));
     };
 
+    const resolveAttachmentForAction = async (message: any) => {
+        const presentation = resolveMessageAttachmentPresentation(message);
+        if (!presentation.kind) return null;
+
+        let signedUrl = typeof message?._resolvedMediaUrl === 'string'
+            ? message._resolvedMediaUrl
+            : null;
+        if (!signedUrl) {
+            const attachmentId = resolvableAttachmentId(message);
+            if (attachmentId) {
+                const access = await resolveAttachmentUrl(attachmentId, { forceRefresh: true });
+                signedUrl = access.signedUrl;
+            } else if (message?.media_bucket && message?.media_object_path) {
+                const access = await resolvePrivateFileUrl('message', message.id, { forceRefresh: true });
+                signedUrl = access.signedUrl;
+            } else if (presentation.legacyUrl) {
+                signedUrl = presentation.legacyUrl;
+            } else {
+                const legacyMatch = resolveMessageContent(message).match(/^\[(?:imagen|video|audio)\]\s+([^\s]+)/i);
+                signedUrl = legacyMatch?.[1] || null;
+            }
+        }
+
+        if (!signedUrl) return null;
+        const fallbackMimeType: Record<string, string> = {
+            image: 'image/jpeg',
+            video: 'video/mp4',
+            audio: 'audio/m4a',
+            document: 'application/octet-stream',
+        };
+        return {
+            signedUrl,
+            mimeType: presentation.mimeType || fallbackMimeType[presentation.kind],
+            fileName: presentation.fileName || undefined,
+            kind: presentation.kind,
+        };
+    };
+
+    const runAttachmentAction = async (
+        message: any,
+        action: 'copy' | 'share' | 'save',
+    ) => {
+        if (isAttachmentActionBusy) return;
+        setIsAttachmentActionBusy(true);
+        try {
+            const attachment = await resolveAttachmentForAction(message);
+            if (!attachment) {
+                Alert.alert('Archivo no disponible', 'No se pudo obtener el archivo. Comprueba tu conexión e inténtalo nuevamente.');
+                return;
+            }
+
+            if (action === 'copy') {
+                if (attachment.kind !== 'image') {
+                    const textToCopy = resolveMessageContent(message).trim();
+                    if (textToCopy) await Clipboard.setStringAsync(textToCopy);
+                    else Alert.alert('No se puede copiar', 'Este tipo de archivo no tiene texto copiable.');
+                } else {
+                    await copyAttachmentImageAsync(attachment);
+                }
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                return;
+            }
+
+            if (action === 'share') {
+                await shareAttachmentAsync(attachment);
+                return;
+            }
+
+            const permission = await MediaLibrary.requestPermissionsAsync(true, []);
+            if (permission.status !== 'granted') {
+                Alert.alert('Permiso necesario', 'Permite guardar archivos multimedia para continuar.');
+                return;
+            }
+            await saveAttachmentToGalleryAsync(attachment, {
+                saveLocalFileAsync: async (file) => {
+                    await MediaLibrary.createAssetAsync(file.localUri);
+                },
+            });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Guardado', 'El archivo se guardó en la galería del dispositivo.');
+        } catch (error) {
+            console.warn('[Chat] Attachment action failed', {
+                action,
+                code: error && typeof error === 'object' && 'code' in error ? (error as any).code : 'unknown',
+            });
+            Alert.alert('No se pudo completar', 'El archivo no pudo procesarse. Inténtalo nuevamente.');
+        } finally {
+            setIsAttachmentActionBusy(false);
+        }
+    };
+
     const forwardSelected = () => {
         if (selectedMessages.some((message) => !isForwardableMessage(message))) {
             Alert.alert(
                 'No se puede reenviar esta selección',
-                'Por seguridad, esta versión permite reenviar sólo mensajes de texto confirmados. Archivos y mensajes del sistema no se copian entre conversaciones.'
+                'Sólo se pueden reenviar mensajes confirmados, archivos adjuntos disponibles y mensajes no pertenecientes al sistema.'
             );
             return;
         }
@@ -550,10 +655,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         let sentCount = 0;
         try {
             for (const message of messagesToForward) {
-                await apiClient.post(`/conversations/${targetConversationId}/messages`, {
-                    text: message.text || message.content,
-                    client_message_id: createClientMessageId(),
-                    meta: { forwarded: true },
+                await apiClient.post(`/conversations/${conversationId}/messages/${message.id}/forward`, {
+                    targetConversationId,
+                    clientMessageId: createClientMessageId(),
                 });
                 sentCount += 1;
             }
@@ -990,6 +1094,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     canPin={conversationMode === 'operation'}
                     isPinned={pinnedMessageId === selectedMsg?.id}
                     isOwnMessage={selectedMsg?.sender_id === user?.id}
+                    isAttachment={Boolean(resolveMessageAttachmentPresentation(selectedMsg).kind)}
+                    attachmentKind={resolveMessageAttachmentPresentation(selectedMsg).kind}
                     onClose={() => setSelectedMsg(null)}
                     onReact={(emoji) => {
                         reactToMessage({ messageId: selectedMsg.id, emoji });
@@ -1005,11 +1111,34 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setForwardModalVisible(true);
                     }}
                     onCopy={async () => {
+                        const message = selectedMsg;
+                        if (!message) return;
+                        if (resolveMessageAttachmentPresentation(message).kind) {
+                            setSelectedMsg(null);
+                            await runAttachmentAction(message, 'copy');
+                            return;
+                        }
                         if (selectedMsg?.text) {
                             await Clipboard.setStringAsync(selectedMsg.text);
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        } else {
+                            const textToCopy = resolveMessageContent(message);
+                            if (textToCopy) {
+                                await Clipboard.setStringAsync(textToCopy);
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            }
                         }
                         setSelectedMsg(null);
+                    }}
+                    onShare={() => {
+                        const message = selectedMsg;
+                        setSelectedMsg(null);
+                        if (message) void runAttachmentAction(message, 'share');
+                    }}
+                    onSave={() => {
+                        const message = selectedMsg;
+                        setSelectedMsg(null);
+                        if (message) void runAttachmentAction(message, 'save');
                     }}
                     onToggleSelect={() => {
                         toggleSelect(selectedMsg.id);

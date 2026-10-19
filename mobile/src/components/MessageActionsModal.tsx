@@ -9,11 +9,15 @@ type MessageActionsModalProps = {
     canPin: boolean;
     isPinned: boolean;
     isOwnMessage: boolean;
+    isAttachment?: boolean;
+    attachmentKind?: 'image' | 'video' | 'audio' | 'document' | null;
     onClose: () => void;
     onReact: (emoji: string) => void;
     onReply: () => void;
     onForward: () => void;
     onCopy: () => void;
+    onShare?: () => void;
+    onSave?: () => void;
     onToggleSelect: () => void;
     onTogglePin: () => void;
     onDelete: () => void;
@@ -27,11 +31,15 @@ export function MessageActionsModal({
     canPin,
     isPinned,
     isOwnMessage,
+    isAttachment = false,
+    attachmentKind = null,
     onClose,
     onReact,
     onReply,
     onForward,
     onCopy,
+    onShare,
+    onSave,
     onToggleSelect,
     onTogglePin,
     onDelete,
@@ -60,9 +68,21 @@ export function MessageActionsModal({
                             <Text style={styles.actionLabel}>Reenviar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.actionRow} onPress={onCopy}>
-                            <Ionicons name="copy-outline" size={22} color={theme.colors.secondary} />
-                            <Text style={styles.actionLabel}>Copiar</Text>
+                            <Ionicons name={attachmentKind === 'image' ? 'copy-outline' : 'copy-outline'} size={22} color={theme.colors.secondary} />
+                            <Text style={styles.actionLabel}>{attachmentKind === 'image' ? 'Copiar imagen' : 'Copiar'}</Text>
                         </TouchableOpacity>
+                        {isAttachment && onShare && (
+                            <TouchableOpacity style={styles.actionRow} onPress={onShare}>
+                                <Ionicons name="share-social-outline" size={22} color="#0f766e" />
+                                <Text style={styles.actionLabel}>Compartir archivo</Text>
+                            </TouchableOpacity>
+                        )}
+                        {isAttachment && onSave && (attachmentKind === 'image' || attachmentKind === 'video') && (
+                            <TouchableOpacity style={styles.actionRow} onPress={onSave}>
+                                <Ionicons name="download-outline" size={22} color="#15803d" />
+                                <Text style={styles.actionLabel}>Guardar en el dispositivo</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity style={styles.actionRow} onPress={onToggleSelect}>
                             <Ionicons name="checkmark-circle-outline" size={22} color="#3b82f6" />
                             <Text style={styles.actionLabel}>Seleccionar</Text>

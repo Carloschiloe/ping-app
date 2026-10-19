@@ -21,6 +21,7 @@ const blockedBetaPermissions = [
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_MEDIA_VIDEO',
     'android.permission.READ_MEDIA_AUDIO',
+    'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
 ];
 
 export default ({ config }: ConfigContext): ExpoConfig => {
@@ -67,7 +68,17 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         // production remain separate Android applications through package ID.
         slug: base.slug,
         scheme: isStaging ? 'ping-staging' : 'ping',
-        plugins: isStaging ? [...plugins, 'expo-web-browser'] : plugins,
+        plugins: [
+            ...plugins,
+            ['expo-media-library', {
+                // Ping only writes an explicitly selected image/video to the
+                // device gallery. It never needs to read the user's library.
+                granularPermissions: [],
+                photosPermission: false,
+                savePhotosPermission: 'Ping necesita permiso para guardar el archivo que elegiste.',
+            }],
+            ...(isStaging ? ['expo-web-browser'] : []),
+        ],
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
