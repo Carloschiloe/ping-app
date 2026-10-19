@@ -12,7 +12,7 @@ la rama `main`. El servicio activo es:
 - Rama desplegada: `codex/agent-voice-continuity-hardening`.
 - Health check: `/api/health`.
 - Auto-deploy: desactivado; los despliegues se ejecutan de forma explícita.
-- Último commit verificado en producción: `7ae2d88367efccc0797cfb7cb16ae46fdaf457a9`.
+- Último commit verificado en producción: `b24b65a47e70b40e9c8082bb98853f8f252b8dff`.
 
 ### Compuerta actual antes del siguiente deploy
 
@@ -24,6 +24,12 @@ aplicar y verificar la migración contra el proyecto `wbigqhtuzfmpnxservlf`,
 verificar rollback/advisors, y sólo entonces disparar el deploy de Render al
 commit validado. Nunca desplegar el runtime nuevo contra la base histórica sin
 esa verificación; el health endpoint por sí solo no prueba el flujo Memory.
+
+La compuerta de migración quedó completada el 19-10-2026 contra el proyecto
+Supabase productivo `wbigqhtuzfmpnxservlf`: las RPC atómicas de Memory existen,
+la versión `20261018010000_atomic_memory_ingestion` está registrada, los
+permisos quedaron limitados a `service_role` y los advisors no reportaron
+hallazgos. El despliegue runtime posterior quedó verificado en `b24b65a`.
 
 El servicio histórico `ping-backend-staging` (`srv-d9kllvqjobas73fqgrq0`)
 apunta a `codex/staging-beta`, está suspendido y no es producción. No se debe
