@@ -2,6 +2,22 @@
 
 Ping's backend is fully configured to be deployed on Render with just a few clicks.
 
+## Fuente operativa de verdad (verificada el 18-10-2026)
+
+La producción no se identifica por el nombre genérico de `render.yaml` ni por
+la rama `main`. El servicio activo es:
+
+- Servicio Render: `ping-app` (`srv-d6ipqi75r7bs73fnbom0`).
+- URL: `https://ping-app-con3.onrender.com`.
+- Rama desplegada: `codex/agent-voice-continuity-hardening`.
+- Health check: `/api/health`.
+- Auto-deploy: desactivado; los despliegues se ejecutan de forma explícita.
+- Último commit verificado en producción: `e7feb3154528e5c1aa99a3e5a5d693c47f4d14a6`.
+
+El servicio histórico `ping-backend-staging` (`srv-d9kllvqjobas73fqgrq0`)
+apunta a `codex/staging-beta`, está suspendido y no es producción. No se debe
+reactivar ni usar para validar cambios sin una decisión específica de staging.
+
 ## Pasos para Desplegar
 
 1. **Subir tu código a GitHub**
@@ -14,7 +30,7 @@ Ping's backend is fully configured to be deployed on Render with just a few clic
 
 3. **Configurar el Servicio Web**
    Llena los campos como se indica a continuación:
-   - **Name:** `ping-backend` (o el nombre que gustes)
+   - **Name:** `ping-app` para producción
    - **Root Directory:** `backend` *(OBLIGATORIO: Si subiste el monorepo entero, aquí le dices a Render que el backend vive en esta subcarpeta).*
    - **Environment:** `Node`
    - **Build Command:** `npm install && npm run build`
@@ -32,14 +48,14 @@ Ping's backend is fully configured to be deployed on Render with just a few clic
    Render clonará tu repo, instalará las dependencias, compilará el TypeScript a JavaScript y encenderá tu servidor apuntando a Supabase.
 
 Cuando termine de cargar y veas un log que dice `✅ PING Backend listening on port 10000`, Render te dará un enlace. Por ejemplo:
-`https://ping-backend-xyz.onrender.com`
+`https://ping-app-con3.onrender.com`
 
 ## Conectar Mobile con la API de Producción
 
 Una vez que el backend esté en vivo, ve a tu computadora, abre `/mobile/.env` y actualiza la URL para que no apunte más a tu localhost, sino al backend de Render:
 
 ```env
-EXPO_PUBLIC_API_URL=https://ping-backend-xyz.onrender.com/api
+EXPO_PUBLIC_API_URL=https://ping-app-con3.onrender.com/api
 ```
 *(Asegúrate de incluir `/api` al final al igual que en local).*
 
@@ -47,22 +63,23 @@ EXPO_PUBLIC_API_URL=https://ping-backend-xyz.onrender.com/api
 
 ## Estado actual de los entornos
 
-El repositorio sólo versiona un servicio Render llamado `ping-backend` en
-`render.yaml`. Ese servicio tiene despliegue automático por commit y no está
-identificado como staging. No existe un segundo servicio, blueprint o archivo
-versionado que vincule un backend remoto con `Ping Staging V2`
-(`oonijgmddgyymhrlnvuu`).
+`render.yaml` y `render.staging.yaml` son blueprints versionados; no sustituyen
+la configuración efectiva del servicio ya creado en Render. Para producción,
+el dashboard de `ping-app`, la rama desplegada y el commit de Render son la
+fuente de verdad operativa. `main` tampoco debe asumirse como producción.
 
 Los archivos `backend/.env` y `mobile/.env` son locales e ignorados por Git.
-Permiten desarrollo contra staging, pero no prueban ni configuran un
-despliegue remoto. Tampoco se ha verificado desde el repositorio qué proyecto
-Supabase utiliza el servicio Render existente. Por seguridad debe tratarse
-como producción hasta demostrar lo contrario.
+Permiten desarrollo, pero no prueban ni configuran un despliegue remoto.
+Nunca se deben copiar secretos entre `ping-app` y el staging histórico.
 
 ## Preparación mínima de un backend exclusivo de staging
 
+Esta sección sólo aplica si se decide reactivar o reemplazar el staging
+histórico. El servicio suspendido existente no debe confundirse con una
+validación activa.
+
 Crear el servicio requiere acceso autenticado a Render y debe hacerse como un
-recurso separado, sin modificar `ping-backend`:
+recurso separado, sin modificar `ping-app`:
 
 El blueprint reproducible está en `render.staging.yaml`. Al crear el Blueprint
 en Render se debe seleccionar expresamente ese archivo; no sustituye ni

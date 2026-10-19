@@ -21,6 +21,8 @@ Broad repository search is a fallback, not the starting point.
 
 - Repository: `Carloschiloe/ping-app`
 - Integration branch: `codex/staging-beta`
+- Production Render service: `ping-app` (`codex/agent-voice-continuity-hardening`)
+- Historical staging service: `ping-backend-staging` (suspended; never assume it is active)
 - Typical Windows root: `C:\Users\carlo\Desktop\App en produccion\Ping`
 - Shell on the current workstation: Windows PowerShell 5.1
 
