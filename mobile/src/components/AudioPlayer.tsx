@@ -4,6 +4,7 @@ import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-au
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../theme/ThemeContext';
 import { getAudioMessagePalette } from '../utils/messagePresentation';
+import { shouldRestartAudioPlayback } from '../utils/audioPlayback';
 
 interface AudioPlayerProps {
     url: string;
@@ -43,6 +44,15 @@ export default function AudioPlayer({ url, isMe = false, style, transcript }: Au
                 interruptionMode: 'duckOthers',
                 shouldRouteThroughEarpiece: false,
             });
+
+            // expo-audio leaves a finished player at the end of its source.
+            // Rewind only after a real finish; a paused player must resume from
+            // its current position. The existing player/source is preserved,
+            // which also keeps signed attachment URLs intact.
+            if (shouldRestartAudioPlayback(status)) {
+                await player.seekTo(0);
+            }
+
             player.play();
         } catch (error) {
             console.error('[AudioPlayer] play error:', error);

@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { shouldRestartAudioPlayback } from '../src/utils/audioPlayback';
 
 function readSrc(relPath: string): string {
     return fs.readFileSync(path.join(__dirname, '..', relPath), 'utf-8');
@@ -84,6 +85,12 @@ describe('SDK57 hotfix: AudioPlayer migrado a expo-audio', () => {
         expect(src).toContain('player.play()');
     });
 
+    it('replay: reposiciona el player al inicio sólo después del fin', () => {
+        expect(src).toContain('shouldRestartAudioPlayback(status)');
+        expect(src).toContain('await player.seekTo(0)');
+        expect(src).not.toMatch(/player\.loop\s*=\s*true/);
+    });
+
     it('cleanup al desmontar: no hay una llamada manual liberando el sonido (useAudioPlayer lo hace automáticamente)', () => {
         // El componente viejo necesitaba `useEffect(() => () => sound.unloadAsync(), [sound])`.
         expect(src).not.toMatch(/\.unloadAsync\(\)/);
@@ -93,6 +100,40 @@ describe('SDK57 hotfix: AudioPlayer migrado a expo-audio', () => {
     it('preserva el audio mode de reproducción (altavoz, ignora silencio) con nombres de campo de expo-audio', () => {
         expect(src).toContain('playsInSilentMode: true');
         expect(src).toContain('allowsRecording: false');
+    });
+});
+
+describe('AudioPlayer replay behavior', () => {
+    it('reinicia cuando expo-audio informa que terminó', () => {
+        expect(shouldRestartAudioPlayback({
+            currentTime: 12,
+            duration: 12,
+            didJustFinish: true,
+        })).toBe(true);
+    });
+
+    it('reinicia cuando el cursor está exactamente al final', () => {
+        expect(shouldRestartAudioPlayback({
+            currentTime: 12,
+            duration: 12,
+            didJustFinish: false,
+        })).toBe(true);
+    });
+
+    it('preserva la pausa incluso cerca del final', () => {
+        expect(shouldRestartAudioPlayback({
+            currentTime: 11.9,
+            duration: 12,
+            didJustFinish: false,
+        })).toBe(false);
+    });
+
+    it('no reinicia mientras la duración todavía no está disponible', () => {
+        expect(shouldRestartAudioPlayback({
+            currentTime: 0,
+            duration: 0,
+            didJustFinish: false,
+        })).toBe(false);
     });
 });
 
