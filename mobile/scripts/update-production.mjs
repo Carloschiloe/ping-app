@@ -15,6 +15,7 @@ const result = spawnSync(command, [
     ...process.argv.slice(2),
 ], {
     stdio: 'inherit',
+    shell: process.platform === 'win32',
     env: {
         ...process.env,
         APP_VARIANT: 'production',
