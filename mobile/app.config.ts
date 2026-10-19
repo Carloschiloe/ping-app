@@ -82,7 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
-            versionCode: isStaging ? 4 : 9,
+            versionCode: isStaging ? 4 : 10,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.
