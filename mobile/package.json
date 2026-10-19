@@ -9,7 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint .",
-    "update:production": "eas update --channel production --environment production",
+    "update:production": "node scripts/update-production.mjs",
     "update:staging": "eas update --channel staging --environment preview",
     "test": "vitest run",
     "test:watch": "vitest"

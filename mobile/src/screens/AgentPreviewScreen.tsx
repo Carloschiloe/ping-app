@@ -368,6 +368,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <TouchableOpacity
                         onPress={() => setLiveVoiceVisible(true)}
                         style={styles.headerBtn}
+                        testID="ping-voice-button"
                         accessibilityRole="button"
                         accessibilityLabel="Abrir Ping Voz"
                     >

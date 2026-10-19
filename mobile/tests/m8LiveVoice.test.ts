@@ -28,9 +28,21 @@ describe('M8 live voice staging surface', () => {
     it('enables the live surface only through an explicit build configuration flag', () => {
         const config = read('app.config.ts');
         const eas = read('eas.json');
+        const packageJson = read('package.json');
+        const updateScript = read('scripts/update-production.mjs');
         expect(config).toContain("const m8LiveVoiceEnabled = process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === 'true'");
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
+        expect(packageJson).toContain('"update:production": "node scripts/update-production.mjs"');
+        expect(updateScript).toContain("EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true'");
+        expect(updateScript).toContain("APP_VARIANT: 'production'");
         expect(config).toContain("versionCode: isStaging ? 4 : 9");
         expect(config).toContain("buildNumber: '4'");
+    });
+
+    it('keeps the Ping Voice entry point present in the production header', () => {
+        const screen = read('src/screens/AgentPreviewScreen.tsx');
+        expect(screen).toContain('testID="ping-voice-button"');
+        expect(screen).toContain('accessibilityLabel="Abrir Ping Voz"');
+        expect(screen).toContain('<Ionicons name="radio"');
     });
 });
