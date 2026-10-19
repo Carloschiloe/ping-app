@@ -8,7 +8,7 @@ import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
-import { isAllowedRequestOrigin } from './security/corsPolicy';
+import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/corsPolicy';
 
 dotenv.config();
 
@@ -41,7 +41,7 @@ app.use((req, res, next) => cors({
       return;
     }
 
-    if (env.nodeEnv !== 'production' && env.allowedOrigins.length === 0) {
+    if (!isStrictCorsEnvironment(env.nodeEnv, env.environmentName) && env.allowedOrigins.length === 0) {
       callback(null, true);
       return;
     }

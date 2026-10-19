@@ -1,3 +1,5 @@
+import { parseAllowedOrigins } from '../security/corsPolicy';
+
 type EnvConfig = {
     nodeEnv: string;
     environmentName: string;
@@ -41,8 +43,18 @@ export function validateEnvironment() {
         }
     }
 
+    const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+    if (allowedOrigins.invalidCount > 0) {
+        throw new Error(
+            `ALLOWED_ORIGINS contains ${allowedOrigins.invalidCount} invalid origin entr${allowedOrigins.invalidCount === 1 ? 'y' : 'ies'}`
+        );
+    }
+
     if (process.env.NODE_ENV === 'production') {
-        const missingRecommended = recommendedProductionEnvVars.filter((envKey) => !process.env[envKey]);
+        const missingRecommended = recommendedProductionEnvVars.filter((envKey) => {
+            if (envKey === 'ALLOWED_ORIGINS') return allowedOrigins.origins.length === 0;
+            return !process.env[envKey];
+        });
         if (missingRecommended.length > 0) {
             console.warn(`[env] Missing recommended production env vars: ${missingRecommended.join(', ')}`);
         }
@@ -54,10 +66,7 @@ export function getEnvConfig(): EnvConfig {
         nodeEnv: process.env.NODE_ENV || 'development',
         environmentName: process.env.PING_ENVIRONMENT || 'local',
         port: Number(process.env.PORT || 3000),
-        allowedOrigins: (process.env.ALLOWED_ORIGINS || '')
-            .split(',')
-            .map((origin) => origin.trim())
-            .filter(Boolean),
+        allowedOrigins: parseAllowedOrigins(process.env.ALLOWED_ORIGINS).origins,
         // Background automations require a separate explicit containment gate.
         // A legacy RUN_CRON_JOBS=true value alone can no longer reactivate them.
         runCronJobs: process.env.ENABLE_AUTOMATIONS === 'true'

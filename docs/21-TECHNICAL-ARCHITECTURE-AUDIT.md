@@ -348,7 +348,11 @@ El impacto real de algunas dependencias móviles depende de si se ejecutan únic
 - Heartbeat de `last_seen` cada dos minutos.
 - Captura de idioma y región sin un propósito visible.
 - Lock biométrico que se desbloquea automáticamente si no existe biometría enrolada.
-- CORS que acepta cualquier origen cuando `ALLOWED_ORIGINS` está vacío.
+- CORS estricto para production/staging cuando `ALLOWED_ORIGINS` está vacío;
+  sólo el desarrollo local conserva el fallback permisivo. Los clientes
+  nativos sin `Origin` y el WebView same-origin siguen soportados. El origen
+  web cross-origin de cada entorno aún está pendiente de confirmación explícita
+  (ver `docs/production-readiness/CORS-ORIGINS.md`).
 - Posible duplicación de cron si existen varias instancias.
 - Falta de registro idempotente de notificaciones programadas.
 - Render gratuito puede suspender el proceso y no constituye una base confiable para cron.

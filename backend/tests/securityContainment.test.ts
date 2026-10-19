@@ -61,6 +61,26 @@ describe('automation containment gate', () => {
 });
 
 describe('environment containment', () => {
+    it('rechaza entradas CORS inválidas sin revelar sus valores', async () => {
+        process.env.NODE_ENV = 'production';
+        process.env.SUPABASE_URL = 'https://production-ref.supabase.co';
+        process.env.SUPABASE_ANON_KEY = 'anon';
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+        process.env.ENCRYPTION_KEY = '01234567890123456789012345678901';
+        process.env.ALLOWED_ORIGINS = 'https://web.example.test/app, *';
+        delete process.env.PING_EXPECTED_SUPABASE_PROJECT_REF;
+        const { validateEnvironment } = await import('../src/config/env');
+
+        let message = '';
+        try {
+            validateEnvironment();
+        } catch (error) {
+            message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message).toBe('ALLOWED_ORIGINS contains 2 invalid origin entries');
+        expect(message).not.toContain('web.example');
+    });
+
     it('rechaza un proyecto Supabase distinto del esperado', async () => {
         process.env.SUPABASE_URL = 'https://production-ref.supabase.co';
         process.env.SUPABASE_ANON_KEY = 'anon';
