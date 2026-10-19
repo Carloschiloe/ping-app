@@ -11,10 +11,8 @@ const isPrivateOrLocalHost = (hostname: string) =>
     || /^192\.168\./.test(hostname)
     || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
 const blockedBetaPermissions = [
-    'android.permission.CAMERA',
     'android.permission.RECORD_AUDIO',
     'android.permission.MODIFY_AUDIO_SETTINGS',
-    'android.permission.READ_CONTACTS',
     'android.permission.WRITE_CONTACTS',
     'android.permission.READ_CALENDAR',
     'android.permission.WRITE_CALENDAR',
@@ -74,21 +72,25 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             ...base.android,
             package: isStaging ? 'com.carloschiloe.ping.staging' : 'com.carloschiloe.ping',
             versionCode: isStaging ? 4 : 6,
-            permissions: m8LiveVoiceEnabled
-                ? [
+            // Contacts and camera are read/capture capabilities used by the
+            // product. Media selection itself uses Android's system picker and
+            // must not request READ_MEDIA_* permissions.
+            permissions: [
+                'android.permission.CAMERA',
+                'android.permission.READ_CONTACTS',
+                ...(m8LiveVoiceEnabled ? [
                     'android.permission.RECORD_AUDIO',
                     'android.permission.MODIFY_AUDIO_SETTINGS',
-                    'android.permission.READ_CONTACTS',
-                    'android.permission.WRITE_CONTACTS',
-                ]
-                : [],
-            blockedPermissions: m8LiveVoiceEnabled
-                ? blockedBetaPermissions.filter((permission) =>
-                    permission !== 'android.permission.RECORD_AUDIO'
-                    && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS'
-                    && permission !== 'android.permission.READ_CONTACTS'
-                    && permission !== 'android.permission.WRITE_CONTACTS')
-                : blockedBetaPermissions,
+                ] : []),
+            ],
+            blockedPermissions: [
+                ...(m8LiveVoiceEnabled
+                    ? blockedBetaPermissions.filter((permission) =>
+                        permission !== 'android.permission.RECORD_AUDIO'
+                        && permission !== 'android.permission.MODIFY_AUDIO_SETTINGS')
+                    : blockedBetaPermissions),
+                ...(m8LiveVoiceEnabled ? ['android.permission.WRITE_CONTACTS'] : []),
+            ],
         },
         ios: {
             ...base.ios,

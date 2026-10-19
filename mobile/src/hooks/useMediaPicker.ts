@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Alert, Keyboard } from 'react-native';
+import { Alert, Keyboard, Platform } from 'react-native';
 import {
     PrivateMessageAttachment,
     uploadPrivateMessageAttachment,
@@ -377,14 +377,21 @@ export function useMediaPicker({
     };
 
     const openGallery = async () => {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería.');
-            return;
+        // Android's system photo picker grants a one-time URI permission for
+        // the selected item. Requesting READ_MEDIA_* here is unnecessary and
+        // can downgrade the user to Android's "selected photos" permission.
+        // iOS still needs the library permission up front when video originals
+        // may be returned by the picker.
+        if (Platform.OS === 'ios') {
+            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync(false);
+            if (!permission.granted) {
+                Alert.alert('Permiso denegado', 'Necesitamos acceso a tu galería.');
+                return;
+            }
         }
         await dismissComposerKeyboard(isComposerFocused, blurComposer);
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: ['images', 'videos'],
             quality: 0.7,
             videoMaxDuration: 120,
         });

@@ -42,6 +42,7 @@ function fireKeyboardDidHide() {
 
 vi.mock('react-native', () => ({
     Alert: { alert: vi.fn() },
+    Platform: { OS: 'android' },
     Keyboard: {
         dismiss: (...args: unknown[]) => keyboardDismiss(...args),
         addListener: (...args: [string, () => void]) => keyboardAddListener(...args),
@@ -175,14 +176,15 @@ describe('useMediaPicker — captura de cámara: contrato canónico foto/video',
         );
     });
 
-    it('la galería (picker de librería, no cámara) conserva su contrato combinado foto+video existente', async () => {
+    it('Android usa el photo picker del sistema sin solicitar READ_MEDIA_*', async () => {
         launchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: null });
         const { openGallery } = buildPicker();
 
         await openGallery();
 
+        expect(requestMediaLibraryPermissionsAsync).not.toHaveBeenCalled();
         expect(launchImageLibraryAsync).toHaveBeenCalledWith(
-            expect.objectContaining({ mediaTypes: 'All' })
+            expect.objectContaining({ mediaTypes: ['images', 'videos'] })
         );
     });
 });

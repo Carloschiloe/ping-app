@@ -3,40 +3,21 @@ import {
     View, Text, TextInput, FlatList, TouchableOpacity,
     ActivityIndicator, StyleSheet, Alert, Platform, Share, AppState
 } from 'react-native';
-import * as Contacts from 'expo-contacts';
+import {
+    Contact,
+    ContactField,
+    ContactsSortOrder,
+    getPermissionsAsync,
+    requestPermissionsAsync,
+} from 'expo-contacts';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { apiClient } from '../api/client';
+import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
 
-type RegisteredContact = {
-    id: string;
-    full_name?: string | null;
-    avatar_url?: string | null;
-    phone?: string | null;
-    email?: string | null;
-    contactProof: string;
-};
-
-type DeviceContact = {
-    id: string;
-    name: string;
-    phone?: string;
-    email?: string;
-    registered?: RegisteredContact;
-};
+type RegisteredContact = NonNullable<DeviceContact['registered']>;
 
 type ContactAccess = 'all' | 'limited' | 'none';
-
-function normalizePhone(raw: string): string | null {
-    const digits = raw.replace(/\D/g, '');
-    if (raw.trim().startsWith('+')) {
-        const value = `+${digits}`;
-        return /^\+[1-9]\d{7,14}$/.test(value) ? value : null;
-    }
-    if (digits.startsWith('56') && digits.length === 11) return `+${digits}`;
-    if (digits.length === 9) return `+56${digits}`;
-    return null;
-}
 
 const AVATAR_COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a'];
 function avatarColor(value: string) {
@@ -64,9 +45,9 @@ export default function NewChatScreen({ navigation }: any) {
         setPermissionDenied(false);
         setDiscoveryWarning(null);
         try {
-            let permission = await Contacts.getPermissionsAsync();
+            let permission = await getPermissionsAsync();
             if (permission.status !== 'granted' && permission.canAskAgain) {
-                permission = await Contacts.requestPermissionsAsync();
+                permission = await requestPermissionsAsync();
             }
             setCanAskForContacts(permission.canAskAgain);
             setContactAccess(
@@ -80,27 +61,11 @@ export default function NewChatScreen({ navigation }: any) {
                 return;
             }
 
-            const { data } = await Contacts.getContactsAsync({
-                fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Name],
-                sort: Contacts.SortTypes.FirstName,
-            });
-
-            const contacts: DeviceContact[] = [];
-            for (const contact of data || []) {
-                const phone = (contact.phoneNumbers || [])
-                    .map((entry) => entry.number ? normalizePhone(entry.number) : null)
-                    .find((value): value is string => !!value);
-                const email = (contact.emails || [])
-                    .map((entry) => entry.email?.trim().toLowerCase())
-                    .find((value): value is string => !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
-                if (!phone && !email) continue;
-                contacts.push({
-                    id: contact.id,
-                    name: contact.name?.trim() || phone || email || 'Contacto',
-                    phone,
-                    email,
-                });
-            }
+            const details = await Contact.getAllDetails(
+                [ContactField.FULL_NAME, ContactField.PHONES, ContactField.EMAILS],
+                { sortOrder: ContactsSortOrder.GivenName },
+            );
+            const contacts = mapDeviceContacts(details);
 
             if (contacts.length === 0) {
                 setDeviceContacts([]);
@@ -179,7 +144,11 @@ export default function NewChatScreen({ navigation }: any) {
     const selectLimitedContacts = async () => {
         setContactsLoading(true);
         try {
-            await Contacts.presentAccessPickerAsync();
+            if (Platform.OS !== 'ios' || isExpoGo) {
+                await Linking.openSettings();
+                return;
+            }
+            await Contact.presentAccessPicker();
             await loadContacts();
         } catch (error: any) {
             console.warn('[Contacts] Limited access picker failed', {
