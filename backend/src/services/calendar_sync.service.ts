@@ -7,6 +7,45 @@ import { assertLegacySatelliteWriterEnabled } from '../middleware/featureGate';
 const { encryptionKey } = getEnvConfig();
 const IV_LENGTH = 16;
 
+export interface CalendarCommitmentSyncMetadata {
+    synced_to: string;
+    cloud_event_id: string;
+    external_event_url: string;
+    conflict_detected?: boolean;
+    sync_status: 'synced';
+    last_sync_at: string;
+}
+
+/**
+ * LEGACY SATELLITE WRITER — migrate in future slice.
+ *
+ * Calendar metadata is not part of the Commitment lifecycle. Until the
+ * external-link sidecar/RPC exists, keep this exceptional write in one
+ * location, behind the same runtime containment gate as the Calendar routes.
+ */
+export const persistCalendarCommitmentSync = async (
+    commitmentId: string,
+    existingMeta: Record<string, any> | null | undefined,
+    syncMetadata: CalendarCommitmentSyncMetadata,
+) => {
+    assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar');
+
+    const { data, error } = await supabaseAdmin
+        .from('commitments')
+        .update({
+            meta: {
+                ...(existingMeta || {}),
+                ...syncMetadata,
+            },
+        })
+        .eq('id', commitmentId)
+        .select('id, meta')
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
 function encrypt(text: string): string {
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv);
@@ -264,21 +303,21 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
                 eventUrl = result.webLink;
             }
 
-            // 4. Update commitment meta
-            await supabaseAdmin
-                .from('commitments')
-                .update({
-                    meta: {
-                        ...commitment.meta,
-                        synced_to: provider,
-                        cloud_event_id: result.id,
-                        external_event_url: eventUrl,
-                        conflict_detected: hasConflict,
-                        sync_status: 'synced',
-                        last_sync_at: new Date().toISOString()
-                    }
-                })
-                .eq('id', commitment.id);
+            // 4. Calendar remains a temporarily allowlisted satellite writer;
+            // centralize its metadata write so manual and automatic syncs use
+            // exactly the same guarded boundary.
+            await persistCalendarCommitmentSync(
+                commitment.id,
+                commitment.meta,
+                {
+                    synced_to: provider,
+                    cloud_event_id: result.id,
+                    external_event_url: eventUrl,
+                    conflict_detected: hasConflict,
+                    sync_status: 'synced',
+                    last_sync_at: new Date().toISOString(),
+                },
+            );
 
             results.push({ provider, hasConflict, eventUrl });
         }

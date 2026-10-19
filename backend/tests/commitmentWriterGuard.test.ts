@@ -9,7 +9,6 @@ const REPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const LEGACY_WRITER_REASON = 'LEGACY SATELLITE WRITER — migrate in future slice';
 
 const ALLOWED_SOURCE_WRITERS = new Map<string, string>([
-    ['controllers/calendar.controller.ts:update', LEGACY_WRITER_REASON],
     ['services/calendar_sync.service.ts:update', LEGACY_WRITER_REASON],
 ]);
 
@@ -111,5 +110,21 @@ describe('C-2 canonical Commitment writer guard', () => {
         );
         expect(operation).toContain("from './commitmentApplication.service'");
         expect(operation).not.toMatch(/\.from\(['"]commitments['"]\)\s*\.update\s*\(/);
+    });
+
+    it('centralizes the Calendar legacy writer behind one guarded service boundary', () => {
+        const controller = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'controllers', 'calendar.controller.ts'),
+            'utf8'
+        );
+        const calendarService = fs.readFileSync(
+            path.join(SOURCE_ROOT, 'services', 'calendar_sync.service.ts'),
+            'utf8'
+        );
+
+        expect(controller).toContain('calendarService.persistCalendarCommitmentSync');
+        expect(controller).not.toMatch(/\.from\(['"]commitments['"]\)\s*\.update\s*\(/);
+        expect(calendarService).toContain('LEGACY SATELLITE WRITER — migrate in future slice');
+        expect(calendarService).toContain("assertLegacySatelliteWriterEnabled('ENABLE_CALENDAR_INTEGRATION', 'Calendar')");
     });
 });

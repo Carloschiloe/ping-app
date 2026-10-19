@@ -196,20 +196,19 @@ export const syncCommitment = async (req: Request, res: Response) => {
             eventUrl = result.webLink;
         }
 
-        // 4. Update commitment with sync info
-        await supabaseAdmin
-            .from('commitments')
-            .update({
-                meta: {
-                    ...commitment.meta,
-                    synced_to: provider,
-                    cloud_event_id: result.id,
-                    external_event_url: eventUrl,
-                    sync_status: 'synced',
-                    last_sync_at: new Date().toISOString()
-                }
-            })
-            .eq('id', commitmentId);
+        // 4. Calendar metadata is kept behind the single guarded legacy
+        // satellite writer shared with automatic synchronization.
+        await calendarService.persistCalendarCommitmentSync(
+            commitmentId,
+            commitment.meta,
+            {
+                synced_to: provider,
+                cloud_event_id: result.id,
+                external_event_url: eventUrl,
+                sync_status: 'synced',
+                last_sync_at: new Date().toISOString(),
+            },
+        );
 
         res.json({ ok: true, result });
     } catch (error: any) {

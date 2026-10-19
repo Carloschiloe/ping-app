@@ -92,3 +92,56 @@ majors incompatibles, regenerando el lockfile sin revisión, o ejecutando
 - `npm run lint`: correcto, 0 errores y 174 warnings preexistentes.
 - `npm ls --omit=dev`: árbol consistente; las ramas `ws` 7.x quedan limitadas
   a Metro/dev middleware/DevTools y Expo/Supabase mantienen `ws` 8.x.
+
+## Auditoría complementaria: Expo Go y SDK 57 (2026-10-19)
+
+La configuración instalada queda alineada con Expo SDK 57:
+
+- `expo` resuelve `57.0.20` y `react-native` `0.86.3`.
+- `expo config --type public` resuelve `sdkVersion: 57.0.0`, producción con
+  `scheme: ping`, paquete Android `com.carloschiloe.ping` y el runtime versionado
+  por `appVersion`.
+- `npx expo install --check` no encontró desalineaciones usando el mapa local de
+  módulos nativos de Expo SDK 57. La validación se ejecutó sin red; el resultado
+  debe repetirse online cuando el entorno tenga acceso al registro.
+- La suite móvil quedó en 52 archivos y 848 tests correctos; TypeScript no
+  reportó errores y ESLint terminó con 0 errores y 174 warnings preexistentes.
+
+### Qué sí funciona en Expo Go
+
+Los módulos Expo usados por la app (`expo-audio`, `expo-camera`, contactos,
+filesystem, notificaciones, router, sharing, video y los demás módulos SDK 57),
+además de las librerías comunitarias incluidas por Expo Go (datetimepicker,
+NetInfo, gesture-handler, reanimated, safe-area-context, screens y webview),
+están en la línea compatible con SDK 57. El código actual tampoco importa
+`react-native-agora`.
+
+### Qué no debe probarse con Expo Go
+
+- `react-native-agora@4.6.2` incluye Android/iOS nativos y requiere un
+  development build o una build de distribución si se vuelve a importar.
+  Está instalado, pero hoy no tiene imports en `mobile/src`, `App.tsx`,
+  `components`, `hooks` ni `app`.
+- Las notificaciones push remotas no son una prueba válida en Expo Go desde
+  SDK 53; deben verificarse en una development build o en la build de
+  producción. Las notificaciones locales sí son compatibles.
+- Expo Go no representa el nombre, icono, esquema, permisos finales ni otros
+  cambios nativos de `app.config.ts`. Es válido para validar JavaScript y APIs
+  incluidas, no para certificar el binario final.
+
+### Recomendación
+
+No se recomienda ningún upgrade mayor ni override adicional en este bloque. La
+línea SDK 57/RN 0.86 está coherente y las alertas restantes documentadas por
+`npm audit` requieren una actualización coordinada de Expo, Router, React
+Native/Reanimated/Worklets y, posteriormente, NativeWind/Tailwind. No debe
+ejecutarse `npm audit fix --force`.
+
+La mejora incremental segura pendiente es de higiene: confirmar en una tarea
+separada si `react-native-agora` debe eliminarse del `package.json` y lockfile,
+porque hoy no tiene consumidor en la app. No se elimina durante esta auditoría
+para no alterar el alcance funcional de llamadas sin una decisión explícita.
+
+La ejecución online de `npm audit` y `npx expo-doctor` no fue posible en este
+entorno porque el DNS no pudo resolver `registry.npmjs.org`; no se interpreta
+esa limitación como una ausencia de vulnerabilidades nuevas.
