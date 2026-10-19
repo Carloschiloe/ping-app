@@ -46,3 +46,15 @@ describe('GET /config — canonical app configuration', () => {
         expect(response.status).toBe(200);
     });
 });
+
+describe('GET /invite — public Ping invitation landing page', () => {
+    it('returns a clickable HTTPS landing page that opens Ping, not a development runtime', async () => {
+        const response = await fetch(`${baseUrl}/invite`);
+        const body = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('text/html');
+        expect(body).toContain('href="ping:///invite"');
+        expect(body).not.toContain('Expo Go');
+    });
+});
