@@ -64,8 +64,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Ping accede a tus fotos o videos solo cuando eliges compartirlos.",
-          "cameraPermission": "Ping accede a tu cámara solo cuando eliges tomar una foto o grabar un video.",
-          "microphonePermission": false
+          "cameraPermission": "Ping accede a tu cámara solo cuando eliges tomar una foto o grabar un video."
         }
       ],
       [

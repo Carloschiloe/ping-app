@@ -56,8 +56,11 @@ describe('contacts/media picker — SDK 57 API and least-privilege build contrac
 
         expect(imagePicker).toEqual([
             'expo-image-picker',
-            expect.objectContaining({ microphonePermission: false }),
+            expect.objectContaining({
+                cameraPermission: expect.any(String),
+            }),
         ]);
+        expect(imagePicker?.[1]).not.toHaveProperty('microphonePermission', false);
         expect(config.android?.permissions).toEqual(expect.arrayContaining([
             'android.permission.RECORD_AUDIO',
             'android.permission.MODIFY_AUDIO_SETTINGS',
