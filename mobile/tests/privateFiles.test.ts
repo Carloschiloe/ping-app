@@ -44,6 +44,7 @@ import { apiClient } from '../src/api/client';
 import {
     clearPrivateFileReadCache,
     getPrivateFileRefreshDelay,
+    isRetryablePrivateFileReadError,
     requestPrivateFileUploadUrl,
     resolveAttachmentUrl,
     resolvePrivateFileUrl,
@@ -93,6 +94,15 @@ describe('private file mobile preparation', () => {
 
         expect(apiClient.post).toHaveBeenCalledTimes(1);
         expect(getPrivateFileRefreshDelay(60)).toBe(50_000);
+    });
+
+    it('no reintenta indefinidamente fallos permanentes de lectura firmada', () => {
+        expect(isRetryablePrivateFileReadError({ status: 403 })).toBe(false);
+        expect(isRetryablePrivateFileReadError({ status: 404 })).toBe(false);
+        expect(isRetryablePrivateFileReadError({ status: 408 })).toBe(true);
+        expect(isRetryablePrivateFileReadError({ status: 429 })).toBe(true);
+        expect(isRetryablePrivateFileReadError({ status: 503 })).toBe(true);
+        expect(isRetryablePrivateFileReadError(new Error('Network request failed'))).toBe(true);
     });
 
     it('mantiene las subidas cerradas y no solicita una firma al backend', async () => {

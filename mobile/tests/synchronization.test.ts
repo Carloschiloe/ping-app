@@ -89,6 +89,80 @@ describe('basic message synchronization', () => {
         expect(serialized).not.toContain('must-not-persist');
     });
 
+    it('preserva la ubicación necesaria para un mensaje offline sin aceptar campos arbitrarios', () => {
+        const now = Date.parse('2026-07-28T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-location',
+            conversationId: 'conversation-1',
+            text: '[location] Providencia',
+            meta: {
+                messageType: 'location_share',
+                location: {
+                    latitude: -33.4569,
+                    longitude: -70.6483,
+                    label: 'Providencia, Santiago',
+                    address: 'Santiago, Chile',
+                    accessToken: 'must-not-persist',
+                },
+                accessToken: 'must-not-persist',
+            },
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+        }], now);
+
+        expect(JSON.parse(serialized)[0].meta).toEqual({
+            messageType: 'location_share',
+            location: {
+                latitude: -33.4569,
+                longitude: -70.6483,
+                label: 'Providencia, Santiago',
+                address: 'Santiago, Chile',
+            },
+        });
+        expect(serialized).not.toContain('must-not-persist');
+    });
+
+    it('descarta ubicaciones offline con coordenadas inválidas', () => {
+        const now = Date.parse('2026-07-28T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-invalid-location',
+            conversationId: 'conversation-1',
+            text: '[location] inválida',
+            meta: {
+                messageType: 'location_share',
+                location: { latitude: 999, longitude: -70 },
+            },
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+        }], now);
+
+        expect(JSON.parse(serialized)[0].meta).toBeUndefined();
+    });
+
+    it('descarta el mensaje completo si el adjunto offline no tiene identidad materializada', () => {
+        const now = Date.parse('2026-07-28T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-incomplete-attachment',
+            conversationId: 'conversation-1',
+            text: 'Documento importante',
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+            attachment: {
+                mimeType: 'application/pdf',
+                fileName: 'important.pdf',
+                mediaUri: 'file:///private/source.pdf',
+            },
+        }], now);
+
+        expect(JSON.parse(serialized)).toEqual([]);
+    });
+
     it('removes expired entries and enforces the item retention limit', () => {
         const now = Date.parse('2026-07-28T12:00:00.000Z');
         const items = Array.from({ length: OFFLINE_QUEUE_MAX_ITEMS + 5 }, (_, index) => ({

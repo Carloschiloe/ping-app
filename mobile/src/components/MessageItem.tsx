@@ -11,7 +11,12 @@ import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { useAppTheme } from '../theme/ThemeContext';
 import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveReactionEmoji } from '../utils/messageCompat';
-import { getPrivateFileRefreshDelay, resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
+import {
+    getPrivateFileRefreshDelay,
+    isRetryablePrivateFileReadError,
+    resolveAttachmentUrl,
+    resolvePrivateFileUrl,
+} from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
 import { latLngToOsmTile } from '../utils/mapTiles';
 import {
@@ -108,8 +113,10 @@ const MessageItemComponent = ({
     const { theme } = useAppTheme();
     const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
-    const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying'>('idle');
+    const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying' | 'unavailable'>('idle');
     const privateMediaUrlRef = React.useRef<string | null>(null);
+    const privateMediaRetryCountRef = React.useRef(0);
+    const MAX_PRIVATE_MEDIA_RETRIES = 3;
     // Message deletion and attachment liveness are checked independently —
     // see messageCompat.ts's isMessageTombstoned/hasLiveAttachment doc
     // comments. isTombstoned derives ONLY from the canonical message's own
@@ -143,6 +150,7 @@ const MessageItemComponent = ({
         }
 
         privateMediaUrlRef.current = null;
+        privateMediaRetryCountRef.current = 0;
         setPrivateMediaUrl(null);
         setPrivateMediaState('loading');
 
@@ -156,14 +164,28 @@ const MessageItemComponent = ({
                 privateMediaUrlRef.current = access.signedUrl;
                 setPrivateMediaUrl(access.signedUrl);
                 setPrivateMediaState('ready');
+                privateMediaRetryCountRef.current = 0;
                 refreshTimer = setTimeout(
                     () => loadSignedUrl(true),
                     getPrivateFileRefreshDelay(access.expiresIn)
                 );
-            } catch {
+            } catch (error) {
                 if (!active) return;
+                const retryCount = privateMediaRetryCountRef.current;
+                const shouldRetry = isRetryablePrivateFileReadError(error)
+                    && retryCount < MAX_PRIVATE_MEDIA_RETRIES;
+                if (!shouldRetry) {
+                    privateMediaUrlRef.current = null;
+                    setPrivateMediaUrl(null);
+                    setPrivateMediaState('unavailable');
+                    return;
+                }
+                privateMediaRetryCountRef.current += 1;
                 setPrivateMediaState(privateMediaUrlRef.current ? 'ready' : 'retrying');
-                retryTimer = setTimeout(() => loadSignedUrl(true), 3_000);
+                retryTimer = setTimeout(
+                    () => loadSignedUrl(true),
+                    Math.min(15_000, 3_000 * (2 ** retryCount)),
+                );
             }
         };
 
@@ -481,7 +503,18 @@ const MessageItemComponent = ({
                             </Text>
                         )}
 
-                        {hasPrivateAttachment && !mediaUrl ? (
+                        {hasPrivateAttachment && !mediaUrl && privateMediaState === 'unavailable' ? (
+                            <View style={styles.privateMediaLoading}>
+                                <Ionicons
+                                    name="alert-circle-outline"
+                                    size={18}
+                                    color={theme.colors.text.secondary}
+                                />
+                                <Text style={styles.privateMediaLoadingText}>
+                                    Archivo no disponible
+                                </Text>
+                            </View>
+                        ) : hasPrivateAttachment && !mediaUrl ? (
                             <View style={styles.privateMediaLoading}>
                                 <ActivityIndicator size="small" color={theme.colors.accent} />
                                 <Ionicons
