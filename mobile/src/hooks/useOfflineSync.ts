@@ -3,6 +3,7 @@ import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     OFFLINE_QUEUE_KEY,
+    OfflineAttachment,
     PendingSyncState,
     sanitizePendingQueue,
     serializePendingQueue,
@@ -16,14 +17,7 @@ export interface PendingMessage {
     text: string;
     mediaUri?: string | null;
     mediaType?: 'image' | 'audio' | 'video' | 'document';
-    attachment?: {
-        attachmentId?: string;
-        bucket?: 'chat-media';
-        objectPath?: string;
-        mimeType: string;
-        fileName: string;
-        durationMs?: number;
-    } | null;
+    attachment?: OfflineAttachment | null;
     meta?: any;
     replyToId?: string | null;
     mentionedUserId?: string | null;

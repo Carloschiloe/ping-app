@@ -412,6 +412,31 @@ describe('useMediaPicker — LocalMediaDraft canónico: cámara y galería alime
         warnSpy.mockRestore();
     });
 
+    it('un fallo de conectividad conserva el adjunto local como pendiente para la cola offline', async () => {
+        uploadPrivateMessageAttachment.mockRejectedValue(new Error('Network request failed'));
+        const { sendMediaDraft } = buildPicker();
+        const draft: LocalMediaDraft = {
+            uri: 'content://media/external/video/media/123',
+            kind: 'video',
+            mimeType: 'video/mp4',
+            fileName: 'offline.mp4',
+        };
+
+        await sendMediaDraft(draft);
+
+        expect(onMediaSent).toHaveBeenCalledWith({
+            text: 'Video',
+            attachment: {
+                localUri: 'content://media/external/video/media/123',
+                uploadState: 'pending_local',
+                mimeType: 'video/mp4',
+                fileName: 'offline.mp4',
+            },
+        });
+        const { Alert } = await import('react-native');
+        expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
     it('imagen: el flujo directo (sin draft) permanece verde tras introducir el draft de video', async () => {
         launchCameraAsync.mockResolvedValue({
             canceled: false,

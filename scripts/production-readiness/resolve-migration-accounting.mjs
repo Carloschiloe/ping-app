@@ -204,6 +204,24 @@ const decisions = {
     reason: 'Revokes authenticator execution for the private routing RPC; requires exact function signature and grant inventory.',
     requiresLiveSchema: true,
     dataRisk: 'high'
+  },
+  '20261012235001_production_legacy_compatibility_and_api_hardening.sql': {
+    status: 'SAFE_FORWARD_AFTER_BRIDGE',
+    reason: 'Additive compatibility and authenticated-only API hardening for the preserved production schema; requires the bridge precheck to verify legacy columns, policies, grants and row-shape compatibility before execution.',
+    requiresLiveSchema: true,
+    dataRisk: 'high'
+  },
+  '20261014010000_agent_conversation_turns.sql': {
+    status: 'SAFE_FORWARD_AFTER_BRIDGE',
+    reason: 'Adds a service-role-only, idempotent durable Agent conversation event boundary; requires verified conversations/participants/profiles contracts and service-role grant checks before execution.',
+    requiresLiveSchema: true,
+    dataRisk: 'high'
+  },
+  '20261018010000_atomic_memory_ingestion.sql': {
+    status: 'SAFE_FORWARD_AFTER_BRIDGE',
+    reason: 'Adds service-role-only transactional Memory row/evidence/cache RPCs; requires memory_records and memory_record_evidence schema, ownership, grants and rollback behavior to pass the live precheck before deploying the matching runtime.',
+    requiresLiveSchema: true,
+    dataRisk: 'high'
   }
 };
 

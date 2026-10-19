@@ -22,7 +22,9 @@ export type PrivateFileUploadAccess = {
 };
 
 export type PrivateMessageAttachment = {
-    attachmentId: string;
+    attachmentId?: string;
+    localUri?: string;
+    uploadState?: 'pending_local' | 'unavailable';
     mimeType: string;
     fileName: string;
     durationMs?: number;
@@ -231,6 +233,7 @@ export async function uploadPrivateMessageAttachment(
     mimeType: string,
     fileName: string,
     durationMs?: number,
+    clientUploadId?: string,
 ): Promise<PrivateMessageAttachment> {
     const intent: MessageAttachmentUploadIntent = await apiClient.post(
         '/attachments/upload-intents',
@@ -238,7 +241,7 @@ export async function uploadPrivateMessageAttachment(
             conversationId,
             mimeType,
             originalFilename: fileName,
-            clientUploadId: createClientMessageId(),
+            clientUploadId: clientUploadId || createClientMessageId(),
             durationMs,
         }
     );

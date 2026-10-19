@@ -11,6 +11,7 @@ import {
 import { useOfflineSync, PendingMessage } from './useOfflineSync';
 import { classifySendFailure, createClientMessageId, isNetworkFailure, SyncResult } from '../utils/synchronization';
 import { apiClient, ApiError } from '../api/client';
+import { uploadPrivateMessageAttachment } from '../lib/privateFiles';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
 import { getDeviceTimeZone } from '../utils/timeZone';
@@ -21,14 +22,33 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     // Sync Sender: tries to send a queued message via API
     const syncSender = useCallback(async (msg: PendingMessage) => {
         try {
+            if (msg.attachment?.uploadState === 'unavailable') {
+                return {
+                    state: 'rejected',
+                    error: msg.lastError || 'El adjunto no quedó disponible para reintentar el envío.',
+                } as SyncResult;
+            }
+
+            let attachment = msg.attachment;
+            if (attachment?.localUri) {
+                attachment = await uploadPrivateMessageAttachment(
+                    msg.conversationId || '',
+                    attachment.localUri,
+                    attachment.mimeType,
+                    attachment.fileName,
+                    attachment.durationMs,
+                    msg.clientMessageId,
+                );
+            }
+
             await apiClient.post(`/conversations/${msg.conversationId}/messages`, {
                 text: msg.text,
                 meta: msg.meta,
                 reply_to_id: msg.replyToId,
                 mentioned_user_id: msg.mentionedUserId,
                 client_message_id: msg.clientMessageId,
-                attachmentId: msg.attachment?.attachmentId,
-                attachment: msg.attachment?.attachmentId ? undefined : msg.attachment,
+                attachmentId: attachment?.attachmentId,
+                attachment: attachment?.attachmentId ? undefined : attachment,
             });
             return { state: 'confirmed' } as SyncResult;
         } catch (error) {
@@ -84,7 +104,14 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                         originalFilename: q.attachment.fileName,
                         durationMs: q.attachment.durationMs,
                         lifecycleStatus: 'uploaded',
-                    } : null,
+                    } : {
+                        mimeType: q.attachment.mimeType,
+                        originalFilename: q.attachment.fileName,
+                        durationMs: q.attachment.durationMs,
+                        lifecycleStatus: q.attachment.uploadState === 'unavailable'
+                            ? 'unavailable'
+                            : 'pending',
+                    },
                     media_bucket: q.attachment.bucket,
                     media_object_path: q.attachment.objectPath,
                     metadata: {
@@ -94,6 +121,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                             mimeType: q.attachment.mimeType,
                             fileName: q.attachment.fileName,
                             durationMs: q.attachment.durationMs,
+                            uploadState: q.attachment.uploadState,
                         },
                     },
                 } : {}),
@@ -118,6 +146,26 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                 clientTimeZone: getDeviceTimeZone(),
             },
         };
+
+        // A locally selected attachment has no server identity yet. Never
+        // send its URI as message content or let the generic mutation turn it
+        // into a text-only message: persist it in the offline queue and let
+        // syncSender upload it before creating the server message.
+        if (dataWithTemporalContext.attachment?.localUri) {
+            addToQueue({
+                id: `offline-${Date.now()}`,
+                conversationId,
+                userId: user?.id,
+                text: data.text,
+                meta: dataWithTemporalContext.meta,
+                replyToId: data.reply_to_id,
+                mentionedUserId: data.mentioned_user_id,
+                attachment: dataWithTemporalContext.attachment,
+                clientMessageId,
+            });
+            return;
+        }
+
         mutateSend(dataWithTemporalContext, {
             onError: (err: any) => {
                 const errorMessage = err?.message || '';
@@ -317,7 +365,9 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     return {
         messages,
         isLoading,
-        isSending: isSendingMutation || queue.some(q => q.conversationId === conversationId),
+        isSending: isSendingMutation || queue.some(q =>
+            q.conversationId === conversationId && q.state !== 'rejected'
+        ),
         isConnected, 
         fetchNextPage,
         hasNextPage,

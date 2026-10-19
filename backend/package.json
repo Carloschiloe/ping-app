@@ -26,7 +26,7 @@
     "test:m4-agent:local-e2e": "node scripts/e2e-agent-m4-local.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "cleanup:expired-attachments": "node dist/scripts/cleanup-expired-message-attachments.js"
+    "attachments:audit-expired": "node dist/scripts/audit-expired-message-attachments.js"
   },
   "keywords": [],
   "author": "",

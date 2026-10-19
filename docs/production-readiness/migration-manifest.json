@@ -1,7 +1,7 @@
 {
   "schemaSource": "supabase/migrations",
   "generatedFrom": "ac7d72af5dfd4a9744a356eca6539bab75609b22",
-  "migrationCount": 34,
+  "migrationCount": 36,
   "policy": "classification is conservative; live applicability requires read-only schema and migration-history evidence",
   "migrations": [
     {
@@ -338,6 +338,26 @@
         "requires live-schema/RLS/function review",
         "data backfill/update requires row-count and rollback review",
         "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20261014010000_agent_conversation_turns.sql",
+      "timestamp": "20261014010000",
+      "sha256": "877303499c77761753ed65d1691400948c49c901ca0cddfd4dd719f26b42c16e",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "creates executable/database objects"
+      ]
+    },
+    {
+      "file": "20261018010000_atomic_memory_ingestion.sql",
+      "timestamp": "20261018010000",
+      "sha256": "1440f428852ae973170aab8172c2f52c7c533d93a473775c7af2e50e02100257",
+      "classification": "REQUIRES_REVIEW",
+      "reasons": [
+        "requires live-schema/RLS/function review",
+        "data backfill/update requires row-count and rollback review"
       ]
     }
   ]

@@ -5,7 +5,7 @@ import test from 'node:test';
 const bridgePath = 'supabase/production-reconciliation/20261009_production_legacy_to_rc_bridge.sql';
 const precheckPath = 'supabase/production-reconciliation/production-bridge-precheck.sql';
 const postcheckPath = 'supabase/production-reconciliation/production-bridge-postcheck.sql';
-const compatibilityMigrationPath = 'supabase/migrations/20261012010000_production_legacy_compatibility_and_api_hardening.sql';
+const compatibilityMigrationPath = 'supabase/migrations/20261012235001_production_legacy_compatibility_and_api_hardening.sql';
 const stripComments = (value) => value.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*--.*$/gm, '');
 
 test('bridge is outside migration chain and carries explicit gates', async () => {

@@ -7,6 +7,7 @@ import {
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
 import { getAppConfig } from '../lib/appConfig';
+import { isNetworkFailure } from '../utils/synchronization';
 
 // Safety ceiling only — NOT the expected wait. keyboardDidHide (below) is
 // the real, proven completion signal RN's own Keyboard module fires when
@@ -138,6 +139,27 @@ function logMediaSendFailure(error: unknown) {
     console.warn('[MediaPicker] Private upload failed', { message });
 }
 
+function isRetryableMediaUploadFailure(error: unknown): boolean {
+    const status = error && typeof error === 'object' && 'status' in error
+        ? (error as { status?: unknown }).status
+        : undefined;
+    return (typeof status === 'number' && (status === 408 || status === 429 || status >= 500))
+        || isNetworkFailure(error instanceof Error ? error.message : String(error));
+}
+
+function buildPendingLocalAttachment(
+    uri: string,
+    mimeType: string,
+    fileName: string,
+): PrivateMessageAttachment {
+    return {
+        localUri: uri,
+        uploadState: 'pending_local',
+        mimeType,
+        fileName,
+    };
+}
+
 function buildDraftFromAsset(asset: any): LocalMediaDraft {
     const isVideo = isVideoAsset(asset);
     return {
@@ -198,9 +220,10 @@ export function useMediaPicker({
 
     const uploadAndSendMedia = async (asset: any) => {
         setSendingMedia(true);
+        const mediaText = isVideoAsset(asset) ? 'Video' : 'Imagen';
+        let prepared: { uri: string; mimeType: string; fileName: string } | undefined;
         try {
-            const isVideo = isVideoAsset(asset);
-            const prepared = isVideo
+            prepared = isVideoAsset(asset)
                 ? {
                     uri: asset.uri,
                     mimeType: asset.mimeType || 'video/mp4',
@@ -214,7 +237,7 @@ export function useMediaPicker({
                 prepared.fileName
             );
             onMediaSent({
-                text: isVideo ? 'Video' : 'Imagen',
+                text: mediaText,
                 attachment,
             });
         } catch (error) {
@@ -226,6 +249,17 @@ export function useMediaPicker({
             // sees the safe domain-facing message below — the real internal
             // message is not something a user can act on.
             logMediaSendFailure(error);
+            if (prepared && isRetryableMediaUploadFailure(error)) {
+                onMediaSent({
+                    text: mediaText,
+                    attachment: buildPendingLocalAttachment(
+                        prepared.uri,
+                        prepared.mimeType,
+                        prepared.fileName,
+                    ),
+                });
+                return;
+            }
             Alert.alert('No se pudo enviar', MEDIA_SEND_FAILURE_MESSAGE);
         } finally {
             setSendingMedia(false);
@@ -251,6 +285,17 @@ export function useMediaPicker({
             });
         } catch (error) {
             logMediaSendFailure(error);
+            if (isRetryableMediaUploadFailure(error)) {
+                onMediaSent({
+                    text: draft.kind === 'video' ? 'Video' : 'Imagen',
+                    attachment: buildPendingLocalAttachment(
+                        draft.uri,
+                        draft.mimeType,
+                        draft.fileName,
+                    ),
+                });
+                return;
+            }
             Alert.alert('No se pudo enviar', MEDIA_SEND_FAILURE_MESSAGE);
         } finally {
             setSendingMedia(false);
@@ -258,6 +303,7 @@ export function useMediaPicker({
     };
 
     const openDocumentPicker = async () => {
+        let prepared: { uri: string; mimeType: string; fileName: string } | undefined;
         try {
             await dismissComposerKeyboard(isComposerFocused, blurComposer);
             const result = await DocumentPicker.getDocumentAsync({
@@ -273,7 +319,7 @@ export function useMediaPicker({
                 return;
             }
             setSendingMedia(true);
-            const prepared = asset.mimeType?.startsWith('image/')
+            prepared = asset.mimeType?.startsWith('image/')
                 ? await prepareImage(asset)
                 : {
                     uri: asset.uri,
@@ -290,6 +336,18 @@ export function useMediaPicker({
             setSendingMedia(false);
         } catch (err) {
             setSendingMedia(false);
+            if (prepared && isRetryableMediaUploadFailure(err)) {
+                logMediaSendFailure(err);
+                onMediaSent({
+                    text: prepared.fileName,
+                    attachment: buildPendingLocalAttachment(
+                        prepared.uri,
+                        prepared.mimeType,
+                        prepared.fileName,
+                    ),
+                });
+                return;
+            }
             console.error('[MediaPicker] Document selection failed', err);
             Alert.alert('Error', 'Hubo un problema al seleccionar el documento.');
         }

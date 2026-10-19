@@ -12,6 +12,7 @@ import {
     uploadPrivateMessageAttachment,
 } from '../lib/privateFiles';
 import { resolveRecordingDurationMs } from '../utils/audioRecording';
+import { isNetworkFailure } from '../utils/synchronization';
 
 interface UseAudioRecorderProps {
     conversationId: string;
@@ -113,16 +114,17 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
     const uploadAudio = async () => {
         if (!recordingUri) return;
         setSendingMedia(true);
+        const durationMs = resolveRecordingDurationMs(
+            recordingDurationRef.current,
+            recordingDurationMs,
+        );
+        const fileName = `audio-${Date.now()}.m4a`;
         try {
-            const durationMs = resolveRecordingDurationMs(
-                recordingDurationRef.current,
-                recordingDurationMs,
-            );
             const attachment = await uploadPrivateMessageAttachment(
                 conversationId,
                 recordingUri,
                 'audio/m4a',
-                `audio-${Date.now()}.m4a`,
+                fileName,
                 durationMs,
             );
             onAudioSent({ text: 'Audio', attachment });
@@ -133,6 +135,28 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             console.warn('[Audio] Private upload failed', {
                 message: e instanceof Error ? e.message : 'unknown',
             });
+            const status = e && typeof e === 'object' && 'status' in e
+                ? (e as { status?: unknown }).status
+                : undefined;
+            const retryable = (typeof status === 'number'
+                && (status === 408 || status === 429 || status >= 500))
+                || isNetworkFailure(e instanceof Error ? e.message : String(e));
+            if (retryable) {
+                onAudioSent({
+                    text: 'Audio',
+                    attachment: {
+                        localUri: recordingUri,
+                        uploadState: 'pending_local',
+                        mimeType: 'audio/m4a',
+                        fileName,
+                        durationMs,
+                    },
+                });
+                setRecordingUri(null);
+                recordingDurationRef.current = 0;
+                setRecordingDurationMs(0);
+                return;
+            }
             Alert.alert('No se pudo enviar', 'El audio no se subió. Inténtalo nuevamente.');
         } finally {
             setSendingMedia(false);

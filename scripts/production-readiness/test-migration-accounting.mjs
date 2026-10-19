@@ -11,8 +11,8 @@ test('all RC migrations have one explicit reconciliation disposition', async () 
   const exitCode = await new Promise((resolve) => child.on('close', resolve));
   assert.equal(exitCode, 0, stderr || stdout);
   const result = JSON.parse(stdout);
-  assert.equal(result.migrationCount, 33);
-  assert.equal(result.entries.length, 33);
+  assert.equal(result.migrationCount, 36);
+  assert.equal(result.entries.length, 36);
   assert.equal(result.unknownCount, 0);
   assert.equal(result.readyAfterBackupAndPrecheck, true);
   assert.equal(result.snapshot, 'docs/production-readiness/production-snapshot-20261010.json');
@@ -20,6 +20,6 @@ test('all RC migrations have one explicit reconciliation disposition', async () 
   assert.equal(result.safeToApply, false);
   assert.equal(result.counts.EXPLICITLY_BLOCKED_WITH_PROVEN_REASON, 1);
   assert.equal(result.counts.HANDLED_BY_BRIDGE, 2);
-  assert.equal(result.counts.SAFE_FORWARD_AFTER_BRIDGE, 29);
+  assert.equal(result.counts.SAFE_FORWARD_AFTER_BRIDGE, 32);
   assert.equal(result.counts.HISTORY_ONLY_AFTER_VERIFICATION, 1);
 });

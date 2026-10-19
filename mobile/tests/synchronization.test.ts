@@ -143,7 +143,7 @@ describe('basic message synchronization', () => {
         expect(JSON.parse(serialized)[0].meta).toBeUndefined();
     });
 
-    it('descarta el mensaje completo si el adjunto offline no tiene identidad materializada', () => {
+    it('conserva un adjunto local offline para reintentar la subida sin convertirlo en texto', () => {
         const now = Date.parse('2026-07-28T12:00:00.000Z');
         const serialized = serializePendingQueue([{
             id: 'offline-incomplete-attachment',
@@ -156,11 +156,50 @@ describe('basic message synchronization', () => {
             attachment: {
                 mimeType: 'application/pdf',
                 fileName: 'important.pdf',
-                mediaUri: 'file:///private/source.pdf',
+                localUri: 'file:///private/source.pdf',
             },
         }], now);
 
-        expect(JSON.parse(serialized)).toEqual([]);
+        expect(JSON.parse(serialized)).toEqual([expect.objectContaining({
+            state: 'pending',
+            text: 'Documento importante',
+            attachment: {
+                localUri: 'file:///private/source.pdf',
+                uploadState: 'pending_local',
+                mimeType: 'application/pdf',
+                fileName: 'important.pdf',
+            },
+        })]);
+    });
+
+    it('mantiene visible como rechazado un adjunto irrecuperable en vez de perder el mensaje', () => {
+        const now = Date.parse('2026-07-28T12:00:00.000Z');
+        const serialized = serializePendingQueue([{
+            id: 'offline-unavailable-attachment',
+            conversationId: 'conversation-1',
+            text: 'No perder este mensaje',
+            retryCount: 0,
+            createdAt: new Date(now).toISOString(),
+            clientMessageId: createClientMessageId(),
+            state: 'pending',
+            attachment: {
+                mimeType: 'application/pdf',
+                fileName: 'important.pdf',
+                localUri: 'https://signed.invalid/file?token=secret',
+            },
+        }], now);
+
+        const parsed = JSON.parse(serialized);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].state).toBe('rejected');
+        expect(parsed[0].lastError).toContain('no quedó disponible');
+        expect(parsed[0].attachment).toEqual({
+            uploadState: 'unavailable',
+            mimeType: 'application/pdf',
+            fileName: 'important.pdf',
+        });
+        expect(serialized).not.toContain('signed.invalid');
+        expect(serialized).not.toContain('secret');
     });
 
     it('removes expired entries and enforces the item retention limit', () => {

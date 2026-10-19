@@ -5,6 +5,17 @@ export type SyncResult =
     | { state: 'result_unknown'; error: string }
     | { state: 'rejected'; error: string };
 
+export type OfflineAttachment = {
+    attachmentId?: string;
+    localUri?: string;
+    uploadState?: 'pending_local' | 'unavailable';
+    bucket?: 'chat-media';
+    objectPath?: string;
+    mimeType: string;
+    fileName: string;
+    durationMs?: number;
+};
+
 export const OFFLINE_QUEUE_KEY = '@ping_offline_messages';
 export const OFFLINE_QUEUE_MAX_ITEMS = 50;
 export const OFFLINE_QUEUE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,14 +35,7 @@ type PersistablePendingMessage = {
     lastError?: string | null;
     nextAttemptAt?: string | null;
     meta?: Record<string, unknown> | null;
-    attachment?: {
-        attachmentId?: string;
-        bucket?: 'chat-media';
-        objectPath?: string;
-        mimeType: string;
-        fileName: string;
-        durationMs?: number;
-    } | null;
+    attachment?: OfflineAttachment | null;
 };
 
 const sanitizeOfflineLocation = (value: unknown): Record<string, unknown> | undefined => {
@@ -77,6 +81,19 @@ const looksLikeTransientCredential = (value: string) =>
     /\bBearer\s+[A-Za-z0-9._~-]+/i.test(value)
     || /[?&](token|signature|x-amz-signature|x-amz-credential)=/i.test(value);
 
+const isSafeLocalAttachmentUri = (value: unknown): value is string =>
+    typeof value === 'string'
+    && value.length <= 2_000
+    && /^(file|content):\/\//i.test(value)
+    && !/[?&](token|signature|x-amz-signature|x-amz-credential)=/i.test(value);
+
+const safeAttachmentDuration = (value: unknown) =>
+    Number.isInteger(value)
+        && Number(value) > 0
+        && Number(value) <= 14_400_000
+        ? Number(value)
+        : undefined;
+
 export function sanitizePendingQueue(
     input: unknown,
     now = Date.now(),
@@ -100,35 +117,55 @@ export function sanitizePendingQueue(
                 ? item.text.slice(0, MAX_OFFLINE_TEXT_LENGTH)
                 : '';
             const hasAttachment = Boolean(item.attachment);
-            const attachment = item.attachment
+            const hasSafeAttachmentMetadata = Boolean(
+                item.attachment
                 && typeof item.attachment.mimeType === 'string'
                 && typeof item.attachment.fileName === 'string'
+            );
+            const attachment = item.attachment
+                && hasSafeAttachmentMetadata
                 && typeof item.attachment.attachmentId === 'string'
                 ? {
                     attachmentId: item.attachment.attachmentId,
                     mimeType: item.attachment.mimeType.slice(0, 100),
                     fileName: item.attachment.fileName.slice(0, 200),
-                    durationMs: Number.isInteger(item.attachment.durationMs)
-                        && Number(item.attachment.durationMs) > 0
-                        && Number(item.attachment.durationMs) <= 14_400_000
-                        ? Number(item.attachment.durationMs)
-                        : undefined,
+                    durationMs: safeAttachmentDuration(item.attachment.durationMs),
                 }
                 : item.attachment
-                    && item.attachment.bucket === 'chat-media'
-                    && typeof item.attachment.objectPath === 'string'
-                    && item.attachment.objectPath.startsWith('conversations/')
-                    && !item.attachment.objectPath.includes('..')
-                    && typeof item.attachment.mimeType === 'string'
-                    && typeof item.attachment.fileName === 'string'
+                    && hasSafeAttachmentMetadata
+                    && isSafeLocalAttachmentUri(item.attachment.localUri)
                     ? {
-                        bucket: 'chat-media' as const,
-                        objectPath: item.attachment.objectPath.slice(0, 500),
+                        localUri: item.attachment.localUri,
+                        uploadState: 'pending_local' as const,
                         mimeType: item.attachment.mimeType.slice(0, 100),
                         fileName: item.attachment.fileName.slice(0, 200),
+                        durationMs: safeAttachmentDuration(item.attachment.durationMs),
                     }
-                    : null;
-            if (hasAttachment && !attachment) return null;
+                    : item.attachment
+                        && hasSafeAttachmentMetadata
+                        && item.attachment.bucket === 'chat-media'
+                        && typeof item.attachment.objectPath === 'string'
+                        && item.attachment.objectPath.startsWith('conversations/')
+                        && !item.attachment.objectPath.includes('..')
+                        ? {
+                            bucket: 'chat-media' as const,
+                            objectPath: item.attachment.objectPath.slice(0, 500),
+                            mimeType: item.attachment.mimeType.slice(0, 100),
+                            fileName: item.attachment.fileName.slice(0, 200),
+                        }
+                        : hasAttachment
+                            ? {
+                                uploadState: 'unavailable' as const,
+                                mimeType: hasSafeAttachmentMetadata
+                                    ? item.attachment!.mimeType.slice(0, 100)
+                                    : 'application/octet-stream',
+                                fileName: hasSafeAttachmentMetadata
+                                    ? item.attachment!.fileName.slice(0, 200)
+                                    : 'Adjunto no disponible',
+                            }
+                            : null;
+            const attachmentUnavailable = hasAttachment
+                && attachment?.uploadState === 'unavailable';
             return {
                 id: typeof item.id === 'string' ? item.id : `offline-${clientMessageId}`,
                 conversationId: typeof item.conversationId === 'string'
@@ -144,12 +181,16 @@ export function sanitizePendingQueue(
                     : 0,
                 createdAt,
                 clientMessageId,
-                state: ['pending', 'syncing', 'result_unknown', 'rejected'].includes(item.state || '')
-                    ? item.state as PendingSyncState
-                    : 'pending',
-                lastError: typeof item.lastError === 'string'
-                    ? item.lastError.slice(0, 300)
-                    : null,
+                state: attachmentUnavailable
+                    ? 'rejected'
+                    : ['pending', 'syncing', 'result_unknown', 'rejected'].includes(item.state || '')
+                        ? item.state as PendingSyncState
+                        : 'pending',
+                lastError: attachmentUnavailable
+                    ? 'El adjunto no quedó disponible para reintentar el envío.'
+                    : typeof item.lastError === 'string'
+                        ? item.lastError.slice(0, 300)
+                        : null,
                 nextAttemptAt: typeof item.nextAttemptAt === 'string'
                     ? item.nextAttemptAt
                     : null,

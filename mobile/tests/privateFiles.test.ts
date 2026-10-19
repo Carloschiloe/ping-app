@@ -187,6 +187,38 @@ describe('private file mobile preparation', () => {
         expect(JSON.stringify(result)).not.toContain('temporary-token');
     });
 
+    it('acepta un clientUploadId estable para que los reintentos offline sean idempotentes', async () => {
+        vi.mocked(apiClient.post)
+            .mockResolvedValueOnce({
+                attachmentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                upload: {
+                    bucket: 'chat-media',
+                    objectPath: 'conversations/c/attachments/u/retry.pdf',
+                    signedUrl: 'https://signed.invalid/upload',
+                    token: 'temporary-token',
+                },
+                expiresAt: '2099-01-01T00:00:00.000Z',
+            })
+            .mockResolvedValueOnce({ lifecycleStatus: 'uploaded' });
+
+        await uploadPrivateMessageAttachment(
+            '33333333-3333-4333-8333-333333333333',
+            'file:///retry.pdf',
+            'application/pdf',
+            'retry.pdf',
+            undefined,
+            'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        );
+
+        expect(apiClient.post).toHaveBeenNthCalledWith(
+            1,
+            '/attachments/upload-intents',
+            expect.objectContaining({
+                clientUploadId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            }),
+        );
+    });
+
     it('envia y conserva la duracion del audio sin credenciales efimeras', async () => {
         vi.mocked(apiClient.post)
             .mockResolvedValueOnce({

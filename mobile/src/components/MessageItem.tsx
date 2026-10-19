@@ -284,6 +284,11 @@ const MessageItemComponent = ({
     }
 
     const trimmedText = msgText.trim();
+    const pendingAttachmentState = !isTombstoned
+        && (meta?.attachment?.uploadState === 'pending_local'
+            || meta?.attachment?.uploadState === 'unavailable')
+        ? meta.attachment.uploadState
+        : null;
     // Canonical render priority — a tombstoned message must never reach any
     // media-derived branch (image/video/audio/document wrapper, aspect
     // ratio, thumbnail, bubbleMedia padding, resolveAttachmentUrl). This is
@@ -293,7 +298,7 @@ const MessageItemComponent = ({
     // stale cached attachment.mimeType or a stale legacy-prefix text body
     // can never re-derive a media layout for a message whose deleted_at is
     // already canonically set.
-    const privateMimeType = isTombstoned
+    const privateMimeType = isTombstoned || pendingAttachmentState
         ? ''
         : String(item?.attachment?.mimeType || meta?.attachment?.mimeType || '');
     const hasPrivateAttachment = !isTombstoned
@@ -503,7 +508,25 @@ const MessageItemComponent = ({
                             </Text>
                         )}
 
-                        {hasPrivateAttachment && !mediaUrl && privateMediaState === 'unavailable' ? (
+                        {pendingAttachmentState ? (
+                            <View style={styles.privateMediaLoading}>
+                                <Ionicons
+                                    name={pendingAttachmentState === 'unavailable'
+                                        ? 'alert-circle-outline'
+                                        : 'time-outline'}
+                                    size={18}
+                                    color={pendingAttachmentState === 'unavailable'
+                                        ? '#ef4444'
+                                        : theme.colors.text.secondary}
+                                />
+                                <Text style={styles.privateMediaLoadingText}>
+                                    {pendingAttachmentState === 'unavailable'
+                                        ? 'Adjunto no disponible'
+                                        : 'Adjunto pendiente'}
+                                    {meta?.attachment?.fileName ? `: ${meta.attachment.fileName}` : ''}
+                                </Text>
+                            </View>
+                        ) : hasPrivateAttachment && !mediaUrl && privateMediaState === 'unavailable' ? (
                             <View style={styles.privateMediaLoading}>
                                 <Ionicons
                                     name="alert-circle-outline"
