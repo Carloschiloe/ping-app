@@ -145,7 +145,7 @@ export default function TaskDashboardScreen() {
         setConfirmItem(null);
     }, [isConfirming]);
 
-    // M-1H v4 — hallazgo real de staging: tocar "Confirmar" ejecutaba la
+    // M-1H v4 — hallazgo real durante validación: tocar "Confirmar" ejecutaba la
     // escritura de inmediato, sin modal/loading/feedback -- indistinguible
     // de "no pasó nada" tanto en éxito silencioso como en fallo silencioso.
     // performCommitmentConfirm (utils/commitmentConfirmDispatch.ts) es el

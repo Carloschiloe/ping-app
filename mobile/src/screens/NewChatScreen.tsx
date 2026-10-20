@@ -71,7 +71,7 @@ export default function NewChatScreen({ navigation }: any) {
                 return;
             }
 
-            // The address book is useful even while staging is waking up.
+            // The address book is useful even while the backend is waking up.
             // Never hide local contacts behind the remote matching request.
             setDeviceContacts(contacts);
             setContactsLoading(false);

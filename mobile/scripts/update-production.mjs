@@ -18,7 +18,6 @@ const result = spawnSync(command, [
     shell: process.platform === 'win32',
     env: {
         ...process.env,
-        APP_VARIANT: 'production',
         EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS: 'true',
         EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true',
         EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK: '1',

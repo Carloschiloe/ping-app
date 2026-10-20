@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 
 const read = (relative: string) => fs.readFileSync(path.join(__dirname, '..', relative), 'utf8');
 
-describe('M8 live voice staging surface', () => {
-    it('uses the authenticated staging broker and the existing Core boundary', () => {
+describe('M8 live voice production surface', () => {
+    it('uses the authenticated production broker and the existing Core boundary', () => {
         const source = read('src/components/agent/LiveVoiceSession.tsx');
         expect(source).toContain("/agent/voice/live/client");
         expect(source).toContain("config_requested");
@@ -22,8 +22,8 @@ describe('M8 live voice staging surface', () => {
         expect(source).toContain("originWhitelist={['https://*']}");
         expect(source).toContain('getRecordingPermissionsAsync');
         expect(source).toContain('requestRecordingPermissionsAsync');
-        expect(source).toContain('onPermissionRequest');
-        expect(source).toContain("resource === 'AUDIO_CAPTURE'");
+        expect(source).not.toContain('onPermissionRequest');
+        expect(source).toContain('mediaCapturePermissionGrantType');
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");
         expect(source).not.toContain("/agent/authorize");
@@ -40,10 +40,8 @@ describe('M8 live voice staging surface', () => {
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
         expect(packageJson).toContain('"update:production": "node scripts/update-production.mjs"');
         expect(updateScript).toContain("EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true'");
-        expect(updateScript).toContain("APP_VARIANT: 'production'");
-        expect(config).toContain("versionCode: isStaging ? 4 : 15");
+        expect(config).toContain('versionCode: 16');
         expect(config).toContain("'./plugins/withRequiredMicrophonePermission'");
-        expect(config).toContain("buildNumber: '4'");
     });
 
     it('keeps the Ping Voice entry point present in the production header', () => {

@@ -5,7 +5,7 @@ import { getAudioMessagePalette } from '../src/utils/messagePresentation';
 import { resolveMediaTapPresentation } from '../src/utils/messagePresentation';
 
 describe('resolveMediaTapPresentation — video attachment root cause fix', () => {
-    const SIGNED_URL = 'https://staging.supabase.co/storage/v1/object/sign/chat-media/conversations/c/attachments/u/11111111-1111-4111-8111-111111111111.mp4?token=abc';
+    const SIGNED_URL = 'https://storage.example.com/storage/v1/object/sign/chat-media/conversations/c/attachments/u/11111111-1111-4111-8111-111111111111.mp4?token=abc';
 
     it('1) una imagen sigue clasificándose como imagen', () => {
         const presentation = resolveMediaTapPresentation(SIGNED_URL, 'image/jpeg');
@@ -26,7 +26,7 @@ describe('resolveMediaTapPresentation — video attachment root cause fix', () =
         // La URL firmada apunta a un objeto .mp4, pero la clasificación debe
         // depender únicamente del mimeType canónico del adjunto, nunca de la
         // extensión/forma de la URL firmada (metadata privada de storage).
-        const urlWithMismatchedExtension = 'https://staging.supabase.co/storage/v1/object/sign/chat-media/x/y/z.bin?token=abc';
+        const urlWithMismatchedExtension = 'https://storage.example.com/storage/v1/object/sign/chat-media/x/y/z.bin?token=abc';
         const presentation = resolveMediaTapPresentation(urlWithMismatchedExtension, 'video/mp4');
         expect(presentation.kind).toBe('video');
         expect(presentation.url).toBe(urlWithMismatchedExtension);

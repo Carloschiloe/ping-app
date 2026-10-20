@@ -10,7 +10,6 @@
     "web": "expo start --web",
     "lint": "eslint .",
     "update:production": "node scripts/update-production.mjs",
-    "update:staging": "eas update --channel staging --environment preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -38,7 +38,7 @@ import { AgentPlanCard } from '../components/agent/AgentPlanCard';
 import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
 import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
 
-// Sección 17 del ticket: staging puede tardar tras cold start -- no se
+// Sección 17 del ticket: el backend puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
 const SLOW_REQUEST_COPY_DELAY_MS = 10_000;
 

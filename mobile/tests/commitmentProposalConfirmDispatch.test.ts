@@ -202,7 +202,7 @@ describe('M-1H v2: el endpoint /commitment-proposals/:id/confirm ahora SÍ tiene
     });
 });
 
-// ─── M-1H v4 — hallazgo real de staging (caso "Entrenar"): tocar "Confirmar"
+// ─── M-1H v4 — hallazgo real durante validación (caso "Entrenar"): tocar "Confirmar"
 // ejecutaba la escritura de inmediato, sin modal/loading/feedback -- si la
 // request fallaba o tardaba en refrescar, era indistinguible de "no pasó
 // nada". performCommitmentConfirm es ahora el ÚNICO punto de ejecución real
@@ -773,14 +773,14 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
 // PING — RESTORE PHYSICAL FAILURE: physical iPhone test found tapping
 // Restaurar produced "ApiError: Unable to process commitment request" AND
 // "Uncaught (in promise, id: 0)" -- two separate bugs. Root cause of the
-// first (proven against real staging, not guessed): the migration adding
+// first (proven against a real database, not guessed): the migration adding
 // restore_commitment_with_evidence was in the repo but was never applied
-// to the staging database (`supabase migration list --linked` showed
-// local=20260913010000, remote=""; a direct RPC probe against staging
+// to the database (`supabase migration list --linked` showed
+// local=20260913010000, remote=""; a direct RPC probe against the database
 // returned PGRST202 "Could not find the function ... in the schema
 // cache", which the controller's existing generic fallback then reported
 // as HTTP 500 "Unable to process commitment request" -- the exact string
-// seen on iPhone). Fixed by applying the migration to staging (`supabase
+// seen on iPhone). Fixed by applying the migration (`supabase
 // db push --linked`) -- no code was wrong, see
 // commitmentService.test.ts for the propagation-contract regression.
 // SEPARATELY, root cause of the second bug (unrelated to the first, and

@@ -3,7 +3,7 @@ import { Modal, Pressable, View, Text, TouchableOpacity, ActivityIndicator, Styl
 import { useAppTheme } from '../../theme/ThemeContext';
 import { isCommitmentOverdue, isProposalDatePassed } from '../../utils/commitmentDisplay';
 
-// M-1H v4 — hallazgo real de staging: tocar "Confirmar" ejecutaba la acción
+// M-1H v4 — hallazgo real durante validación: tocar "Confirmar" ejecutaba la acción
 // de inmediato, sin modal, sin loading state, sin feedback de éxito/error.
 // Si la request fallaba silenciosamente (o tardaba en refrescar la lista),
 // el usuario percibía "no pasó nada" -- indistinguible de un bug real. Este

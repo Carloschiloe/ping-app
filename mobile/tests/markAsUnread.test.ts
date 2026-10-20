@@ -214,7 +214,7 @@ describe('C-6: Abrir una conversación limpia manuallyUnread vía el flujo canó
 });
 
 // ─── C-6C: swipe-right mutation failures no longer fail silently ───────────
-// Diagnosed on staging: useMarkConversationAsRead/Unread had no onError, so a
+// Diagnosed during validation: useMarkConversationAsRead/Unread had no onError, so a
 // failed tap (missing route, network blip) changed nothing with zero signal.
 // Not a workaround for the (now-fixed, certified) backend gap — a real,
 // pre-existing resilience gap for genuine future failures.

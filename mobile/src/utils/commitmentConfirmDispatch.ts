@@ -44,12 +44,12 @@ export function resolveCommitmentConfirmAction(commitment: any): CommitmentConfi
     return { type: 'acceptCommitment', id };
 }
 
-// M-1H v4 — hallazgo real de staging: el usuario tocaba "Confirmar" sobre
+// M-1H v4 — hallazgo real durante validación: el usuario tocaba "Confirmar" sobre
 // "Entrenar" (proposal solo, vencida) y no veía NADA -- ni modal, ni
 // mensaje, ni cambio de fila. Auditando el código: la ejecución YA sucedía
 // de inmediato al primer tap, `resolveCommitmentConfirmAction` se llamaba
 // FUERA del try/catch (una excepción ahí habría sido una promesa rechazada
-// sin manejar, invisible para el usuario en un build de staging/producción),
+// sin manejar, invisible para el usuario en un build de producción),
 // y ni éxito ni error tenían ningún feedback visible -- indistinguible de
 // "no pasó nada" tanto si la request tuvo éxito silencioso como si falló
 // silenciosamente. Esta función es el ÚNICO punto de ejecución real

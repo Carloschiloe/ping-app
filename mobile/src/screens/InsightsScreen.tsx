@@ -161,7 +161,7 @@ export default function InsightsScreen() {
         resolveCommitment({ id, result: 'Resuelto desde Compromisos.' });
     }, [resolveCommitment]);
 
-    // M-1H v4 — hallazgo real de staging (caso "Entrenar"): tocar
+    // M-1H v4 — hallazgo real durante validación (caso "Entrenar"): tocar
     // "Confirmar" ejecutaba la escritura de inmediato, sin modal, sin
     // loading, sin feedback de éxito/error -- si la request tardaba en
     // refrescar la lista o fallaba silenciosamente, era indistinguible de
@@ -196,7 +196,7 @@ export default function InsightsScreen() {
         } catch (error: any) {
             // Sección 7: nunca cerrar silenciosamente -- el modal permanece
             // abierto para reintentar, y el error real (status/mensaje) se
-            // deja en consola para diagnóstico de staging, sin exponer
+            // deja en consola para diagnóstico de desarrollo, sin exponer
             // detalle interno al usuario.
             console.warn('[Confirmar compromiso] falló', { status: error?.status, message: error instanceof Error ? error.message : 'unknown' });
             Alert.alert('No se pudo confirmar el compromiso', 'Intenta nuevamente.');

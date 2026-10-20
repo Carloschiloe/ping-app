@@ -9,9 +9,9 @@ describe('M-7B device trace mobile delivery', () => {
         expect(source).toContain("console.log('PING_DEVICE_TRACE', result.debug)");
     });
 
-    it('gates logging to dev or staging and never renders a UI element', () => {
+    it('gates logging to development and never renders a UI element', () => {
         expect(source).toContain("typeof __DEV__ !== 'undefined' && __DEV__");
-        expect(source).toContain('isDevelopmentRuntime || isStagingBuild');
+        expect(source).toContain('if (isDevelopmentRuntime && result.debug)');
         expect(source).not.toContain('debugText');
         expect(source).not.toContain('DebugView');
     });

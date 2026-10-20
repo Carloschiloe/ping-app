@@ -388,7 +388,7 @@ export function buildAgentTurnHeaders(input: AgentTurnInput): Record<string, str
 }
 
 function enabledReadCapability(): typeof READ_V4_EXACT_COUNT_OPT_IN | undefined {
-    return process.env.APP_VARIANT !== 'production'
+    return process.env.NODE_ENV !== 'production'
         && process.env.EXPO_PUBLIC_ENABLE_READ_V4_EXACT_COUNT === 'true'
         ? READ_V4_EXACT_COUNT_OPT_IN
         : undefined;
@@ -556,12 +556,11 @@ export async function requestAgentSurfaceTurn(input: AgentSurfaceTurnInput): Pro
     const request = buildAgentSurfaceTurnRequest(requestInput);
     const raw = await apiClient.post('/agent/turn', request.body, request.headers);
     const result = parseAgentTurnResult(raw);
-    const isStagingBuild = process.env.APP_VARIANT !== 'production';
     // Expo/RN provides __DEV__ at runtime, while pure Node tests do not.
-    // Keep diagnostics enabled for development/staging without making the
+    // Keep diagnostics enabled during development without making the
     // shared adapter depend on a native global.
     const isDevelopmentRuntime = typeof __DEV__ !== 'undefined' && __DEV__;
-    if ((isDevelopmentRuntime || isStagingBuild) && result.debug) {
+    if (isDevelopmentRuntime && result.debug) {
         console.log('PING_DEVICE_TRACE', result.debug);
     }
     return result;

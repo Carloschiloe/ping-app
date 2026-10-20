@@ -228,7 +228,7 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(labels.join(' ')).not.toContain('1111');
     });
 
-    // M-1H — hallazgo real de staging (caso "Entrenar"): una cita a un
+    // M-1H — hallazgo real durante validación (caso "Entrenar"): una cita a un
     // commitment_proposal (compromiso todavía no confirmado, tabla distinta
     // de commitments) caía al fallback genérico 'Fuente' en vez de
     // 'Compromiso' porque el label no existía en absoluto.
@@ -442,7 +442,7 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action headi
 // PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX. Root cause
 // of the physical failure was entirely backend (rescheduleCommitmentExecutor
 // used counter_propose instead of a direct due_at edit for a self-owned
-// commitment) -- proven by reading the code and the real staging record
+// commitment) -- proven by reading the code and a real validation record
 // (due_at never changed; proposed_due_at did). Cache invalidation itself
 // was never the bug: useAgentExecute already invalidates
 // ['all-commitments-dashboard'], the SAME query key both TaskDashboardScreen

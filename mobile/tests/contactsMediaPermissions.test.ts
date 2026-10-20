@@ -3,12 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import createConfig from '../app.config';
 
-const originalVariant = process.env.APP_VARIANT;
 const originalVoice = process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED;
 
 afterEach(() => {
-    if (originalVariant === undefined) delete process.env.APP_VARIANT;
-    else process.env.APP_VARIANT = originalVariant;
     if (originalVoice === undefined) delete process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED;
     else process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED = originalVoice;
 });
@@ -26,7 +23,6 @@ describe('contacts/media picker — SDK 57 API and least-privilege build contrac
     });
 
     it('keeps contacts and camera available while excluding write/media-library permissions', () => {
-        process.env.APP_VARIANT = 'staging';
         delete process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED;
         const config = createConfig({ config: {} } as any);
         const permissions = config.android?.permissions || [];
@@ -47,7 +43,6 @@ describe('contacts/media picker — SDK 57 API and least-privilege build contrac
     });
 
     it('declares the image picker plugin without adding a duplicate microphone permission', () => {
-        process.env.APP_VARIANT = 'production';
         process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED = 'true';
         const config = createConfig({ config: {} } as any);
         const imagePicker = (config.plugins || []).find((plugin) =>

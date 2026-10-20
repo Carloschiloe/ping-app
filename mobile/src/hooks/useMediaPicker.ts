@@ -126,7 +126,7 @@ async function buildTooLargeMessage(): Promise<string> {
 
 // Domain-facing failure message for the send flow. The real backend/storage
 // error (status, code, exact validation message) is preserved internally —
-// logged via console.warn for dev/staging diagnostics, and still carried on
+// logged via console.warn for development diagnostics, and still carried on
 // the thrown error itself for anything upstream that wants it — but it must
 // never become the permanent user-facing string: an arbitrary internal
 // message (a Postgres exception, a Storage API error, a Zod validation
@@ -243,7 +243,7 @@ export function useMediaPicker({
         } catch (error) {
             // The underlying failure (empty local read, Supabase Storage
             // rejection, backend validation rejection, etc.) is logged with
-            // safe diagnostics for dev/staging (URI scheme, mimeType, byte
+            // safe diagnostics for development (URI scheme, mimeType, byte
             // length, HTTP status/error code — never tokens/signed URLs/
             // bytes) inside privateFiles.ts and here. The user only ever
             // sees the safe domain-facing message below — the real internal

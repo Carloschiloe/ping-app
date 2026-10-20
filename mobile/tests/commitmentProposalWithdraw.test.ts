@@ -155,7 +155,7 @@ describe('elegibilidad real de "Retirar propuesta" contra fixtures con wire stat
         // fixture con el wire status REAL ('proposed') seguiría siendo
         // elegible bajo la condición correcta, pero un regreso al bug haría
         // que este mismo caso (el real, físico) fallara -- éste es el caso
-        // que estaba físicamente roto en staging antes de este fix.
+        // que estaba físicamente roto antes de este fix.
         const entrenarReal = { id: '0d718396-bab7-424a-834f-24ab19630f8b', _isAgreementProposal: true, status: 'proposed', owner_user_id: CARLOS };
         expect(evalCanWithdrawProposal(entrenarReal, CARLOS)).toBe(true);
     });

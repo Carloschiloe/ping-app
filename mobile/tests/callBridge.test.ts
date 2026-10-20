@@ -8,10 +8,10 @@ import {
 
 describe('call bridge', () => {
     it('restricts the call page whitelist to the API origin', () => {
-        expect(buildCallPageOriginWhitelist('https://ping-backend-staging.onrender.com/api'))
-            .toEqual(['https://ping-backend-staging.onrender.com/*']);
-        expect(buildCallPageOriginWhitelist('https://ping-backend-staging.onrender.com/api/'))
-            .toEqual(['https://ping-backend-staging.onrender.com/*']);
+        expect(buildCallPageOriginWhitelist('https://ping-app-con3.onrender.com/api'))
+            .toEqual(['https://ping-app-con3.onrender.com/*']);
+        expect(buildCallPageOriginWhitelist('https://ping-app-con3.onrender.com/api/'))
+            .toEqual(['https://ping-app-con3.onrender.com/*']);
     });
 
     it('allows audio only for voice calls and audio plus video for video calls', () => {
@@ -23,7 +23,7 @@ describe('call bridge', () => {
     });
 
     it('keeps the /api prefix when building the Agora call page URL', () => {
-        const url = buildCallPageUrl('https://ping-backend-staging.onrender.com/api', {
+        const url = buildCallPageUrl('https://ping-app-con3.onrender.com/api', {
             appId: 'app-id',
             token: 'token with symbols/+',
             channel: 'conversation-id',
@@ -32,7 +32,7 @@ describe('call bridge', () => {
         });
 
         expect(url).toBe(
-            'https://ping-backend-staging.onrender.com/api/call'
+            'https://ping-app-con3.onrender.com/api/call'
             + '?appId=app-id&token=token+with+symbols%2F%2B'
             + '&channel=conversation-id&video=true&t=123'
         );
