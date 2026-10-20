@@ -11,7 +11,6 @@ import {
     requestPermissionsAsync,
 } from 'expo-contacts';
 import * as Linking from 'expo-linking';
-import Constants from 'expo-constants';
 import { apiClient } from '../api/client';
 import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
 import { PING_PUBLIC_INVITE_URL } from '../utils/pingInvitation';
@@ -30,7 +29,6 @@ function avatarColor(value: string) {
 }
 
 export default function NewChatScreen({ navigation }: any) {
-    const isExpoGo = Constants.appOwnership === 'expo';
     const [query, setQuery] = useState('');
     const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
     const [contactsLoading, setContactsLoading] = useState(true);
@@ -145,7 +143,7 @@ export default function NewChatScreen({ navigation }: any) {
     const selectLimitedContacts = async () => {
         setContactsLoading(true);
         try {
-            if (Platform.OS !== 'ios' || isExpoGo) {
+            if (Platform.OS !== 'ios') {
                 await Linking.openSettings();
                 return;
             }
@@ -336,32 +334,22 @@ export default function NewChatScreen({ navigation }: any) {
                                 {contactAccess === 'limited' ? (
                                     <>
                                         <Text style={styles.emptyIcon}>👥</Text>
-                                        <Text style={styles.emptyTitle}>
-                                            {isExpoGo ? 'Autoriza tus contactos' : 'Selecciona tus contactos'}
-                                        </Text>
+                                        <Text style={styles.emptyTitle}>Selecciona tus contactos</Text>
                                         <Text style={styles.emptyText}>
-                                            {isExpoGo
-                                                ? 'En Expo Go, abre Configuración y elige Contactos → Acceso completo. Al volver, Ping cargará tu agenda automáticamente.'
-                                                : 'iOS dio acceso limitado. Puedes seleccionar algunos contactos o permitir la agenda completa.'}
+                                            iOS dio acceso limitado. Puedes seleccionar algunos contactos o permitir la agenda completa.
                                         </Text>
                                         <TouchableOpacity
                                             style={styles.primaryButton}
-                                            onPress={() => isExpoGo
-                                                ? Linking.openSettings()
-                                                : selectLimitedContacts()}
+                                            onPress={selectLimitedContacts}
                                         >
-                                            <Text style={styles.primaryButtonText}>
-                                                {isExpoGo ? 'Abrir configuración' : 'Seleccionar contactos'}
-                                            </Text>
+                                            <Text style={styles.primaryButtonText}>Seleccionar contactos</Text>
                                         </TouchableOpacity>
-                                        {!isExpoGo ? (
-                                            <TouchableOpacity
-                                                style={styles.secondaryButton}
-                                                onPress={() => Linking.openSettings()}
-                                            >
-                                                <Text style={styles.secondaryButtonText}>Dar acceso completo</Text>
-                                            </TouchableOpacity>
-                                        ) : null}
+                                        <TouchableOpacity
+                                            style={styles.secondaryButton}
+                                            onPress={() => Linking.openSettings()}
+                                        >
+                                            <Text style={styles.secondaryButtonText}>Dar acceso completo</Text>
+                                        </TouchableOpacity>
                                     </>
                                 ) : (
                                     <>
