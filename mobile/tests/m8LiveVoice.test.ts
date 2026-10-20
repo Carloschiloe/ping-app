@@ -41,7 +41,7 @@ describe('M8 live voice staging surface', () => {
         expect(packageJson).toContain('"update:production": "node scripts/update-production.mjs"');
         expect(updateScript).toContain("EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true'");
         expect(updateScript).toContain("APP_VARIANT: 'production'");
-        expect(config).toContain("versionCode: isStaging ? 4 : 13");
+        expect(config).toContain("versionCode: isStaging ? 4 : 14");
         expect(config).toContain("'./plugins/withRequiredMicrophonePermission'");
         expect(config).toContain("buildNumber: '4'");
     });
