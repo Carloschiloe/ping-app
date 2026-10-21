@@ -4,6 +4,7 @@
 // imports from or writes to the legacy module.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
+import { File } from 'expo-file-system';
 import { apiClient, ApiError, API_URL, getAuthHeaders } from '../client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import {
@@ -149,9 +150,25 @@ export function parseAgentVoiceTranscript(raw: unknown): AgentVoiceTranscriptRes
 
 export async function transcribeAgentVoice(input: AgentVoiceCaptureRequest): Promise<AgentVoiceTranscriptResult> {
     const headers = await getAuthHeaders();
-    const localResponse = await fetch(input.uri);
-    if (!localResponse.ok) throw new Error('No se pudo leer el archivo de audio local.');
-    const body = await localResponse.arrayBuffer();
+    // En Android, fetch(file://...) no es una forma fiable de leer el archivo
+    // que acaba de cerrar expo-audio: según la versión del sistema puede
+    // devolver Network request failed aunque el archivo exista. Usa la API
+    // nativa de expo-file-system para obtener los bytes directamente.
+    const audioFile = new File(input.uri);
+    let body: ArrayBuffer;
+    // El fallback conserva compatibilidad con mocks/entornos antiguos que no
+    // exponen la API moderna de File. En la APK de producción se usa el
+    // lector nativo de File cuando está disponible.
+    if (typeof audioFile.arrayBuffer === 'function') {
+        if ((audioFile as File & { exists?: boolean }).exists === false) {
+            throw new Error('No se pudo leer el archivo de audio local.');
+        }
+        body = await audioFile.arrayBuffer();
+    } else {
+        const localResponse = await fetch(input.uri);
+        if (!localResponse.ok) throw new Error('No se pudo leer el archivo de audio local.');
+        body = await localResponse.arrayBuffer();
+    }
     if (body.byteLength === 0) throw new Error('El archivo de audio está vacío.');
     const response = await fetch(buildAgentVoiceTranscriptionUrl(input), {
         method: 'POST',

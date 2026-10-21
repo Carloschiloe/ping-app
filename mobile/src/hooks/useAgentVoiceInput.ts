@@ -179,14 +179,15 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             const status = recorder.getStatus();
             const finalDuration = resolveRecordingDurationMs(status.durationMillis, durationRef.current);
             const uri = status.url;
-            if (!uri || !finalDuration) throw new Error('empty_audio');
-            activeUriRef.current = uri;
-            lastKnownUriRef.current = uri;
+            const resolvedUri = uri || lastKnownUriRef.current;
+            if (!resolvedUri || !finalDuration) throw new Error('empty_audio');
+            activeUriRef.current = resolvedUri;
+            lastKnownUriRef.current = resolvedUri;
             const requestAbort = new AbortController();
             requestAbortRef.current = requestAbort;
 
             const result = await transcribeAgentVoice({
-                uri,
+                uri: resolvedUri,
                 mimeType: 'audio/m4a',
                 durationMs: finalDuration,
                 capturedAt: new Date().toISOString(),
