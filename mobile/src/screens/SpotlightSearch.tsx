@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, TextInput, FlatList, ActivityIndicator, StyleSheet, TouchableOpacity, ScrollView, Platform, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useQuery } from '@tanstack/react-query';
@@ -8,13 +8,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation, useCreateConversation } from '../api/queries';
 
 const useSearch = (query: string) => {
+    const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
+
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedQuery(query.trim()), 250);
+        return () => clearTimeout(timer);
+    }, [query]);
+
     return useQuery({
-        queryKey: ['search', query],
+        queryKey: ['search', debouncedQuery],
         queryFn: async () => {
-            if (!query) return { messages: [], commitments: [], profiles: [], conversations: [] };
-            return apiClient.get(`/search?q=${encodeURIComponent(query)}`);
+            if (!debouncedQuery) return { messages: [], commitments: [], profiles: [], conversations: [] };
+            return apiClient.get(`/search?q=${encodeURIComponent(debouncedQuery)}`);
         },
-        enabled: query.trim().length > 1,
+        enabled: debouncedQuery.length > 1,
+        staleTime: 15_000,
+        gcTime: 5 * 60_000,
     });
 };
 
@@ -22,12 +31,13 @@ const HighlightText = ({ text, highlight, style, numberOfLines }: any) => {
     if (!highlight.trim()) {
         return <Text style={style} numberOfLines={numberOfLines}>{text}</Text>;
     }
-    const regex = new RegExp(`(${highlight})`, 'gi');
+    const regex = new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const normalizedHighlight = highlight.trim().toLocaleLowerCase();
     const parts = text.split(regex);
     return (
         <Text style={style} numberOfLines={numberOfLines}>
             {parts.map((part: string, i: number) =>
-                regex.test(part) ? (
+                part.toLocaleLowerCase().includes(normalizedHighlight) ? (
                     <Text key={i} style={{ backgroundColor: '#fef08a', color: '#854d0e', fontWeight: '800' }}>{part}</Text>
                 ) : (
                     <Text key={i}>{part}</Text>

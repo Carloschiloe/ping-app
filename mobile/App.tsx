@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider, focusManager, onlineManager, useQuery
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
-import { usePushNotifications } from './src/hooks/usePushNotifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
@@ -117,7 +116,6 @@ export default function App() {
 }
 
 const AppContent = () => {
-    usePushNotifications();
     const appQueryClient = useQueryClient();
     const { isDark, theme } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);

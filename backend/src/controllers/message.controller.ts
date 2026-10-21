@@ -42,8 +42,10 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const limit = parseInt(req.query.limit as string) || 50;
-        const offset = parseInt(req.query.offset as string) || 0;
+        const requestedLimit = Number.parseInt(req.query.limit as string, 10);
+        const requestedOffset = Number.parseInt(req.query.offset as string, 10);
+        const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+        const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
         const result = await messageService.getMessages(req.user.id, limit, offset);
         res.status(200).json(result);
     } catch (error: any) {

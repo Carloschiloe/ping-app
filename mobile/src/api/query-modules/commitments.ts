@@ -90,7 +90,9 @@ export const useCommitments = (status?: string) => {
         },
         refetchOnMount: 'always',
         refetchOnReconnect: 'always',
-        refetchInterval: 5_000,
+        // Realtime da inmediatez; este intervalo sólo reconcilia eventos
+        // perdidos sin generar una petición cada cinco segundos en reposo.
+        refetchInterval: 30_000,
         refetchIntervalInBackground: false,
     });
 };
