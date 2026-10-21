@@ -20,6 +20,8 @@ services:
         value: gpt-6-luna
       - key: PING_SEMANTIC_MODEL_FAMILY
         value: modern_reasoning
+      - key: PING_EXPECTED_SUPABASE_PROJECT_REF
+        value: wbigqhtuzfmpnxservlf
       - key: M8_LIVE_VOICE_ENABLED
         value: "true"
       - key: M8_LIVE_VOICE_MODEL
