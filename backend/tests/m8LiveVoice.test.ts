@@ -48,7 +48,7 @@ describe('M8 live voice environment boundary', () => {
         const result = await createM8LiveVoiceSession({
             actorUserId,
             request: {
-                sdp: 'v=0\\r\\n' + 'a'.repeat(120),
+                sdp: ['v=0', 'a'.repeat(120)].join(String.fromCharCode(10)),
                 voiceSessionId,
                 deviceSessionId,
                 locale: 'es-CL',
@@ -70,7 +70,7 @@ describe('M8 live voice environment boundary', () => {
         const sdp = form.get('sdp');
         const session = form.get('session');
         expect(typeof sdp).toBe('string');
-        expect(sdp).toContain('v=0');
+        expect(sdp).toBe(`v=0\r\n${'a'.repeat(120)}\r\n`);
         expect(typeof session).toBe('string');
         expect(session).toContain('ping_core_turn');
         expect(session).toContain('gpt-realtime-2.1');
@@ -143,7 +143,7 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("remote_description_applying");
         expect(html).toContain("remote_description_invalid_sdp");
         expect(html).toContain("const negotiatedSdp=pc.localDescription?.sdp");
-        expect(html).toContain("sdp:negotiatedSdp");
+        expect(html).toContain("sdp:normalizedOfferSdp");
         expect(html).not.toContain("sdp:offer.sdp");
         expect(html).toContain("normalizeSdp");
         expect(html).toContain("String.fromCharCode(13,10)");
