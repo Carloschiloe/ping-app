@@ -1,0 +1,15 @@
+# EAS only needs the mobile source/configuration; never upload local build output.
+node_modules/
+**/node_modules/
+.git/
+**/.git/
+mobile/android/
+mobile/ios/
+mobile/dist/
+mobile/web-build/
+mobile/.expo/
+**/build/
+**/.gradle/
+*.apk
+*.aab
+*.log
