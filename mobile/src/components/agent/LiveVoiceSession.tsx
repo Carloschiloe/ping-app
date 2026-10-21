@@ -6,6 +6,7 @@ import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import { createEphemeralUuid } from '../../utils/voiceSession';
+import { buildCallPageOriginWhitelist } from '../../utils/callBridge';
 
 interface LiveVoiceSessionProps {
     visible: boolean;
@@ -120,6 +121,15 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
             onClose();
         }
     };
+    const androidWebViewProps = Platform.OS === 'android'
+        ? ({
+            onPermissionRequest: (request: any) => {
+                const requestedResources = request.resources.filter((resource: string) => resource === 'AUDIO_CAPTURE');
+                if (requestedResources.length > 0) request.grant(requestedResources);
+                else request.deny();
+            },
+        } as any)
+        : {};
     const handleMessage = (event: WebViewMessageEvent) => {
         try {
             const message = JSON.parse(event.nativeEvent.data) as { type?: string };
@@ -152,11 +162,12 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 onMessage={handleMessage}
                 onError={() => setError('No se pudo cargar la interfaz de voz.')}
                 onHttpError={() => setError('El servidor de voz no está disponible.')}
+                {...androidWebViewProps}
                 {...(Platform.OS === 'ios' ? { mediaCapturePermissionGrantType: 'grant' } : {})}
                 javaScriptEnabled
                 mediaPlaybackRequiresUserAction={false}
                 allowsInlineMediaPlayback
-                originWhitelist={['https://*']}
+                originWhitelist={buildCallPageOriginWhitelist(API_URL)}
             /> : <ActivityIndicator style={styles.loading} />)}
         </View>
     </Modal>;
