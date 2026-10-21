@@ -95,7 +95,7 @@ const BackendBanner = () => {
             <Text style={styles.bannerText}>
                 {isOffline
                     ? 'Reintentamos automáticamente. Toca aquí para intentar ahora.'
-                    : 'El servidor de pruebas puede tardar unos segundos en despertar.'}
+                    : 'Ping está reconectando; puede tardar unos segundos.'}
             </Text>
         </TouchableOpacity>
     );
