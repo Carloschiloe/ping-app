@@ -54,6 +54,7 @@ const EMPTY_STATE_COPY: Record<'all' | 'unread' | 'groups' | 'private' | 'archiv
 };
 
 const SELF_CHAT_PLACEHOLDER_SUBTITLE = 'Notas, audios y recordatorios personales';
+const LIST_PRESENCE_CHANNEL_LIMIT = 5;
 
 // "Para mí" has no real conversation row yet for a brand-new user. This
 // synthetic item lets the pinned row render through the same ConversationRow
@@ -103,7 +104,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
 
     React.useEffect(() => {
         if (!rawConversations.length || !user) return;
-        const channels = rawConversations.map((conv: any) => {
+        // Typing previews are useful for the first visible conversations, but
+        // a presence channel for every historical conversation multiplies
+        // WebSocket/battery usage while the list is idle.
+        const channels = rawConversations.slice(0, LIST_PRESENCE_CHANNEL_LIMIT).map((conv: any) => {
             const channel = supabase.channel(`presence-${conv.id}`, {
                 config: { presence: { key: user.id } },
             });

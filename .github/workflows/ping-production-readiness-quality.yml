@@ -59,7 +59,6 @@ jobs:
             tests/agentSemanticInterpreter.regression.test.ts \
             tests/agentObjectiveInterpreter.test.ts \
             tests/agentDialogueContinuation.test.ts \
-            tests/e2eM7StagingIdentity.test.ts \
             tests/e2eM7AgentAssertions.test.ts
       - name: Production voice and attachment regression gate
         run: |

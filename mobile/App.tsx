@@ -5,7 +5,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { QueryClient, QueryClientProvider, focusManager, onlineManager, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { View, Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
+import { Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
@@ -117,7 +117,7 @@ export default function App() {
 
 const AppContent = () => {
     const appQueryClient = useQueryClient();
-    const { isDark, theme } = useAppTheme();
+    const { isDark } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
 
