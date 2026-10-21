@@ -42,7 +42,7 @@ export const googleCallback = async (req: Request, res: Response) => {
         res.send('<h1>✅ Ping: Google Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
     } catch (error: any) {
         console.error('[Google OAuth Callback] Error:', error);
-        res.status(500).send('Error connecting Google Calendar: ' + error.message);
+        res.status(500).send('Error connecting Google Calendar.');
     }
 };
 
@@ -88,7 +88,7 @@ export const msCallback = async (req: Request, res: Response) => {
         res.send('<h1>✅ Ping: Outlook Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
     } catch (error: any) {
         console.error('[MS OAuth Callback] Error:', error);
-        res.status(500).send('Error connecting Outlook Calendar: ' + error.message);
+        res.status(500).send('Error connecting Outlook Calendar.');
     }
 };
 
@@ -103,7 +103,8 @@ export const listAccounts = async (req: Request, res: Response) => {
         if (error) throw error;
         res.json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[Calendar list accounts]', error);
+        res.status(500).json({ error: 'Unable to load calendar accounts' });
     }
 };
 
@@ -124,7 +125,8 @@ export const updateAccount = async (req: Request, res: Response) => {
         if (error) throw error;
         res.json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[Calendar update account]', error);
+        res.status(500).json({ error: 'Unable to update calendar account' });
     }
 };
 
@@ -141,7 +143,8 @@ export const disconnectAccount = async (req: Request, res: Response) => {
         if (error) throw error;
         res.json({ ok: true });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[Calendar disconnect account]', error);
+        res.status(500).json({ error: 'Unable to disconnect calendar account' });
     }
 };
 
@@ -213,6 +216,9 @@ export const syncCommitment = async (req: Request, res: Response) => {
         res.json({ ok: true, result });
     } catch (error: any) {
         console.error('[Sync Commitment] Error:', error);
-        res.status(error?.statusCode || 500).json({ error: error.message });
+        const statusCode = error?.statusCode || 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to sync commitment to calendar' : error.message,
+        });
     }
 };

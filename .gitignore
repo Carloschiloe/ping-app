@@ -38,9 +38,6 @@ npm-debug.log*
 .codex/
 .m7-personal-*/
 .vite/
-m7-staging-fix-temp/
-m8-bootstrap-work/
-m8-bootstrap-work-a837/
 certification-ci-work/
 phase3e-certification-clone/
 backend/.vitest-temp/
@@ -50,4 +47,3 @@ backend/test-output.txt
 ping-m8-screen.png
 .tmp-*.txt
 .tmp-*.png
-.m7-staging-local.bundle

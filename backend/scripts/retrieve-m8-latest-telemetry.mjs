@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-const baseUrl = (process.env.M8_DIAGNOSTIC_BASE_URL || 'https://ping-backend-staging.onrender.com/api').replace(/\/+$/, '');
+const baseUrl = (process.env.M8_DIAGNOSTIC_BASE_URL || 'https://ping-app-con3.onrender.com/api').replace(/\/+$/, '');
 const timestamp = String(Date.now());
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 if (!key) throw new Error('Missing server diagnostic capability');

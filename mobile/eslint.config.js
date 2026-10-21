@@ -8,7 +8,13 @@ module.exports = defineConfig([
     // The shipped app entrypoint is App.tsx. These are unused Expo Router
     // starter files retained in the repository, but expo-router is not part
     // of Ping's navigation/runtime dependency graph.
-    ignores: ['dist/*', 'app/**/*', 'components/external-link.tsx'],
+    ignores: [
+      '.expo/**/*',
+      'android/**/*',
+      'dist/**/*',
+      'app/**/*',
+      'components/external-link.tsx',
+    ],
   },
   {
     // SDK 57 bump trajo eslint-plugin-react-hooks@7 vía eslint-config-expo,

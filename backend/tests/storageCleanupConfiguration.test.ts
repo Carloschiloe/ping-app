@@ -21,13 +21,11 @@ describe('storage cleanup configuration', () => {
     });
 
     it('keeps Render cron and automation gates closed', () => {
-        for (const blueprintName of ['render.yaml', 'render.staging.yaml']) {
-            const renderYaml = readFileSync(resolve(repositoryRoot, blueprintName), 'utf8');
+        const renderYaml = readFileSync(resolve(repositoryRoot, 'render.yaml'), 'utf8');
 
-            expect(renderYaml).toMatch(/key:\s*RUN_CRON_JOBS\s*[\r\n]+\s*value:\s*["']?false["']?/);
-            expect(renderYaml).toMatch(/key:\s*ENABLE_AUTOMATIONS\s*[\r\n]+\s*value:\s*["']?false["']?/);
-            expect(renderYaml).not.toMatch(/type:\s*cron/);
-        }
+        expect(renderYaml).toMatch(/key:\s*RUN_CRON_JOBS\s*[\r\n]+\s*value:\s*["']?false["']?/);
+        expect(renderYaml).toMatch(/key:\s*ENABLE_AUTOMATIONS\s*[\r\n]+\s*value:\s*["']?false["']?/);
+        expect(renderYaml).not.toMatch(/type:\s*cron/);
     });
 
     it('does not put attachment cleanup into the in-process scheduler', () => {

@@ -11,7 +11,7 @@ import * as Haptics from 'expo-haptics';
 // permiso de micrófono, migrado a expo-audio.
 import { requestRecordingPermissionsAsync } from 'expo-audio';
 import { Camera } from 'expo-camera';
-import { apiClient } from '../api/client';
+import { apiClient, API_URL } from '../api/client';
 import { supabase } from '../lib/supabase';
 import {
     buildCallPageUrl,
@@ -19,8 +19,6 @@ import {
     getAllowedCallPermissionResources,
     parseCallBridgeMessage,
 } from '../utils/callBridge';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://ping-app-con3.onrender.com/api';
 
 const CallScreen = ({ route, navigation }: any) => {
     const { conversationId, isIncoming = false } = route.params;

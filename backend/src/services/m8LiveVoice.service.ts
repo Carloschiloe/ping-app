@@ -8,6 +8,7 @@ const DEFAULT_MODEL = 'gpt-realtime-2.1';
 const MAX_TELEMETRY_EVENTS = 500;
 const TELEMETRY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TELEMETRY_BUCKET = 'm8-live-voice-telemetry';
+const IN_MEMORY_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
 function realtimeLanguage(locale: string | undefined): string {
     const language = (locale || 'es-CL').trim().split(/[-_]/)[0]?.toLowerCase() ?? '';
@@ -50,6 +51,25 @@ type StoredTelemetry = {
 const telemetryByVoiceSession = new Map<string, StoredTelemetry>();
 const latestTelemetryByActor = new Map<string, string>();
 let latestTelemetryGlobalVoiceSessionId: string | null = null;
+
+function sweepInMemoryTelemetry(): void {
+    const cutoff = Date.now() - IN_MEMORY_SESSION_MAX_AGE_MS;
+    for (const [sessionId, session] of telemetryByVoiceSession) {
+        const lastEventAt = Date.parse(session.lastEventAt);
+        if (!Number.isFinite(lastEventAt) || lastEventAt < cutoff) {
+            telemetryByVoiceSession.delete(sessionId);
+            if (latestTelemetryGlobalVoiceSessionId === sessionId) {
+                latestTelemetryGlobalVoiceSessionId = null;
+            }
+            if (latestTelemetryByActor.get(session.actorUserId) === sessionId) {
+                latestTelemetryByActor.delete(session.actorUserId);
+            }
+        }
+    }
+}
+
+const telemetryCleanupTimer = setInterval(sweepInMemoryTelemetry, 60 * 1000);
+telemetryCleanupTimer.unref?.();
 
 function assertLiveVoiceEnabled(): void {
     if (!['staging', 'production'].includes(process.env.PING_ENVIRONMENT || '') || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {

@@ -1,10 +1,7 @@
-# Keep temporary staging worktrees and local artifacts out of EAS archives.
-../m7-staging-fix-temp/
+# Keep local artifacts out of EAS archives.
 ../.m8-build
-../m7-staging-fix-temp/mobile
 .m8-build
 .m8-*
-m7-staging-fix-temp/mobile
 ../.codex-*/
 ../.m7-*/
 ../.m8-*/

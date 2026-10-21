@@ -1,183 +1,58 @@
-# Deploy Backend to Render.com
+# Despliegue de Ping en producción
 
-Ping's backend is fully configured to be deployed on Render with just a few clicks.
-
-## Fuente operativa de verdad (verificada el 18-10-2026)
-
-La producción no se identifica por el nombre genérico de `render.yaml` ni por
-la rama `main`. El servicio activo es:
+## Fuente operativa de verdad
 
 - Servicio Render: `ping-app` (`srv-d6ipqi75r7bs73fnbom0`).
 - URL: `https://ping-app-con3.onrender.com`.
-- Rama desplegada: `codex/agent-voice-continuity-hardening`.
+- Repositorio: `https://github.com/Carloschiloe/ping-app.git`.
 - Health check: `/api/health`.
-- Auto-deploy: desactivado; los despliegues se ejecutan de forma explícita.
-- Último commit verificado en producción: `b24b65a47e70b40e9c8082bb98853f8f252b8dff`.
+- Root directory: `backend`.
+- Build: `npm ci --include=dev && npm run build && npm prune --omit=dev`.
+- Start: `npm start`.
 
-### Compuerta actual antes del siguiente deploy
+El archivo [render.yaml](./render.yaml) es la configuración versionada de producción. Las credenciales y variables privadas deben permanecer en Render y Supabase; nunca se deben copiar al repositorio.
 
-Los commits posteriores al deploy `7ae2d88` incluyen el boundary transaccional
-de Memory (`supabase/migrations/20261018010000_atomic_memory_ingestion.sql`).
-Ese runtime llama RPCs que deben existir en el Supabase productivo antes de
-activar el backend. El orden obligatorio es: backup/precheck productivo,
-aplicar y verificar la migración contra el proyecto `wbigqhtuzfmpnxservlf`,
-verificar rollback/advisors, y sólo entonces disparar el deploy de Render al
-commit validado. Nunca desplegar el runtime nuevo contra la base histórica sin
-esa verificación; el health endpoint por sí solo no prueba el flujo Memory.
+## Variables obligatorias en Render
 
-La compuerta de migración quedó completada el 19-10-2026 contra el proyecto
-Supabase productivo `wbigqhtuzfmpnxservlf`: las RPC atómicas de Memory existen,
-la versión `20261018010000_atomic_memory_ingestion` está registrada, los
-permisos quedaron limitados a `service_role` y los advisors no reportaron
-hallazgos. El despliegue runtime posterior quedó verificado en `b24b65a`.
+Configurar en el servicio `ping-app`:
 
-El servicio histórico `ping-backend-staging` (`srv-d9kllvqjobas73fqgrq0`)
-apunta a `codex/staging-beta`, está suspendido y no es producción. No se debe
-reactivar ni usar para validar cambios sin una decisión específica de staging.
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ENCRYPTION_KEY`
+- `ALLOWED_ORIGINS`
+- `PING_ENVIRONMENT=production`
+- `PING_EXPECTED_SUPABASE_PROJECT_REF=wbigqhtuzfmpnxservlf`
 
-## Pasos para Desplegar
+Las variables de funcionalidades deben mantenerse con valores de producción explícitos. El backend valida el proyecto Supabase esperado antes de iniciar.
 
-1. **Subir tu código a GitHub**
-   Sube todo el proyecto (o solo la carpeta `/backend` si prefieres) a un repositorio en tu perfil de GitHub.
+## Secuencia de publicación
 
-2. **Conectar Render**
-   - Entra a [Render.com](https://render.com) y crea tu cuenta (o inicia sesión).
-   - Haz clic en el botón de **"New +"** y selecciona **"Web Service"**.
-   - Conecta tu cuenta de GitHub y elige el repositorio donde subiste el código.
+1. Ejecutar los chequeos locales del backend y mobile.
+2. Confirmar que las migraciones nuevas fueron revisadas y aplicadas al proyecto Supabase productivo por un operador con permisos.
+3. Subir el commit validado a `main`.
+4. Confirmar en Render que `ping-app` apunta a `main` y al repositorio correcto.
+5. Disparar el despliegue sólo después de confirmar la rama.
+6. Verificar `/api/health`, autenticación, conversaciones, mensajes, búsqueda y voz.
+7. Revisar logs de arranque y errores 5xx durante los primeros minutos.
 
-3. **Configurar el Servicio Web**
-   Llena los campos como se indica a continuación:
-   - **Name:** `ping-app` para producción
-   - **Root Directory:** `backend` *(OBLIGATORIO: Si subiste el monorepo entero, aquí le dices a Render que el backend vive en esta subcarpeta).*
-   - **Environment:** `Node`
-   - **Build Command:** `npm install && npm run build`
-   - **Start Command:** `npm start`
+## Mobile producción
 
-4. **Variables de Entorno**
-   Baja hasta la sección de "Environment Variables" y haz clic en **"Add Environment Variable"** para poner tus llaves secretas:
-   - `SUPABASE_URL`: (Tú URL ej. https://wbigqhtuzfmpnxservlf.supabase.co)
-   - `SUPABASE_ANON_KEY`: (Tú Public Anon Key)
-   - `SUPABASE_SERVICE_ROLE_KEY`: (Tú Service Role Secret Key)
-   - `PORT`: `10000` *(Render prefiere el puerto 10000)*
-
-5. **¡Deploy!**
-   Haz clic en **"Create Web Service"**.
-   Render clonará tu repo, instalará las dependencias, compilará el TypeScript a JavaScript y encenderá tu servidor apuntando a Supabase.
-
-Cuando termine de cargar y veas un log que dice `✅ PING Backend listening on port 10000`, Render te dará un enlace. Por ejemplo:
-`https://ping-app-con3.onrender.com`
-
-## Conectar Mobile con la API de Producción
-
-Una vez que el backend esté en vivo, ve a tu computadora, abre `/mobile/.env` y actualiza la URL para que no apunte más a tu localhost, sino al backend de Render:
+La aplicación Expo usa:
 
 ```env
 EXPO_PUBLIC_API_URL=https://ping-app-con3.onrender.com/api
 ```
-*(Asegúrate de incluir `/api` al final al igual que en local).*
 
-¡Listo! Ya puedes encender `npm start` en `/mobile` y usar temporal o indefinidamente la App conectada de verdad desde la nube.
+Para generar el APK instalable:
 
-## Estado actual de los entornos
+```powershell
+cd mobile
+npx eas build --platform android --profile production-apk
+```
 
-`render.yaml` y `render.staging.yaml` son blueprints versionados; no sustituyen
-la configuración efectiva del servicio ya creado en Render. Para producción,
-el dashboard de `ping-app`, la rama desplegada y el commit de Render son la
-fuente de verdad operativa. `main` tampoco debe asumirse como producción.
+Para Google Play se debe usar el perfil `production` y una credencial de firma EAS/Play permanente. No se debe publicar un APK firmado con el keystore debug local.
 
-Los archivos `backend/.env` y `mobile/.env` son locales e ignorados por Git.
-Permiten desarrollo, pero no prueban ni configuran un despliegue remoto.
-Nunca se deben copiar secretos entre `ping-app` y el staging histórico.
+## Operación y rollback
 
-## Preparación mínima de un backend exclusivo de staging
-
-Esta sección sólo aplica si se decide reactivar o reemplazar el staging
-histórico. El servicio suspendido existente no debe confundirse con una
-validación activa.
-
-Crear el servicio requiere acceso autenticado a Render y debe hacerse como un
-recurso separado, sin modificar `ping-app`:
-
-El blueprint reproducible está en `render.staging.yaml`. Al crear el Blueprint
-en Render se debe seleccionar expresamente ese archivo; no sustituye ni
-modifica `render.yaml`.
-
-1. Crear un Web Service con nombre inequívoco, por ejemplo
-   `ping-backend-staging`.
-2. Usar `backend` como Root Directory, `npm ci && npm run build` como Build
-   Command y `npm start` como Start Command.
-3. Desactivar inicialmente el auto-deploy. El primer despliegue debe apuntar a
-   un commit explícitamente aprobado y verificable.
-4. Configurar credenciales exclusivas de `oonijgmddgyymhrlnvuu`:
-   - `SUPABASE_URL`;
-   - `SUPABASE_ANON_KEY`;
-   - `SUPABASE_SERVICE_ROLE_KEY`.
-5. Configurar un `ENCRYPTION_KEY` exclusivo de staging y un
-   `ALLOWED_ORIGINS` limitado al cliente de staging.
-6. Mantener exactamente:
-
-   ```env
-   ENABLE_PRIVATE_FILE_READS=true
-   ENABLE_PRIVATE_FILE_UPLOADS=false
-   ENABLE_NON_MVP_CAPABILITIES=false
-   ENABLE_OPERATION_MODULE=false
-   ENABLE_CALENDAR_INTEGRATION=false
-   ENABLE_CALLS=false
-   ENABLE_AUTOMATIONS=false
-   RUN_CRON_JOBS=false
-   ```
-
-7. No compartir variables, URL ni credenciales con el servicio de producción.
-8. Conectar una compilación de la aplicación destinada a staging mediante
-   `EXPO_PUBLIC_API_URL`; no cambiar la configuración de producción.
-
-La variable `PING_EXPECTED_SUPABASE_PROJECT_REF` queda fijada en
-`oonijgmddgyymhrlnvuu`. El backend rechaza el arranque si `SUPABASE_URL` no
-pertenece exactamente a ese proyecto.
-
-## Validación obligatoria antes de usar staging
-
-Con el servicio desplegado:
-
-- comprobar `/health` y confirmar que consulta `oonijgmddgyymhrlnvuu`;
-- verificar lectura privada autorizada mediante `/api/files/read-url`;
-- comprobar `403` para acceso cruzado o revocado;
-- comprobar `404` para recursos sin referencia de archivo, sin afectar el
-  resto del recurso;
-- comprobar `503` en `/api/files/upload-url`;
-- comprobar que Calendar, Calls y Operation permanecen en `503`;
-- confirmar que automatizaciones y cron no iniciaron procesos;
-- repetir la validación de TTL y ausencia de URLs firmadas persistidas.
-
-La reversión consiste en establecer `ENABLE_PRIVATE_FILE_READS=false` en el
-servicio staging y volver a desplegar el mismo commit. No se hace público el
-bucket, no se habilitan subidas y no se modifica producción.
-
-## Bloqueos actuales
-
-Antes de crear el servicio faltan:
-
-- una sesión autenticada o credencial administrativa de Render;
-- confirmar la cuenta/equipo y región donde vivirá staging;
-- seleccionar el commit aprobado para el primer despliegue;
-- definir el origen permitido y la URL pública del cliente de staging;
-- verificar después del alta que ninguna variable apunta a producción.
-
-## Checklist de creación
-
-- [ ] Render autenticado en la cuenta y equipo correctos.
-- [ ] Nuevo Blueprint creado desde `render.staging.yaml`.
-- [ ] Nombre final `ping-backend-staging`.
-- [ ] Auto-deploy desactivado.
-- [ ] `SUPABASE_URL` corresponde a `oonijgmddgyymhrlnvuu`.
-- [ ] Anon key y service-role key pertenecen al mismo proyecto.
-- [ ] `ENCRYPTION_KEY` es exclusivo de staging.
-- [ ] `ALLOWED_ORIGINS` contiene sólo el cliente de staging.
-- [ ] Ningún secreto fue copiado desde producción.
-- [ ] Commit del primer despliegue anotado.
-- [ ] `/api/health` responde correctamente.
-- [ ] Lectura privada autorizada validada.
-- [ ] Acceso cruzado y revocado rechazados.
-- [ ] Subidas, Calendar, Calls y Operation responden `503`.
-- [ ] Automatizaciones y cron permanecen inactivos.
-- [ ] Mobile staging apunta al nuevo host; mobile producción no cambió.
+El rollback se realiza desde Render seleccionando el último deploy sano. No se deben modificar datos productivos manualmente para revertir código. Las migraciones de Supabase son aditivas e idempotentes cuando así se indica en su archivo; cualquier reversión de esquema requiere una migración explícita y respaldos verificados.

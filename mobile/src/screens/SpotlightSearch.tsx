@@ -2,24 +2,17 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, TextInput, FlatList, ActivityIndicator, StyleSheet, TouchableOpacity, ScrollView, Platform, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../api/client';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConversations, useGetOrCreateSelfConversation, useCreateConversation } from '../api/queries';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 const useSearch = (query: string) => {
     return useQuery({
         queryKey: ['search', query],
         queryFn: async () => {
             if (!query) return { messages: [], commitments: [], profiles: [], conversations: [] };
-            const { data: { session } } = await supabase.auth.getSession();
-            const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(query)}`, {
-                headers: { 'Authorization': `Bearer ${session?.access_token}` }
-            });
-            if (!res.ok) throw new Error('Failed to search');
-            return res.json();
+            return apiClient.get(`/search?q=${encodeURIComponent(query)}`);
         },
         enabled: query.trim().length > 1,
     });

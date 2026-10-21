@@ -228,7 +228,7 @@ router.patch('/groups/:id/participants/:userId/role', requireAuth, validateReque
 router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 
 // Legacy self-chat message routes (kept for backward compatibility)
-router.post('/messages', requireAuth, messageController.createMessage);
+router.post('/messages', requireAuth, validateRequest(messageSchema.createLegacyMessageSchema), messageController.createMessage);
 router.get('/messages', requireAuth, messageController.getMessages);
 router.patch('/messages/:id/status', requireAuth, messageController.updateMessageStatus);
 router.delete('/messages/:id', requireAuth, messageController.deleteMessage);

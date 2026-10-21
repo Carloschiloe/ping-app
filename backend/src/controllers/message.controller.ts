@@ -28,8 +28,11 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
         );
         res.status(201).json(result);
     } catch (error: any) {
-        console.error('[createMessage Controller Error]');
-        res.status(500).json({ error: error.message });
+        console.error('[createMessage Controller Error]', error);
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to create message' : error.message,
+        });
     }
 };
 
@@ -44,8 +47,11 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
         const result = await messageService.getMessages(req.user.id, limit, offset);
         res.status(200).json(result);
     } catch (error: any) {
-        console.error('[getMessages Controller Error]');
-        res.status(500).json({ error: error.message });
+        console.error('[getMessages Controller Error]', error);
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'Unable to load messages' : error.message,
+        });
     }
 };
 

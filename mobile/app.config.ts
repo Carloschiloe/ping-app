@@ -8,8 +8,9 @@ const blockedPermissions = [
     'android.permission.WRITE_CONTACTS',
     'android.permission.READ_CALENDAR',
     'android.permission.WRITE_CALENDAR',
-    'android.permission.ACCESS_FINE_LOCATION',
-    'android.permission.ACCESS_COARSE_LOCATION',
+    'android.permission.SYSTEM_ALERT_WINDOW',
+    'android.permission.READ_EXTERNAL_STORAGE',
+    'android.permission.WRITE_EXTERNAL_STORAGE',
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_MEDIA_VIDEO',
     'android.permission.READ_MEDIA_AUDIO',
@@ -28,7 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: 'Ping',
-        version: '1.0.2',
+        version: '1.0.3',
         runtimeVersion: { policy: 'appVersion' },
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
@@ -54,7 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             // Native permission changes require a real Android update. Keep
             // the production version code monotonic so the final APK can be
             // installed over the current production baseline.
-            versionCode: 16,
+            versionCode: 17,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.
@@ -67,6 +68,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
                 'android.permission.READ_CONTACTS',
                 'android.permission.RECORD_AUDIO',
                 'android.permission.MODIFY_AUDIO_SETTINGS',
+                'android.permission.POST_NOTIFICATIONS',
+                'android.permission.ACCESS_FINE_LOCATION',
+                'android.permission.ACCESS_COARSE_LOCATION',
             ],
             blockedPermissions: [
                 ...blockedPermissions.filter((permission) =>
