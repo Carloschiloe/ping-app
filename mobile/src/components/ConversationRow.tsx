@@ -44,7 +44,7 @@ type ConversationRowProps = {
     previewOverride?: string;
 };
 
-export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme, pinned = false, previewOverride }: ConversationRowProps) {
+export const ConversationRow = React.memo(function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme, pinned = false, previewOverride }: ConversationRowProps) {
     const isGroup = deriveIsGroup(item);
     const isSelf = deriveIsSelf(item);
     const otherUser = item.otherUser;
@@ -181,4 +181,4 @@ export function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPr
             </View>
         </Pressable>
     );
-}
+});
