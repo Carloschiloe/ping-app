@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Ping",
-    "slug": "ping",
+    "slug": "mobile",
     "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
