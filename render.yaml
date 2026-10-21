@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ping-backend
+    name: ping-app
     runtime: node
     region: oregon
     plan: free
