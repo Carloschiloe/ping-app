@@ -79,6 +79,17 @@ export const m8LiveVoiceTelemetrySchema = z.object({
         confirmationState: z.enum(['required', 'received']).optional(),
         planDigestPresent: z.boolean().optional(),
         stepCount: z.number().int().min(0).max(100).optional(),
+        // Non-sensitive WebRTC offer diagnostics. Raw SDP is never accepted
+        // into telemetry; these bounded fields allow troubleshooting without
+        // storing media/session negotiation contents.
+        sdpLength: z.number().int().min(0).max(250_000).optional(),
+        sdpLineCount: z.number().int().min(0).max(10_000).optional(),
+        candidateCount: z.number().int().min(0).max(10_000).optional(),
+        hasAudio: z.boolean().optional(),
+        hasDataChannel: z.boolean().optional(),
+        hasIceUfrag: z.boolean().optional(),
+        hasIcePwd: z.boolean().optional(),
+        hasFingerprint: z.boolean().optional(),
     }).strict(),
 });
 
