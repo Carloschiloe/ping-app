@@ -123,7 +123,9 @@ const privateMessageUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_M
 // Health
 router.get('/health', async (req, res) => {
     try {
-        const { error } = await supabaseAdmin.from('profiles').select('count', { count: 'exact', head: true });
+        // Liveness/readiness sólo necesita comprobar conectividad. Un COUNT
+        // exacto fuerza trabajo innecesario sobre una tabla que puede crecer.
+        const { error } = await supabaseAdmin.from('profiles').select('id').limit(1);
         if (error) throw error;
         res.json({
             ok: true,

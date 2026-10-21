@@ -267,7 +267,8 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
         const conversationId = req.params.id as string;
         const scrollToMessageId = req.query.scrollToMessageId as string | undefined;
         const before = req.query.before as string | undefined;
-        const limit = parseInt(req.query.limit as string) || 50;
+        const requestedLimit = Number.parseInt(req.query.limit as string, 10);
+        const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
 
         await assertConversationParticipant(userId, conversationId);
 
