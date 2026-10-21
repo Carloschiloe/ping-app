@@ -37,6 +37,20 @@ function providerError(response: Response, bodyText: string): AppError {
     return error;
 }
 
+/**
+ * WebRTC implementations are allowed to emit LF-only SDP, while the
+ * Realtime calls endpoint expects a conventional SDP payload. Keep the
+ * offer content intact and only canonicalize line endings/trailing blanks.
+ */
+function normalizeOfferSdp(value: string): string {
+    const crlf = String.fromCharCode(13, 10);
+    const lf = String.fromCharCode(10);
+    const cr = String.fromCharCode(13);
+    const lines = String(value).replaceAll(crlf, lf).replaceAll(cr, lf).split(lf);
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return `${lines.join(crlf)}${crlf}`;
+}
+
 type StoredTelemetry = {
     actorUserId: string;
     voiceSessionId: string;
@@ -277,7 +291,7 @@ export async function createM8LiveVoiceSession(input: {
     // file metadata that the provider rejects as invalid form data.
     // The unified WebRTC endpoint expects ordinary multipart fields. Blob
     // parts add file metadata that the provider rejects as invalid form data.
-    form.set('sdp', input.request.sdp);
+    form.set('sdp', normalizeOfferSdp(input.request.sdp));
     form.set('session', JSON.stringify(buildSessionConfig(input.request, model)));
 
     let response: Response;
