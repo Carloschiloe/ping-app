@@ -35,6 +35,8 @@ import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceReque
 import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
+import { isCanonicalDurableAgentRuntimeEnabled } from '../services/agentDurableConfig.service';
+import { isAgentConversationTurnPersistenceEnabled } from '../services/agentConversationTurn.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
 import * as messageSchema from '../schemas/message.schema';
@@ -129,6 +131,8 @@ router.get('/health', async (req, res) => {
         res.json({
             ok: true,
             db_status: 'connected',
+            agent_runtime: isCanonicalDurableAgentRuntimeEnabled() ? 'durable' : 'process_local',
+            agent_conversation_events: isAgentConversationTurnPersistenceEnabled(),
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME
