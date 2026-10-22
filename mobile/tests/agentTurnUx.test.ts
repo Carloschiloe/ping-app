@@ -215,6 +215,32 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(() => parseAgentTurnResult({ ...turnPlan, presentation: { ...presentation, planDigest: 'b'.repeat(64) } })).toThrow('invalid_agent_turn_shape');
     });
 
+    it('accepts the legacy direct response shape during a mixed production rollout', () => {
+        const parsed = parseAgentTurnResult({
+            status: 'answered', answer: 'Tienes uno.', citations: [],
+        });
+        expect(parsed).toEqual({
+            kind: 'response',
+            response: { status: 'answered', answer: 'Tienes uno.', citations: [] },
+        });
+    });
+
+    it('renders an exact-count READ replay instead of showing a generic retry error', () => {
+        const parsed = parseAgentTurnResult({
+            kind: 'read',
+            execution: {
+                status: 'completed', conclusion: 'count', completeness: 'complete',
+                queryKey: 'commitment-count:test',
+                count: { value: 1, queryKey: 'commitment-count:test', provenance: { kind: 'count_operation', operation: 'count', queryKey: 'commitment-count:test' } },
+            },
+            scopeFingerprint: 'scope', constraintsFingerprint: 'constraints',
+        });
+        expect(parsed).toEqual({
+            kind: 'response',
+            response: { status: 'answered', answer: 'Tienes 1 compromiso pendiente.', citations: [] },
+        });
+    });
+
     it('preserves the Core confirmation operator marker on a natural-language confirmation', () => {
         const parsed = parseAgentTurnResult({ ...turnPlan, confirmationRequested: true });
         expect(parsed.kind).toBe('plan');

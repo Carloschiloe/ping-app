@@ -454,8 +454,55 @@ export function adapterSurfaceForTurn(input: AgentTurnInput): AgentAdapterSurfac
 export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
     if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_turn_shape');
     const obj = raw as Record<string, unknown>;
+    // Older production deploys returned the public response directly from
+    // /agent/turn. Accepting that shape keeps a mixed Expo/Render rollout
+    // usable while every current response continues through the discriminator.
+    if (typeof obj.kind !== 'string'
+        && typeof obj.status === 'string'
+        && typeof obj.answer === 'string'
+        && Array.isArray(obj.citations)) {
+        return { kind: 'response', response: parseAgentResponse(obj) };
+    }
     if (obj.kind === 'response') {
         parseAgentResponse(obj.response);
+    } else if (obj.kind === 'read') {
+        // READ V4 is an experimental server-side result. It can still be
+        // replayed by the durable boundary, so project its exact-count and
+        // terminal states into the public response contract instead of
+        // collapsing a valid HTTP 200 into the generic retry error.
+        const execution = obj.execution as Record<string, unknown> | undefined;
+        if (!execution || typeof execution.status !== 'string') throw new Error('invalid_agent_turn_shape');
+        if (execution.status === 'completed' && execution.conclusion === 'count') {
+            const count = execution.count as Record<string, unknown> | undefined;
+            if (!count || !Number.isInteger(count.value) || Number(count.value) < 0) {
+                throw new Error('invalid_agent_turn_shape');
+            }
+            return {
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: `Tienes ${count.value} compromiso${count.value === 1 ? '' : 's'} pendiente${count.value === 1 ? '' : 's'}.`,
+                    citations: [],
+                },
+            };
+        }
+        if (execution.status === 'completed' && execution.conclusion === 'no_matching_fact') {
+            return {
+                kind: 'response',
+                response: { status: 'no_evidence', answer: 'No encontré compromisos pendientes.', citations: [] },
+            };
+        }
+        if (execution.status === 'unsupported' || execution.status === 'failed') {
+            return {
+                kind: 'response',
+                response: {
+                    status: 'capability_gap',
+                    answer: 'No pude completar esa consulta ahora. Intenta nuevamente.',
+                    citations: [],
+                },
+            };
+        }
+        throw new Error('invalid_agent_turn_shape');
     } else if (obj.kind === 'plan') {
         const plan = obj.plan as Record<string, unknown> | undefined;
         const presentation = obj.presentation as Record<string, unknown> | undefined;
