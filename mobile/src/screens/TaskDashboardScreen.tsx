@@ -584,8 +584,8 @@ export default function TaskDashboardScreen() {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
             <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
-            <CalendarModal />
-            <FilterDrawer />
+            {CalendarModal()}
+            {FilterDrawer()}
             <ConfirmCommitmentModal
                 commitment={confirmItem}
                 isPending={isConfirming}
