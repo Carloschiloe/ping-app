@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { executeAuthorization } from '../services/agentExecution.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
+import { AgentDialogueStateService, buildDialogueScopeKey } from '../services/agentDialogueState.service';
 import {
     isAgentConversationTurnPersistenceEnabled,
     persistAgentExecutionConversationEvent,
@@ -19,6 +20,45 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
         const traceId = generateTraceId();
 
         const result = await executeAuthorization({ authorizationId, actorUserId, traceId });
+
+        // The legacy mobile flow confirms and executes through separate HTTP
+        // calls.  The canonical in-turn flow already closes the dialogue
+        // state after a verified write, but this controller is the post-
+        // confirmation boundary for the mobile flow and must do the same.
+        // Otherwise the next independent question can inherit the completed
+        // create-commitment objective and render the old creation form again.
+        const verified = result.status === 'done'
+            && result.executedSteps.length > 0
+            && result.executedSteps.every((step) => step.status === 'succeeded' && step.verified === true);
+        if (verified) {
+            const dialogueScopeKey = buildDialogueScopeKey({
+                conversationId: conversationId ?? null,
+                surface: 'mobile_text',
+            });
+            const dialogueService = new AgentDialogueStateService();
+            const dialogueState = dialogueService.getSnapshot(actorUserId, dialogueScopeKey);
+            // Only close the state that is actually waiting for authorization.
+            // A late/replayed execution must never resolve an unrelated or
+            // already-idle dialogue objective.
+            if (dialogueState?.lifecycle === 'plan_pending_authorization') {
+                try {
+                    dialogueService.markResolvedAfterExecution({
+                        actorUserId,
+                        dialogueScopeKey,
+                        turnId: traceId,
+                        turnSequence: dialogueState.lastTurnSequence,
+                    });
+                } catch (dialogueError: any) {
+                    // The side effect is already verified. State cleanup is
+                    // auxiliary; keep the honest execution result available
+                    // while leaving a diagnostic for the server logs.
+                    console.warn('[AgentDialogue] post-execution resolution skipped', {
+                        authorizationId,
+                        message: dialogueError?.message ?? String(dialogueError),
+                    });
+                }
+            }
+        }
         if (isAgentConversationTurnPersistenceEnabled() && conversationId && sourceTurnKey) {
             try {
                 await persistAgentExecutionConversationEvent({
