@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, Switch } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -53,6 +53,25 @@ export default function ProfileScreen() {
     // Cloud Accounts
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
 
+    const loadHiddenCalendars = useCallback(async () => {
+        const stored = await AsyncStorage.getItem('ping_hidden_calendars');
+        if (stored) setHiddenCalendars(JSON.parse(stored));
+    }, []);
+
+    const checkCalendars = useCallback(async () => {
+        const { status } = await Calendar.getCalendarPermissionsAsync();
+        if (status !== 'granted') return;
+        setLoadingCals(true);
+        try {
+            const all = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+            setCalendars(all.filter(c => c.allowsModifications));
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingCals(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (!user) return;
         supabase
@@ -74,9 +93,11 @@ export default function ProfileScreen() {
                 }
             });
 
-        checkCalendars();
-        loadHiddenCalendars();
-        refetchAccounts();
+        const initialCalendarLoad = setTimeout(() => {
+            void checkCalendars();
+            void loadHiddenCalendars();
+            void refetchAccounts();
+        }, 0);
 
         LocalAuthentication.hasHardwareAsync().then(hasHw => setHasBiometricHw(hasHw));
         AsyncStorage.getItem('ping_biometric_lock').then(val => {
@@ -111,7 +132,9 @@ export default function ProfileScreen() {
                 setFocusRemainingLabel('');
             }
         });
-    }, [user, isFocused, refetchAccounts]);
+
+        return () => clearTimeout(initialCalendarLoad);
+    }, [user, isFocused, refetchAccounts, checkCalendars, loadHiddenCalendars]);
 
     const handleToggleBiometric = async (value: boolean) => {
         if (value) {
@@ -150,32 +173,12 @@ export default function ProfileScreen() {
         setFocusRemainingLabel('');
     };
 
-    const loadHiddenCalendars = async () => {
-        const stored = await AsyncStorage.getItem('ping_hidden_calendars');
-        if (stored) setHiddenCalendars(JSON.parse(stored));
-    };
-
     const toggleCalendarVisibility = async (id: string) => {
         const updated = hiddenCalendars.includes(id)
             ? hiddenCalendars.filter(cid => cid !== id)
             : [...hiddenCalendars, id];
         setHiddenCalendars(updated);
         await AsyncStorage.setItem('ping_hidden_calendars', JSON.stringify(updated));
-    };
-
-    const checkCalendars = async () => {
-        const { status } = await Calendar.getCalendarPermissionsAsync();
-        if (status === 'granted') {
-            setLoadingCals(true);
-            try {
-                const all = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-                setCalendars(all.filter(c => c.allowsModifications));
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setLoadingCals(false);
-            }
-        }
     };
 
     const handleLogout = () => {

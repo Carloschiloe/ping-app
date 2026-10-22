@@ -56,7 +56,9 @@ const BackendBanner = () => {
     }, []);
 
     useEffect(() => {
-        checkHealth();
+        const initialCheck = setTimeout(() => {
+            void checkHealth();
+        }, 0);
         const timer = setInterval(checkHealth, 15_000);
         const subscription = AppState.addEventListener('change', nextState => {
             if (nextState === 'active') checkHealth();
@@ -72,6 +74,7 @@ const BackendBanner = () => {
             checkHealth();
         });
         return () => {
+            clearTimeout(initialCheck);
             clearInterval(timer);
             subscription.remove();
             networkSubscription();
