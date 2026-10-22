@@ -356,6 +356,12 @@ describe('PING — CREATE_COMMITMENT TITLE FIDELITY FIX: DeterministicObjectiveI
         expect(obj.ambiguities.some((a) => a.kind === 'blocking')).toBe(false);
     });
 
+    it('does not include a leading meridiem in the title when the action follows a timed schedule', async () => {
+        const obj = await interpreter.interpret('Agenda mañana a las 10:00 am ir a comprar materiales', CTX);
+        expect(obj.targetEntities.entityHints[0]).toBe('ir a comprar materiales');
+        expect(obj.targetEntities.entityHints[0]).not.toMatch(/^am\b/i);
+    });
+
     it('"Agenda entrenar mañana a las 8." still extracts "entrenar" unchanged -- the suffix-fallback path never activates when a valid prefix title already exists (no regression)', async () => {
         const obj = await interpreter.interpret('Agenda entrenar mañana a las 8.', CTX);
         expect(obj.targetEntities.entityHints[0]).toBe('entrenar');

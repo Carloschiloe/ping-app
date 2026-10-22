@@ -22,7 +22,7 @@ import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
     appendExecutionMessage, appendUserMessage,
     canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel,
-    restoreAgentConversationMessages, type AgentChatMessage,
+    restoreAgentConversationMessages, restorePendingAgentPlan, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -88,6 +88,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         hydratedConversationRef.current = conversationId;
         if (!localInteractionRef.current) {
             setMessages(restoreAgentConversationMessages(persistedHistory.turns));
+            const pending = restorePendingAgentPlan(persistedHistory.turns);
+            if (pending) dispatchTurn({ type: 'RESTORE_PENDING_PLAN', pending });
         }
     }, [conversationId, persistedHistory]);
 
@@ -274,7 +276,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         const isExecutionCard = !!item.executionResult && !!item.executionPresentation;
         const isActivePlan = isPlanCard
             && turnState.pendingPlan?.turn.plan.planId === item.rawPlan?.plan.planId
-            && ['plan_ready', 'authorizing', 'executing'].includes(turnState.phase);
+            && ['plan_ready', 'authorizing', 'executing'].includes(turnState.phase)
+            && Date.parse(item.planPresentation!.expiresAt) > Date.now();
 
         const isCopyable = !isPlanCard && !isExecutionCard && !!item.text;
         const BubbleContainer = isCopyable ? TouchableOpacity : View;

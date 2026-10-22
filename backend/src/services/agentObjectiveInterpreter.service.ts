@@ -405,6 +405,10 @@ function stripLeadingTimeTokens(text: string): string {
     for (;;) {
         const before = remaining;
         remaining = remaining.replace(/^[\s:]*\d{1,2}(?::\d{2})?[\s:]*/u, ' ').trimStart();
+        // A meridiem can sit between a leading time expression and the
+        // actual action: "mañana a las 10:00 am ir a comprar...".  It is
+        // part of the temporal span, never part of the commitment title.
+        remaining = remaining.replace(/^(?:a\.?\s*m\.?|p\.?\s*m\.?)\b[\s:]*/iu, '').trimStart();
         const wordMatch = remaining.match(/^\s*(?:al|el|por|para|a las|el próximo|next|on|by|ma[ñn]ana|hoy|pasado ma[ñn]ana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo|tomorrow|today)\b/iu);
         if (wordMatch) remaining = remaining.slice(wordMatch[0].length);
         if (remaining === before) break;

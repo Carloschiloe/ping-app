@@ -47,6 +47,7 @@ export const initialAgentTurnUiState: AgentTurnUiState = {
 export type AgentTurnUiEvent =
     | { type: 'SUBMIT'; source: AgentTurnInput; sourceText: string }
     | { type: 'TURN_RESULT'; result: AgentTurnResult; source: AgentTurnInput; sourceText: string }
+    | { type: 'RESTORE_PENDING_PLAN'; pending: PendingAgentPlan }
     | { type: 'CONFIRM' }
     | { type: 'AUTHORIZED'; authorization: AgentAuthorizationResult }
     | { type: 'EXECUTION_RESULT'; execution: AgentExecutionResult }
@@ -97,6 +98,14 @@ export function reduceAgentTurnUi(state: AgentTurnUiState, event: AgentTurnUiEve
                 phase: event.result.kind,
             };
         }
+        case 'RESTORE_PENDING_PLAN':
+            return {
+                phase: 'plan_ready',
+                pendingPlan: event.pending,
+                authorization: null,
+                execution: null,
+                errorMessage: null,
+            };
         case 'CONFIRM':
             if (state.phase !== 'plan_ready' || !state.pendingPlan) return state;
             return { ...state, phase: 'authorizing', errorMessage: null };

@@ -12,7 +12,9 @@ import type {
     AgentPlanPresentation,
     AgentTurnPlan,
     AgentTurnResult,
+    AgentTurnInput,
 } from '../api/query-modules/agent';
+import type { PendingAgentPlan } from './agentTurnState';
 
 export interface AgentChatMessage {
     id: string;
@@ -117,6 +119,36 @@ export function restoreAgentConversationMessages(turns: AgentConversationTurnRec
         restored.splice(0, restored.length, ...withResult);
     }
     return restored;
+}
+
+/**
+ * Rehydrates the last still-confirmable plan when the screen is reopened.
+ * History cards are otherwise rendered as read-only because the local
+ * reducer starts idle, which made a valid plan impossible to confirm after a
+ * navigation/reload.
+ */
+export function restorePendingAgentPlan(turns: AgentConversationTurnRecord[]): PendingAgentPlan | null {
+    let pending: PendingAgentPlan | null = null;
+    for (const turn of turns) {
+        if (turn.result.kind === 'execution') {
+            pending = null;
+            continue;
+        }
+        if (turn.result.kind !== 'plan') continue;
+        if (turn.result.confirmationRequested === true) continue;
+        if (Date.parse(turn.result.presentation.expiresAt) <= Date.now()) {
+            pending = null;
+            continue;
+        }
+        const source: AgentTurnInput = {
+            input: turn.inputText,
+            conversationId: turn.conversationId,
+            channel: 'mobile',
+            idempotencyKey: turn.clientTurnKey,
+        };
+        pending = { turn: turn.result, source, sourceText: turn.inputText };
+    }
+    return pending;
 }
 
 // Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca

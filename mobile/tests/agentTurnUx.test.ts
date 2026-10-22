@@ -36,6 +36,7 @@ import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
 } from '../src/utils/agentTurnState';
+import { restorePendingAgentPlan } from '../src/utils/agentChat';
 
 const presentation = {
     headline: 'Enviaré un mensaje a Alejandra',
@@ -98,6 +99,18 @@ describe('M-6 mobile state machine', () => {
         expect(state.phase).toBe('plan_ready');
         expect(state.pendingPlan?.turn.plan.planDigest).toBe('a'.repeat(64));
         expect(state.pendingPlan?.source).toEqual(source);
+        expect(canConfirmAgentPlan(state)).toBe(true);
+    });
+
+    it('restores a still-valid plan from conversation history so it remains confirmable after reopening', () => {
+        const restored = restorePendingAgentPlan([{
+            id: 'turn-1', conversationId: 'conv-1', actorUserId: 'actor', clientTurnKey: 'turn-key',
+            inputText: 'Agenda mañana a las 10 ir a comprar materiales', inputMode: 'text',
+            resultKind: 'plan', result: turnPlan, createdAt: new Date().toISOString(),
+        }]);
+        expect(restored?.turn.plan.planId).toBe('plan-1');
+        expect(restored?.source.idempotencyKey).toBe('turn-key');
+        const state = reduceAgentTurnUi(initialAgentTurnUiState, { type: 'RESTORE_PENDING_PLAN', pending: restored! });
         expect(canConfirmAgentPlan(state)).toBe(true);
     });
 
