@@ -827,6 +827,30 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
+    it('una lista completa de exactamente 10 vencidos sigue siendo determinística y no espera al modelo', async () => {
+        const overdueCommitments = Array.from({ length: 10 }, (_, index) => commitment(`cm-overdue-${index}`, {
+            title: `Pendiente vencido ${index + 1}`,
+            status: 'accepted',
+            dueAt: '2026-07-31T00:00:00Z',
+        }));
+        const ctx = baseContext({
+            evidenceFound: true,
+            wantsOverdueFocus: true,
+            queryCardinality: 'exhaustive_list' as any,
+            commitments: overdueCommitments as any,
+            provenance: overdueCommitments.map((item) => item.provenance),
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
+
+        expect(model.synthesize).not.toHaveBeenCalled();
+        expect(response.status).toBe('answered');
+        expect(response.claims).toHaveLength(10);
+        expect(response.answer).toContain('Pendiente vencido 1 está vencido.');
+        expect(response.answer).toContain('Pendiente vencido 10 está vencido.');
+    });
+
     it('un commitment con dueAt futuro NUNCA se marca isOverdue, aunque wantsOverdueFocus sea true', async () => {
         const futureCommitment = commitment('cm-futuro', { title: 'Reunión futura', status: 'accepted', dueAt: '2026-12-31T00:00:00Z' });
         const ctx = baseContext({ evidenceFound: true, wantsOverdueFocus: true, commitments: [futureCommitment] as any, provenance: [futureCommitment.provenance] });

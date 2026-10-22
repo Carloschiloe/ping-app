@@ -1557,8 +1557,12 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
         if (status === 'answered'
             && context.wantsOverdueFocus
             && explicitOverdueQuestion
-            && context.commitments.length < 10
-            && context.queryCardinality !== 'focused_lookup') {
+            // Retrieval is bounded at 10 items. Exactly 10 is still a
+            // complete bounded result and must not fall through to the LLM;
+            // doing so made the production query "¿qué tengo vencido?"
+            // hang after retrieval and eventually hit the mobile timeout.
+            && context.commitments.length <= 10
+            && (context.queryCardinality === 'exhaustive_list' || context.queryCardinality === undefined)) {
             const hasActualOverdue = context.commitments.some((c) => isCommitmentOverdue(
                 c.dueAt,
                 c.status,

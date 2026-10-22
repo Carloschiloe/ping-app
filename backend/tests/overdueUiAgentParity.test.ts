@@ -49,6 +49,10 @@ function baseContext(overrides: Partial<AgentContext> = {}): AgentContext {
         evidenceFound: true,
         capabilityGaps: [],
         retrievalPlan: [],
+        // This suite audits the serialized payload sent to the model. Keep
+        // it on the focused path so the test can inspect that payload; the
+        // production exhaustive-list path is covered separately.
+        queryCardinality: 'focused_lookup',
         ...overrides,
     };
 }
