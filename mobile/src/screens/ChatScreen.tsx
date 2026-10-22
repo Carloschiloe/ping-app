@@ -65,7 +65,6 @@ import { formatRecordingDuration } from '../utils/audioRecording';
 import { getMessageFocusDecision } from '../utils/messageFocus';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { PingActivityCard } from '../components/PingActivityCard';
-import * as MediaLibrary from 'expo-media-library';
 import {
     copyAttachmentImageAsync,
     saveAttachmentToDeviceAsync,
@@ -614,14 +613,19 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             }
 
             if (attachment.kind === 'image' || attachment.kind === 'video') {
-                const permission = await MediaLibrary.requestPermissionsAsync(true, []);
+                // expo-media-library is not bundled by every Expo Go runtime.
+                // Load it only when the user explicitly saves media so the chat
+                // screen can still boot in Expo Go and in production builds
+                // where the native module is available.
+                const mediaLibrary = await import('expo-media-library');
+                const permission = await mediaLibrary.requestPermissionsAsync(true, []);
                 if (permission.status !== 'granted') {
                     Alert.alert('Permiso necesario', 'Permite guardar archivos multimedia para continuar.');
                     return;
                 }
                 await saveAttachmentToGalleryAsync(attachment, {
                     saveLocalFileAsync: async (file) => {
-                        await MediaLibrary.createAssetAsync(file.localUri);
+                        await mediaLibrary.createAssetAsync(file.localUri);
                     },
                 });
             } else {
