@@ -62,7 +62,7 @@ export default function TaskDashboardScreen() {
     const [delegatedExpanded, setDelegatedExpanded] = useState(false);
 
     // ─── Data ─────────────────────────────────────────────────────────────────
-    const { data: commitments = [], isLoading, refetch } = useQuery({
+    const { data: commitments = [], isLoading, isStale, refetch } = useQuery({
         queryKey: ['all-commitments-dashboard'],
         queryFn: async () => {
             const [confirmed, proposals] = await Promise.all([
@@ -70,10 +70,15 @@ export default function TaskDashboardScreen() {
                 apiClient.get('/commitment-proposals'),
             ]);
             return [...(confirmed || []), ...(proposals || [])];
-        }
+        },
+        staleTime: 10_000,
+        refetchOnMount: true,
+        refetchOnReconnect: true,
     });
 
-    useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+    useFocusEffect(useCallback(() => {
+        if (isStale) void refetch();
+    }, [isStale, refetch]));
 
     // ─── Mutations ────────────────────────────────────────────────────────────
     const { mutateAsync: acceptCommitment } = useAcceptCommitment();

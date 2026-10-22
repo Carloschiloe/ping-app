@@ -26,6 +26,11 @@ if (!configuredApiUrl && !__DEV__) {
 
 export const API_URL = configuredApiUrl || 'http://localhost:3000/api';
 
+// Screens can mount and revalidate at the same time (for example after a
+// realtime event and a navigation focus). Share the same GET promise instead
+// of sending duplicate authenticated requests to the API.
+const inFlightGetRequests = new Map<string, Promise<unknown>>();
+
 export class ApiError extends Error {
     constructor(
         message: string,
@@ -51,15 +56,30 @@ export const apiClient = {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetchWithTimeout(url, { headers });
-        const responseText = await response.text();
-        if (!response.ok) {
-            throw new Error(`Error GET ${url} (${response.status})`);
-        }
+        const key = `${url}|${headers.Authorization || ''}`;
+        const existingRequest = inFlightGetRequests.get(key);
+        if (existingRequest) return existingRequest;
+
+        const request = (async () => {
+            const response = await fetchWithTimeout(url, { headers });
+            const responseText = await response.text();
+            if (!response.ok) {
+                throw new Error(`Error GET ${url} (${response.status})`);
+            }
+            try {
+                return JSON.parse(responseText);
+            } catch {
+                throw new Error('El servidor devolvió un formato inválido (no JSON).');
+            }
+        })();
+
+        inFlightGetRequests.set(key, request);
         try {
-            return JSON.parse(responseText);
-        } catch {
-            throw new Error('El servidor devolvió un formato inválido (no JSON).');
+            return await request;
+        } finally {
+            if (inFlightGetRequests.get(key) === request) {
+                inFlightGetRequests.delete(key);
+            }
         }
     },
     delete: async (endpoint: string) => {
