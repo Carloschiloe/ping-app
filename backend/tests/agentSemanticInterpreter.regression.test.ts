@@ -115,6 +115,23 @@ describe('semantic boundary read/write regression', () => {
         expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
     });
 
+    it('does not mistake a declarative "Tengo que" action for a punctuation-free question', async () => {
+        const objective = personalCommitmentObjective();
+        const objectiveInterpreter = { interpret: vi.fn(async () => objective) };
+        const result = await interpretAgentSemanticTurn(
+            'Tengo que llamar a Pedro',
+            { actorUserId: ACTOR, conversationId: 'conversation-regression' },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('write');
+        expect(result.objective).toEqual(objective);
+        expect(objectiveInterpreter.interpret).toHaveBeenCalledOnce();
+    });
+
     it('passes pending-plan context to the objective interpreter before Core classifies confirmation, deferral, or replacement', async () => {
         const objectiveInterpreter = {
             interpret: vi.fn(async (_input: string, context: {
