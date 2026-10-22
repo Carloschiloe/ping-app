@@ -31,7 +31,7 @@ import { apiClient } from '../src/api/client';
 import type {
     AgentAuthorizationResult, AgentExecutionResult, AgentTurnInput, AgentTurnPlan, AgentTurnResult,
 } from '../src/api/query-modules/agent';
-import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, publicPingSurface, requestAgentSurfaceTurn, surfaceForDeviceType } from '../src/api/query-modules/agent';
+import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentExecutionRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, publicPingSurface, requestAgentSurfaceTurn, surfaceForDeviceType } from '../src/api/query-modules/agent';
 import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
@@ -222,6 +222,13 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(body).not.toHaveProperty('toolId');
         expect(body).not.toHaveProperty('arguments');
         expect(body).not.toHaveProperty('actorUserId');
+    });
+
+    it('execution omits orphaned conversation metadata for the main Ping entry', () => {
+        expect(buildAgentExecutionRequestBody({ authorizationId: 'auth-1', sourceTurnKey: 'turn-1' }))
+            .toEqual({ authorizationId: 'auth-1' });
+        expect(buildAgentExecutionRequestBody({ authorizationId: 'auth-1', conversationId: 'conv-1', sourceTurnKey: 'turn-1' }))
+            .toEqual({ authorizationId: 'auth-1', conversationId: 'conv-1', sourceTurnKey: 'turn-1' });
     });
 
     it('rejects a plan whose presentation does not bind the same plan/digest', () => {

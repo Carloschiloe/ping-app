@@ -749,6 +749,25 @@ export function parseAgentExecution(raw: unknown): AgentExecutionResult {
     return value as unknown as AgentExecutionResult;
 }
 
+/**
+ * Conversation history metadata is optional for the main Ping entry. The
+ * backend accepts the pair only when both values exist; sending an orphaned
+ * sourceTurnKey makes an otherwise valid authorized action fail validation
+ * before the commitment executor is reached.
+ */
+export function buildAgentExecutionRequestBody(input: {
+    authorizationId: string;
+    conversationId?: string;
+    sourceTurnKey?: string;
+}): Record<string, unknown> {
+    const body: Record<string, unknown> = { authorizationId: input.authorizationId };
+    if (input.conversationId && input.sourceTurnKey) {
+        body.conversationId = input.conversationId;
+        body.sourceTurnKey = input.sourceTurnKey;
+    }
+    return body;
+}
+
 export function useAgentAuthorize() {
     return useMutation({
         mutationFn: async ({ source, turn }: { source: AgentTurnInput; turn: AgentTurnPlan }): Promise<AgentAuthorizationResult> => {
@@ -774,7 +793,7 @@ export function useAgentExecute() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (input: { authorizationId: string; conversationId?: string; sourceTurnKey?: string }): Promise<AgentExecutionResult> => {
-            const raw = await apiClient.post('/agent/execute', input);
+            const raw = await apiClient.post('/agent/execute', buildAgentExecutionRequestBody(input));
             return parseAgentExecution(raw);
         },
         onSuccess: () => {
