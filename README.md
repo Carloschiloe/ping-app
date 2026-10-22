@@ -20,9 +20,10 @@ Broad repository search is a fallback, not the starting point.
 ## Repo guard
 
 - Repository: `Carloschiloe/ping-app`
-- Integration branch: `codex/staging-beta`
-- Production Render service: `ping-app` (`codex/agent-voice-continuity-hardening`)
-- Historical staging service: `ping-backend-staging` (suspended; never assume it is active)
+- Production branch: `main`
+- Production Render service: `ping-app` (`https://ping-app-con3.onrender.com`)
+- Production Supabase project: `wbigqhtuzfmpnxservlf`
+- There is no staging runtime in the application. Historical staging references below are retained only as dated audit evidence.
 - Typical Windows root: `C:\Users\carlo\Desktop\App en produccion\Ping`
 - Shell on the current workstation: Windows PowerShell 5.1
 
@@ -31,6 +32,7 @@ Before changing anything, verify the root, remote, branch, HEAD, and dirty workt
 ## Critical invariants
 
 - **LLM suggests; Ping Core decides.** Model output is an untrusted hint.
+- The application has one operational environment: **Ping production**. Runtime configuration must never default to or route through staging.
 - Messaging remains canonical real messaging; Agent features do not replace Chat.
 - `AgentPlan` is not authorization.
 - Voice input is not authorization.
@@ -136,7 +138,7 @@ npm install
 npm start
 ```
 
-For a physical device, the configured API URL must be reachable from that device. Use the existing staging configuration when reviewing staging; do not silently redirect production configuration.
+For a physical device, the configured API URL must be reachable from that device. Use the production API configuration; do not introduce a staging endpoint or silently redirect production configuration.
 
 ## Development rules
 
@@ -169,6 +171,6 @@ Additional rules:
 - Product vision: [`docs/00-VISION-PING.md`](docs/00-VISION-PING.md)
 - Architecture principles: [`docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md`](docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md)
 - Technical audit: [`docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md`](docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md)
-- Staging runbook: [`docs/23-STAGING-BETA-VALIDATION.md`](docs/23-STAGING-BETA-VALIDATION.md)
+- Production validation records: [`docs/23-STAGING-BETA-VALIDATION.md`](docs/23-STAGING-BETA-VALIDATION.md) (historical name retained for audit traceability)
 
 When documentation and implementation differ, treat source plus `supabase/migrations/` as the current technical truth, then report the contradiction instead of silently choosing one.

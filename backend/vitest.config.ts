@@ -14,6 +14,10 @@ export default defineConfig({
         // el primer import) y ha mostrado timeouts intermitentes con el
         // default de 5000ms bajo carga; 15s da margen sin ocultar bugs reales.
         testTimeout: 15000,
+        // Vite's SSR transform cache is not safe to rename concurrently on
+        // Windows sandboxed filesystems. Serializing files keeps the CI gate
+        // deterministic; tests inside each file remain concurrent where safe.
+        fileParallelism: false,
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html'],

@@ -7,7 +7,7 @@ import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.serv
 
 describe('M8 Voice ↔ Core presentation boundary', () => {
     beforeEach(() => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         process.env.M8_LIVE_VOICE_ENABLED = 'true';
     });
 
@@ -96,7 +96,7 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
     });
 
     it('does not authorize pre-Core narration and sends only the Core projection', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         const html = getM8LiveVoiceClientHtml('presentation-boundary-test');
         expect(html).toContain("stage:'tool_selection_output_ignored'");
         expect(html).toContain("core_presentation:presentation");
@@ -105,7 +105,7 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
     });
 
     it('keeps audio-before-Core blocked and preserves barge-in controls', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         const html = getM8LiveVoiceClientHtml('audio-boundary-test');
         expect(html).toContain("detailCode:'audio_before_core_result'");
         expect(html).toContain("cancelResponse('speech_started_while_assistant_speaking')");

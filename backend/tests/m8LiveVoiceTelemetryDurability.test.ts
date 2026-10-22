@@ -45,10 +45,11 @@ const conversation = '44444444-4444-4444-8444-444444444444';
 
 describe('M8 staging telemetry durable storage contract', () => {
     beforeEach(() => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         process.env.M8_LIVE_VOICE_ENABLED = 'true';
         process.env.NODE_ENV = 'production';
         process.env.SUPABASE_SERVICE_ROLE_KEY = 'diagnostic-only-test-key';
+        process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE = 'true';
         storageState.objects.clear();
         storageState.bucketCreates = 0;
         clearM8LiveVoiceTelemetryForTests();

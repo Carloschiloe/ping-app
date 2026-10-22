@@ -45,14 +45,14 @@ describe('shared Semantic OpenAI transport policy', () => {
             else process.env.PING_ENVIRONMENT = previousEnvironment;
         }
     });
-    it('uses the certified staging model when Render variables are not synchronized', () => {
+    it('uses the safe legacy fallback when the production model is not configured', () => {
         const previousModel = process.env.PING_SEMANTIC_MODEL;
         const previousEnvironment = process.env.PING_ENVIRONMENT;
         delete process.env.PING_SEMANTIC_MODEL;
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         try {
-            expect(getSemanticRuntimeConfig().modelName).toBe('gpt-6-luna');
-            expect(getSemanticRuntimeConfig().modelFamily).toBe('modern_reasoning');
+            expect(getSemanticRuntimeConfig().modelName).toBe('gpt-4o-mini');
+            expect(getSemanticRuntimeConfig().modelFamily).toBe('legacy_chat');
         } finally {
             if (previousModel === undefined) delete process.env.PING_SEMANTIC_MODEL;
             else process.env.PING_SEMANTIC_MODEL = previousModel;

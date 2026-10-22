@@ -19,10 +19,10 @@ describe('M8 live voice production surface', () => {
         expect(source).toContain("injectJavaScript(\"document.getElementById('stop')?.click();true;\")");
         expect(source).toContain("onRequestClose={requestClose}");
         expect(source).toContain("if (message.type === 'closed') scheduleClose()");
-        expect(source).toContain("originWhitelist={['https://*']}");
+        expect(source).toContain('originWhitelist={buildCallPageOriginWhitelist(API_URL)}');
         expect(source).toContain('getRecordingPermissionsAsync');
         expect(source).toContain('requestRecordingPermissionsAsync');
-        expect(source).not.toContain('onPermissionRequest');
+        expect(source).toContain('onPermissionRequest');
         expect(source).toContain('mediaCapturePermissionGrantType');
         expect(source).not.toContain('source={{ html:');
         expect(source).not.toContain("/agent/execute");

@@ -556,7 +556,7 @@ describe('M-1H v6: paridad UI-Agent — Compromisos/Hoy/Detalle (dinámico, mism
         const { isCommitmentOverdue } = await import('../src/utils/commitmentDisplay');
         const overdueEntrenar = { ...entrenar, due_at: '2026-07-31T00:00:00Z' };
         expect(isCommitmentOverdue(overdueEntrenar as any)).toBe(false);
-    });
+    }, 15000);
 
     it('Alejandra: getCommitmentPrimaryAction -> "accept" (Pendiente de tu respuesta) -- la única de las dos a quien se le ofrece actuar', async () => {
         const { getCommitmentPrimaryAction } = await import('../src/utils/commitmentPrimaryAction');

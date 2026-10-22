@@ -106,10 +106,9 @@ describe('Semantic V4 -> Core shadow boundary', () => {
         expect(telemetry.enabled).toBe(false);
     });
 
-    it('B/C/D: permits local and staging, never production', async () => {
+    it('B/C/D: permits local diagnostics, never production', async () => {
         process.env.PING_SEMANTIC_V4_CORE_SHADOW = 'true';
-        expect(isSemanticV4CoreShadowEnabled()).toBe(true);
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'local';
         expect(isSemanticV4CoreShadowEnabled()).toBe(true);
         process.env.NODE_ENV = 'production';
         expect(isSemanticV4CoreShadowEnabled()).toBe(false);

@@ -20,7 +20,7 @@ export function traceM8LiveVoiceDiagnostic(
     event: string,
     details: Record<string, DiagnosticValue> = {},
 ): void {
-    if (process.env.PING_ENVIRONMENT !== 'staging') return;
+    if (process.env.M8_LIVE_VOICE_DIAGNOSTICS !== 'true') return;
 
     const safeDetails: Record<string, DiagnosticValue> = {};
     for (const [key, value] of Object.entries(details)) {

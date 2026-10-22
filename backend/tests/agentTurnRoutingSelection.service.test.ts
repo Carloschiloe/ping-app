@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentTurnRoutingSelectionService, READ_V4_EXACT_COUNT_OPT_IN } from '../src/services/agentTurnRoutingSelection.service';
 import type { AgentTurnAdmission } from '../src/types/agentTurnAdmission';
 
@@ -15,12 +15,20 @@ const input = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('M-7 server routing selection boundary', () => {
+    beforeEach(() => {
+        process.env.PING_LOCAL_READ_V4_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+        delete process.env.PING_LOCAL_READ_V4_ENABLED;
+    });
+
     it.each([
-        ['staging + enabled + explicit opt-in', { environmentName: 'staging', readV4ExactCountEnabled: true }, READ_V4_EXACT_COUNT_OPT_IN, 'read_v4_exact_count'],
-        ['disabled flag', { environmentName: 'staging', readV4ExactCountEnabled: false }, READ_V4_EXACT_COUNT_OPT_IN, 'legacy'],
+        ['local + explicit opt-in', { environmentName: 'local', readV4ExactCountEnabled: true }, READ_V4_EXACT_COUNT_OPT_IN, 'read_v4_exact_count'],
+        ['disabled flag', { environmentName: 'local', readV4ExactCountEnabled: false }, READ_V4_EXACT_COUNT_OPT_IN, 'legacy'],
         ['wrong environment', { environmentName: 'production', readV4ExactCountEnabled: true }, READ_V4_EXACT_COUNT_OPT_IN, 'legacy'],
-        ['missing opt-in', { environmentName: 'staging', readV4ExactCountEnabled: true }, undefined, 'legacy'],
-        ['invalid opt-in', { environmentName: 'staging', readV4ExactCountEnabled: true }, 'commitment_count_v4_extra', 'legacy'],
+        ['missing opt-in', { environmentName: 'local', readV4ExactCountEnabled: true }, undefined, 'legacy'],
+        ['invalid opt-in', { environmentName: 'local', readV4ExactCountEnabled: true }, 'commitment_count_v4_extra', 'legacy'],
     ])('%s selects the safe candidate mode', async (_name, config, readCapability, expected) => {
         const admit = vi.fn().mockResolvedValue(admission({ routingMode: expected as 'legacy' | 'read_v4_exact_count' }));
         const service = new AgentTurnRoutingSelectionService({ admit }, () => config);
@@ -40,7 +48,7 @@ describe('M-7 server routing selection boundary', () => {
 
     it('passes only server actor/scope and excludes requestId/traceId from durable admission', async () => {
         const admit = vi.fn().mockResolvedValue(admission());
-        const service = new AgentTurnRoutingSelectionService({ admit }, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const service = new AgentTurnRoutingSelectionService({ admit }, () => ({ environmentName: 'local', readV4ExactCountEnabled: true }));
         await service.selectAndAdmit({
             server: { actorUserId: 'trusted-actor', dialogueScopeKey: 'trusted-scope' },
             request: { idempotencyKey: 'stable-key', readCapability: READ_V4_EXACT_COUNT_OPT_IN, semanticRequest: { input: 'request' } },
@@ -59,7 +67,7 @@ describe('M-7 server routing selection boundary', () => {
         ['idempotencyKey', { request: { idempotencyKey: '   ', semanticRequest: {} } }],
     ])('rejects invalid %s before admission', async (_name, overrides) => {
         const admit = vi.fn();
-        const service = new AgentTurnRoutingSelectionService({ admit }, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const service = new AgentTurnRoutingSelectionService({ admit }, () => ({ environmentName: 'local', readV4ExactCountEnabled: true }));
         await expect(service.selectAndAdmit({ ...input(), ...overrides } as any)).rejects.toMatchObject({ statusCode: 400 });
         expect(admit).not.toHaveBeenCalled();
     });

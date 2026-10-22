@@ -47,3 +47,5 @@ backend/test-output.txt
 ping-m8-screen.png
 .tmp-*.txt
 .tmp-*.png
+*.apk
+*.aab

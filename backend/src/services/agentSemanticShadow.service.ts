@@ -51,7 +51,7 @@ const DEFAULT_TIMEOUT_MS = 3000;
 export function isSemanticV4ShadowEnabled(): boolean {
     const environment = getEnvConfig().environmentName;
     return process.env.PING_SEMANTIC_V4_SHADOW === 'true'
-        && (environment === 'local' || environment === 'staging')
+        && environment === 'local'
         && process.env.NODE_ENV !== 'production';
 }
 

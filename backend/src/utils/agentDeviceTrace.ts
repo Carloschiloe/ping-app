@@ -1,13 +1,8 @@
-// PING — M-7B PHYSICAL FAILURE #4 — TEMPORARY staging-only device trace.
+// PING — opt-in device trace for local diagnostics only.
 //
 // Physical evidence (two independent real-device reproductions) disagrees
 // with every unit/module-mock/HTTP-boundary test written so far, all of
-// which pass. Per the task's explicit mandate, this file exists to observe
-// the REAL runtime path taken by the REAL mobile request on REAL deployed
-// staging -- not another simulation. It never runs in production
-// (isAgentDeviceTraceEnabled() gates on PING_ENVIRONMENT === 'staging',
-// checked at call time, never cached, so a misconfigured env can never
-// silently enable this in prod).
+// which pass. It is deliberately opt-in and disabled in production.
 //
 // Safety invariants (non-negotiable, matches the existing traceOverdue/
 // traceProposal/tracePlan convention in this codebase):
@@ -17,15 +12,8 @@
 //   - bounded ring buffer (MAX_ENTRIES) -- never unbounded growth, never
 //     persisted to disk/DB, wiped on process restart
 //   - console.log output mirrors the existing [PING_PLAN_TRACE] convention
-//     (so it is also visible in Render's live log stream), in addition to
-//     the ring buffer (so it is retrievable via the bounded debug endpoint
-//     without needing direct Render log access)
-//
-// THIS FILE IS TEMPORARY, same convention as utils/overdueTrace.ts. Remove
-// once the real root cause is confirmed from real staging trace output and
-// the fix (if any) is verified. Revert by deleting this file, its call
-// sites in agentTurn.service.ts (tagged `// [PING_DEVICE_TRACE]`), and the
-// debug route/controller that reads getAgentDeviceTraceBuffer().
+//     (so it is also visible in local logs), in addition to the bounded
+//     in-memory buffer used by unit diagnostics.
 import { createHash } from 'crypto';
 import { getEnvConfig } from '../config/env';
 
@@ -58,7 +46,8 @@ export interface AgentDeviceDebugMetadata {
 const buffer: AgentDeviceTraceEntry[] = [];
 
 export function isAgentDeviceTraceEnabled(): boolean {
-    return getEnvConfig().environmentName === 'staging';
+    return getEnvConfig().environmentName !== 'production'
+        && process.env.PING_AGENT_DEVICE_TRACE === 'true';
 }
 
 // Truncated (first 16 hex chars) SHA-256 -- enough to correlate the SAME

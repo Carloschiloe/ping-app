@@ -68,7 +68,7 @@ describe('Semantic V4 runtime shadow boundary', () => {
     });
 
     it('cannot be enabled in production even when the flag is present', async () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         process.env.NODE_ENV = 'production';
         process.env.PING_SEMANTIC_V4_SHADOW = 'true';
         const producer = { produceV4WithDiagnostics: vi.fn() };

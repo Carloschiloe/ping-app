@@ -44,10 +44,8 @@ export function parseAllowedOrigins(raw: string | undefined): AllowedOriginsPars
 }
 
 export function isStrictCorsEnvironment(nodeEnv: string, environmentName: string): boolean {
-    const normalizedEnvironment = environmentName.trim().toLowerCase();
     return nodeEnv.trim().toLowerCase() === 'production'
-        || normalizedEnvironment === 'production'
-        || normalizedEnvironment === 'staging';
+        || environmentName.trim().toLowerCase() === 'production';
 }
 
 function requestHost(req: Pick<Request, 'get'>): string | null {

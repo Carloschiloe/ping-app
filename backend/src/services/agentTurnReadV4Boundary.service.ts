@@ -25,7 +25,7 @@ export type AgentTurnReadV4BoundaryInput = {
 
 function isEnabled(): boolean {
     const environment = getEnvConfig().environmentName;
-    return (environment === 'local' || environment === 'staging')
+    return environment === 'local'
         && process.env.PING_ENABLE_READ_V4_EXACT_COUNT === 'true';
 }
 

@@ -219,7 +219,7 @@ describe('general Agent Turn durable boundary', () => {
         const previousEnvironment = process.env.PING_ENVIRONMENT;
         const previousFlag = process.env.PING_ENABLE_DURABLE_AGENT_TURN;
         const previousDatabaseUrl = process.env.PING_M7_DATABASE_URL;
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
         process.env.PING_M7_DATABASE_URL = 'postgresql://local.invalid/ping';
         expect(isDurableGeneralAgentTurnEnabled()).toBe(true);

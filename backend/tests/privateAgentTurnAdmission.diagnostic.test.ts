@@ -33,12 +33,12 @@ afterEach(() => {
 });
 
 describe('M-7 private database startup diagnostic', () => {
-    it('runs only for staging with the explicit diagnostic flag', () => {
+    it('runs only for local diagnostics with the explicit flag', () => {
         process.env.PING_ENVIRONMENT = 'local';
         process.env.PING_M7_PRIVATE_DB_CHECK = 'true';
-        expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(false);
-        process.env.PING_ENVIRONMENT = 'staging';
         expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(true);
+        process.env.PING_ENVIRONMENT = 'production';
+        expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(false);
         process.env.PING_M7_PRIVATE_DB_CHECK = 'false';
         expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(false);
     });

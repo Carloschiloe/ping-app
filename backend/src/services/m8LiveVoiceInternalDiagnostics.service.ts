@@ -14,7 +14,7 @@ export function createM8LiveVoiceLatestProof(timestamp: string, key = internalKe
 }
 
 export function assertInternalM8LiveVoiceDiagnostics(timestamp: unknown, signature: unknown, now = Date.now()): void {
-    if (process.env.PING_ENVIRONMENT !== 'staging' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
+    if (process.env.PING_ENVIRONMENT !== 'production' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
         throw new AppError('Live voice diagnostics unavailable', 404);
     }
     if (typeof timestamp !== 'string' || !/^\d{13}$/.test(timestamp)) {

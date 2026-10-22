@@ -267,7 +267,8 @@ export function getLatestPrivateAgentTurnDatabaseDiagnostic(): PrivateDatabaseCh
 }
 
 export function isPrivateAgentTurnDatabaseDiagnosticEnabled(): boolean {
-    return process.env.PING_ENVIRONMENT === 'staging'
+    const environment = process.env.PING_ENVIRONMENT;
+    return (environment === 'local' || environment === 'test')
         && process.env.PING_M7_PRIVATE_DB_CHECK === 'true';
 }
 

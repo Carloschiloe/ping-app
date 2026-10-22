@@ -21,10 +21,10 @@ afterEach(() => {
 });
 
 describe('canonical durable runtime configuration', () => {
-    it('is implicit in staging only when the durable database is configured', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
-        process.env.PING_M7_DATABASE_URL = 'postgres://staging';
-        delete process.env.PING_ENABLE_DURABLE_AGENT_TURN;
+    it('requires the explicit production gate and durable database transport', () => {
+        process.env.PING_ENVIRONMENT = 'production';
+        process.env.PING_M7_DATABASE_URL = 'postgres://production';
+        process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
         expect(isCanonicalDurableAgentRuntimeEnabled()).toBe(true);
     });
 

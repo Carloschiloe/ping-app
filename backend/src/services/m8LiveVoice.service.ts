@@ -86,7 +86,7 @@ const telemetryCleanupTimer = setInterval(sweepInMemoryTelemetry, 60 * 1000);
 telemetryCleanupTimer.unref?.();
 
 function assertLiveVoiceEnabled(): void {
-    if (!['staging', 'production'].includes(process.env.PING_ENVIRONMENT || '') || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
+    if (process.env.PING_ENVIRONMENT !== 'production' || process.env.M8_LIVE_VOICE_ENABLED !== 'true') {
         throw new AppError('Live voice is not enabled in this environment', 404);
     }
 }
@@ -154,19 +154,19 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
 }
 
 function safetyIdentifier(actorUserId: string): string {
-    const environment = process.env.PING_ENVIRONMENT === 'production' ? 'production' : 'staging';
-    return createHash('sha256').update(`ping-${environment}:${actorUserId}`).digest('hex');
+    return createHash('sha256').update(`ping-production:${actorUserId}`).digest('hex');
 }
 
 function telemetryPersistenceEnabled(): boolean {
-    return process.env.PING_ENVIRONMENT === 'staging' && process.env.NODE_ENV !== 'test';
+    return process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE === 'true'
+        && process.env.NODE_ENV !== 'test';
 }
 
 function conversationScopeHash(conversationId: string | undefined): string | undefined {
     if (!conversationId) return undefined;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
     if (!key) return undefined;
-    return createHmac('sha256', key).update(`ping-staging-conversation:${conversationId}`).digest('hex');
+    return createHmac('sha256', key).update(`ping-production-conversation:${conversationId}`).digest('hex');
 }
 
 function telemetryBucket(): string {

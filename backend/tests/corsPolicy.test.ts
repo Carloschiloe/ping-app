@@ -27,9 +27,9 @@ describe('CORS request-origin policy', () => {
             .toEqual({ origins: [], invalidCount: 2 });
     });
 
-    it('keeps production and staging strict even if NODE_ENV is misconfigured', () => {
+    it('keeps production strict even if NODE_ENV is misconfigured', () => {
         expect(isStrictCorsEnvironment('production', 'production')).toBe(true);
-        expect(isStrictCorsEnvironment('development', 'staging')).toBe(true);
+        expect(isStrictCorsEnvironment('development', 'production')).toBe(true);
         expect(isStrictCorsEnvironment('development', 'local')).toBe(false);
     });
 

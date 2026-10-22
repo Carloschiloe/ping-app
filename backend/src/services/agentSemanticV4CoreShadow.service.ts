@@ -160,7 +160,7 @@ const noResolution: V4CoreShadowResolver = {
 export function isSemanticV4CoreShadowEnabled(): boolean {
     const environment = getEnvConfig().environmentName;
     return process.env.PING_SEMANTIC_V4_CORE_SHADOW === 'true'
-        && (environment === 'local' || environment === 'staging')
+        && environment === 'local'
         && process.env.NODE_ENV !== 'production';
 }
 

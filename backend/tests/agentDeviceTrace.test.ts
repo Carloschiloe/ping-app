@@ -10,6 +10,7 @@ const TRACE_ID = 'trace-device-test';
 afterEach(() => {
     clearAgentDeviceTraceBufferForTests();
     delete process.env.PING_ENVIRONMENT;
+    delete process.env.PING_AGENT_DEVICE_TRACE;
 });
 
 function recordDialogueTrace(): void {
@@ -26,8 +27,9 @@ function recordDialogueTrace(): void {
 }
 
 describe('M-7B device debug envelope', () => {
-    it('exposes only bounded safe dialogue/routing metadata in staging', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+    it('exposes only bounded safe dialogue/routing metadata when explicitly enabled', () => {
+        process.env.PING_ENVIRONMENT = 'local';
+        process.env.PING_AGENT_DEVICE_TRACE = 'true';
         recordDialogueTrace();
 
         expect(getAgentDeviceDebugMetadata(TRACE_ID)).toEqual({
@@ -48,14 +50,15 @@ describe('M-7B device debug envelope', () => {
         });
     });
 
-    it('does not expose debug metadata outside staging', () => {
+    it('does not expose debug metadata unless explicitly enabled', () => {
         process.env.PING_ENVIRONMENT = 'production';
         traceAgentDevice(TRACE_ID, 'AGENT_DIALOGUE_SCOPE', { dialogueScopeKey: 'conversation:test-scope' });
         expect(getAgentDeviceDebugMetadata(TRACE_ID)).toBeUndefined();
     });
 
     it('contains no raw text, PII, tokens, or records because its schema is metadata-only', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'local';
+        process.env.PING_AGENT_DEVICE_TRACE = 'true';
         recordDialogueTrace();
         const debug = getAgentDeviceDebugMetadata(TRACE_ID)!;
         const serialized = JSON.stringify(debug);

@@ -35,7 +35,7 @@ describe('M-7 routing selection against local Supabase', () => {
     afterAll(cleanup);
 
     it('persists V4 only when server conditions pass and recovers it after flag/opt-in change', async () => {
-        const v4 = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const v4 = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'local', readV4ExactCountEnabled: true }));
         const first = await v4.selectAndAdmit({
             server: { actorUserId: actor, dialogueScopeKey: 'routing-selection-retry' },
             request: { idempotencyKey: 'stable-retry-key', readCapability: READ_V4_EXACT_COUNT_OPT_IN, semanticRequest: { input: 'same canonical request' } },
@@ -55,7 +55,7 @@ describe('M-7 routing selection against local Supabase', () => {
     });
 
     it('creates a legacy admission when the server flag or opt-in is absent', async () => {
-        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'staging', readV4ExactCountEnabled: false }));
+        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'local', readV4ExactCountEnabled: false }));
         const result = await service.selectAndAdmit({
             server: { actorUserId: actor, dialogueScopeKey: 'routing-selection-legacy' },
             request: { idempotencyKey: 'legacy-key', semanticRequest: { input: 'legacy request' } },
@@ -65,7 +65,7 @@ describe('M-7 routing selection against local Supabase', () => {
     });
 
     it('keeps the durable conflict guard active for the boundary', async () => {
-        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'local', readV4ExactCountEnabled: true }));
         await service.selectAndAdmit({
             server: { actorUserId: actor, dialogueScopeKey: 'routing-selection-conflict' },
             request: { idempotencyKey: 'conflict-key', readCapability: READ_V4_EXACT_COUNT_OPT_IN, semanticRequest: { input: 'first' } },
@@ -77,7 +77,7 @@ describe('M-7 routing selection against local Supabase', () => {
     });
 
     it('allocates unique monotonic sequences through the private pool under concurrency', async () => {
-        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'staging', readV4ExactCountEnabled: true }));
+        const service = new AgentTurnRoutingSelectionService(undefined, () => ({ environmentName: 'local', readV4ExactCountEnabled: true }));
         const results = await Promise.all(Array.from({ length: 5 }, (_, index) => service.selectAndAdmit({
             server: { actorUserId: actor, dialogueScopeKey: 'routing-selection-concurrency' },
             request: { idempotencyKey: `concurrent-key-${index}`, readCapability: READ_V4_EXACT_COUNT_OPT_IN, semanticRequest: { input: `concurrent-${index}` } },

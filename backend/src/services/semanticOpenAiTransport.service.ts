@@ -52,7 +52,6 @@ const MODERN_REASONING_POLICY: SemanticOpenAiTransportPolicy = {
 
 export function resolveSemanticModelFamily(): SemanticModelFamily {
     return process.env.PING_SEMANTIC_MODEL_FAMILY === 'modern_reasoning'
-        || (!process.env.PING_SEMANTIC_MODEL_FAMILY && process.env.PING_ENVIRONMENT === 'staging')
         ? 'modern_reasoning' : 'legacy_chat';
 }
 
@@ -63,17 +62,16 @@ export function getSemanticOpenAiTransportPolicy(
 }
 
 /**
- * Single runtime selection for the productive semantic boundary.
- * Absent staging/runtime overrides, production keeps the historical defaults.
+ * Single runtime selection for the productive semantic boundary. Production
+ * receives its model explicitly from the deployment environment.
  */
 export function getSemanticRuntimeConfig(overrides: {
     modelName?: string;
     modelFamily?: SemanticModelFamily;
 } = {}): SemanticRuntimeConfig {
     const modelFamily = overrides.modelFamily ?? resolveSemanticModelFamily();
-    const stagingDefault = process.env.PING_ENVIRONMENT === 'staging';
     return {
-        modelName: overrides.modelName?.trim() || process.env.PING_SEMANTIC_MODEL?.trim() || (stagingDefault ? 'gpt-6-luna' : 'gpt-4o-mini'),
+        modelName: overrides.modelName?.trim() || process.env.PING_SEMANTIC_MODEL?.trim() || 'gpt-4o-mini',
         modelFamily,
         policy: getSemanticOpenAiTransportPolicy(modelFamily),
     };

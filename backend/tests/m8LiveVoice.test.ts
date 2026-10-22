@@ -19,11 +19,13 @@ const deviceSessionId = '33333333-3333-4333-8333-333333333333';
 
 describe('M8 live voice environment boundary', () => {
     beforeEach(() => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         process.env.M8_LIVE_VOICE_ENABLED = 'true';
         process.env.M8_LIVE_VOICE_MODEL = 'gpt-realtime-2.1';
         process.env.OPENAI_API_KEY = 'test-only-key';
-        process.env.SUPABASE_SERVICE_ROLE_KEY = 'staging-diagnostic-test-key';
+        process.env.SUPABASE_SERVICE_ROLE_KEY = 'production-diagnostic-test-key';
+        process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE = 'true';
+        process.env.M8_LIVE_VOICE_DIAGNOSTICS = 'true';
         clearM8LiveVoiceTelemetryForTests();
     });
 
@@ -33,6 +35,8 @@ describe('M8 live voice environment boundary', () => {
         delete process.env.M8_LIVE_VOICE_MODEL;
         delete process.env.OPENAI_API_KEY;
         delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+        delete process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE;
+        delete process.env.M8_LIVE_VOICE_DIAGNOSTICS;
     });
 
     it('brokers an SDP session without exposing the provider key', async () => {
@@ -305,16 +309,16 @@ describe('M8 live voice environment boundary', () => {
         ]));
     });
 
-    it('accepts only a short-lived staging HMAC capability for internal recovery', () => {
+    it('accepts only a short-lived production HMAC capability for internal recovery', () => {
         const timestamp = String(Date.now());
         expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, createM8LiveVoiceLatestProof(timestamp))).not.toThrow();
         expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, '0'.repeat(64))).toThrowError(/unauthorized/i);
         expect(() => assertInternalM8LiveVoiceDiagnostics(String(Date.now() - 120_000), createM8LiveVoiceLatestProof(String(Date.now() - 120_000)))).toThrowError(/unauthorized/i);
-        process.env.PING_ENVIRONMENT = 'production';
+        process.env.PING_ENVIRONMENT = 'local';
         expect(() => assertInternalM8LiveVoiceDiagnostics(timestamp, createM8LiveVoiceLatestProof(timestamp))).toThrowError(/unavailable/i);
     });
 
-    it('writes only staging diagnostics with hashed identities and no secrets or SDP', () => {
+    it('writes only explicitly enabled diagnostics with hashed identities and no secrets or SDP', () => {
         const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
         traceM8LiveVoiceDiagnostic('session_request_received', {
             actorUserId,
@@ -353,7 +357,7 @@ describe('M8 live voice environment boundary', () => {
     });
 
     it('routes voice confirmation through the shared server runtime', () => {
-        process.env.PING_ENVIRONMENT = 'staging';
+        process.env.PING_ENVIRONMENT = 'production';
         const html = getM8LiveVoiceClientHtml('voice-commitment-contract-test');
         const authorizeAt = html.indexOf("apiJson('/agent/authorize'");
         const executeAt = html.indexOf("apiJson('/agent/execute'");

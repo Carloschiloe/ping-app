@@ -23,7 +23,6 @@ import * as agentAuthorizeController from '../controllers/agentAuthorize.control
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
-import * as agentDeviceTraceDebugController from '../controllers/agentDeviceTraceDebug.controller';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
@@ -429,12 +428,6 @@ router.post(
     validateRequest(agentTurnRequestSchema),
     agentTurnController.turn,
 );
-
-// PING — M-7B PHYSICAL FAILURE #4 — TEMPORARY staging-only debug endpoint,
-// see controllers/agentDeviceTraceDebug.controller.ts. requireAuth still
-// applies (never public/unauthenticated); the controller itself further
-// gates on PING_ENVIRONMENT === 'staging' and 404s otherwise.
-router.get('/agent/debug/traces', requireAuth, agentDeviceTraceDebugController.listTraces);
 
 // Ping Agent Authorization + Execution (M-4) — the ONLY endpoints in the
 // Agent pipeline that can produce a real side effect, and only via a
