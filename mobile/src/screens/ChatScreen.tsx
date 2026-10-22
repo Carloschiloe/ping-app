@@ -612,27 +612,36 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 return;
             }
 
+            let savedDestination: 'gallery' | 'device' = 'device';
             if (attachment.kind === 'image' || attachment.kind === 'video') {
-                // expo-media-library is not bundled by every Expo Go runtime.
-                // Load it only when the user explicitly saves media so the chat
-                // screen can still boot in Expo Go and in production builds
-                // where the native module is available.
-                const mediaLibrary = await import('expo-media-library');
-                const permission = await mediaLibrary.requestPermissionsAsync(true, []);
-                if (permission.status !== 'granted') {
-                    Alert.alert('Permiso necesario', 'Permite guardar archivos multimedia para continuar.');
-                    return;
+                try {
+                    // The gallery module is available in the production build,
+                    // but not in every Expo Go runtime. Keep the import lazy so
+                    // the chat boots everywhere and fall back to Android's
+                    // Storage Access Framework when the native module is absent.
+                    const mediaLibrary = await import('expo-media-library');
+                    const permission = await mediaLibrary.requestPermissionsAsync(true, []);
+                    if (permission.status === 'granted') {
+                        await saveAttachmentToGalleryAsync(attachment, {
+                            saveLocalFileAsync: async (file) => {
+                                await mediaLibrary.createAssetAsync(file.localUri);
+                            },
+                        });
+                        savedDestination = 'gallery';
+                    } else {
+                        await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
+                    }
+                } catch (galleryError) {
+                    console.warn('[Chat] Gallery save unavailable; using device file flow', {
+                        error: galleryError instanceof Error ? galleryError.message : 'unknown',
+                    });
+                    await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
                 }
-                await saveAttachmentToGalleryAsync(attachment, {
-                    saveLocalFileAsync: async (file) => {
-                        await mediaLibrary.createAssetAsync(file.localUri);
-                    },
-                });
             } else {
                 await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
             }
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert('Guardado', attachment.kind === 'image' || attachment.kind === 'video'
+            Alert.alert('Guardado', savedDestination === 'gallery'
                 ? 'El archivo se guardó en la galería del dispositivo.'
                 : 'El archivo se guardó en el dispositivo.');
         } catch (error) {
