@@ -139,6 +139,12 @@ router.get('/health', async (req, res) => {
                     ? 'process_local_read_fallback'
                     : 'process_local',
             agent_conversation_events: agentConversationEvents,
+            agent_history_persistence: !agentConversationEvents
+                ? 'disabled'
+                : durableAgentRuntime
+                    ? 'required'
+                    : 'best_effort',
+            agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME

@@ -76,6 +76,7 @@ export function createSupabaseAdminMock(queue: Record<string, any[]>) {
             lte: vi.fn(() => chain),
             gt: vi.fn(() => chain),
             lt: vi.fn(() => chain),
+            contains: vi.fn(() => chain),
             single: vi.fn(() => Promise.resolve(resolveValue)),
             maybeSingle: vi.fn(() => Promise.resolve(resolveValue)),
             then: (resolve: any, reject?: any) => Promise.resolve(resolveValue).then(resolve, reject),

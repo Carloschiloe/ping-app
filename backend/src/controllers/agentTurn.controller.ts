@@ -14,6 +14,25 @@ import {
 } from '../services/agentConversationTurn.service';
 import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 
+type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
+
+/**
+ * History improves continuity but must not turn a valid answer into a generic
+ * 500 while the process-local fallback is active. Durable action turns stay
+ * strict because their commit is part of their correctness contract.
+ */
+async function persistTurnWithRuntimePolicy(input: PersistTurnInput, required: boolean): Promise<void> {
+    try {
+        await persistAgentConversationTurn(input);
+    } catch (error: any) {
+        if (required) throw error;
+        console.warn('[AgentTurn] Conversation history persistence degraded; answer preserved.', {
+            message: error?.message ?? String(error),
+            resultKind: input.result.kind,
+        });
+    }
+}
+
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
         const actorUserId = req.user!.id;
@@ -28,14 +47,14 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 locale: req.body.locale, timezone: req.body.timezone,
             });
             if (isAgentConversationTurnPersistenceEnabled() && req.body.conversationId) {
-                await persistAgentConversationTurn({
+                await persistTurnWithRuntimePolicy({
                     actorUserId,
                     conversationId: req.body.conversationId,
                     clientTurnKey: idempotencyKey,
                     inputText: req.body.input,
                     inputMode: 'text',
                     result,
-                });
+                }, false);
             }
             res.status(200).json(result);
             return;
@@ -76,7 +95,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
             : await runAgentTurn(turnInput, { fallbackReadContext });
 
         if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
-            await persistAgentConversationTurn({
+            await persistTurnWithRuntimePolicy({
                 actorUserId,
                 conversationId: historyConversationId,
                 clientTurnKey: idempotencyKey ?? traceId,
@@ -87,7 +106,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
                         ? 'voice'
                         : 'text',
                 result,
-            });
+            }, durableEnabled);
         }
 
         // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render
