@@ -5,6 +5,7 @@ import { AppError } from '../utils/AppError';
 import type { AgentTurnResult } from '../types/agentTurn';
 import type { AgentExecutionResult } from '../types/agentExecution';
 import type { AgentPlanPresentation } from '../types/agentTurn';
+import type { AgentReadContext } from '../types/agentDialogueState';
 
 const MAX_HISTORY_INPUT_LENGTH = 12_000;
 const MAX_HISTORY_RESULT_BYTES = 128_000;
@@ -172,4 +173,62 @@ export async function listAgentConversationTurns(
         result: row.result,
         createdAt: row.created_at,
     }));
+}
+
+/**
+ * Rehydrates only the bounded read referent needed for a natural follow-up
+ * after a process restart. The persisted event is advisory continuity, never
+ * evidence or authorization: Agent Core must re-query the canonical entity
+ * under the current actor before answering.
+ */
+export async function loadLatestAgentReadContext(
+    actorUserId: string,
+    conversationId: string,
+): Promise<AgentReadContext | null> {
+    await assertConversationParticipant(actorUserId, conversationId);
+    const { data, error } = await supabaseAdmin
+        .from('agent_conversation_turns')
+        .select('id, result, result_kind, conversations!inner(deleted_at)')
+        .eq('conversation_id', conversationId)
+        .eq('actor_user_id', actorUserId)
+        .eq('result_kind', 'response')
+        .is('conversations.deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(12);
+
+    if (error) throw new AppError('Could not load the Agent read context', 500);
+
+    for (const row of data || []) {
+        const result = row?.result as Record<string, unknown> | null;
+        const response = result?.kind === 'response'
+            ? result.response as Record<string, unknown> | null
+            : null;
+        if (!response || response.status !== 'answered' || !Array.isArray(response.citations)) continue;
+
+        const referents = response.citations
+            .filter((citation: unknown): citation is { sourceType: string; sourceId: string } => {
+                if (!citation || typeof citation !== 'object') return false;
+                const value = citation as Record<string, unknown>;
+                return (value.sourceType === 'commitment' || value.sourceType === 'commitment_proposal')
+                    && typeof value.sourceId === 'string'
+                    && value.sourceId.length > 0;
+            })
+            .slice(0, 10)
+            .map((citation) => ({
+                rawText: '',
+                entityType: citation.sourceType as 'commitment' | 'commitment_proposal',
+                canonicalId: citation.sourceId,
+            }));
+
+        if (referents.length === 0) continue;
+        return {
+            kind: 'commitment_query',
+            timeRange: null,
+            sourceTurnId: String(row.id),
+            commitmentReferents: referents,
+            statuses: null,
+        };
+    }
+
+    return null;
 }

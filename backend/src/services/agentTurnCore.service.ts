@@ -40,6 +40,7 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
+import type { AgentReadContext } from '../types/agentDialogueState';
 import { hasUnresolvedPersonReference, type AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
@@ -85,6 +86,11 @@ export interface RunAgentTurnOptions {
     // from the canonical checkpoint. The default remains the existing
     // process-local repository for legacy callers and tests.
     dialogueService?: AgentDialogueStateService;
+    // Best-effort continuity fallback when the private durable admission
+    // transport is unavailable. This contains only Core-derived canonical
+    // references from the actor's own persisted conversation events; every
+    // follow-up re-authorizes them through normal retrieval.
+    fallbackReadContext?: AgentReadContext | null;
     // Internal Core binding only. The public HTTP body cannot populate this;
     // it is produced after a read clarification selects a real candidate.
     authorizedCommitmentReferentId?: string;
@@ -700,7 +706,9 @@ export async function runAgentTurn(
     // classifiers are fallback/safety signals inside the interpreter and can
     // no longer decide that an unrecognised wording is a READ before the LLM
     // gets a chance to understand it.
-    const priorReadContext = existingDialogueState?.lastReadContext ?? null;
+    const priorReadContext = existingDialogueState?.lastReadContext
+        ?? options.fallbackReadContext
+        ?? null;
     const priorReadSummary = priorReadContext ? {
         kind: priorReadContext.kind,
         referentCount: priorReadContext.commitmentReferents?.length ?? 0,

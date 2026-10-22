@@ -9,6 +9,7 @@ import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.s
 import { isDurableGeneralAgentTurnEnabled, runDurableAgentTurn } from '../services/agentTurnDurableBoundary.service';
 import {
     isAgentConversationTurnPersistenceEnabled,
+    loadLatestAgentReadContext,
     persistAgentConversationTurn,
 } from '../services/agentConversationTurn.service';
 import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
@@ -63,11 +64,17 @@ export async function turn(req: Request, res: Response): Promise<void> {
         const historyInput = isAgentConversationTurnPersistenceEnabled()
             ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
             : null;
-        const result = durableEnabled
-            ? await runDurableAgentTurn(turnInput, {}, idempotencyKey!)
-            : await runAgentTurn(turnInput);
-
         const historyConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
+        const fallbackReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
+            ? await loadLatestAgentReadContext(actorUserId, historyConversationId).catch((error) => {
+                console.warn('[AgentTurn] Persisted read context unavailable; continuing without fallback.', error?.message ?? error);
+                return null;
+            })
+            : null;
+        const result = durableEnabled
+            ? await runDurableAgentTurn(turnInput, { fallbackReadContext }, idempotencyKey!)
+            : await runAgentTurn(turnInput, { fallbackReadContext });
+
         if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
             await persistAgentConversationTurn({
                 actorUserId,

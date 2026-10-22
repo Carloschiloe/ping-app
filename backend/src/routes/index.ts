@@ -128,11 +128,17 @@ router.get('/health', async (req, res) => {
         // exacto fuerza trabajo innecesario sobre una tabla que puede crecer.
         const { error } = await supabaseAdmin.from('profiles').select('id').limit(1);
         if (error) throw error;
+        const durableAgentRuntime = isCanonicalDurableAgentRuntimeEnabled();
+        const agentConversationEvents = isAgentConversationTurnPersistenceEnabled();
         res.json({
             ok: true,
             db_status: 'connected',
-            agent_runtime: isCanonicalDurableAgentRuntimeEnabled() ? 'durable' : 'process_local',
-            agent_conversation_events: isAgentConversationTurnPersistenceEnabled(),
+            agent_runtime: durableAgentRuntime
+                ? 'durable'
+                : agentConversationEvents
+                    ? 'process_local_read_fallback'
+                    : 'process_local',
+            agent_conversation_events: agentConversationEvents,
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME
