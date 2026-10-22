@@ -10,6 +10,18 @@ import { getOrCreateSelfConversationId } from './conversation.service';
 let isMorningRoutineRunning = false;
 let isWeeklyReviewRunning = false;
 
+async function routineAlreadyDelivered(conversationId: string, routineKey: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .eq('system_event_type', routineKey.startsWith('morning:') ? 'morning_summary' : 'weekly_review')
+        .contains('metadata', { routine_key: routineKey })
+        .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+}
+
 /**
  * Phase 24: Ping Morning Routine
  * Runs every day at 8:00 AM (server time).
@@ -94,6 +106,12 @@ export async function runMorningRoutine() {
                 const userData = userMap[userId];
                 try {
                     const dayName = format(today, 'EEEE d \'de\' MMMM', { locale: es });
+                    const routineKey = `morning:${format(today, 'yyyy-MM-dd')}`;
+                    const selfConversationId = await getOrCreateSelfConversationId(userId);
+                    if (await routineAlreadyDelivered(selfConversationId, routineKey)) {
+                        console.log(`[MorningRoutine] ↩️ Already delivered to ${userData.name} (${routineKey})`);
+                        return;
+                    }
 
                     // Generate AI morning message
                     const aiMessage = await generateMorningSummary(
@@ -105,8 +123,6 @@ export async function runMorningRoutine() {
                     // V2: todo mensaje requiere conversation_id valido (NOT NULL).
                     // El resumen matutino ahora se inserta en el self-chat real del
                     // usuario en vez de un mensaje "huerfano" con conversation_id null.
-                    const selfConversationId = await getOrCreateSelfConversationId(userId);
-
                     // Batch database operations for this user
                     const [msgResult] = await Promise.all([
                         // Inject into personal self-messages
@@ -116,7 +132,7 @@ export async function runMorningRoutine() {
                             conversation_id: selfConversationId,
                             status: 'sent',
                             system_event_type: 'morning_summary',
-                            metadata: { is_morning_summary: true }
+                            metadata: { is_morning_summary: true, routine_key: routineKey }
                         }),
                         // Send Push Notification if token exists
                         userData.pushToken ? sendPushNotification(
@@ -217,12 +233,17 @@ export async function runWeeklyReview() {
             await Promise.all(chunk.map(async (userId) => {
                 const data = userMap[userId];
                 try {
+                    const routineKey = `weekly:${format(now, 'yyyy-MM-dd')}`;
+                    const selfConversationId = await getOrCreateSelfConversationId(userId);
+                    if (await routineAlreadyDelivered(selfConversationId, routineKey)) {
+                        console.log(`[WeeklyReview] ↩️ Already delivered to ${data.name} (${routineKey})`);
+                        return;
+                    }
+
                     const aiMessage = await generateWeeklyReview(data.name, data.completed, data.pending.length, data.pending);
 
                     // V2: mismo criterio que la rutina matutina — se usa el self-chat
                     // real del usuario en vez de conversation_id null.
-                    const selfConversationId = await getOrCreateSelfConversationId(userId);
-
                     const [msgResult] = await Promise.all([
                         supabaseAdmin.from('messages').insert({
                             sender_id: null,
@@ -230,7 +251,7 @@ export async function runWeeklyReview() {
                             conversation_id: selfConversationId,
                             status: 'sent',
                             system_event_type: 'weekly_review',
-                            metadata: { is_weekly_review: true }
+                            metadata: { is_weekly_review: true, routine_key: routineKey }
                         }),
                         data.pushToken ? sendPushNotification(
                             data.pushToken, 
