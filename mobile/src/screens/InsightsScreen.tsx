@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, StatusBar, TextInput,
-    ScrollView, SectionList, Modal, RefreshControl, Platform, UIManager, Alert,
+    ScrollView, SectionList, Modal, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRoute } from '@react-navigation/native';
@@ -29,10 +29,6 @@ import { CommitmentRow } from '../components/compromisos/CommitmentRow';
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // PING — ARCHIVE LIFECYCLE COMPLETION: 'archivados' reuses the existing
 // segment machinery (same SectionList, same CommitmentRow renderer) rather

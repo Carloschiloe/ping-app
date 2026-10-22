@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
-    Modal, RefreshControl, LayoutAnimation, Platform, UIManager, Alert,
+    Modal, RefreshControl, LayoutAnimation, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -27,10 +27,6 @@ import { OverdueAlert } from '../components/hoy/OverdueAlert';
 import { TodayItemRow } from '../components/hoy/TodayItemRow';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 type StatusFilter = 'all' | 'proposed' | 'accepted' | 'rejected' | 'resolved';
 type TypeFilter = 'all' | 'tasks' | 'meetings';
