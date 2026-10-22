@@ -352,6 +352,40 @@ export async function saveAttachmentToDeviceAsync(
 }
 
 /** Downloads an image, copies its local bytes to the image clipboard, and never copies its URL. */
+/**
+ * Saves an attachment using the best native destination available. Expo Go
+ * does not always ship expo-media-library, so it falls back to Android's
+ * Storage Access Framework (or iOS Files/share flow) instead of failing.
+ */
+export async function saveAttachmentForUserAsync(
+    attachment: SignedAttachment,
+): Promise<'gallery' | 'device'> {
+    const kind = classifyAttachmentMime(attachment.mimeType);
+    if (kind !== 'image' && kind !== 'video') {
+        await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
+        return 'device';
+    }
+
+    try {
+        const mediaLibrary = await import('expo-media-library');
+        const permission = await mediaLibrary.requestPermissionsAsync(true, []);
+        if (permission.status === 'granted') {
+            await saveAttachmentToGalleryAsync(attachment, {
+                saveLocalFileAsync: async (file) => {
+                    await mediaLibrary.createAssetAsync(file.localUri);
+                },
+            });
+            return 'gallery';
+        }
+    } catch {
+        // Expo Go and builds without the media-library native module use the
+        // platform file flow below as their safe, user-selected destination.
+    }
+
+    await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
+    return 'device';
+}
+
 export async function copyAttachmentImageAsync(
     attachment: SignedAttachment,
     options: CopyAttachmentOptions = {},

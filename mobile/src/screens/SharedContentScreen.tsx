@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { useSharedContent } from '../api/queries';
+import { useConversations, useDeleteMessage, useSharedContent } from '../api/queries';
 import type { SharedContentScreenProps } from '../navigation/types';
 import type { SharedContentItem } from '../types/sharedContent';
 import { useSharedContentUrl } from '../hooks/useSharedContentUrl';
 import { useAppTheme } from '../theme/ThemeContext';
 import { documentIconName, formatSharedDuration, formatSharedDateTime, formatSharedFileSize } from '../utils/sharedContent';
 import AudioPlayer from '../components/AudioPlayer';
+import { SharedContentActionSheet } from '../components/shared-content/SharedContentActionSheet';
+import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
+import { useAuth } from '../context/AuthContext';
+import { apiClient } from '../api/client';
+import * as Haptics from 'expo-haptics';
+import { createClientMessageId } from '../utils/synchronization';
 
 const CONTENT_TITLES = { audio: 'Audios', document: 'Documentos', link: 'Enlaces' } as const;
 
@@ -21,12 +28,22 @@ function GoToMessage({ onPress }: { onPress: () => void }) {
     return <TouchableOpacity onPress={onPress} style={styles.messageLink}><Ionicons name="chatbubble-outline" size={15} color={theme.colors.accent} /><Text style={{ color: theme.colors.accent, fontWeight: '700', fontSize: 12 }}>Ir al mensaje</Text></TouchableOpacity>;
 }
 
-function AudioRow({ item, onMessage }: { item: SharedContentItem; onMessage: () => void }) {
+function ActionsButton({ onPress }: { onPress: () => void }) {
+    const { theme } = useAppTheme();
+    return <TouchableOpacity onPress={onPress} accessibilityLabel="Acciones del archivo" style={styles.actionsButton}>
+        <Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text.secondary} />
+    </TouchableOpacity>;
+}
+
+function AudioRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
     const { theme } = useAppTheme();
     const { url, state, refresh } = useSharedContentUrl(item);
     return (
         <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <Text style={[styles.title, { color: theme.colors.text.primary }]}>{item.sender.name}</Text>
+            <View style={styles.rowHeader}>
+                <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]}>{item.sender.name}</Text>
+                <ActionsButton onPress={onActions} />
+            </View>
             {state === 'loading' && <ActivityIndicator style={styles.audioLoading} />}
             {state === 'available' && url && <AudioPlayer url={url} durationMs={item.file?.durationMs} style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceMuted }]} />}
             {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={{ color: theme.colors.danger }}>Audio no disponible · Reintentar</Text></TouchableOpacity>}
@@ -38,7 +55,7 @@ function AudioRow({ item, onMessage }: { item: SharedContentItem; onMessage: () 
     );
 }
 
-function DocumentRow({ item, onMessage }: { item: SharedContentItem; onMessage: () => void }) {
+function DocumentRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
     const { theme } = useAppTheme();
     const [shouldResolve, setShouldResolve] = useState(false);
     const { url, state, refresh } = useSharedContentUrl(item, shouldResolve);
@@ -55,7 +72,10 @@ function DocumentRow({ item, onMessage }: { item: SharedContentItem; onMessage: 
         <View style={[styles.card, styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={[styles.icon, { backgroundColor: theme.colors.accentSoft }]}><Ionicons name={documentIconName(item)} size={26} color={theme.colors.accent} /></View>
             <View style={styles.grow}>
-                <Text style={[styles.title, { color: theme.colors.text.primary }]} numberOfLines={2}>{item.file?.name || 'Documento'}</Text>
+                <View style={styles.rowHeader}>
+                    <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]} numberOfLines={2}>{item.file?.name || 'Documento'}</Text>
+                    <ActionsButton onPress={onActions} />
+                </View>
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{formatSharedFileSize(item.file?.sizeBytes)}</Text>
                 <Meta item={item} />
                 <View style={styles.inlineActions}>
@@ -68,13 +88,16 @@ function DocumentRow({ item, onMessage }: { item: SharedContentItem; onMessage: 
     );
 }
 
-function LinkRow({ item, onMessage }: { item: SharedContentItem; onMessage: () => void }) {
+function LinkRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
     const { theme } = useAppTheme();
     return (
         <View style={[styles.card, styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={[styles.icon, { backgroundColor: theme.colors.accentSoft }]}><Ionicons name="link-outline" size={26} color={theme.colors.accent} /></View>
             <View style={styles.grow}>
-                <Text style={[styles.title, { color: theme.colors.text.primary }]}>{item.link?.domain}</Text>
+                <View style={styles.rowHeader}>
+                    <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]}>{item.link?.domain}</Text>
+                    <ActionsButton onPress={onActions} />
+                </View>
                 <TouchableOpacity onPress={() => item.link && Linking.openURL(item.link.url)}><Text style={{ color: theme.colors.accent }} numberOfLines={2}>{item.link?.url}</Text></TouchableOpacity>
                 <Meta item={item} />
                 <GoToMessage onPress={onMessage} />
@@ -88,6 +111,13 @@ export default function SharedContentScreen({ route, navigation }: SharedContent
     const { category } = route.params;
     const query = useSharedContent(route.params.conversationId, category);
     const items = query.data?.pages.flatMap((page) => page.items) || [];
+    const [actionItem, setActionItem] = useState<SharedContentItem | null>(null);
+    const [forwardItem, setForwardItem] = useState<SharedContentItem | null>(null);
+    const [isForwarding, setIsForwarding] = useState(false);
+    const { user } = useAuth();
+    const { data: conversationsData } = useConversations();
+    const queryClient = useQueryClient();
+    const { mutateAsync: deleteMessage } = useDeleteMessage(route.params.conversationId);
 
     useEffect(() => navigation.setOptions({ title: CONTENT_TITLES[category] }), [category, navigation]);
     const goToMessage = (item: SharedContentItem) => navigation.navigate('Chat', {
@@ -99,24 +129,90 @@ export default function SharedContentScreen({ route, navigation }: SharedContent
         scrollToMessageId: item.messageId,
     });
 
+    const canDelete = (item: SharedContentItem) => Boolean(user?.id && item.sender.id === user.id);
+
+    const confirmDelete = (item: SharedContentItem) => {
+        if (!canDelete(item)) return;
+        Alert.alert(
+            'Eliminar archivo',
+            'Se eliminará también del chat para todos. Esta acción no se puede deshacer.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar',
+                    style: 'destructive',
+                    onPress: () => {
+                        void deleteMessage(item.messageId).then(() => {
+                            setActionItem(null);
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }).catch(() => Alert.alert('No se pudo eliminar', 'Inténtalo nuevamente.'));
+                    },
+                },
+            ],
+        );
+    };
+
+    const forwardToConversation = async (targetConversationId: string) => {
+        if (!forwardItem || isForwarding) return;
+        setIsForwarding(true);
+        try {
+            await apiClient.post(`/conversations/${route.params.conversationId}/messages/${forwardItem.messageId}/forward`, {
+                targetConversationId,
+                clientMessageId: createClientMessageId(),
+            });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['conversation-messages', targetConversationId] });
+            setForwardItem(null);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Reenviado', 'Archivo reenviado.');
+        } catch {
+            Alert.alert('No se pudo reenviar', 'Comprueba tu conexión e inténtalo nuevamente.');
+        } finally {
+            setIsForwarding(false);
+        }
+    };
+
     if (query.isLoading) return <View style={[styles.center, { backgroundColor: theme.colors.background }]}><ActivityIndicator /></View>;
     if (query.isError) return <View style={[styles.center, { backgroundColor: theme.colors.background }]}><Text style={{ color: theme.colors.text.secondary }}>No se pudo cargar el contenido.</Text><TouchableOpacity onPress={() => query.refetch()}><Text style={{ color: theme.colors.accent, marginTop: 10 }}>Reintentar</Text></TouchableOpacity></View>;
 
     return (
-        <FlatList
-            style={{ backgroundColor: theme.colors.background }}
-            contentContainerStyle={[styles.list, items.length === 0 && styles.emptyList]}
-            data={items}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => category === 'audio'
-                ? <AudioRow item={item} onMessage={() => goToMessage(item)} />
-                : category === 'document'
-                    ? <DocumentRow item={item} onMessage={() => goToMessage(item)} />
-                    : <LinkRow item={item} onMessage={() => goToMessage(item)} />}
-            ListEmptyComponent={<Text style={{ color: theme.colors.text.secondary }}>No hay {CONTENT_TITLES[category].toLowerCase()} compartidos.</Text>}
-            onEndReached={() => { if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage(); }}
-            ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator /> : null}
-        />
+        <>
+            <FlatList
+                style={{ backgroundColor: theme.colors.background }}
+                contentContainerStyle={[styles.list, items.length === 0 && styles.emptyList]}
+                data={items}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => category === 'audio'
+                    ? <AudioRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
+                    : category === 'document'
+                        ? <DocumentRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
+                        : <LinkRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />}
+                ListEmptyComponent={<Text style={{ color: theme.colors.text.secondary }}>No hay {CONTENT_TITLES[category].toLowerCase()} compartidos.</Text>}
+                onEndReached={() => { if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage(); }}
+                ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator /> : null}
+            />
+            <SharedContentActionSheet
+                visible={Boolean(actionItem)}
+                item={actionItem}
+                canDelete={actionItem ? canDelete(actionItem) : false}
+                onClose={() => setActionItem(null)}
+                onForward={() => {
+                    if (!actionItem) return;
+                    setForwardItem(actionItem);
+                    setActionItem(null);
+                }}
+                onDelete={() => actionItem && confirmDelete(actionItem)}
+            />
+            <ForwardMessagesModal
+                visible={Boolean(forwardItem)}
+                conversations={conversationsData?.conversations || []}
+                currentConversationId={route.params.conversationId}
+                selectedCount={1}
+                isForwarding={isForwarding}
+                onClose={() => setForwardItem(null)}
+                onSelectConversation={forwardToConversation}
+            />
+        </>
     );
 }
 
@@ -128,6 +224,8 @@ const styles = StyleSheet.create({
     row: { flexDirection: 'row', gap: 12 },
     grow: { flex: 1 },
     title: { fontSize: 15, fontWeight: '700' },
+    rowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    actionsButton: { padding: 4, marginTop: -4 },
     icon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     messageLink: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, alignSelf: 'flex-start' },
     inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 16, flexWrap: 'wrap' },

@@ -17,10 +17,24 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import type { SharedContentItem } from '../../types/sharedContent';
 import { useSharedContentUrl } from '../../hooks/useSharedContentUrl';
 import { useAppTheme } from '../../theme/ThemeContext';
+import { SharedContentActionSheet } from './SharedContentActionSheet';
 
-function VisualPage({ item, active, width }: { item: SharedContentItem; active: boolean; width: number }) {
+function VisualPage({
+    item,
+    active,
+    width,
+    url,
+    state,
+    refresh,
+}: {
+    item: SharedContentItem;
+    active: boolean;
+    width: number;
+    url: string | null;
+    state: 'idle' | 'loading' | 'available' | 'unavailable';
+    refresh: () => void;
+}) {
     const { theme } = useAppTheme();
-    const { url, state, refresh } = useSharedContentUrl(item, active);
     const scale = useRef(new Animated.Value(1)).current;
     const onPinch = Animated.event([{ nativeEvent: { scale } }], { useNativeDriver: true });
     const isVideo = item.type === 'video';
@@ -72,26 +86,35 @@ export function SharedMediaViewer({
     initialIndex,
     onClose,
     onGoToMessage,
+    canDelete,
+    onForward,
+    onDelete,
 }: {
     visible: boolean;
     items: SharedContentItem[];
     initialIndex: number;
     onClose: () => void;
     onGoToMessage: (item: SharedContentItem) => void;
+    canDelete: (item: SharedContentItem) => boolean;
+    onForward: (item: SharedContentItem) => void;
+    onDelete: (item: SharedContentItem) => void;
 }) {
     const { theme } = useAppTheme();
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const listRef = useRef<FlatList<SharedContentItem>>(null);
     const [activeIndex, setActiveIndex] = useState(initialIndex);
+    const [actionsVisible, setActionsVisible] = useState(false);
 
     useEffect(() => {
         if (!visible) return;
         setActiveIndex(initialIndex);
+        setActionsVisible(false);
         requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: initialIndex, animated: false }));
     }, [initialIndex, visible]);
 
     const activeItem = items[activeIndex];
+    const activeUrlState = useSharedContentUrl(activeItem || null, visible);
     const move = (offset: number) => {
         const next = Math.max(0, Math.min(items.length - 1, activeIndex + offset));
         setActiveIndex(next);
@@ -110,6 +133,9 @@ export function SharedMediaViewer({
                         <Text style={[styles.date, { color: theme.colors.text.muted }]}>{activeItem ? new Date(activeItem.createdAt).toLocaleString() : ''}</Text>
                     </View>
                     <Text style={[styles.position, { color: theme.colors.white }]}>{items.length ? `${activeIndex + 1}/${items.length}` : ''}</Text>
+                    {activeItem && <TouchableOpacity onPress={() => setActionsVisible(true)} accessibilityLabel="Acciones del archivo" style={styles.actionButton}>
+                        <Ionicons name="ellipsis-horizontal" size={25} color={theme.colors.white} />
+                    </TouchableOpacity>}
                 </View>
                 <FlatList
                     ref={listRef}
@@ -118,7 +144,16 @@ export function SharedMediaViewer({
                     pagingEnabled
                     keyExtractor={(item) => item.id}
                     getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-                    renderItem={({ item, index }) => <VisualPage item={item} active={index === activeIndex} width={width} />}
+                    renderItem={({ item, index }) => (
+                        <VisualPage
+                            item={item}
+                            active={index === activeIndex}
+                            width={width}
+                            url={index === activeIndex ? activeUrlState.url : null}
+                            state={index === activeIndex ? activeUrlState.state : 'idle'}
+                            refresh={activeUrlState.refresh}
+                        />
+                    )}
                     onMomentumScrollEnd={(event) => setActiveIndex(Math.round(event.nativeEvent.contentOffset.x / width))}
                     showsHorizontalScrollIndicator={false}
                 />
@@ -127,6 +162,22 @@ export function SharedMediaViewer({
                     {activeItem && <TouchableOpacity style={[styles.messageButton, { backgroundColor: theme.colors.accent }]} onPress={() => onGoToMessage(activeItem)}><Ionicons name="chatbubble-outline" size={18} color={theme.colors.white} /><Text style={[styles.messageButtonText, { color: theme.colors.white }]}>Ir al mensaje</Text></TouchableOpacity>}
                     <TouchableOpacity disabled={activeIndex >= items.length - 1} onPress={() => move(1)} style={{ opacity: activeIndex >= items.length - 1 ? 0.35 : 1 }}><Ionicons name="chevron-forward" size={30} color={theme.colors.white} /></TouchableOpacity>
                 </View>
+                <SharedContentActionSheet
+                    visible={actionsVisible}
+                    inline
+                    item={activeItem || null}
+                    signedUrl={activeUrlState.url}
+                    canDelete={activeItem ? canDelete(activeItem) : false}
+                    onClose={() => setActionsVisible(false)}
+                    onForward={() => {
+                        setActionsVisible(false);
+                        if (activeItem) onForward(activeItem);
+                    }}
+                    onDelete={() => {
+                        setActionsVisible(false);
+                        if (activeItem) onDelete(activeItem);
+                    }}
+                />
             </View>
         </Modal>
     );
@@ -140,6 +191,7 @@ const styles = StyleSheet.create({
     sender: { fontWeight: '700', fontSize: 15 },
     date: { fontSize: 12, marginTop: 2 },
     position: { fontSize: 13 },
+    actionButton: { padding: 5 },
     page: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     media: { width: '100%', height: '100%' },
     unavailable: { marginTop: 12, marginBottom: 8 },

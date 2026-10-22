@@ -67,8 +67,7 @@ import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { PingActivityCard } from '../components/PingActivityCard';
 import {
     copyAttachmentImageAsync,
-    saveAttachmentToDeviceAsync,
-    saveAttachmentToGalleryAsync,
+    saveAttachmentForUserAsync,
     shareAttachmentAsync,
 } from '../utils/attachmentActions';
 import { resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
@@ -612,34 +611,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 return;
             }
 
-            let savedDestination: 'gallery' | 'device' = 'device';
-            if (attachment.kind === 'image' || attachment.kind === 'video') {
-                try {
-                    // The gallery module is available in the production build,
-                    // but not in every Expo Go runtime. Keep the import lazy so
-                    // the chat boots everywhere and fall back to Android's
-                    // Storage Access Framework when the native module is absent.
-                    const mediaLibrary = await import('expo-media-library');
-                    const permission = await mediaLibrary.requestPermissionsAsync(true, []);
-                    if (permission.status === 'granted') {
-                        await saveAttachmentToGalleryAsync(attachment, {
-                            saveLocalFileAsync: async (file) => {
-                                await mediaLibrary.createAssetAsync(file.localUri);
-                            },
-                        });
-                        savedDestination = 'gallery';
-                    } else {
-                        await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
-                    }
-                } catch (galleryError) {
-                    console.warn('[Chat] Gallery save unavailable; using device file flow', {
-                        error: galleryError instanceof Error ? galleryError.message : 'unknown',
-                    });
-                    await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
-                }
-            } else {
-                await saveAttachmentToDeviceAsync(attachment, { dialogTitle: 'Guardar archivo' });
-            }
+            const savedDestination = await saveAttachmentForUserAsync(attachment);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert('Guardado', savedDestination === 'gallery'
                 ? 'El archivo se guardó en la galería del dispositivo.'

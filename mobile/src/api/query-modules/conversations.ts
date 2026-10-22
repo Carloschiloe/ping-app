@@ -436,6 +436,7 @@ export const useDeleteMessage = (conversationId: string) => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
             queryClient.invalidateQueries({ queryKey: ['conversation-media', conversationId] });
+            queryClient.invalidateQueries({ queryKey: ['shared-content', conversationId] });
             queryClient.invalidateQueries({ queryKey: ['conversations'] });
         },
     });
