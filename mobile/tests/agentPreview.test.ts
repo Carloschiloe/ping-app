@@ -456,6 +456,7 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action headi
 // behaviorally-meaningful invalidation call).
 describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgentExecute invalidates every projection that can display a mutated commitment, using the shared canonical query keys (never a duplicated invalidation concept)', () => {
     const agentSource = fs.readFileSync(path.join(__dirname, '../src/api/query-modules/agent.ts'), 'utf-8');
+    const invalidationSource = fs.readFileSync(path.join(__dirname, '../src/api/query-invalidation.ts'), 'utf-8');
 
     it('useAgentExecute exists and invalidates on mutation success (onSuccess), never fire-and-forget with no cache update', () => {
         const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
@@ -465,14 +466,17 @@ describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgen
 
     it('invalidates the SAME canonical dashboard key Compromisos/Hoy both already read from -- all-commitments-dashboard', () => {
         const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
-        expect(fnMatch![0]).toMatch(/queryClient\.invalidateQueries\(\{ queryKey: \['all-commitments-dashboard'\] \}\)/);
+        expect(fnMatch![0]).toMatch(/invalidateCommitmentViews\(queryClient/);
+        expect(invalidationSource).toContain("['all-commitments-dashboard']");
     });
 
     it('also invalidates insights/commitments/group-tasks/group-tasks-conv/conversation-messages/agreement-proposals -- the same superset the app\'s own direct commitment mutations already invalidate, never a narrower set', () => {
         const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
         const body = fnMatch![0];
+        expect(body).toMatch(/includeAgreementProposals: true/);
+        expect(body).toMatch(/includeAgentTurns: true/);
         for (const key of ['insights', 'commitments', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
-            expect(body).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+            expect(invalidationSource).toContain(`['${key}']`);
         }
     });
 

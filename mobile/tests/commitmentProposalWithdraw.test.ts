@@ -85,9 +85,7 @@ describe('tapping "Retirar propuesta" llama al endpoint de proposal reject', () 
         );
         expect(withdrawBlockMatch).not.toBeNull();
         const block = withdrawBlockMatch![0];
-        for (const key of ['agreement-proposals', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'insights']) {
-            expect(block).toContain(`['${key}']`);
-        }
+        expect(block).toMatch(/invalidateCommitmentViews\(queryClient, \{ includeAgreementProposals: true \}\)/);
     });
 });
 

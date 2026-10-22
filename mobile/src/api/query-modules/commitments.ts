@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
+import { invalidateCommitmentViews } from '../query-invalidation';
 import { useAuth } from '../../context/AuthContext';
 import {
     acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest,
@@ -55,10 +56,12 @@ export const useCommitments = (status?: string) => {
             if (invalidationTimerRef.current) return;
             invalidationTimerRef.current = setTimeout(() => {
                 invalidationTimerRef.current = null;
-                queryClient.invalidateQueries({ queryKey: ['commitments'] });
-                queryClient.invalidateQueries({ queryKey: ['insights'] });
-                queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+                invalidateCommitmentViews(queryClient, {
+                    includeConversationMessages: false,
+                    includeGroupTasks: false,
+                    includeConversationGroupTasks: false,
+                    includeAgreementProposals: true,
+                });
             }, 120);
         };
         const channel = supabase
@@ -111,12 +114,7 @@ export const useCreateCommitment = () => {
     return useMutation({
         mutationFn: async (data: any) => apiClient.post('/commitments', data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            invalidateCommitmentViews(queryClient);
         },
     });
 };
@@ -126,12 +124,7 @@ export const useCreateSharedCommitmentProposal = () => {
     return useMutation({
         mutationFn: async (data: any) => apiClient.post('/commitment-proposals/shared', data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            invalidateCommitmentViews(queryClient, { includeInsights: false, includeAgreementProposals: true });
         },
     });
 };
@@ -153,13 +146,7 @@ export const useRespondToCommitmentProposal = () => {
     return useMutation({
         mutationFn: respondToCommitmentProposalRequest,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
+            invalidateCommitmentViews(queryClient, { includeAgreementProposals: true });
         },
     });
 };
@@ -180,13 +167,7 @@ export const useConfirmCommitmentProposal = () => {
     return useMutation({
         mutationFn: confirmCommitmentProposalRequest,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
+            invalidateCommitmentViews(queryClient, { includeAgreementProposals: true });
         },
     });
 };
@@ -200,13 +181,7 @@ export const useWithdrawCommitmentProposal = () => {
     return useMutation({
         mutationFn: withdrawCommitmentProposalRequest,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
+            invalidateCommitmentViews(queryClient, { includeAgreementProposals: true });
         },
     });
 };
@@ -216,12 +191,7 @@ export const useAcceptCommitment = () => {
     return useMutation({
         mutationFn: acceptCommitmentRequest,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            invalidateCommitmentViews(queryClient);
         },
     });
 };
@@ -232,11 +202,7 @@ export const useRejectCommitment = () => {
         mutationFn: async ({ id, reason }: { id: string, reason: string }) =>
             apiClient.post(`/commitments/${id}/reject`, { reason }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            invalidateCommitmentViews(queryClient, { includeConversationMessages: false });
         },
     });
 };
@@ -247,11 +213,7 @@ export const usePostponeCommitment = () => {
         mutationFn: async ({ id, newDate }: { id: string, newDate: string }) =>
             apiClient.post(`/commitments/${id}/postpone`, { newDate }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
+            invalidateCommitmentViews(queryClient, { includeConversationMessages: false });
         },
     });
 };
@@ -262,12 +224,7 @@ export const useUpdateCommitmentStatus = () => {
         mutationFn: async ({ id, status }: { id: string, status: string }) =>
             apiClient.patch(`/commitments/${id}`, { status }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            invalidateCommitmentViews(queryClient);
         },
     });
 };
@@ -278,12 +235,7 @@ export const useUpdateCommitment = () => {
         mutationFn: async ({ id, data }: { id: string, data: any }) =>
             apiClient.patch(`/commitments/${id}`, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+            invalidateCommitmentViews(queryClient);
         },
     });
 };
@@ -315,13 +267,7 @@ export const useMarkCommitmentDone = () => {
 function useCommitmentLifecycleInvalidation() {
     const queryClient = useQueryClient();
     return () => {
-        queryClient.invalidateQueries({ queryKey: ['insights'] });
-        queryClient.invalidateQueries({ queryKey: ['commitments'] });
-        queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-        queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-        queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-        queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
-        queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+        invalidateCommitmentViews(queryClient, { includeAgreementProposals: true });
     };
 }
 

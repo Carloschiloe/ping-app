@@ -541,6 +541,9 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
     const COMMITMENTS_API_SRC = fs.readFileSync(
         path.join(__dirname, '..', 'src/api/query-modules/commitments.ts'), 'utf-8',
     );
+    const INVALIDATION_SRC = fs.readFileSync(
+        path.join(__dirname, '..', 'src/api/query-invalidation.ts'), 'utf-8',
+    );
 
     function lifecycleInvalidationBody(): string {
         const match = COMMITMENTS_API_SRC.match(/function useCommitmentLifecycleInvalidation\(\) \{[^]*?\n\}/);
@@ -550,8 +553,9 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
 
     it('the canonical owner invalidates agreement-proposals alongside every other canonical key -- not a narrower set than useAgentExecute', () => {
         const body = lifecycleInvalidationBody();
+        expect(body).toMatch(/invalidateCommitmentViews\(queryClient, \{ includeAgreementProposals: true \}\)/);
         for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
-            expect(body).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+            expect(INVALIDATION_SRC).toContain(`['${key}']`);
         }
     });
 
@@ -585,8 +589,9 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
         );
         const fnMatch = AGENT_API_SRC.match(/export function useAgentExecute\(\)[^]*?\n\}/);
         expect(fnMatch).not.toBeNull();
+        expect(fnMatch![0]).toMatch(/invalidateCommitmentViews\(queryClient/);
         for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
-            expect(fnMatch![0]).toMatch(new RegExp(`queryKey: \\['${key}'\\]`));
+            expect(INVALIDATION_SRC).toContain(`['${key}']`);
         }
     });
 });

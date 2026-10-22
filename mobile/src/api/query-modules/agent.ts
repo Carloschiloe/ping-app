@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { File } from 'expo-file-system';
 import { apiClient, ApiError, API_URL, getAuthHeaders } from '../client';
+import { invalidateCommitmentViews } from '../query-invalidation';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import {
     buildAgentSurfaceRequest,
@@ -730,14 +731,10 @@ export function useAgentExecute() {
             return parseAgentExecution(raw);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks-conv'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
-            queryClient.invalidateQueries({ queryKey: ['agent-conversation-turns'] });
-            queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            invalidateCommitmentViews(queryClient, {
+                includeAgreementProposals: true,
+                includeAgentTurns: true,
+            });
         },
     });
 }

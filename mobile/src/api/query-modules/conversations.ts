@@ -57,6 +57,17 @@ function reconcileMessagePages(oldData: any, confirmed: any) {
     };
 }
 
+function realtimeMessageId(payload: any): string | null {
+    const row = payload?.new || payload?.old;
+    return typeof row?.message_id === 'string' ? row.message_id : null;
+}
+
+function hasCachedConversationMessage(queryClient: ReturnType<typeof useQueryClient>, conversationId: string, messageId: string) {
+    return queryClient.getQueriesData({ queryKey: ['conversation-messages', conversationId] }).some(([, data]: any) =>
+        data?.pages?.some((page: any) => page.messages?.some((message: any) => message.id === messageId))
+    );
+}
+
 export const useConversations = () => {
     const queryClient = useQueryClient();
     const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,9 +120,22 @@ export const useConversations = () => {
 export const useConversationMessages = (conversationId: string, scrollToMessageId?: string) => {
     const queryClient = useQueryClient();
     const { user } = useAuth();
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const refreshConversationListRef = useRef(false);
 
     useEffect(() => {
         if (!conversationId) return;
+        const scheduleRefresh = (includeConversationList = false) => {
+            refreshConversationListRef.current = refreshConversationListRef.current || includeConversationList;
+            if (refreshTimerRef.current) return;
+            refreshTimerRef.current = setTimeout(() => {
+                refreshTimerRef.current = null;
+                const includeList = refreshConversationListRef.current;
+                refreshConversationListRef.current = false;
+                void queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+                if (includeList) void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            }, 120);
+        };
         const channel = supabase
             .channel(`messages-${conversationId}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
@@ -146,21 +170,31 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
                     };
                 });
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (payload) => {
+                const messageId = realtimeMessageId(payload);
+                if (messageId && hasCachedConversationMessage(queryClient, conversationId, messageId)) {
+                    scheduleRefresh();
+                }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_receipts' }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'message_receipts' }, (payload) => {
+                const messageId = realtimeMessageId(payload);
+                if (messageId && hasCachedConversationMessage(queryClient, conversationId, messageId)) {
+                    scheduleRefresh(true);
+                }
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
-                    queryClient.invalidateQueries({
-                        queryKey: ['conversation-messages', conversationId],
-                    });
+                    scheduleRefresh();
                 }
             });
-        return () => { supabase.removeChannel(channel); };
+        return () => {
+            if (refreshTimerRef.current) {
+                clearTimeout(refreshTimerRef.current);
+                refreshTimerRef.current = null;
+            }
+            refreshConversationListRef.current = false;
+            void supabase.removeChannel(channel);
+        };
     }, [conversationId, queryClient, user?.id]);
 
     return useInfiniteQuery({

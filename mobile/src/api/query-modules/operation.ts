@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../client';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
+import { invalidateCommitmentViews } from '../query-invalidation';
 
 export const useConversationOperationState = (conversationId: string | null) => {
     return useQuery({
@@ -290,15 +291,12 @@ export const useCommitmentOperationAction = () => {
             }
         },
         onSuccess: (_data, variables) => {
-            queryClient.invalidateQueries({ queryKey: ['insights'] });
-            queryClient.invalidateQueries({ queryKey: ['commitments'] });
-            queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            queryClient.invalidateQueries({ queryKey: ['group-tasks'] });
+            invalidateCommitmentViews(queryClient, {
+                conversationId: variables.conversationId,
+            });
             if (variables.conversationId) {
-                queryClient.invalidateQueries({ queryKey: ['group-tasks-conv', variables.conversationId] });
                 queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', variables.conversationId] });
             }
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
         },
     });
 };
