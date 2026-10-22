@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
@@ -22,11 +22,11 @@ export const useReactToMessage = (conversationId: string) => {
             if (!user) return;
             const { data: existing } = await supabase
                 .from('message_reactions')
-                .select('*')
+                .select('id')
                 .eq('message_id', messageId)
                 .eq('user_id', user.id)
                 .eq('reaction', emoji)
-                .single();
+                .maybeSingle();
 
             if (existing) {
                 await supabase.from('message_reactions').delete().eq('id', existing.id);
@@ -47,31 +47,39 @@ export const useReactToMessage = (conversationId: string) => {
 export const useCommitments = (status?: string) => {
     const queryClient = useQueryClient();
     const { user } = useAuth();
+    const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (!user?.id) return;
+        const scheduleInvalidation = () => {
+            if (invalidationTimerRef.current) return;
+            invalidationTimerRef.current = setTimeout(() => {
+                invalidationTimerRef.current = null;
+                queryClient.invalidateQueries({ queryKey: ['commitments'] });
+                queryClient.invalidateQueries({ queryKey: ['insights'] });
+                queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
+                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
+            }, 120);
+        };
         const channel = supabase
             .channel(`commitments-live-${user.id}-${status || 'all'}`)
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'commitments',
-            }, () => {
-                queryClient.invalidateQueries({ queryKey: ['commitments'] });
-                queryClient.invalidateQueries({ queryKey: ['insights'] });
-                queryClient.invalidateQueries({ queryKey: ['all-commitments-dashboard'] });
-            })
+            }, scheduleInvalidation)
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'commitment_proposals',
-            }, () => {
-                queryClient.invalidateQueries({ queryKey: ['commitments'] });
-                queryClient.invalidateQueries({ queryKey: ['agreement-proposals'] });
-            })
+            }, scheduleInvalidation)
             .subscribe();
 
         return () => {
+            if (invalidationTimerRef.current) {
+                clearTimeout(invalidationTimerRef.current);
+                invalidationTimerRef.current = null;
+            }
             supabase.removeChannel(channel);
         };
     }, [queryClient, status, user?.id]);
@@ -88,7 +96,8 @@ export const useCommitments = (status?: string) => {
             ]);
             return [...(commitments || []), ...(proposals || [])];
         },
-        refetchOnMount: 'always',
+        staleTime: 5_000,
+        refetchOnMount: true,
         refetchOnReconnect: 'always',
         // Realtime da inmediatez; este intervalo sólo reconcilia eventos
         // perdidos sin generar una petición cada cinco segundos en reposo.

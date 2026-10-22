@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
@@ -59,34 +59,49 @@ function reconcileMessagePages(oldData: any, confirmed: any) {
 
 export const useConversations = () => {
     const queryClient = useQueryClient();
+    const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
+        const scheduleInvalidation = () => {
+            if (invalidationTimerRef.current) return;
+            invalidationTimerRef.current = setTimeout(() => {
+                invalidationTimerRef.current = null;
+                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+            }, 120);
+        };
         const channel = supabase
             .channel('conversations-list')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                scheduleInvalidation();
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'message_receipts' }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                scheduleInvalidation();
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
-                    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                    scheduleInvalidation();
                 }
             });
-        return () => { supabase.removeChannel(channel); };
+        return () => {
+            if (invalidationTimerRef.current) {
+                clearTimeout(invalidationTimerRef.current);
+                invalidationTimerRef.current = null;
+            }
+            supabase.removeChannel(channel);
+        };
     }, [queryClient]);
 
     return useQuery({
         queryKey: ['conversations'],
         queryFn: () => apiClient.get('/conversations'),
-        refetchOnMount: 'always',
+        staleTime: 5_000,
+        refetchOnMount: true,
         refetchOnReconnect: 'always',
         retry: 2,
         retryDelay: attemptIndex => Math.min(1_000 * (2 ** attemptIndex), 5_000),
         // Realtime da inmediatez; este intervalo es solo reconciliacion de
         // seguridad ante eventos perdidos. Mount/reconnect tambien refetchean.
-        refetchInterval: 30_000,
+        refetchInterval: 60_000,
         refetchIntervalInBackground: false,
     });
 };
@@ -146,7 +161,7 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
                 }
             });
         return () => { supabase.removeChannel(channel); };
-    }, [conversationId, queryClient, scrollToMessageId, user?.id]);
+    }, [conversationId, queryClient, user?.id]);
 
     return useInfiniteQuery({
         queryKey: ['conversation-messages', conversationId, scrollToMessageId],
@@ -164,9 +179,10 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
             return lastPage.messages[lastPage.messages.length - 1].created_at;
         },
         enabled: !!conversationId,
-        refetchOnMount: 'always',
+        staleTime: 5_000,
+        refetchOnMount: true,
         refetchOnReconnect: 'always',
-        refetchInterval: 30_000,
+        refetchInterval: 60_000,
         refetchIntervalInBackground: false,
     });
 };

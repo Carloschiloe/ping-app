@@ -31,7 +31,7 @@ interface TodayItemRowProps {
     onReject?: (commitment: any) => void;
 }
 
-export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfirm, onOpenReschedule, onReject }: TodayItemRowProps) {
+export const TodayItemRow = React.memo(function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfirm, onOpenReschedule, onReject }: TodayItemRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [menuVisible, setMenuVisible] = useState(false);
@@ -262,7 +262,7 @@ export function TodayItemRow({ commitment: c, currentUserId, onMarkDone, onConfi
             </Modal>
         </View>
     );
-}
+});
 
 const styles = StyleSheet.create({
     row: {

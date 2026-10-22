@@ -672,7 +672,7 @@ export default function TaskDashboardScreen() {
                                 currentUserId={user?.id}
                                 onMarkDone={handleMarkDone}
                                 onConfirm={handleRequestConfirm}
-                                onOpenReschedule={(item) => setRescheduleItem(item)}
+                                onOpenReschedule={setRescheduleItem}
                                 onReject={handleRejectProposal}
                             />
                         ))}
