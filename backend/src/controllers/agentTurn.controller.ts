@@ -12,7 +12,8 @@ import {
     loadLatestAgentReadContext,
     persistAgentConversationTurn,
 } from '../services/agentConversationTurn.service';
-import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
+import { resolveAgentRequestInput, resolveTextSurface } from '../services/agentInputEnvelope.service';
+import { buildDialogueScopeKey, getAgentDialogueReadContextSnapshot } from '../services/agentDialogueState.service';
 
 type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
 
@@ -84,7 +85,16 @@ export async function turn(req: Request, res: Response): Promise<void> {
             ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
             : null;
         const historyConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
-        const fallbackReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
+        const localReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
+            ? getAgentDialogueReadContextSnapshot(
+                actorUserId,
+                buildDialogueScopeKey({
+                    conversationId: historyConversationId,
+                    surface: historyInput?.envelope.surface ?? resolveTextSurface(req.body.channel),
+                }),
+            )
+            : null;
+        const fallbackReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled() && !localReadContext
             ? await loadLatestAgentReadContext(actorUserId, historyConversationId).catch((error) => {
                 console.warn('[AgentTurn] Persisted read context unavailable; continuing without fallback.', error?.message ?? error);
                 return null;

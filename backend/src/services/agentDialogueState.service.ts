@@ -167,6 +167,18 @@ export function createInMemoryDialogueStateRepository(initialState?: AgentDialog
 // singleton lives.
 const defaultRepository = createInMemoryDialogueStateRepository();
 
+/**
+ * Returns the process-local read context for the HTTP adapter's continuity
+ * optimization. It is only a latency hint; Core still owns the authoritative
+ * snapshot and re-authorizes every canonical referent before answering.
+ */
+export function getAgentDialogueReadContextSnapshot(
+    actorUserId: string,
+    dialogueScopeKey: string,
+): AgentReadContext | null {
+    return new AgentDialogueStateService().getSnapshot(actorUserId, dialogueScopeKey)?.lastReadContext ?? null;
+}
+
 export function clearAgentDialogueStateForTests(): void {
     defaultRepository.clearForTests();
     clearPlanDigestInvalidationsForTests();
