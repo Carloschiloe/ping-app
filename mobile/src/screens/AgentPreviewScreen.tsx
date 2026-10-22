@@ -78,7 +78,10 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const { data: persistedHistory } = useAgentConversationTurns(conversationId);
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
     const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
-    const liveVoiceEnabled = Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
+    // Ping Voz is a production capability of the main Ping entry. Keep the
+    // explicit build flag for controlled builds, but do not hide the entry
+    // point in Expo Go when the dynamic config has no extra values.
+    const liveVoiceEnabled = isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
 
     useEffect(() => {
         if (!conversationId || !persistedHistory || hydratedConversationRef.current === conversationId) return;

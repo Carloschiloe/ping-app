@@ -51,6 +51,10 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
     const lastKnownUriRef = useRef<string | null>(null);
     const voiceSessionIdRef = useRef<string | null>(null);
     const deviceSessionIdRef = useRef(createEphemeralUuid());
+    // Invalidates async recorder/transcription work when the user cancels or
+    // the screen leaves the foreground. Native callbacks can resolve after
+    // cancellation; they must never advance the cancelled session.
+    const operationIdRef = useRef(0);
     const mountedRef = useRef(true);
     const optionsRef = useRef(options);
     const requestAbortRef = useRef<AbortController | null>(null);
@@ -69,9 +73,18 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
     }, [voiceIsActive]);
 
     const applyEvent = useCallback((event: VoiceSessionEvent) => {
-        const next = transitionVoiceSession(stateRef.current, event);
-        stateRef.current = next;
-        if (mountedRef.current) setState(next);
+        try {
+            const next = transitionVoiceSession(stateRef.current, event);
+            stateRef.current = next;
+            if (mountedRef.current) setState(next);
+            return true;
+        } catch (error) {
+            // A native recorder promise may reject after cancel() already
+            // moved the state to cancelled. That is a stale callback, not a
+            // user-facing voice failure and must not become an uncaught error.
+            if (stateRef.current === 'cancelled') return false;
+            throw error;
+        }
     }, []);
 
     const deleteLocalCapture = useCallback((uri?: string | null) => {
@@ -89,6 +102,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
 
     const cancel = useCallback(async () => {
         if (stateRef.current === 'cancelled') return;
+        operationIdRef.current += 1;
         if (stateRef.current === 'capturing' || stateRef.current === 'listening') {
             await recorder.stop().catch(() => undefined);
         }
@@ -131,6 +145,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
         });
         return () => {
             mountedRef.current = false;
+            operationIdRef.current += 1;
             subscription.remove();
             if (stateRef.current === 'capturing' || stateRef.current === 'listening') void recorder.stop().catch(() => undefined);
             deleteLocalCapture(lastKnownUriRef.current);
@@ -140,6 +155,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
 
     const start = useCallback(async () => {
         if (!['idle', 'ended', 'cancelled', 'failed'].includes(stateRef.current)) return;
+        const operationId = ++operationIdRef.current;
         try {
             applyEvent('START_PERMISSION_CHECK');
             let response = await getRecordingPermissionsAsync();
@@ -148,6 +164,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
                 response = await requestRecordingPermissionsAsync();
                 mapped = mapMicrophonePermission(response);
             }
+            if (operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             setPermission(mapped);
             if (!response.granted) {
                 applyEvent('FAIL');
@@ -159,13 +176,16 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             // another app's audio. This is a capture boundary, not a prompt
             // tweak: the transcript must contain only this turn.
             await setAudioModeAsync(AGENT_RECORDING_AUDIO_MODE);
+            if (operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             await recorder.prepareToRecordAsync();
+            if (operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             voiceSessionIdRef.current = createEphemeralUuid();
             durationRef.current = 0;
             setDurationMs(0);
             recorder.record();
             applyEvent('CAPTURE_STARTED');
         } catch {
+            if (operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             applyEvent('FAIL');
             optionsRef.current.onFailure?.('capture_failed');
         }
@@ -173,8 +193,10 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
 
     const stop = useCallback(async () => {
         if (stateRef.current !== 'capturing') return;
+        const operationId = operationIdRef.current;
         try {
             await recorder.stop();
+            if (operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             applyEvent('CAPTURE_STOPPED');
             const status = recorder.getStatus();
             const finalDuration = resolveRecordingDurationMs(status.durationMillis, durationRef.current);
@@ -199,7 +221,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
                 signal: requestAbort.signal,
             });
             requestAbortRef.current = null;
-            if (!mountedRef.current) return;
+            if (!mountedRef.current || operationId !== operationIdRef.current || (stateRef.current as VoiceSessionState) === 'cancelled') return;
             applyEvent('TRANSCRIPT_READY');
             optionsRef.current.onTranscriptReady(result);
         } catch (error) {
@@ -208,7 +230,7 @@ export function useAgentVoiceInput(options: UseAgentVoiceInputOptions) {
             // mid-transcripción) -- TS no puede ver esa mutación async y
             // sigue estrechando el tipo a 'capturing' en este punto, así que
             // se fuerza el tipo real (VoiceSessionState) explícitamente.
-            if (mountedRef.current && (stateRef.current as VoiceSessionState) !== 'cancelled') {
+            if (mountedRef.current && operationId === operationIdRef.current && (stateRef.current as VoiceSessionState) !== 'cancelled') {
                 applyEvent('FAIL');
                 optionsRef.current.onFailure?.(error instanceof Error ? error.message : 'transcription_failed');
             }

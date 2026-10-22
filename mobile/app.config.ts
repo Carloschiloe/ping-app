@@ -83,7 +83,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
         extra: {
             ...base.extra,
-            m8LiveVoiceEnabled,
+            // Expo Go does not load the EAS profile env block. Keep the main
+            // Ping voice capability visible there while preserving an
+            // explicit false value for builds that intentionally disable it.
+            m8LiveVoiceEnabled: m8LiveVoiceEnabled || process.env.EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED === undefined,
         },
     };
 };
