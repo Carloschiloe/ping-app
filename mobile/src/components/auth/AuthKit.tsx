@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
     AccessibilityInfo,
     ActivityIndicator,
@@ -32,7 +32,7 @@ type AuthScaffoldProps = {
 export function AuthScaffold({ children, buildLabel, condensedBrand = false }: AuthScaffoldProps) {
     const { height, width } = useWindowDimensions();
     const compact = height < 760 || width < 360;
-    const backgroundMotion = useRef(new Animated.Value(0)).current;
+    const backgroundMotion = useMemo(() => new Animated.Value(0), []);
 
     useEffect(() => {
         let animation: Animated.CompositeAnimation | undefined;
@@ -179,8 +179,8 @@ export function AuthBrand({ compact = false }: { compact?: boolean }) {
 
 export function PingLogo({ compact = false }: { compact?: boolean }) {
     const size = compact ? 74 : 92;
-    const floatMotion = useRef(new Animated.Value(0)).current;
-    const signalMotion = useRef(new Animated.Value(0)).current;
+    const floatMotion = useMemo(() => new Animated.Value(0), []);
+    const signalMotion = useMemo(() => new Animated.Value(0), []);
 
     useEffect(() => {
         let floatAnimation: Animated.CompositeAnimation | undefined;

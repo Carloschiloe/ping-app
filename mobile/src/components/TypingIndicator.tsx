@@ -1,10 +1,10 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { View, Animated, StyleSheet } from 'react-native';
 
 const TypingIndicator = () => {
-    const dot1 = useRef(new Animated.Value(0)).current;
-    const dot2 = useRef(new Animated.Value(0)).current;
-    const dot3 = useRef(new Animated.Value(0)).current;
+    const dot1 = useMemo(() => new Animated.Value(0), []);
+    const dot2 = useMemo(() => new Animated.Value(0), []);
+    const dot3 = useMemo(() => new Animated.Value(0), []);
 
     useEffect(() => {
         const createAnimation = (anim: Animated.Value, delay: number) => {
@@ -20,11 +20,13 @@ const TypingIndicator = () => {
             ]);
         };
 
-        Animated.parallel([
+        const animation = Animated.parallel([
             createAnimation(dot1, 0),
             createAnimation(dot2, 200),
             createAnimation(dot3, 400),
-        ]).start();
+        ]);
+        animation.start();
+        return () => animation.stop();
     }, [dot1, dot2, dot3]);
 
     const getDotStyle = (anim: Animated.Value) => ({
