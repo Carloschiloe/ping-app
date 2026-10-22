@@ -236,8 +236,30 @@ const SUMMARY_KEYWORDS = wordBounded('res[úu]me\\w*|resumen|summarize|summary')
 // COUNT_KEYWORDS/SUMMARY_KEYWORDS -- nunca vocabulario de una sola frase.
 const EXPLICIT_LIST_KEYWORDS = wordBounded('todos|todas|cada uno|cu[áa]les|every|all( my)?|which (ones|commitments|tasks)');
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
-const OPEN_STATUS_KEYWORDS = wordBounded('pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved');
+// Natural obligation language is normalized here, once, so the same meaning
+// drives status filtering, cardinality and FTS cleanup. These phrases are
+// deliberately bounded: "todavía" on its own is too ambiguous, while
+// "debo todavía" / "me falta todavía" unambiguously describe open work.
+const OPEN_STATUS_KEYWORDS = wordBounded(
+    'pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved'
+    + '|(?:debo|me\\s+falta|me\\s+qued[ae])\\s+(?:todav[ií]a|a[uú]n)'
+    + '|todav[ií]a\\s+(?:debo|me\\s+falta|me\\s+queda)'
+    + '|(?:qu[eé]|cu[aá]les?|mu[eé]strame)\\s+[^?¡!\\n]{0,32}\\s+por\\s+hacer',
+);
+// Covers colloquial overdue questions that the provider may not normalize
+// consistently, without treating every occurrence of "pasó" as overdue
+// ("¿qué pasó con el viaje?" remains recall). The question boundary keeps
+// declarative user statements on the ordinary semantic/objective path.
+const NATURAL_OVERDUE_QUERY_KEYWORDS = wordBounded(
+    'se\\s+me\\s+pas(?:o|ó|aron)'
+    + '|venc(?:i[oó]|ieron)\\s+recientemente',
+);
 const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
+
+function hasOverdueSignal(input: string): boolean {
+    return OVERDUE_KEYWORDS.test(input)
+        || (NATURAL_OVERDUE_QUERY_KEYWORDS.test(input) && /[?¿]/u.test(input));
+}
 // M-1H v6 (Gap B del final proposal lifecycle gate, sección 9/10): señal
 // ESTRUCTURADA para el lifecycle de aprobación de una commitment_proposal --
 // NUNCA debe sobrevivir como textQuery (mismo error real que "vencido"/FTS
@@ -787,8 +809,12 @@ function stripUrgencyComparisonLanguage(text: string): string {
 // nunca detecta -- por eso se remueve por substring ANTES de tokenizar, no
 // se prueba token a token como las demás.
 function stripOverdueLanguage(text: string): string {
-    const globalOverduePattern = new RegExp(OVERDUE_KEYWORDS.source, 'giu');
-    return text.replace(globalOverduePattern, ' ').replace(/\s+/g, ' ').trim();
+    const patterns = [OVERDUE_KEYWORDS, NATURAL_OVERDUE_QUERY_KEYWORDS];
+    let cleaned = text;
+    for (const keywordPattern of patterns) {
+        cleaned = cleaned.replace(new RegExp(keywordPattern.source, 'giu'), ' ');
+    }
+    return cleaned.replace(/\s+/g, ' ').trim();
 }
 
 // PING — M-2 TEST 1 ROOT FIX: same mechanism/root cause as stripOverdueLanguage
@@ -1219,7 +1245,7 @@ function extractStatusHints(input: string): CanonicalCommitmentStatus[] | null {
     // Algo vencido/atrasado, por definición, sigue sin resolverse -- mismo
     // filtro que "pendientes/open" (M-1G.1: antes "vencido" no matcheaba
     // ningún grupo y el filtro de status quedaba null).
-    if (OVERDUE_KEYWORDS.test(input) || OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
+    if (hasOverdueSignal(input) || OPEN_STATUS_KEYWORDS.test(input)) return ['proposed', 'accepted', 'counter_proposal'];
     if (CLOSED_STATUS_KEYWORDS.test(input)) {
         // R-01: cada status se prueba contra la MISMA entrada de
         // LIFECYCLE_TRANSITION_TABLE que ya construyó CLOSED_STATUS_KEYWORDS
@@ -1375,7 +1401,7 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
         const statusHints = extractStatusHints(trimmed);
         const textQuery = extractTextQuery(trimmed, personHints);
         const wantsAudio = AUDIO_KEYWORDS.test(trimmed);
-        const wantsOverdueFocus = OVERDUE_KEYWORDS.test(trimmed);
+        const wantsOverdueFocus = hasOverdueSignal(trimmed);
         const generalContextRetrievable = generalContextHasRetrievableSignal(textQuery, personHints, timeExpression, wantsOverdueFocus, statusHints, temporalIntent);
         const requestedTransition = extractRequestedTransition(trimmed);
         const temporalComparison = extractTemporalComparison(trimmed);
@@ -1445,7 +1471,7 @@ export function fallbackInterpretation(input: string, reason?: string): Interpre
         wantsMessages: false,
         wantsTranscriptions: false,
         wantsAttachments: false,
-        wantsOverdueFocus: OVERDUE_KEYWORDS.test(input),
+        wantsOverdueFocus: hasOverdueSignal(input),
         proposalFocus: extractProposalFocus(input),
         isWriteActionRequest: WRITE_ACTION_KEYWORDS.test(input) || NATURAL_WRITE_ACTION_PHRASES.test(input),
         wantsSingularStatusEntityReference: wantsSingularStatusEntityReference(input),

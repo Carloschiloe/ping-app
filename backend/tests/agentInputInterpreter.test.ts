@@ -602,10 +602,30 @@ describe('M-1G.1: reconocimiento de "vencido"/"overdue"', () => {
     });
 
     it('DeterministicInputInterpreter: "atrasado"/"overdue"/"past due" también activan wantsOverdueFocus', async () => {
-        for (const phrase of ['¿Qué tengo atrasado?', 'What is overdue?', 'Anything past due?']) {
+        for (const phrase of [
+            '¿Qué tengo atrasado?',
+            'What is overdue?',
+            'Anything past due?',
+            '¿Qué se me pasó?',
+            '¿Qué venció recientemente?',
+        ]) {
             const result = await new DeterministicInputInterpreter().interpret(phrase, {});
             expect(result.wantsOverdueFocus).toBe(true);
+            expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
         }
+    });
+
+    it('DeterministicInputInterpreter: obligación coloquial "qué debo todavía" conserva el foco abierto sin marcar vencido', async () => {
+        for (const phrase of ['¿Qué debo todavía?', 'Muéstrame lo que me falta todavía', '¿Qué me queda por hacer?']) {
+            const result = await new DeterministicInputInterpreter().interpret(phrase, {});
+            expect(result.wantsOverdueFocus).toBe(false);
+            expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        }
+    });
+
+    it('no confunde "qué pasó" con una consulta de vencidos', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué pasó con el viaje?', {});
+        expect(result.wantsOverdueFocus).toBe(false);
     });
 
     it('DeterministicInputInterpreter: "pendientes" (sin vencido/overdue) NO activa wantsOverdueFocus', async () => {
