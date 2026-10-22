@@ -97,12 +97,22 @@ export async function interpretAgentSemanticTurn(
         const hasReadDomainSignal = safeRead.wantsCommitments
             || safeRead.wantsMessages
             || safeRead.wantsTranscriptions
-            || safeRead.wantsAttachments;
+            || safeRead.wantsAttachments
+            || safeRead.intent === 'commitment_query'
+            || !!safeRead.timeExpression
+            || !!safeRead.temporalIntent;
+        // Voice transcripts and informal text often omit the final question
+        // mark.  The sentence shape still carries the same structural signal
+        // (qué/cuál/cuándo/etc. at the start), so do not let a provider wobble
+        // turn a read question such as "qué tengo para mañana" into a write
+        // plan merely because punctuation was lost during transcription.
+        const isQuestionShaped = /[?\u061f]\s*$/u.test(input.trim())
+            || /^\s*(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|tengo)(?=$|[^\p{L}\p{N}_])/iu.test(input);
         // A question-shaped turn with a read-domain signal is a structural
         // retrieval request even when the provider overstates
         // isWriteActionRequest. This does not enumerate user phrases and
         // does not override a deterministic write signal for an action.
-        const isInterrogativeRead = /[?\u061f]\s*$/u.test(input.trim()) && hasReadDomainSignal;
+        const isInterrogativeRead = isQuestionShaped && hasReadDomainSignal;
         const isStructuredRead = (isRetrievalIntent && isInterrogativeRead)
             || isTemporalComparisonQuery(input)
             || !!extractUrgencyComparison(input)

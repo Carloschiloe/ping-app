@@ -99,6 +99,22 @@ describe('semantic boundary read/write regression', () => {
         expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
     });
 
+    it('keeps a punctuation-free voice-style commitment question on the READ route', async () => {
+        const objectiveInterpreter = { interpret: vi.fn(async () => personalCommitmentObjective()) };
+        const result = await interpretAgentSemanticTurn(
+            'Qué tengo para mañana',
+            { actorUserId: ACTOR, conversationId: 'conversation-regression' },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('read');
+        expect(result.objective).toBeNull();
+        expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
+    });
+
     it('passes pending-plan context to the objective interpreter before Core classifies confirmation, deferral, or replacement', async () => {
         const objectiveInterpreter = {
             interpret: vi.fn(async (_input: string, context: {
