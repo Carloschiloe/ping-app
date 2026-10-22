@@ -37,6 +37,12 @@ describe('deterministic semantic read fast path', () => {
         expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
     });
 
+    it('does not bypass declarative commitment capture when punctuation is absent', async () => {
+        const input = 'Tengo que llamar a Pedro';
+        const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
+    });
+
     it('does not bypass dialogue reconciliation', async () => {
         const input = '¿Qué tengo para mañana?';
         const interpretation = await new DeterministicInputInterpreter().interpret(input, {});

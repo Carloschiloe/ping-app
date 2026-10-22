@@ -50,6 +50,16 @@ const DETERMINISTIC_READ_INTENTS = new Set([
     'document_search',
 ]);
 
+// A deterministic interpreter may classify a declarative user statement as
+// general_context (for example, "Tengo que llamar a Pedro") while the
+// objective interpreter correctly recognizes a write. The read fast path is
+// an optimization only; it must never pre-empt that safety-net write routing.
+// Keep this structural and bounded instead of growing a phrase-by-phrase
+// command list.
+function looksLikeDeclarativeWriteFrame(input: string): boolean {
+    return /^\s*(?:tengo\s+que|debo|necesito|recuerda(?:me)?\s+que|acuerda(?:me)?\s+que|agenda(?:r)?|anota(?:r)?|crea(?:r)?|recu[eé]rdame|llama(?:r)?|env[ií]a|dile|mueve|cancela(?:r)?|completa(?:r)?|elimina(?:r)?|marca(?:r)?|pon(?:er)?|programa(?:r)?|guarda(?:r)?)\b/iu.test(input);
+}
+
 /**
  * Low-risk read fast path.
  *
@@ -70,6 +80,7 @@ export function isDeterministicReadFastPathEligible(
     if (context.pendingPlan || context.activeObjective || context.dialogueReconciliation) return false;
     if (interpretation.isWriteActionRequest) return false;
     if (interpretation.ambiguityHints.includes('unresolved_pronoun')) return false;
+    if (looksLikeDeclarativeWriteFrame(input)) return false;
     if (isSocialConversationInput(input)) return true;
     if (DETERMINISTIC_READ_INTENTS.has(interpretation.intent)) return true;
     if (interpretation.followUpAttribute) return true;
