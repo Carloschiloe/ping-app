@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { isCanonicalDurableAgentRuntimeEnabled } from '../src/services/agentDurableConfig.service';
+import {
+    getDurableAgentRuntimeStatus,
+    isCanonicalDurableAgentRuntimeEnabled,
+} from '../src/services/agentDurableConfig.service';
 
 const original = {
     environment: process.env.PING_ENVIRONMENT,
@@ -50,5 +53,33 @@ describe('canonical durable runtime configuration', () => {
         process.env.SUPABASE_SERVICE_ROLE_KEY = 'production-backend-only';
         process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
         expect(isCanonicalDurableAgentRuntimeEnabled()).toBe(false);
+    });
+
+    it('reports the missing private transport without exposing secret values', () => {
+        process.env.PING_ENVIRONMENT = 'production';
+        delete process.env.PING_M7_DATABASE_URL;
+        process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
+
+        expect(getDurableAgentRuntimeStatus()).toEqual({
+            enabled: false,
+            reason: 'missing_private_database_url',
+            environment: 'production',
+            privateTransportConfigured: false,
+            explicitGateEnabled: true,
+        });
+    });
+
+    it('reports production readiness only when both gates exist', () => {
+        process.env.PING_ENVIRONMENT = 'production';
+        process.env.PING_M7_DATABASE_URL = 'postgres://production';
+        process.env.PING_ENABLE_DURABLE_AGENT_TURN = 'true';
+
+        expect(getDurableAgentRuntimeStatus()).toEqual({
+            enabled: true,
+            reason: 'ready',
+            environment: 'production',
+            privateTransportConfigured: true,
+            explicitGateEnabled: true,
+        });
     });
 });

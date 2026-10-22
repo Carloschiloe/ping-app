@@ -35,7 +35,7 @@ import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceReque
 import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
-import { isCanonicalDurableAgentRuntimeEnabled } from '../services/agentDurableConfig.service';
+import { getDurableAgentRuntimeStatus } from '../services/agentDurableConfig.service';
 import { isAgentConversationTurnPersistenceEnabled } from '../services/agentConversationTurn.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
@@ -128,7 +128,8 @@ router.get('/health', async (req, res) => {
         // exacto fuerza trabajo innecesario sobre una tabla que puede crecer.
         const { error } = await supabaseAdmin.from('profiles').select('id').limit(1);
         if (error) throw error;
-        const durableAgentRuntime = isCanonicalDurableAgentRuntimeEnabled();
+        const durableStatus = getDurableAgentRuntimeStatus();
+        const durableAgentRuntime = durableStatus.enabled;
         const agentConversationEvents = isAgentConversationTurnPersistenceEnabled();
         res.json({
             ok: true,
@@ -145,6 +146,7 @@ router.get('/health', async (req, res) => {
                     ? 'required'
                     : 'best_effort',
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
+            agent_durable_status: durableStatus,
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME
