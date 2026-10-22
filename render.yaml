@@ -22,6 +22,10 @@ services:
         value: modern_reasoning
       - key: PING_EXPECTED_SUPABASE_PROJECT_REF
         value: wbigqhtuzfmpnxservlf
+      - key: PING_ENABLE_AGENT_CONVERSATION_EVENTS
+        value: "true"
+      - key: PING_ENABLE_DURABLE_AGENT_TURN
+        value: "true"
       - key: M8_LIVE_VOICE_ENABLED
         value: "true"
       - key: M8_LIVE_VOICE_MODEL
