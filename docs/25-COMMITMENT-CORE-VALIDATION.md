@@ -1,4 +1,10 @@
-# Commitment Core — validación operativa
+# Commitment Core — validación operativa local y evidencia histórica
+
+> La validación remota de staging descrita más abajo está archivada. Mantiene
+> los project refs, checks y resultados para auditoría, pero no debe usarse como
+> runbook actual. Para cualquier operación remota vigente, seguir
+> `docs/production-readiness/` y verificar el proyecto de producción antes de
+> ejecutar comandos.
 
 ## Contratos canónicos
 
@@ -41,7 +47,7 @@ Para reconstruir desde cero se puede usar `supabase db reset`, pero sólo despu�
 de comprobar con `supabase status` que el objetivo es local. Nunca usar
 `--linked` para esta validación.
 
-## Verificación de staging
+## Verificación histórica de staging (archivada)
 
 El identificador aprobado de staging es `oonijgmddgyymhrlnvuu`
 (`Ping Staging V2`). Antes de cualquier operación remota deben coincidir:

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { normalizeCommitmentStatus } from '../src/utils/commitmentStatus';
-import { canViewOriginConversation, resolveConversationId } from '../src/utils/commitmentDisplay';
+import { canViewOriginConversation } from '../src/utils/commitmentDisplay';
 import { format, subDays, addDays, isSameDay, startOfDay } from 'date-fns';
 
 // ─── Pure Helpers (reflecting screen logic) ──────────────────────────────────
@@ -14,13 +14,6 @@ import { format, subDays, addDays, isSameDay, startOfDay } from 'date-fns';
 const MEETING_RE = /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i;
 function isMeeting(c: { type?: string; title?: string }) {
     return c.type === 'meeting' || MEETING_RE.test(c.title || '');
-}
-
-function isOverdue(c: { due_at?: string | null; status?: string }) {
-    if (!c.due_at) return false;
-    const status = normalizeCommitmentStatus(c.status);
-    if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
-    return new Date(c.due_at) < new Date();
 }
 
 function filterOverdueItems(commitments: any[], selectedDate: Date) {
@@ -109,11 +102,9 @@ const todayAt = (h: number, m = 0) => {
 
 const YESTERDAY_ISO = subDays(TODAY, 1).toISOString();
 const DAYS_30_AGO_ISO = subDays(TODAY, 30).toISOString();
-const TOMORROW_ISO = addDays(TODAY, 1).toISOString();
 
 const c1 = { id: 'c1', title: 'Llamar cliente', due_at: todayAt(10), status: 'accepted', assigned_to_user_id: 'u1', owner_user_id: 'u1', message_id: 'msg1', conversation_id: 'conv1' };
 const c2 = { id: 'c2', title: 'Enviar propuesta', due_at: todayAt(12, 30), status: 'accepted', assigned_to_user_id: 'u1', owner_user_id: 'u1' };
-const c3 = { id: 'c3', title: 'Reunión de equipo', due_at: todayAt(15), status: 'proposed', assigned_to_user_id: 'u1', owner_user_id: 'u2', type: 'meeting' };
 const cResolved = { id: 'cr', title: 'Tarea resuelta', due_at: todayAt(9), status: 'resolved', assigned_to_user_id: 'u1', owner_user_id: 'u1' };
 const cCancelled = { id: 'cc', title: 'Cancelada', due_at: todayAt(8), status: 'cancelled', assigned_to_user_id: 'u1', owner_user_id: 'u1' };
 const cOverdueRecent = { id: 'ov1', title: 'Ayer', due_at: YESTERDAY_ISO, status: 'accepted', assigned_to_user_id: 'u1', owner_user_id: 'u1' };

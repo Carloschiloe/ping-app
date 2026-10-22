@@ -2,8 +2,11 @@
 // state. Mirrors AgentPreviewScreen.tsx exactly, same convention as
 // chatKeyboard.ts / profile.ts — kept separate so it's testable without a
 // React Native renderer (this repo's mobile tests never render components).
-import type { AgentCitation, AgentFollowUp, AgentRespondResult, AgentResponseStatus } from '../api/query-modules/agent';
 import type {
+    AgentCitation,
+    AgentFollowUp,
+    AgentRespondResult,
+    AgentResponseStatus,
     AgentExecutionResult,
     AgentConversationTurnRecord,
     AgentPlanPresentation,
@@ -29,7 +32,7 @@ export interface AgentChatMessage {
     planPresentation?: AgentPlanPresentation;
     rawPlan?: AgentTurnPlan;
     isClarification?: boolean;
-    clarificationQuestions?: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+    clarificationQuestions?: { field: string; question: string; options?: { id: string; label: string }[] }[];
     isUnsupported?: boolean;
     executionResult?: AgentExecutionResult;
     executionPresentation?: AgentPlanPresentation;

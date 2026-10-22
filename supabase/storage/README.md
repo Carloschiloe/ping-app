@@ -1,4 +1,10 @@
-# Procedimiento de Storage privado
+# Procedimiento de Storage privado — staging histórico (no operativo)
+
+> **Estado:** archivado. Este procedimiento conserva evidencia de una
+> operación histórica de staging. No lo ejecutes ni lo uses como runbook de
+> producción. La restauración y cualquier cambio actual deben seguir los gates
+> de `docs/production-readiness/` y apuntar únicamente al proyecto productivo
+> autorizado.
 
 `chat-media-private.sql` prepara el bucket definido por ADR-024.
 

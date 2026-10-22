@@ -6,8 +6,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, addDays, isSameDay, startOfDay, isPast, isToday as dateFnsIsToday, subDays } from 'date-fns';
+import { useQuery } from '@tanstack/react-query';
+import { format, addDays, isSameDay, startOfDay, isToday as dateFnsIsToday, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -45,7 +45,6 @@ export default function TaskDashboardScreen() {
     const { theme } = useAppTheme();
     const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
-    const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
 
     // ─── Date state ──────────────────────────────────────────────────────────
@@ -58,7 +57,6 @@ export default function TaskDashboardScreen() {
     const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
     const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all');
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-    const [assigneePickerVisible, setAssigneePickerVisible] = useState(false);
 
     // ─── Encargadas section collapse ─────────────────────────────────────────
     const [delegatedExpanded, setDelegatedExpanded] = useState(false);

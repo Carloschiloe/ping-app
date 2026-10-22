@@ -1,5 +1,10 @@
 # Ping - project state
 
+> **Nota de vigencia:** este archivo conserva un snapshot histórico de estado y
+> certificación. Sus campos `STAGING_*`, referencias de staging y evidencias de
+> beta no son instrucciones operativas actuales. Para el destino vigente usar
+> el Repo guard de `README.md` y los gates de `docs/production-readiness/`.
+
 This is the canonical current-state record for autonomous development. It is
 not a conversation log. Update values only after reproducible evidence.
 

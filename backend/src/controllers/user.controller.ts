@@ -48,7 +48,7 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         if (error) throw error;
         res.json({ users: data || [] });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to load user profile' });
     }
 };
 

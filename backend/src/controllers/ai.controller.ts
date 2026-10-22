@@ -149,7 +149,7 @@ export const getHistory = async (req: Request, res: Response): Promise<void> => 
         );
         res.json({ messages: visibleMessages });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to load AI history' });
     }
 };
 
@@ -164,7 +164,7 @@ export const clearHistory = async (req: Request, res: Response): Promise<void> =
         if (error) throw error;
         res.json({ success: true });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to clear AI history' });
     }
 };
 

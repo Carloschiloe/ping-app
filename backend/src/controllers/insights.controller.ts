@@ -167,6 +167,6 @@ export const getInsights = async (req: Request, res: Response): Promise<void> =>
             teamStatusByGroup: [],
         });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to load insights' });
     }
 };

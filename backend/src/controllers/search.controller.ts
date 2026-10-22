@@ -9,6 +9,15 @@ import {
     buildCommitmentVisibilityFilter,
     getParticipantProposalIds,
 } from '../utils/commitmentVisibility';
+import { TtlCache } from '../utils/ttlCache';
+
+const searchResponseCache = new TtlCache<{
+    messages: any[];
+    commitments: any[];
+    profiles: any[];
+    conversations: any[];
+}>(3_000, 512);
+const searchResponseCacheEnabled = process.env.NODE_ENV !== 'test';
 
 const COMMITMENT_SELECT = `
     id, title, description, due_at, proposed_due_at, status, type, priority,
@@ -155,6 +164,13 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
+        const cacheKey = `${userId}:${searchTerm.toLocaleLowerCase()}`;
+        const cached = searchResponseCacheEnabled ? searchResponseCache.get(cacheKey) : undefined;
+        if (cached) {
+            res.status(200).json(cached);
+            return;
+        }
+
         // 1. Get user's conversation IDs
         const { data: participations } = await supabaseAdmin
             .from('conversation_participants')
@@ -235,13 +251,15 @@ export const search = async (req: Request, res: Response): Promise<void> => {
             for (const row of byConversation || []) commitmentsById.set(row.id, row);
         }
 
-        res.status(200).json({
+        const response = {
             messages: toLegacyMessageListShape(messages),
             commitments: toLegacyCommitmentListShape(Array.from(commitmentsById.values())),
             profiles,
             conversations: conversationsCompat
-        });
+        };
+        if (searchResponseCacheEnabled) searchResponseCache.set(cacheKey, response);
+        res.status(200).json(response);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to search Ping' });
     }
 };

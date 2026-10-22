@@ -21,6 +21,10 @@ import {
     markConversationUnread,
 } from '../services/messagingApplication.service';
 import { getLegacyConversationMedia, getSharedContent } from '../services/sharedContent.service';
+import { TtlCache } from '../utils/ttlCache';
+
+const conversationListCache = new TtlCache<{ conversations: any[] }>(3_000, 512);
+const conversationListCacheEnabled = process.env.NODE_ENV !== 'test';
 
 // POST /conversations — create or find existing 1-on-1 conversation
 export const createOrFind = async (req: Request, res: Response): Promise<void> => {
@@ -34,6 +38,7 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
         }
         if (otherUserId === userId) {
             const conversationId = await getOrCreateSelfConversationId(userId);
+            conversationListCache.delete(userId);
             res.json({ conversationId });
             return;
         }
@@ -41,6 +46,7 @@ export const createOrFind = async (req: Request, res: Response): Promise<void> =
         await assertCanReferenceProfiles(userId, [otherUserId]);
 
         const conversationId = await getOrCreateDirectConversationId(userId, otherUserId);
+        conversationListCache.delete(userId);
         res.status(201).json({ conversationId });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -53,9 +59,10 @@ export const createSelf = async (req: Request, res: Response): Promise<void> => 
     try {
         const userId = req.user!.id;
         const conversationId = await getOrCreateSelfConversationId(userId);
+        conversationListCache.delete(userId);
         res.json({ conversationId });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to create conversation' });
     }
 };
 
@@ -64,6 +71,12 @@ export const createSelf = async (req: Request, res: Response): Promise<void> => 
 export const list = async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = req.user!.id;
+
+        const cached = conversationListCacheEnabled ? conversationListCache.get(userId) : undefined;
+        if (cached) {
+            res.json(cached);
+            return;
+        }
 
         // Get all conversation IDs and archived status for this user.
         // V2: archived_at (timestamptz) reemplaza archived (boolean); se
@@ -84,7 +97,9 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         });
 
         if (conversationIds.length === 0) {
-            res.json({ conversations: [] });
+            const response = { conversations: [] };
+            if (conversationListCacheEnabled) conversationListCache.set(userId, response);
+            res.json(response);
             return;
         }
 
@@ -96,14 +111,16 @@ export const list = async (req: Request, res: Response): Promise<void> => {
         // se devuelven con defaults seguros de compatibilidad.
         const { data: conversationsData, error: cErr } = await supabaseAdmin
             .from('conversations')
-            .select('id, conversation_type, name, avatar_url, deleted_at')
+            .select('id, conversation_type, name, avatar_url, deleted_at, last_message_id, last_message_at, last_message_text')
             .in('id', conversationIds)
             .is('deleted_at', null);
 
         if (cErr) throw cErr;
         const activeConversationIds = (conversationsData || []).map((conversation) => conversation.id);
         if (activeConversationIds.length === 0) {
-            res.json({ conversations: [] });
+            const response = { conversations: [] };
+            if (conversationListCacheEnabled) conversationListCache.set(userId, response);
+            res.json(response);
             return;
         }
 
@@ -116,15 +133,44 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 
         if (apErr) throw apErr;
 
-        // Get last message for each conversation.
-        // V2: content/metadata reemplazan text/meta; sender_id unico (sin user_id).
-        const { data: lastMessages, error: lmErr } = await supabaseAdmin
-            .from('messages')
-            .select('conversation_id, content, created_at, metadata, status, sender_id, deleted_at, message_receipts(*)')
-            .in('conversation_id', activeConversationIds)
-            .order('created_at', { ascending: false });
+        // The canonical conversation snapshot identifies the last message.
+        // Fetching by those IDs avoids downloading the entire history of every
+        // conversation just to keep the first row of each group.
+        const lastMessageIds = (conversationsData || [])
+            .map((conversation) => conversation.last_message_id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        const { data: cachedLastMessages, error: cachedLastMessagesError } = lastMessageIds.length > 0
+            ? await supabaseAdmin
+                .from('messages')
+                .select('id, conversation_id, content, created_at, metadata, status, sender_id, deleted_at, message_receipts(*)')
+                .in('id', lastMessageIds)
+            : { data: [], error: null };
 
-        if (lmErr) throw lmErr;
+        if (cachedLastMessagesError) throw cachedLastMessagesError;
+
+        const loadedLastMessageIds = new Set((cachedLastMessages || []).map((message) => message.id));
+        const conversationsWithoutSnapshot = (conversationsData || [])
+            .filter((conversation) => {
+                const snapshotId = conversation.last_message_id;
+                return typeof snapshotId !== 'string'
+                    || snapshotId.length === 0
+                    || !loadedLastMessageIds.has(snapshotId);
+            })
+            .map((conversation) => conversation.id);
+
+        // Older production rows may predate the last_message snapshot trigger.
+        // Preserve their preview while keeping the compatibility query limited
+        // to only those conversations.
+        const { data: fallbackLastMessages, error: fallbackLastMessagesError } = conversationsWithoutSnapshot.length > 0
+            ? await supabaseAdmin
+                .from('messages')
+                .select('id, conversation_id, content, created_at, metadata, status, sender_id, deleted_at, message_receipts(*)')
+                .in('conversation_id', conversationsWithoutSnapshot)
+                .order('created_at', { ascending: false })
+            : { data: [], error: null };
+
+        if (fallbackLastMessagesError) throw fallbackLastMessagesError;
+        const lastMessages = [...(cachedLastMessages || []), ...(fallbackLastMessages || [])];
 
         // Unread es una propiedad del receipt del actor, no del status global.
         const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin
@@ -218,9 +264,11 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             return timeB.localeCompare(timeA);
         });
 
-        res.json({ conversations });
+        const response = { conversations };
+        if (conversationListCacheEnabled) conversationListCache.set(userId, response);
+        res.json(response);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to load conversations' });
     }
 };
 
@@ -254,9 +302,10 @@ export const toggleArchive = async (req: Request, res: Response): Promise<void> 
 
         if (updateErr) throw updateErr;
 
+        conversationListCache.delete(userId);
         res.json({ success: true, archived: newStatus });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to update conversation' });
     }
 };
 
@@ -390,6 +439,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             attachment,
             attachmentId,
         );
+        conversationListCache.delete(userId);
 
         // --- Phase 21: Push Notifications ---
         try {
@@ -474,6 +524,7 @@ export const forwardMessage = async (req: Request, res: Response): Promise<void>
             destinationConversationId,
             clientMessageId: clientMessageId ? String(clientMessageId) : undefined,
         });
+        conversationListCache.delete(actorUserId);
         res.status(result.idempotentReplay ? 200 : 201).json(result);
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -496,6 +547,7 @@ export const createFromContact = async (req: Request, res: Response): Promise<vo
             requesterUserId,
             match.matchedUserId
         );
+        conversationListCache.delete(requesterUserId);
         res.json({ conversationId });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -549,6 +601,7 @@ export const acceptInvitation = async (req: Request, res: Response): Promise<voi
             invitation.inviterUserId,
             acceptingUserId
         );
+        conversationListCache.delete(acceptingUserId);
         res.json({ conversationId });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -579,11 +632,13 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
                 .update({ marked_unread_at: null })
                 .eq('conversation_id', conversationId)
                 .eq('user_id', userId);
+            conversationListCache.delete(userId);
             res.json({ success: true, status: 'skipped', updated: 0 });
             return;
         }
 
         const updated = await markConversationRead(userId, conversationId as string);
+        conversationListCache.delete(userId);
         res.json({ success: true, updated });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -600,6 +655,7 @@ export const markAsUnread = async (req: Request, res: Response): Promise<void> =
         const { id: conversationId } = req.params;
 
         const updated = await markConversationUnread(userId, conversationId as string);
+        conversationListCache.delete(userId);
         res.json({ success: true, updated });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
@@ -654,7 +710,7 @@ export const pingConversation = async (req: Request, res: Response): Promise<voi
 
         res.json({ success: true });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to notify conversation' });
     }
 };
 

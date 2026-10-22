@@ -8,6 +8,7 @@ import { processCallRecording } from '../services/ai.service';
 import { AppError } from '../utils/AppError';
 import { assertCallConversationParticipant, assertCallInConversation, assertConversationParticipant } from '../utils/authz';
 import { serializeForInlineScript } from '../utils/inlineScript';
+import { sendRealtimeBroadcast } from '../utils/realtimeBroadcast';
 
 export const getToken = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -136,7 +137,7 @@ export const stopRecording = async (req: Request, res: Response): Promise<void> 
 
     } catch (error: any) {
         console.error('[Agora Controller] stopRecording failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to stop call recording' });
     }
 };
 
@@ -251,20 +252,16 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
         };
         for (const userId of otherUserIds) {
             try {
-                await supabaseAdmin.channel(`calls:user:${userId}`).send({
-                    type: 'broadcast',
-                    event: 'incoming_call',
-                    payload: realtimePayload,
-                });
+                await sendRealtimeBroadcast(`calls:user:${userId}`, 'incoming_call', realtimePayload);
             } catch (e: any) {
-                console.warn(`[notifyCall] Realtime broadcast to ${userId} failed:`, e.message);
+                console.warn(`[notifyCall] Realtime broadcast to ${userId} failed`);
             }
         }
 
         res.status(200).json({ ok: true, notified: tokens.length, callId: callRecord?.id });
     } catch (error: any) {
         console.error('[Agora Controller] notifyCall failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to notify call participants' });
     }
 };
 

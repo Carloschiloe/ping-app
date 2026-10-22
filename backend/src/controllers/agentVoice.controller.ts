@@ -3,6 +3,7 @@ import { generateTraceId } from '../utils/overdueTrace';
 import { AgentVoiceError, transcribeAgentVoiceCapture } from '../services/agentVoice.service';
 import { TranscriptionProviderError } from '../services/transcription.service';
 import { AppError } from '../utils/AppError';
+import { publicErrorMessage } from '../utils/safeError';
 
 export function agentVoiceRawBodyError(error: any, _req: Request, res: Response, next: NextFunction): void {
     if (error?.type === 'entity.too.large' || error?.status === 413) {
@@ -62,7 +63,7 @@ export async function transcribe(req: Request, res: Response): Promise<void> {
             return;
         }
         if (error instanceof AppError) {
-            res.status(error.statusCode).json({ error: error.message });
+            res.status(error.statusCode).json({ error: publicErrorMessage(error, 'Voice transcription failed') });
             return;
         }
         res.status(502).json({ error: 'transcription_failed' });

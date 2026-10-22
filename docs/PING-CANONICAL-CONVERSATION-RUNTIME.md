@@ -3,13 +3,17 @@
 Estado de diseño/implementación: 2026-10-04. Este documento describe el
 límite permanente que comparten texto y voz; no es un log de pruebas.
 
+> El entorno operativo vigente es producción. Las menciones históricas a
+> staging o a `PING_M7_DATABASE_URL` se conservan sólo para explicar gates de
+> certificación antiguos y no deben configurarse en producción.
+
 ## Fuente de verdad
 
-`POST /api/agent/turn` es la entrada del runtime conversacional. En staging,
-cuando `PING_M7_DATABASE_URL` está configurado, la frontera durable se activa
-sin una segunda bandera: admite el turno con su `Idempotency-Key`, recupera el
-checkpoint por actor y scope, ejecuta el Core y persiste atómicamente el
-resultado y el estado de diálogo.
+`POST /api/agent/turn` es la entrada del runtime conversacional. La frontera
+durable admite el turno con su `Idempotency-Key`, recupera el checkpoint por
+actor y scope, ejecuta el Core y persiste atómicamente el resultado y el estado
+de diálogo. `PING_M7_DATABASE_URL` queda documentada únicamente como variable
+histórica de certificación y no forma parte de la configuración de producción.
 
 El scope sin `conversationId` es `agent:mobile` tanto para `mobile_text` como
 para `mobile_voice`. Así una corrección o confirmación no cambia de contexto al
@@ -38,11 +42,11 @@ ligada a `planDigest` y a los `stepIds` del plan canónico.
 ## Deuda clasificada
 
 - `AgentPreviewScreen` conserva componentes visuales y contratos de ejecución
-  para la compatibilidad del flujo text UI histórico; en staging la
-  confirmación ya se resuelve en el runtime servidor y no vuelve a ejecutar el
-  plan desde el cliente.
+  para la compatibilidad del flujo text UI histórico; la confirmación se
+  resuelve en el runtime servidor y no vuelve a ejecutar el plan desde el
+  cliente.
 - `/agent/respond`, `/agent/plan` y el fallback no durable son superficies
-  legacy/compatibilidad. No son usados por el nuevo flujo durable de staging.
+  legacy/compatibilidad. No son usados por el nuevo flujo durable.
 - Las validaciones deterministas de seguridad, digest, idempotencia,
   autorización y ejecución son invariantes legítimas; no son comprensión de
   lenguaje y no se eliminan.
@@ -54,5 +58,5 @@ ligada a `planDigest` y a los `stepIds` del plan canónico.
 3. Repetir la misma clave de turno devuelve el replay durable.
 4. Ningún canal decide semántica, autorización o ejecución.
 5. Ningún proveedor puede hablar antes de que Core entregue la presentación.
-6. Producción no activa implícitamente esta frontera; el cambio se certifica
-   primero en staging.
+6. La activación productiva requiere pasar el release gate y verificar el
+   destino/commit exactos; ninguna referencia histórica de staging la activa.

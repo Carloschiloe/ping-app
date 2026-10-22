@@ -1,5 +1,9 @@
 # Readiness evidence at `ac7d72a`
 
+> Este informe es evidencia histórica de una rama de preparación. La fila de
+> staging se conserva para trazabilidad y comparación, pero no representa un
+> entorno vigente ni un destino autorizado de despliegue.
+
 This report is generated for the isolated preparation branch
 `codex/production-readiness-ac7d72`. It does not certify production.
 

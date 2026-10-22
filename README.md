@@ -171,6 +171,6 @@ Additional rules:
 - Product vision: [`docs/00-VISION-PING.md`](docs/00-VISION-PING.md)
 - Architecture principles: [`docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md`](docs/20-ADR-INDEX-ARCHITECTURE-PRINCIPLES.md)
 - Technical audit: [`docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md`](docs/21-TECHNICAL-ARCHITECTURE-AUDIT.md)
-- Production validation records: [`docs/23-STAGING-BETA-VALIDATION.md`](docs/23-STAGING-BETA-VALIDATION.md) (historical name retained for audit traceability)
+- Production readiness evidence: [`docs/production-readiness/README.md`](docs/production-readiness/README.md) (historical staging evidence is explicitly labeled inside that archive)
 
 When documentation and implementation differ, treat source plus `supabase/migrations/` as the current technical truth, then report the contradiction instead of silently choosing one.

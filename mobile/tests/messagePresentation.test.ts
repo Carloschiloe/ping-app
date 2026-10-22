@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { lightTheme, darkTheme } from '../src/theme/theme';
-import { getQuotedMessagePalette } from '../src/utils/messagePresentation';
-import { getAudioMessagePalette } from '../src/utils/messagePresentation';
-import { resolveMediaTapPresentation } from '../src/utils/messagePresentation';
+import {
+    getQuotedMessagePalette,
+    getAudioMessagePalette,
+    resolveMediaTapPresentation,
+} from '../src/utils/messagePresentation';
 
 describe('resolveMediaTapPresentation — video attachment root cause fix', () => {
     const SIGNED_URL = 'https://storage.example.com/storage/v1/object/sign/chat-media/conversations/c/attachments/u/11111111-1111-4111-8111-111111111111.mp4?token=abc';

@@ -1,4 +1,9 @@
-# Ping Android Beta Runbook
+# Ping Android Beta Runbook — histórico (no operativo)
+
+> **Archivo archivado:** este runbook describe una beta de staging ya cerrada.
+> Se conserva como evidencia de certificación. No lo uses para generar APKs,
+> configurar Supabase/Render ni validar la aplicación actual; usa únicamente la
+> configuración de producción vigente.
 
 Estado: staging de datos validado; backend Render y APK pendientes.
 

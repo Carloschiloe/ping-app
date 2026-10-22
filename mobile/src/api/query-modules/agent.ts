@@ -317,7 +317,7 @@ export interface AgentTurnPlan {
         status: string;
         objectiveType: string;
         humanReadableSummary: string;
-        steps: Array<{
+        steps: {
             stepId: string;
             toolId: string;
             operation: string;
@@ -327,9 +327,9 @@ export interface AgentTurnPlan {
             riskLevel: 'low' | 'medium' | 'high';
             confirmationRequirement: string;
             conditionDescription: string;
-        }>;
+        }[];
         canExecute: boolean;
-        clarification?: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+        clarification?: { field: string; question: string; options?: { id: string; label: string }[] }[];
         failureMode?: string;
         failureMessage?: string;
         planDigest?: string;
@@ -340,7 +340,7 @@ export interface AgentTurnPlan {
 
 export interface AgentTurnClarification {
     kind: 'clarification';
-    questions: Array<{ field: string; question: string; options?: Array<{ id: string; label: string }> }>;
+    questions: { field: string; question: string; options?: { id: string; label: string }[] }[];
     partialResponse?: AgentRespondResult;
     debug?: AgentTurnDebugMetadata;
 }
@@ -641,8 +641,8 @@ export interface AgentExecutionStepResult {
     toolId: string;
     status: 'pending' | 'running' | 'succeeded' | 'failed_retryable' | 'failed_terminal' | 'skipped_condition' | 'blocked' | 'cancelled';
     failureCode?: AgentExecutionFailureCode;
-    createdEntityRefs: Array<{ entityType: string; entityId: string }>;
-    updatedEntityRefs: Array<{ entityType: string; entityId: string }>;
+    createdEntityRefs: { entityType: string; entityId: string }[];
+    updatedEntityRefs: { entityType: string; entityId: string }[];
     messageSent: boolean;
     verified: boolean;
     idempotentReplay: boolean;
@@ -655,8 +655,8 @@ export interface AgentExecutionResult {
     executedSteps: AgentExecutionStepResult[];
     failedSteps: AgentExecutionStepResult[];
     waitingSteps: AgentExecutionStepResult[];
-    createdEntityRefs: Array<{ entityType: string; entityId: string }>;
-    updatedEntityRefs: Array<{ entityType: string; entityId: string }>;
+    createdEntityRefs: { entityType: string; entityId: string }[];
+    updatedEntityRefs: { entityType: string; entityId: string }[];
     messagesSent: number;
     requiresFurtherAuthorization: boolean;
     humanReadableSummary: string;

@@ -5,7 +5,6 @@
 /// <reference types="jest" />
 import { describe, expect, it } from 'vitest';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDisplayNameValidationError, normalizeDisplayName, normalizeOptionalPhone } from '../src/utils/profile';
 
 // ─── Focus Mode Helpers (mirrors ProfileScreen logic) ──────────────────────────

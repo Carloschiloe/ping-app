@@ -1,5 +1,10 @@
 # Migraciones de Supabase — Ping
 
+> **Estado operativo:** Ping tiene un único entorno operativo: producción,
+> proyecto `wbigqhtuzfmpnxservlf`. Las referencias a `Ping Staging V2` y a su
+> project ref se conservan abajo como evidencia histórica y guards de seguridad;
+> no constituyen un destino vigente ni deben usarse para ejecutar operaciones.
+
 ## Qué es esto
 
 Este directorio contiene el **baseline V2** del esquema de base de datos de
@@ -22,9 +27,11 @@ ningún cambio manual posterior.
 
 ## A qué proyecto se aplica
 
-La cadena completa de migraciones canónicas se valida primero localmente y
-después exclusivamente contra `Ping Staging V2`, project ref
-`oonijgmddgyymhrlnvuu`. El procedimiento actualizado está en
+La cadena completa de migraciones canónicas se valida primero localmente. Las
+operaciones remotas actuales deben seguir el gate de producción en
+`docs/production-readiness/` y apuntar únicamente al proyecto Supabase
+`wbigqhtuzfmpnxservlf`. El procedimiento histórico de validación V2 está
+conservado en este documento, pero no debe ejecutarse contra staging.
 `docs/25-COMMITMENT-CORE-VALIDATION.md`.
 
 **NO aplicar sobre el proyecto Supabase antiguo.** El proyecto antiguo tiene
@@ -40,7 +47,7 @@ El warning original de incompatibilidad describía el momento en que nació el
 baseline. Backend y mobile ya incorporan compatibilidad V2; su contrato actual
 debe demostrarse con typecheck, suite completa y los E2E del Commitment Core.
 No se cambia ninguna variable de producción como consecuencia de una
-validación local o de staging.
+validación local o de una evidencia histórica.
 
 ### C-3 Messaging Core
 
@@ -77,19 +84,23 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
 
 1. **Reconstruir localmente** — aplicar todos los SQL con timestamp, en orden,
    sobre Supabase local vacío.
-2. **Verificar staging** — confirmar por project ref que el enlace es
-   `oonijgmddgyymhrlnvuu` y ejecutar primero un dry-run.
+2. **Verificar el destino autorizado** — para cualquier operación remota,
+   confirmar por project ref que el destino es producción
+   (`wbigqhtuzfmpnxservlf`) y ejecutar primero un dry-run. No usar ningún
+   proyecto staging.
 3. **Verificar tablas, constraints y RLS** — confirmar que el esquema
    resultante coincide con lo documentado (ver "Cómo verificar que el
    baseline reconstruye correctamente" más abajo) antes de tocar una sola
    línea de código de aplicación.
 4. **Validar backend** — ejecutar TypeScript, suite completa y E2E del Core
-   contra Supabase local antes de apuntar un proceso a staging.
+   contra Supabase local antes de apuntar cualquier proceso a un proyecto
+   remoto.
 5. **Validar mobile** — ejecutar TypeScript y tests de contrato relevantes;
    no cambiar la app para compensar drift remoto.
 6. **Ejecutar pruebas** — la suite de tests del backend, typecheck y lint de
    ambos proyectos, y pruebas manuales del flujo completo de compromisos y
-   chat contra el proyecto de staging ya adaptado.
+   chat contra el destino remoto autorizado, sólo después de completar los
+   gates de `docs/production-readiness/`.
 7. **Probar Auth, Realtime y Storage** — específicamente en el proyecto
    nuevo: registro/login reales, suscripciones Realtime a `messages`/
    `commitments`, y subida/lectura de adjuntos en Storage — estos tres
@@ -101,7 +112,10 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
    explícita separada; no es automático ni implícito en haber completado los
    pasos anteriores.
 
-## Cómo vincular "Ping Staging V2"
+## Referencia histórica: cómo se vinculaba "Ping Staging V2"
+
+> Esta sección se conserva para explicar auditorías y evidencias antiguas. No
+> vincules ni ejecutes el CLI contra ese proyecto.
 
 1. Confirmar mediante `supabase projects list` que `Ping Staging V2` tiene el
    project ref `oonijgmddgyymhrlnvuu`. No usar el proyecto histórico `Ping`.
@@ -113,9 +127,14 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
 4. Vincular el proyecto nuevo: `supabase link --project-ref <PROJECT_REF>`,
    ejecutado desde la raíz del repositorio.
 
-## Cómo aplicar el baseline
+## Cómo se aplicaba el baseline en la validación histórica
 
-Con el proyecto de staging verificado y vinculado:
+> El procedimiento siguiente es histórico y no es un runbook de producción.
+> El baseline no debe aplicarse ciegamente sobre la base productiva histórica;
+> cualquier cambio remoto actual requiere el gate de producción y autorización
+> explícita.
+
+En la validación histórica, con el proyecto de staging verificado y vinculado:
 
 ```bash
 supabase db push
@@ -123,14 +142,15 @@ supabase db push
 
 Esto aplica, en orden, todos los archivos `.sql` con timestamp de
 `supabase/migrations/` que el proyecto remoto todavía no tenga registrados.
-Antes debe ejecutarse el mismo conjunto desde cero contra Supabase local y
+Antes debía ejecutarse el mismo conjunto desde cero contra Supabase local y
 `supabase db push --linked --dry-run` debe mostrar únicamente migraciones
 aprobadas.
 
 Alternativa manual (si se prefiere revisar el SQL antes de ejecutarlo): copiar
 el contenido del archivo y pegarlo en el SQL Editor del proyecto **nuevo**,
-verificando dos veces que el proyecto activo es `ping-staging-v2` y no el
-proyecto antiguo.
+verificando dos veces que el proyecto activo era `ping-staging-v2` y no el
+proyecto antiguo. Esta instrucción queda archivada y no autoriza operaciones
+actuales.
 
 **Nunca** ejecutar `supabase db reset` sobre un proyecto que ya tenga datos —
 ese comando destruye el esquema y lo reconstruye desde cero.
@@ -156,8 +176,9 @@ Reglas:
 - Generar la migración con `supabase migration new <descripcion>` para
   garantizar el timestamp correcto, o crear el archivo a mano respetando el
   formato exacto.
-- Antes de mezclar una migración a `main`, aplicarla contra un proyecto de
-  staging y confirmar que no rompe nada.
+- Antes de mezclar una migración a `main`, aplicarla contra Supabase local y
+  pasar los gates de `docs/production-readiness/`. No usar staging como destino
+  operativo.
 
 ## Prohibición de cambios manuales sin migración
 
@@ -211,7 +232,11 @@ Antes de considerar el baseline como definitivo:
   privado), para sobrevivir a una posible pausa/eliminación del proyecto
   Supabase en sí — exactamente el escenario que afectó al proyecto anterior.
 
-## Cómo separar staging y producción
+## Evidencia histórica: separación de staging y producción
+
+> Esta sección describe la separación que existió durante la validación V2. Se
+> conserva para auditoría; el repositorio actual no debe crear ni operar un
+> entorno staging adicional.
 
 - Dos proyectos Supabase físicamente distintos (`ping-staging-v2` y, más
   adelante, `ping-production`), cada uno con sus propias credenciales,

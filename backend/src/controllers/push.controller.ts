@@ -29,6 +29,6 @@ export const saveToken = async (req: Request, res: Response): Promise<void> => {
 
         res.json({ success: true });
     } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Unable to save push token' });
     }
 };

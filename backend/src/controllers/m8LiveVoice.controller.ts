@@ -15,6 +15,7 @@ import {
 } from '../services/m8LiveVoiceInternalDiagnostics.service';
 import { getM8LiveVoiceClientHtml } from '../services/m8LiveVoiceClient.service';
 import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../services/m8LiveVoiceDiagnostics.service';
+import { publicErrorMessage } from '../utils/safeError';
 
 export function client(_req: Request, res: Response): void {
     traceM8LiveVoiceDiagnostic('client_request');
@@ -62,7 +63,7 @@ export async function createSession(req: Request, res: Response): Promise<void> 
         const status = error instanceof AppError ? error.statusCode : 503;
         const diagnostic = sanitizeM8LiveVoiceError(error);
         res.status(status).json({
-            error: error instanceof AppError ? error.message : 'Live voice session failed',
+            error: publicErrorMessage(error, 'Live voice session failed'),
             diagnostic: {
                 errorCode: diagnostic.errorCode,
                 httpStatus: diagnostic.httpStatus,
@@ -103,7 +104,7 @@ export async function telemetry(req: Request, res: Response): Promise<void> {
     } catch (error) {
         traceM8LiveVoiceDiagnostic('telemetry_rejected', { ...sanitizeM8LiveVoiceError(error) });
         const status = error instanceof AppError ? error.statusCode : 500;
-        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+        res.status(status).json({ error: publicErrorMessage(error, 'Live voice telemetry failed') });
     }
 }
 
@@ -112,7 +113,7 @@ export async function readTelemetry(req: Request, res: Response): Promise<void> 
         res.status(200).json(await getM8LiveVoiceTelemetry(req.user!.id, String(req.params.voiceSessionId)));
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
-        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+        res.status(status).json({ error: publicErrorMessage(error, 'Live voice telemetry failed') });
     }
 }
 
@@ -121,7 +122,7 @@ export async function readLatestTelemetry(req: Request, res: Response): Promise<
         res.status(200).json(await getLatestM8LiveVoiceTelemetry(req.user!.id));
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
-        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+        res.status(status).json({ error: publicErrorMessage(error, 'Live voice telemetry failed') });
     }
 }
 
@@ -134,6 +135,6 @@ export async function readLatestTelemetryInternal(req: Request, res: Response): 
         res.status(200).json(await getLatestM8LiveVoiceTelemetryInternal());
     } catch (error) {
         const status = error instanceof AppError ? error.statusCode : 500;
-        res.status(status).json({ error: error instanceof AppError ? error.message : 'Live voice telemetry failed' });
+        res.status(status).json({ error: publicErrorMessage(error, 'Live voice telemetry failed') });
     }
 }

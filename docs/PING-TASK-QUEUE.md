@@ -1,5 +1,9 @@
 # Ping - prioritized autonomous task queue
 
+> **Estado del documento:** cola histórica de certificación. Las tareas y
+> evidencias que mencionan staging se conservan para trazabilidad, pero no
+> autorizan reactivar staging ni ejecutar despliegues fuera de producción.
+
 The queue is ordered by risk and dependency. Completed items require linked
 evidence; a green unit test alone does not close a milestone.
 

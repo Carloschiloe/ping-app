@@ -1,4 +1,9 @@
-# Ping iPhone development runtime
+# Ping iPhone development runtime — evidencia histórica de staging
+
+> **Estado:** archivado. Este documento conserva el procedimiento de una
+> instalación de desarrollo vinculada a staging. No es un runbook de release ni
+> una instrucción para producción; las referencias de entorno se mantienen para
+> reproducibilidad histórica.
 
 Estado de la auditoria: 2026-09-29.
 

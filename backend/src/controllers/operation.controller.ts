@@ -8,7 +8,7 @@ export const getConversationOperationState = async (req: Request, res: Response)
         const data = await operationService.getConversationOperationState(userId, conversationId);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to load operation state' });
     }
 };
 
@@ -20,7 +20,7 @@ export const updateConversationMode = async (req: Request, res: Response): Promi
         const data = await operationService.updateConversationMode(userId, conversationId, mode);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to update operation mode' });
     }
 };
 
@@ -32,7 +32,7 @@ export const setPinnedMessage = async (req: Request, res: Response): Promise<voi
         const data = await operationService.setPinnedMessage(userId, conversationId, messageId);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to pin message' });
     }
 };
 
@@ -44,7 +44,7 @@ export const setActiveCommitment = async (req: Request, res: Response): Promise<
         const data = await operationService.setActiveCommitment(userId, conversationId, commitmentId);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to update active commitment' });
     }
 };
 
@@ -62,7 +62,7 @@ export const saveChecklistTemplate = async (req: Request, res: Response): Promis
         });
         res.status(201).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to save checklist template' });
     }
 };
 
@@ -74,7 +74,7 @@ export const toggleChecklistItem = async (req: Request, res: Response): Promise<
         const data = await operationService.toggleChecklistItem(userId, id, result);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to update checklist item' });
     }
 };
 
@@ -86,7 +86,7 @@ export const archiveChecklistTemplate = async (req: Request, res: Response): Pro
         const data = await operationService.archiveChecklistTemplate(userId, conversationId, checklistId);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to archive checklist template' });
     }
 };
 
@@ -98,7 +98,7 @@ export const duplicateChecklistTemplate = async (req: Request, res: Response): P
         const data = await operationService.duplicateChecklistTemplate(userId, conversationId, checklistId);
         res.status(201).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to duplicate checklist template' });
     }
 };
 
@@ -110,7 +110,7 @@ export const restoreChecklistTemplate = async (req: Request, res: Response): Pro
         const data = await operationService.restoreChecklistTemplate(userId, conversationId, checklistId);
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to restore checklist template' });
     }
 };
 
@@ -122,7 +122,7 @@ export const createShiftReport = async (req: Request, res: Response): Promise<vo
         const data = await operationService.createShiftReport(userId, conversationId, body, source, meta);
         res.status(201).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to create shift report' });
     }
 };
 
@@ -141,6 +141,6 @@ export const registerCommitmentOperationAction = async (req: Request, res: Respo
         );
         res.status(200).json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: 'Unable to register operation action' });
     }
 };

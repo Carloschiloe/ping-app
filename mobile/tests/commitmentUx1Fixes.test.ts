@@ -57,9 +57,6 @@ describe('FIX 1 — proposer de proposal SOLO: "Retirar" visible, "Rechazar prop
     function evalEligibility(c: any, currentUserId: string) {
         const isProposal = c._isAgreementProposal === true;
         const participation = isProposal ? getProposalParticipationState(c, currentUserId) : null;
-        const primaryActionIsAccept = isProposal && participation !== null
-            ? (c.status === 'proposed' && (participation.actorRole === 'proposer' || participation.actorRole === 'responsible' || participation.actorCanRespond))
-            : false;
         // canRespondToProposal exige TAMBIÉN actorHasRecordedResponse -- el
         // mismo requisito real que CommitmentRow.tsx aplica.
         const canRespondToProposal = isProposal && !!participation?.actorCanRespond && !!participation?.actorHasRecordedResponse;

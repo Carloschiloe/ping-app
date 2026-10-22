@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const keyboardDismiss = vi.fn();
-let keyboardDidHideListeners: Array<() => void> = [];
+let keyboardDidHideListeners: (() => void)[] = [];
 const keyboardAddListener = vi.fn((event: string, handler: () => void) => {
     if (event === 'keyboardDidHide') keyboardDidHideListeners.push(handler);
     return { remove: vi.fn(() => {

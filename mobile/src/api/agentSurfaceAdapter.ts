@@ -96,4 +96,3 @@ export function buildAgentSurfaceRequest(
     if (input.readCapability) body.readCapability = input.readCapability;
     return { body, headers };
 }
-import * as Device from 'expo-device';

@@ -4,7 +4,6 @@ import { getProposalActorPresentation, getCommitmentActorPresentation, getActorP
 const CARLOS = 'carlos-id';
 const ALEJANDRA = 'alejandra-id';
 const PEDRO = 'pedro-id';
-const OUTSIDER = 'outsider-id';
 
 // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS — PRESENTATION MATRIX (sección 22
 // del ticket). Cada bloque certifica un estado real del matrix exigido:

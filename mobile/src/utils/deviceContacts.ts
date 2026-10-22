@@ -16,8 +16,8 @@ export type DeviceContact = {
 type ContactDetails = {
     id: string;
     fullName?: string | null;
-    phones?: Array<{ number?: string | null }>;
-    emails?: Array<{ address?: string | null; email?: string | null }>;
+    phones?: { number?: string | null }[];
+    emails?: { address?: string | null; email?: string | null }[];
 };
 
 export function normalizePhone(raw: string): string | null {

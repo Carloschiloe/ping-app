@@ -46,7 +46,7 @@ describe('CANONICAL_OVERDUE_RULE: sanity check -- TZ=America/Santiago realmente 
 });
 
 describe('CANONICAL_OVERDUE_RULE: temporal boundary tests (America/Santiago) — sección 10 del ticket', () => {
-    const cases: Array<[string, string | null, boolean]> = [
+    const cases: [string, string | null, boolean][] = [
         ['ayer 23:00', '2026-01-15T02:00:00Z', true],
         ['hoy 00:01', '2026-01-15T03:01:00Z', false],
         ['hoy hace 1 minuto', '2026-01-15T17:59:00Z', false],

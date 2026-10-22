@@ -6,8 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { normalizeCommitmentStatus } from '../src/utils/commitmentStatus';
-import { canViewOriginConversation } from '../src/utils/commitmentDisplay';
-import { format, subDays, addDays, isSameDay, isTomorrow, isSameWeek, startOfDay } from 'date-fns';
+import { subDays, addDays, startOfDay } from 'date-fns';
 
 // ─── Pure Logic Helpers (mirroring InsightsScreen.tsx) ───────────────────────
 
@@ -49,50 +48,6 @@ function filterBySearchAndFilters(
 
         return true;
     });
-}
-
-function categorizePendientes(commitments: any[], userId: string) {
-    const list = commitments.filter(c => {
-        const status = normalizeCommitmentStatus(c.status);
-        if (['resolved', 'cancelled', 'rejected'].includes(status)) return false;
-
-        const isAssignedToMe = c.assigned_to_user_id === userId || !c.assigned_to_user_id;
-        const isDelegatedByMe = c.owner_user_id === userId && c.assigned_to_user_id !== userId;
-        return isAssignedToMe && !isDelegatedByMe;
-    });
-
-    const now = new Date();
-    const today = startOfDay(now);
-
-    const overdue: any[] = [];
-    const hoy: any[] = [];
-    const manana: any[] = [];
-    const estaSemana: any[] = [];
-    const masAdelante: any[] = [];
-    const sinFecha: any[] = [];
-
-    list.forEach(c => {
-        if (!c.due_at) {
-            sinFecha.push(c);
-            return;
-        }
-        const date = new Date(c.due_at);
-        if (date < now && !isSameDay(date, today)) {
-            overdue.push(c);
-        } else if (isSameDay(date, today)) {
-            hoy.push(c);
-        } else if (isTomorrow(date)) {
-            manana.push(c);
-        } else if (isSameWeek(date, now, { weekStartsOn: 1 })) {
-            estaSemana.push(c);
-        } else {
-            masAdelante.push(c);
-        }
-    });
-
-    overdue.sort((a, b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
-
-    return { overdue, hoy, manana, estaSemana, masAdelante, sinFecha, totalCount: list.length };
 }
 
 function categorizeEncargados(commitments: any[], userId: string) {
@@ -174,18 +129,12 @@ const todayAt = (h: number, m = 0) => {
 
 const YESTERDAY_ISO = subDays(TODAY, 1).toISOString();
 const TOMORROW_ISO = addDays(TODAY, 1).toISOString();
-const IN_3_DAYS_ISO = addDays(TODAY, 3).toISOString();
-const IN_14_DAYS_ISO = addDays(TODAY, 14).toISOString();
 
 const USER_ME = 'u1';
 const USER_OTHER = 'u2';
 
 const cMineToday = { id: 'c1', title: 'Llamar cliente hoy', due_at: todayAt(10), status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME };
-const cOverdue = { id: 'co', title: 'Tarea vencida', due_at: YESTERDAY_ISO, status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME };
 const cTomorrow = { id: 'ct', title: 'Reunión mañana', due_at: TOMORROW_ISO, status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME, type: 'meeting' };
-const cLaterThisWeek = { id: 'cw', title: 'Entrega esta semana', due_at: IN_3_DAYS_ISO, status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME };
-const cFarFuture = { id: 'cf', title: 'Revisión mensual', due_at: IN_14_DAYS_ISO, status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME };
-const cNoDate = { id: 'cnd', title: 'Definir estrategia', due_at: null, status: 'accepted', assigned_to_user_id: USER_ME, owner_user_id: USER_ME };
 
 const cDelegated = { id: 'cd', title: 'Disposición Javier', due_at: TOMORROW_ISO, status: 'accepted', assigned_to_user_id: USER_OTHER, owner_user_id: USER_ME, assignee: { full_name: 'Javier Pérez' } };
 const cDelegatedProposed = { id: 'cdp', title: 'Propuesta a Ana', due_at: todayAt(15), status: 'proposed', assigned_to_user_id: USER_OTHER, owner_user_id: USER_ME, assignee: { full_name: 'Ana R' } };
@@ -318,18 +267,14 @@ describe('UX-3B.1 — Search & Filter Coexistence', () => {
     });
 
     it('clearing search query does NOT clear active filter state', () => {
-        let searchQuery = 'Llamar';
         let filters = { typeFilter: 'meetings' };
 
-        searchQuery = ''; // clear search
         expect(filters.typeFilter).toBe('meetings'); // filter preserved
     });
 
     it('clearing active filter state does NOT clear search query', () => {
         let searchQuery = 'Reunión';
-        let filters = { typeFilter: 'meetings' };
 
-        filters = { typeFilter: 'all' }; // clear filter
         expect(searchQuery).toBe('Reunión'); // search preserved
     });
 });

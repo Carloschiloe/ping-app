@@ -1,4 +1,8 @@
-# Ping — Beta interna multiplataforma
+# Ping — Beta interna multiplataforma histórica (no operativa)
+
+> **Archivo archivado:** las instrucciones de staging de este documento
+> pertenecen a una beta cerrada y se conservan sólo como evidencia histórica.
+> No deben usarse para configurar, desplegar ni probar la aplicación actual.
 
 Estado: preparación de validación física
 Entorno: staging

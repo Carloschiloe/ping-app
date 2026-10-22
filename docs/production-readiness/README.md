@@ -1,5 +1,9 @@
 # Production readiness gate for RC `ac7d72a`
 
+> Las referencias a staging que aparecen en este expediente se conservan como
+> evidencia histórica o guards fail-closed. No representan un entorno de
+> despliegue vigente ni autorizan operar contra staging.
+
 This directory is preparation evidence only. It does not change `main`, the
 certified staging branch, Render configuration, Supabase, or production data.
 

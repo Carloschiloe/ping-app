@@ -4,13 +4,12 @@ import {
     ScrollView, SectionList, Modal, RefreshControl, Platform, UIManager, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import {
-    format, isToday, isTomorrow, isSameWeek, isPast as dateFnsIsPast, startOfDay, addDays, isSameDay,
+    isTomorrow, isSameWeek, startOfDay, isSameDay,
 } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';

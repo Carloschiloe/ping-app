@@ -1,5 +1,9 @@
 # CORS y `ALLOWED_ORIGINS`
 
+> Esta auditoría conserva referencias históricas a staging como guards de
+> seguridad. El único Blueprint operativo es `render.yaml` para Ping
+> producción; no existe un runbook vigente de CORS para staging.
+
 Estado de esta auditoría: revisión local completada, sin deploy, sin push y sin
 lectura de valores de secretos de Render.
 
@@ -10,7 +14,6 @@ lectura de valores de secretos de Render.
 - `backend/src/app.ts`
 - `backend/tests/corsPolicy.test.ts`
 - `render.yaml`
-- `render.staging.yaml`
 - documentación de readiness y auditoría técnica relacionada con CORS.
 
 ## Comportamiento vigente
@@ -24,30 +27,28 @@ lectura de valores de secretos de Render.
 - Los orígenes explícitos de `ALLOWED_ORIGINS` sólo aceptan `http` o `https`,
   sin credenciales, rutas, query strings, fragmentos ni comodines. Se
   normalizan de forma determinista y se deduplican.
-- `production` y `staging` permanecen estrictos aunque `NODE_ENV` estuviera
-  configurado accidentalmente como `development`.
+- `production` permanece estricto aunque `NODE_ENV` estuviera configurado
+  accidentalmente como `development`. La ausencia de staging operativo se
+  mantiene como una condición de seguridad, no como un destino permitido.
 - En un entorno local no estricto, una lista vacía conserva la comodidad de
-  desarrollo existente. Esa excepción no se aplica a production ni staging.
+  desarrollo existente. Esa excepción no se aplica a production.
 - Una configuración inválida de `ALLOWED_ORIGINS` impide el arranque mediante
   una validación que informa sólo el número de entradas inválidas; nunca
   imprime sus valores.
 
 ## Blueprints
 
-`render.yaml` y `render.staging.yaml` declaran `ALLOWED_ORIGINS` con
-`sync: false`. Es correcto que no exista un valor en el repositorio: Render
-debe conservar el valor administrado fuera del código y no se debe copiar a
-logs, commits ni respuestas.
+`render.yaml` declara `ALLOWED_ORIGINS` con `sync: false`. Es correcto que no
+exista un valor en el repositorio: Render debe conservar el valor administrado
+fuera del código y no se debe copiar a logs, commits ni respuestas. Cualquier
+referencia a un Blueprint staging corresponde a material histórico y no debe
+recrearse.
 
-Los Blueprints fijan `NODE_ENV=production` y distinguen los entornos mediante
-`PING_ENVIRONMENT=production` y `PING_ENVIRONMENT=staging`, respectivamente.
-No se añadió ningún dominio a ninguno de los dos archivos.
+El Blueprint vigente fija `NODE_ENV=production` y
+`PING_ENVIRONMENT=production`. No se añadió ningún dominio al archivo.
 
-El Blueprint de producción declara el recurso `ping-backend`, mientras que el
-inventario histórico de esta aplicación identifica el servicio live como
-`ping-app`. Esa diferencia de nombres debe confirmarse antes de sincronizar un
-Blueprint, para no aplicar configuración al servicio equivocado. Esta auditoría
-no sincroniza ni modifica Render.
+El Blueprint vigente declara el recurso `ping-app`, consistente con el servicio
+de producción documentado. Esta auditoría no sincroniza ni modifica Render.
 
 ## Pendiente por falta de origen web confirmado
 
@@ -60,7 +61,7 @@ Antes de habilitar una interfaz web se debe confirmar, para cada entorno:
 
 1. el origen HTTPS exacto que carga la interfaz, incluyendo host y puerto si
    aplica;
-2. si existe uno distinto para staging y production; y
+2. el origen productivo exacto; y
 3. que ese origen no requiere comodines ni rutas.
 
 Después de esa confirmación, se podrá registrar la lista exacta en el valor

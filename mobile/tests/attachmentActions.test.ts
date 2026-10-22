@@ -18,7 +18,7 @@ vi.mock('expo-file-system', () => ({
         static downloadFileAsync = downloadFileAsync;
         readonly uri: string;
 
-        constructor(...parts: Array<{ uri: string } | string>) {
+        constructor(...parts: ({ uri: string } | string)[]) {
             this.uri = parts.map((part) => typeof part === 'string' ? part : part.uri).join('/');
         }
 

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as contactService from '../services/contact.service';
+import { publicErrorMessage } from '../utils/safeError';
 
 export const createContact = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -11,7 +12,8 @@ export const createContact = async (req: Request, res: Response): Promise<void> 
         res.status(201).json(contact);
     } catch (error: any) {
         console.error('[createContact Controller Error]:', error);
-        res.status(error.statusCode || 500).json({ error: error.message || 'Internal Server Error' });
+        const status = typeof error?.statusCode === 'number' && error.statusCode < 500 ? error.statusCode : 500;
+        res.status(status).json({ error: publicErrorMessage(error, 'Unable to create contact') });
     }
 };
 
@@ -25,7 +27,8 @@ export const getContacts = async (req: Request, res: Response): Promise<void> =>
         res.status(200).json(contacts);
     } catch (error: any) {
         console.error('[getContacts Controller Error]:', error);
-        res.status(error.statusCode || 500).json({ error: error.message || 'Internal Server Error' });
+        const status = typeof error?.statusCode === 'number' && error.statusCode < 500 ? error.statusCode : 500;
+        res.status(status).json({ error: publicErrorMessage(error, 'Unable to load contacts') });
     }
 };
 
@@ -39,6 +42,7 @@ export const getContact = async (req: Request, res: Response): Promise<void> => 
         res.status(200).json(contact);
     } catch (error: any) {
         console.error('[getContact Controller Error]:', error);
-        res.status(error.statusCode || 500).json({ error: error.message || 'Internal Server Error' });
+        const status = typeof error?.statusCode === 'number' && error.statusCode < 500 ? error.statusCode : 500;
+        res.status(status).json({ error: publicErrorMessage(error, 'Unable to load contact') });
     }
 };
