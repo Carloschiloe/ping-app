@@ -14,6 +14,7 @@ import {
     DeterministicInputInterpreter,
     fallbackInterpretation,
     extractUrgencyComparison,
+    isSocialConversationInput,
     isTemporalComparisonQuery,
     LlmInputInterpreter,
     type AgentInputInterpreter,
@@ -39,6 +40,48 @@ export interface AgentSemanticInterpretation {
 export interface AgentSemanticInterpreterOptions {
     inputInterpreter?: AgentInputInterpreter;
     objectiveInterpreter?: AgentObjectiveInterpreter;
+}
+
+const DETERMINISTIC_READ_INTENTS = new Set([
+    'commitment_query',
+    'person_query',
+    'recall',
+    'message_search',
+    'document_search',
+]);
+
+/**
+ * Low-risk read fast path.
+ *
+ * The model remains the authority for novel wording, actions and any turn
+ * that depends on dialogue state. Clear retrieval questions already have all
+ * the structure Core needs in the deterministic interpreter, so spending a
+ * provider round trip on them only adds latency and creates another failure
+ * point. This predicate is intentionally conservative: a third-person
+ * pronoun, a pending objective or an action signal always goes through the
+ * full semantic boundary.
+ */
+export function isDeterministicReadFastPathEligible(
+    input: string,
+    interpretation: Interpretation,
+    context: Pick<InterpreterContext, 'pendingPlan' | 'activeObjective' | 'dialogueReconciliation'>,
+): boolean {
+    if (process.env.PING_ENABLE_SEMANTIC_READ_FAST_PATH === 'false') return false;
+    if (context.pendingPlan || context.activeObjective || context.dialogueReconciliation) return false;
+    if (interpretation.isWriteActionRequest) return false;
+    if (interpretation.ambiguityHints.includes('unresolved_pronoun')) return false;
+    if (isSocialConversationInput(input)) return true;
+    if (DETERMINISTIC_READ_INTENTS.has(interpretation.intent)) return true;
+    if (interpretation.followUpAttribute) return true;
+    return interpretation.intent === 'general_context'
+        && (interpretation.wantsCommitments
+            || interpretation.wantsMessages
+            || interpretation.wantsTranscriptions
+            || interpretation.wantsAttachments
+            || !!interpretation.timeExpression
+            || !!interpretation.temporalIntent
+            || interpretation.personHints.length > 0
+            || !!interpretation.textQuery);
 }
 
 async function interpretInput(
@@ -75,6 +118,16 @@ export async function interpretAgentSemanticTurn(
     },
     options: AgentSemanticInterpreterOptions = {},
 ): Promise<AgentSemanticInterpretation> {
+    // Keep custom interpreters as an explicit test/provider seam. The
+    // production default gets the bounded fast path below; injected
+    // interpreters must retain their exact semantics for certification.
+    if (!options.inputInterpreter) {
+        const deterministic = await new DeterministicInputInterpreter().interpret(input);
+        if (isDeterministicReadFastPathEligible(input, deterministic, context)) {
+            return { route: 'read', interpretation: deterministic, objective: null };
+        }
+    }
+
     const inputInterpreter = options.inputInterpreter ?? new LlmInputInterpreter();
     const interpretation = await interpretInput(input, {
         conversationId: context.conversationId,

@@ -20,6 +20,8 @@ services:
         value: gpt-6-luna
       - key: PING_SEMANTIC_MODEL_FAMILY
         value: modern_reasoning
+      - key: PING_ENABLE_SEMANTIC_READ_FAST_PATH
+        value: "true"
       - key: PING_EXPECTED_SUPABASE_PROJECT_REF
         value: wbigqhtuzfmpnxservlf
       - key: PING_ENABLE_AGENT_CONVERSATION_EVENTS
