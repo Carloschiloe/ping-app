@@ -141,14 +141,17 @@ beforeAll(async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     baseUrl = `http://127.0.0.1:${port}`;
-}, 30000);
+// Loading the real route graph can exceed Vitest's default 30s on a cold
+// Windows/Expo workspace. Keep the test deterministic without treating a
+// slow module graph as a product failure.
+}, 120000);
 
 afterAll(async () => {
     if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = originalApiKey;
     if (originalEncryptionKey === undefined) delete process.env.ENCRYPTION_KEY;
     else process.env.ENCRYPTION_KEY = originalEncryptionKey;
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 beforeEach(() => {

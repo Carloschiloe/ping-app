@@ -32,11 +32,13 @@ vi.mock('../src/api/client', () => {
     class MockApiError extends Error {
         status: number | null;
         resultUnknown: boolean;
-        constructor(message: string, status: number | null, resultUnknown: boolean) {
+        retryAfterSeconds?: number;
+        constructor(message: string, status: number | null, resultUnknown: boolean, code?: string, retryAfterSeconds?: number) {
             super(message);
             this.name = 'ApiError';
             this.status = status;
             this.resultUnknown = resultUnknown;
+            this.retryAfterSeconds = retryAfterSeconds;
         }
     }
     return {
@@ -152,7 +154,10 @@ describe('M-1G: mapAgentErrorMessage — copy seguro, nunca detalle de proveedor
         expect(mapAgentErrorMessage(new ApiError('x', 403, false))).toMatch(/acceso/i);
     });
     it('429 -> demasiadas consultas', () => {
-        expect(mapAgentErrorMessage(new ApiError('x', 429, false))).toMatch(/intenta en unos minutos/i);
+        expect(mapAgentErrorMessage(new ApiError('x', 429, false))).toMatch(/libere el límite/i);
+    });
+    it('429 con backoff del servidor -> informa el tiempo exacto', () => {
+        expect(mapAgentErrorMessage(new ApiError('x', 429, false, undefined, 17))).toMatch(/17 segundos/i);
     });
     it('500 -> genérico, nunca detalle', () => {
         const msg = mapAgentErrorMessage(new ApiError('OpenAI upstream error at gpt-4o-mini', 500, false));
@@ -189,6 +194,11 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         const messages = appendErrorMessage([], 'No hay conexión con Ping.', '¿Qué pendientes tengo?');
         expect(messages[0].error).toBe(true);
         expect(messages[0].retryInput).toBe('¿Qué pendientes tengo?');
+    });
+
+    it('appendErrorMessage conserva el backoff para no reintentar un 429 inmediatamente', () => {
+        const messages = appendErrorMessage([], 'Demasiadas consultas.', '¿Qué pendientes tengo?', 'turn-1', 17);
+        expect(messages[0].retryAfterSeconds).toBe(17);
     });
 
     it('canSendInput: vacío/sólo-espacios -> false', () => {

@@ -106,4 +106,18 @@ describe('apiClient.post — preserva el mensaje real del backend en errores', (
             expect((error as ApiError).message).toBe('Audio duration is invalid');
         }
     });
+
+    it('preserva Retry-After en ApiError para que el Agent aplique backoff visible', async () => {
+        vi.mocked(fetch).mockResolvedValue({
+            ok: false,
+            status: 429,
+            headers: new Headers({ 'retry-after': '17' }),
+            text: () => Promise.resolve(JSON.stringify({ message: 'Too many requests' })),
+        } as Response);
+
+        await expect(apiClient.post('/agent/turn', {})).rejects.toMatchObject({
+            status: 429,
+            retryAfterSeconds: 17,
+        });
+    });
 });

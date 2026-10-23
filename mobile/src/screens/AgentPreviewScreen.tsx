@@ -56,6 +56,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
     const [voiceError, setVoiceError] = useState<string | null>(null);
     const [liveVoiceVisible, setLiveVoiceVisible] = useState(false);
+    const [retryBlockedUntil, setRetryBlockedUntil] = useState(0);
     const [turnState, dispatchTurn] = useReducer(reduceAgentTurnUi, initialAgentTurnUiState);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
@@ -68,6 +69,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const listRef = useRef<FlatList>(null);
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const sendInFlightRef = useRef(false);
     const confirmationInFlightRef = useRef(false);
     const hydratedConversationRef = useRef<string | null>(null);
     const localInteractionRef = useRef(false);
@@ -119,6 +121,17 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         setVoiceError(message);
     }, []);
 
+    useEffect(() => {
+        if (!retryBlockedUntil) return;
+        const remaining = retryBlockedUntil - Date.now();
+        if (remaining <= 0) {
+            setRetryBlockedUntil(0);
+            return;
+        }
+        const timer = setTimeout(() => setRetryBlockedUntil(0), remaining);
+        return () => clearTimeout(timer);
+    }, [retryBlockedUntil]);
+
     const voice = useAgentVoiceInput({
         conversationId,
         currentCommitmentId: route.params?.currentCommitmentId,
@@ -142,7 +155,10 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
 
     const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
         const trimmed = rawInput.trim();
-        if (!canSendInput(trimmed, isPending)) return;
+        if (!canSendInput(trimmed, isPending) || retryBlockedUntil > Date.now() || sendInFlightRef.current) return;
+        // React state updates are batched. This ref closes the small window in
+        // which two native taps can arrive before `isPending` re-renders.
+        sendInFlightRef.current = true;
         const pendingPlanBeforeSubmit = turnState.pendingPlan;
         const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
@@ -167,6 +183,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         setVoiceDraft(null);
         setVoiceError(null);
         setIsSlow(false);
+        setRetryBlockedUntil(0);
         slowTimerRef.current = setTimeout(() => {
             if (isMountedRef.current) setIsSlow(true);
         }, SLOW_REQUEST_COPY_DELAY_MS);
@@ -174,6 +191,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         if (matchingVoiceDraft) voice.markSubmitted();
         submitTurn(source, {
             onSuccess: (result) => {
+                sendInFlightRef.current = false;
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
@@ -197,13 +215,20 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 }
             },
             onError: (error) => {
+                sendInFlightRef.current = false;
                 if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished(true);
+                const retryAfterSeconds = error instanceof ApiError && error.status === 429
+                    ? error.retryAfterSeconds
+                    : undefined;
+                if (retryAfterSeconds !== undefined && retryAfterSeconds > 0) {
+                    setRetryBlockedUntil(Date.now() + retryAfterSeconds * 1000);
+                }
                 dispatchTurn({ type: 'FAIL', message: mapAgentErrorMessage(error), status: error instanceof ApiError ? error.status : null });
                 setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed,
-                    source.idempotencyKey));
+                    source.idempotencyKey, retryAfterSeconds));
             },
         });
     };
@@ -386,8 +411,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     )}
 
                     {item.error && item.retryInput && (
-                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!, item.retryIdempotencyKey)} style={styles.retryBtn} disabled={isPending}>
-                            <Text style={styles.retryText}>Reintentar</Text>
+                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!, item.retryIdempotencyKey)} style={styles.retryBtn} disabled={isPending || retryBlockedUntil > Date.now()}>
+                            <Text style={styles.retryText}>{retryBlockedUntil > Date.now() ? 'Espera el límite…' : 'Reintentar'}</Text>
                         </TouchableOpacity>
                     )}
                 </BubbleContainer>

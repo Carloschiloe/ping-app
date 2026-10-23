@@ -228,7 +228,13 @@ export function mapAgentErrorMessage(error: unknown): string {
         switch (error.status) {
             case 401: return 'Tu sesión expiró. Vuelve a iniciar sesión.';
             case 403: return 'No tienes acceso a ese contexto.';
-            case 429: return 'Demasiadas consultas. Intenta en unos minutos.';
+            case 429: {
+                const retryAfter = error.retryAfterSeconds;
+                if (retryAfter !== undefined && retryAfter > 0 && retryAfter < 120) {
+                    return `Demasiadas consultas. Reintenta en ${retryAfter} segundos.`;
+                }
+                return 'Demasiadas consultas. Intenta nuevamente cuando se libere el límite.';
+            }
             default: return 'No pude responder ahora. Intenta nuevamente.';
         }
     }

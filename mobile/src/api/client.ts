@@ -46,10 +46,28 @@ export class ApiError extends Error {
         public readonly status: number | null,
         public readonly resultUnknown: boolean,
         public readonly code?: string,
+        public readonly retryAfterSeconds?: number,
     ) {
         super(message);
         this.name = 'ApiError';
     }
+}
+
+function parseRetryAfterSeconds(response: Response): number | undefined {
+    const retryAfter = response.headers?.get('retry-after')?.trim();
+    if (retryAfter) {
+        const seconds = Number(retryAfter);
+        if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+        const retryAt = Date.parse(retryAfter);
+        if (Number.isFinite(retryAt)) return Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+    }
+
+    // express-rate-limit's standard headers expose the reset as seconds until
+    // the bucket opens again. Never guess a delay when the header is absent.
+    const rateLimitReset = Number(response.headers?.get('ratelimit-reset'));
+    return Number.isFinite(rateLimitReset) && rateLimitReset >= 0
+        ? Math.ceil(rateLimitReset)
+        : undefined;
 }
 
 export const getAuthHeaders = async () => {
@@ -135,7 +153,7 @@ export const apiClient = {
                 errorMsg = errorJson.message || errorJson.error || errorMsg;
                 errorCode = typeof errorJson.failureCode === 'string' ? errorJson.failureCode : undefined;
             } catch { }
-            throw new ApiError(errorMsg, response.status, false, errorCode);
+            throw new ApiError(errorMsg, response.status, false, errorCode, parseRetryAfterSeconds(response));
         }
 
         try {
