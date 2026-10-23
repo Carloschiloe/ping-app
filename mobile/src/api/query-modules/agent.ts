@@ -5,7 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { File } from 'expo-file-system';
-import { apiClient, ApiError, API_URL, getAuthHeaders } from '../client';
+import { apiClient, ApiError, AGENT_TURN_REQUEST_TIMEOUT_MS, API_URL, getAuthHeaders } from '../client';
 import { invalidateCommitmentViews } from '../query-invalidation';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import {
@@ -627,7 +627,9 @@ export async function requestAgentSurfaceTurn(input: AgentSurfaceTurnInput): Pro
     const capability = input.readCapability ?? enabledReadCapability();
     const requestInput = capability === input.readCapability ? input : { ...input, readCapability: capability };
     const request = buildAgentSurfaceTurnRequest(requestInput);
-    const raw = await apiClient.post('/agent/turn', request.body, request.headers);
+    const raw = await apiClient.post('/agent/turn', request.body, request.headers, {
+        timeoutMs: AGENT_TURN_REQUEST_TIMEOUT_MS,
+    });
     const result = parseAgentTurnResult(raw);
     // Expo/RN provides __DEV__ at runtime, while pure Node tests do not.
     // Keep diagnostics enabled during development without making the

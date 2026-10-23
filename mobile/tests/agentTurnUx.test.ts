@@ -22,6 +22,7 @@ vi.mock('../src/api/client', () => {
     return {
         apiClient: { post: vi.fn(), get: vi.fn(), delete: vi.fn(), patch: vi.fn() },
         ApiError: MockApiError,
+        AGENT_TURN_REQUEST_TIMEOUT_MS: 45_000,
         API_URL: 'http://localhost:3000/api',
         getAuthHeaders: vi.fn(async () => ({ Authorization: 'Bearer test' })),
     };
@@ -189,6 +190,7 @@ describe('M-6 mobile API and presentation boundary', () => {
             '/agent/turn',
             expect.objectContaining({ input: 'hola tablet', channel: 'tablet' }),
             { 'Idempotency-Key': 'tablet-turn-1' },
+            { timeoutMs: 45_000 },
         );
     });
 

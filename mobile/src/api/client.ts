@@ -1,10 +1,19 @@
 import { supabase } from '../lib/supabase';
 
 export const API_REQUEST_TIMEOUT_MS = 15_000;
+// Agent turns may include durable admission, retrieval, semantic fallback and
+// response synthesis. They remain bounded on the backend, but must not share
+// the short budget used by ordinary CRUD calls; otherwise a valid answer can
+// be cancelled on the device while the server is still processing it.
+export const AGENT_TURN_REQUEST_TIMEOUT_MS = 45_000;
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
+export interface ApiRequestOptions {
+    timeoutMs?: number;
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = API_REQUEST_TIMEOUT_MS) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
         return await fetch(input, { ...init, signal: controller.signal });
@@ -52,7 +61,7 @@ export const getAuthHeaders = async () => {
 };
 
 export const apiClient = {
-    get: async (endpoint: string) => {
+    get: async (endpoint: string, options: ApiRequestOptions = {}) => {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
@@ -61,7 +70,7 @@ export const apiClient = {
         if (existingRequest) return existingRequest;
 
         const request = (async () => {
-            const response = await fetchWithTimeout(url, { headers });
+            const response = await fetchWithTimeout(url, { headers }, options.timeoutMs);
             const responseText = await response.text();
             if (!response.ok) {
                 throw new Error(`Error GET ${url} (${response.status})`);
@@ -82,17 +91,22 @@ export const apiClient = {
             }
         }
     },
-    delete: async (endpoint: string) => {
+    delete: async (endpoint: string, options: ApiRequestOptions = {}) => {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
-        const response = await fetchWithTimeout(url, { method: 'DELETE', headers });
+        const response = await fetchWithTimeout(url, { method: 'DELETE', headers }, options.timeoutMs);
         if (!response.ok) {
             throw new Error(`Error DELETE ${url} (${response.status})`);
         }
         return response.json().catch(() => ({ ok: true }));
     },
-    post: async (endpoint: string, body: any, extraHeaders: Record<string, string> = {}) => {
+    post: async (
+        endpoint: string,
+        body: any,
+        extraHeaders: Record<string, string> = {},
+        options: ApiRequestOptions = {},
+    ) => {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
@@ -100,7 +114,7 @@ export const apiClient = {
             method: 'POST',
             headers: { ...headers, ...extraHeaders },
             body: JSON.stringify(body),
-        });
+        }, options.timeoutMs);
 
         const responseText = await response.text();
 
@@ -130,7 +144,7 @@ export const apiClient = {
             throw new Error('El servidor devolvió un formato inválido (no JSON).');
         }
     },
-    patch: async (endpoint: string, body: any) => {
+    patch: async (endpoint: string, body: any, options: ApiRequestOptions = {}) => {
         const headers = await getAuthHeaders();
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         const url = `${API_URL.replace(/\/$/, '')}${cleanEndpoint}`;
@@ -138,7 +152,7 @@ export const apiClient = {
             method: 'PATCH',
             headers,
             body: JSON.stringify(body),
-        });
+        }, options.timeoutMs);
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.error || `Error PATCH ${url}`);
