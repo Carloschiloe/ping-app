@@ -811,6 +811,27 @@ describe('M-2: deriveMemoryFromCommitmentStatusChange', () => {
         expect(inserted.object_value).toBe('resolved');
         expect(inserted.extraction_method).toBe('deterministic');
     });
+
+    it('reintenta un fallo transitorio del efecto de memoria sin duplicar la ingesta', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: null, error: null },
+            ],
+            'rpc:insert_memory_record_with_evidence_atomic': [
+                { data: null, error: { code: '08006', message: 'connection reset by peer' } },
+                { data: [{ memory_id: 'retried-derived-id' }], error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+        const { dispatchCommitmentStatusMemoryEvent } = await import('../src/services/canonicalMemoryEvents.service');
+
+        await expect(dispatchCommitmentStatusMemoryEvent({
+            ownerUserId: 'owner1', sourceType: 'commitment', sourceId: 'retry-memory-id', title: 'Llamar a Ana',
+            newStatus: 'accepted', conversationId: null,
+        })).resolves.toBeUndefined();
+
+        expect(mock.getRpcCalls().filter((call) => call.name === 'insert_memory_record_with_evidence_atomic')).toHaveLength(2);
+    });
 });
 
 // ─── decideMemoryPersistence (política, secciones 1-4 del cierre absoluto) ──
