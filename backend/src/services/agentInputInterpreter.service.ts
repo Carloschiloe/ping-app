@@ -634,7 +634,7 @@ const STOPWORDS = new Set([
     // Conversational scaffolding that should not become an FTS topic when
     // the user asks Ping for help in natural language.
     'quiero', 'saber', 'quedo', 'deberia', 'deber\u00eda', 'hacer', 'should', 'organizar', 'coordinar', 'planificar', 'acuerdas', 'recuerdas',
-    'qué', 'que', 'quién', 'quien', 'cuál', 'cual', 'cómo', 'como', 'dónde', 'donde', 'cuándo', 'cuando',
+    'qué', 'que', 'quién', 'quien', 'cuál', 'cual', 'cuáles', 'cuales', 'cómo', 'como', 'dónde', 'donde', 'cuándo', 'cuando',
     'what', 'who', 'which', 'how', 'where', 'when', 'did', 'do', 'does',
     'le', 'me', 'te', 'nos', 'se', 'lo', 'la', 'los', 'las', 'el', 'un', 'una', 'unos', 'unas',
     'de', 'del', 'al', 'a', 'con', 'sobre', 'en', 'para', 'por',

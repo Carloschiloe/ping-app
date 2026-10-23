@@ -58,6 +58,16 @@ describe('deterministic read follow-up safety net', () => {
     });
 });
 
+describe('deterministic temporal collection language', () => {
+    it('does not turn a plural interrogative into an FTS topic', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('Y cuáles tengo esta semana?', {});
+
+        expect(result.timeExpression).toBe('esta semana');
+        expect(result.textQuery).toBeNull();
+        expect(result.wantsCommitments).toBe(true);
+    });
+});
+
 describe('deterministic upcoming horizon parsing', () => {
     it.each([
         '¿Qué compromisos tengo los próximos 3 días?',
