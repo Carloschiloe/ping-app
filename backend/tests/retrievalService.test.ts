@@ -505,6 +505,24 @@ describe('M-1B: retrieveCommitments', () => {
         expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
         expect(chain.limit).toHaveBeenCalledWith(11);
     });
+
+    it('countVisibleCommitmentProposals traduce estados canónicos sin contar confirmadas', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{ data: null, count: 6, error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { countVisibleCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        await expect(countVisibleCommitmentProposals({
+            actorUserId: 'u1',
+            statuses: ['proposed', 'counter_proposal'],
+            timeRange: { from: '2026-10-19T00:00:00.000Z', to: '2026-10-26T00:00:00.000Z' },
+        })).resolves.toBe(6);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.neq).toHaveBeenCalledWith('status', 'confirmed');
+        expect(chain.select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    });
 });
 
 // ─── M-1H: retrieveCommitmentProposals (hallazgo real de staging, caso

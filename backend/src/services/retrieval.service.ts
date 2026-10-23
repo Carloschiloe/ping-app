@@ -453,6 +453,60 @@ export async function countVisibleCommitments(input: RetrieveContextInput): Prom
     return count;
 }
 
+function applyProposalEffectiveDateCountRange(query: any, timeRange?: RetrieveContextInput['timeRange']): any {
+    if (!timeRange?.from && !timeRange?.to) return query;
+    const original: string[] = ['latest_counterproposal_due_at.is.null'];
+    const counterproposal: string[] = ['latest_counterproposal_due_at.not.is.null'];
+    if (timeRange.from) {
+        original.push(`due_at.gte.${timeRange.from}`);
+        counterproposal.push(`latest_counterproposal_due_at.gte.${timeRange.from}`);
+    }
+    if (timeRange.to) {
+        original.push(`due_at.lt.${timeRange.to}`);
+        counterproposal.push(`latest_counterproposal_due_at.lt.${timeRange.to}`);
+    }
+    return query.or(`and(${original.join(',')}),and(${counterproposal.join(',')})`);
+}
+
+/**
+ * Exact count over the same non-confirmed proposal universe used by the
+ * normal Agent list. This intentionally excludes proposalFocus because that
+ * query needs participation rows (who has/hasn't responded) and is counted
+ * by the Core's bounded, participation-aware result instead.
+ */
+export async function countVisibleCommitmentProposals(input: RetrieveContextInput): Promise<number> {
+    const participantProposalIds = await getParticipantProposalIds(input.actorUserId);
+    const visibilityFilter = buildCommitmentProposalVisibilityFilter(input.actorUserId, participantProposalIds);
+    let query = supabaseAdmin
+        .from('commitment_proposals')
+        .select('id', { count: 'exact', head: true })
+        .or(visibilityFilter)
+        .neq('status', 'confirmed');
+
+    if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
+    if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
+    if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
+    query = applyProposalEffectiveDateCountRange(query, input.timeRange);
+    if (input.query?.trim()) query = query.textSearch('search_tsv', input.query.trim(), { type: 'websearch', config: FTS_CONFIG });
+
+    if (input.statuses && input.statuses.length > 0) {
+        const wanted = new Set(input.statuses);
+        const clauses: string[] = [];
+        if (wanted.has('rejected')) clauses.push('status.eq.rejected');
+        if (wanted.has('proposed')) clauses.push('and(status.eq.pending,latest_counterproposal_due_at.is.null)');
+        if (wanted.has('counter_proposal')) clauses.push('and(status.eq.pending,latest_counterproposal_due_at.not.is.null)');
+        // No proposal row can represent accepted/resolved/cancelled, so an
+        // empty translated set is an exact zero, not an unconstrained query.
+        if (clauses.length === 0) return 0;
+        query = query.or(clauses.join(','));
+    }
+
+    const { count, error } = await query;
+    if (error) throw new AppError(error.message, 500);
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) throw new AppError('Unable to determine exact commitment proposal count', 500);
+    return count;
+}
+
 // M-5: resolve an already-typed session referent without broad text search.
 // The canonical visibility filter remains authoritative; a context ID can
 // only narrow the actor's scope and can never grant access.

@@ -16,6 +16,7 @@ import {
     retrieveCommitments,
     retrieveCommitmentProposals,
     countVisibleCommitments,
+    countVisibleCommitmentProposals,
     retrieveCommitmentEvents,
     retrieveMessages,
     retrieveTranscriptions,
@@ -1606,19 +1607,25 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && !priorReferentId
         && !input.authorizedCommitmentReferentId
         && interpretation.wantsCommitments) {
-        exactCommitmentCount = await countVisibleCommitments({
+        const exactCountStatuses: import('../types/retrieval').RetrieveContextInput['statuses'] = interpretation.wantsOverdueFocus
+            ? ['proposed', 'accepted', 'counter_proposal']
+            : interpretation.statusHints ?? undefined;
+        const exactCountInput = {
             actorUserId: input.actorUserId,
             conversationId,
             personId: resolvedPersonId,
-            statuses: interpretation.wantsOverdueFocus
-                ? ['proposed', 'accepted', 'counter_proposal']
-                : interpretation.statusHints ?? undefined,
+            statuses: exactCountStatuses,
             timeRange: timeRange ?? undefined,
             query: interpretation.textQuery ?? undefined,
             overdueBefore: interpretation.wantsOverdueFocus
                 ? startOfDayInZone(now, timezone).toISOString()
                 : undefined,
-        });
+        };
+        const canonicalCount = await countVisibleCommitments(exactCountInput);
+        const proposalCount = !overdueOnlyQuery && !futureOnlyTemporal
+            ? await countVisibleCommitmentProposals(exactCountInput)
+            : 0;
+        exactCommitmentCount = canonicalCount + proposalCount;
     }
     const countResult = queryCardinality === 'count'
         ? (exactCommitmentCount ?? commitments.length)

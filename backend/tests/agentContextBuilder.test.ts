@@ -28,6 +28,7 @@ vi.mock('../src/services/retrieval.service', () => ({
     retrieveCommitments: vi.fn(),
     retrieveCommitmentProposals: vi.fn(),
     countVisibleCommitments: vi.fn(),
+    countVisibleCommitmentProposals: vi.fn(),
     retrieveCommitmentEvents: vi.fn(),
     retrieveVisibleCommitmentById: vi.fn(),
     retrieveMessages: vi.fn(),
@@ -63,6 +64,7 @@ const mockResolvePerson = vi.mocked(retrievalService.resolvePerson);
 const mockRetrieveCommitments = vi.mocked(retrievalService.retrieveCommitments);
 const mockRetrieveCommitmentProposals = vi.mocked(retrievalService.retrieveCommitmentProposals);
 const mockCountVisibleCommitments = vi.mocked(retrievalService.countVisibleCommitments);
+const mockCountVisibleCommitmentProposals = vi.mocked(retrievalService.countVisibleCommitmentProposals);
 const mockRetrieveCommitmentEvents = vi.mocked(retrievalService.retrieveCommitmentEvents);
 const mockRetrieveVisibleCommitmentById = vi.mocked(retrievalService.retrieveVisibleCommitmentById);
 const mockRetrieveMessages = vi.mocked(retrievalService.retrieveMessages);
@@ -75,6 +77,7 @@ function resetMocks() {
     mockRetrieveCommitments.mockReset().mockResolvedValue([]);
     mockRetrieveCommitmentProposals.mockReset().mockResolvedValue([]);
     mockCountVisibleCommitments.mockReset().mockResolvedValue(0);
+    mockCountVisibleCommitmentProposals.mockReset().mockResolvedValue(0);
     mockRetrieveCommitmentEvents.mockReset().mockResolvedValue([]);
     mockRetrieveVisibleCommitmentById.mockReset().mockResolvedValue(null);
     mockRetrieveMessages.mockReset().mockResolvedValue([]);
@@ -2988,6 +2991,7 @@ describe('M-1H: CONTRACT TEST MATRIX (sección 24) -- 8 casos mínimos, intérpr
 
     it('G) "¿Cuántos tengo vencidos?" -> count, countResult calculado por el Core', async () => {
         mockCountVisibleCommitments.mockResolvedValue(2);
+        mockCountVisibleCommitmentProposals.mockResolvedValue(0);
         mockRetrieveCommitments.mockResolvedValue([
             commitmentFixture({ id: 'cm-g1', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' }),
             commitmentFixture({ id: 'cm-g2', status: 'accepted', dueAt: '2026-06-05T00:00:00Z' }),
@@ -3302,6 +3306,7 @@ describe('M-1H: CONTRACT MATRIX EXPANDIDA (sección 11) -- distingue list vs loo
 
     it('H) "¿Cuántos compromisos vencidos tengo?" -> count, countResult correcto, textQuery nunca contamina la query real', async () => {
         mockCountVisibleCommitments.mockResolvedValue(2);
+        mockCountVisibleCommitmentProposals.mockResolvedValue(0);
         mockRetrieveCommitments.mockResolvedValue([
             commitmentFixture({ id: 'cm-h1', status: 'accepted', dueAt: '2026-06-01T00:00:00Z' }),
             commitmentFixture({ id: 'cm-h2', status: 'accepted', dueAt: '2026-06-05T00:00:00Z' }),
@@ -3320,6 +3325,7 @@ describe('M-1H: CONTRACT MATRIX EXPANDIDA (sección 11) -- distingue list vs loo
         );
         mockRetrieveCommitmentProposals.mockResolvedValue([]);
         mockCountVisibleCommitments.mockResolvedValue(37);
+        mockCountVisibleCommitmentProposals.mockResolvedValue(8);
 
         const ctx = await withDeterministicInterpreter({
             actorUserId: CARLOS,
@@ -3328,8 +3334,9 @@ describe('M-1H: CONTRACT MATRIX EXPANDIDA (sección 11) -- distingue list vs loo
 
         expect(ctx.queryCardinality).toBe('count');
         expect(ctx.commitments).toHaveLength(10);
-        expect(ctx.countResult).toBe(37);
+        expect(ctx.countResult).toBe(45);
         expect(mockCountVisibleCommitments).toHaveBeenCalledTimes(1);
+        expect(mockCountVisibleCommitmentProposals).toHaveBeenCalledTimes(1);
     });
 
     it('I) "Resume mis compromisos de esta semana" -> summary, requiredSourceRefs vacío (nunca exige cobertura item-por-item)', async () => {
