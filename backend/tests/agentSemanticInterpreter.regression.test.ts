@@ -115,6 +115,22 @@ describe('semantic boundary read/write regression', () => {
         expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
     });
 
+    it('keeps a punctuation-free English commitment question on the READ route', async () => {
+        const objectiveInterpreter = { interpret: vi.fn(async () => personalCommitmentObjective()) };
+        const result = await interpretAgentSemanticTurn(
+            'What do I have for tomorrow',
+            { actorUserId: ACTOR, conversationId: 'conversation-regression' },
+            {
+                inputInterpreter: { interpret: vi.fn(async () => llmWriteInterpretation()) },
+                objectiveInterpreter,
+            },
+        );
+
+        expect(result.route).toBe('read');
+        expect(result.objective).toBeNull();
+        expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
+    });
+
     it('does not mistake a declarative "Tengo que" action for a punctuation-free question', async () => {
         const objective = personalCommitmentObjective();
         const objectiveInterpreter = { interpret: vi.fn(async () => objective) };

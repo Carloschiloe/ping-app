@@ -51,7 +51,7 @@ describe('Agent conversation persistence', () => {
     });
 
     it('maps same-key/different-content conflicts to a retry-safe 409', async () => {
-        seedPersistence({
+        const db = seedPersistence({
             data: null,
             error: { code: 'P0003', message: 'different content' },
         });
@@ -65,5 +65,31 @@ describe('Agent conversation persistence', () => {
             inputMode: 'text',
             result,
         })).rejects.toMatchObject({ statusCode: 409 });
+        expect(db.getRpcCalls()).toHaveLength(1);
+    });
+
+    it('retries transient persistence failures because the RPC is idempotent', async () => {
+        // The mock repeats the last response by default; use a fresh client
+        // so the second attempt can succeed deterministically.
+        const retryDb = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            'rpc:persist_agent_conversation_turn': [
+                { data: null, error: { code: '08006', message: 'connection reset by peer' } },
+                { data: [{ turn_id: 'turn-retried', idempotent_replay: false, created_at: '2026-10-22T19:00:00.000Z' }], error: null },
+            ],
+        });
+        setSupabaseAdminMock(retryDb);
+        const { persistAgentConversationTurn } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(persistAgentConversationTurn({
+            actorUserId: ACTOR_ID,
+            conversationId: CONVERSATION_ID,
+            clientTurnKey: 'client-turn-retry',
+            inputText: 'Recuérdame llamar mañana',
+            inputMode: 'text',
+            result,
+        })).resolves.toMatchObject({ turnId: 'turn-retried' });
+
+        expect(retryDb.getRpcCalls()).toHaveLength(2);
     });
 });

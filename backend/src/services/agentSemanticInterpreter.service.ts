@@ -171,7 +171,7 @@ export async function interpretAgentSemanticTurn(
         // turn a read question such as "qué tengo para mañana" into a write
         // plan merely because punctuation was lost during transcription.
         const isQuestionShaped = /[?\u061f]\s*$/u.test(input.trim())
-            || /^\s*(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay)(?=$|[^\p{L}\p{N}_])/iu.test(input);
+            || /^\s*(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu.test(input);
         // A question-shaped turn with a read-domain signal is a structural
         // retrieval request even when the provider overstates
         // isWriteActionRequest. This does not enumerate user phrases and

@@ -9,6 +9,8 @@ import type { AgentReadContext } from '../types/agentDialogueState';
 
 const MAX_HISTORY_INPUT_LENGTH = 12_000;
 const MAX_HISTORY_RESULT_BYTES = 128_000;
+const MAX_PERSISTENCE_ATTEMPTS = 3;
+const PERSISTENCE_RETRY_DELAYS_MS = [50, 150] as const;
 
 export interface AgentConversationTurnRecord {
     id: string;
@@ -57,6 +59,20 @@ function mapPersistenceError(error: { message?: string; code?: string } | null):
     return new AppError('Could not persist the Agent conversation event', 500);
 }
 
+function isTransientPersistenceError(error: { message?: string; code?: string } | null): boolean {
+    const code = error?.code ?? '';
+    if (['P0003', '22023', '23514', '42501'].includes(code)) return false;
+    if (/^(08|40|53|57)/.test(code)) return true;
+    return /fetch failed|network|timeout|timed out|connection reset|connection refused|temporarily unavailable|service unavailable/i
+        .test(error?.message ?? '');
+}
+
+async function waitForPersistenceRetry(attempt: number): Promise<void> {
+    const delay = PERSISTENCE_RETRY_DELAYS_MS[attempt - 1];
+    if (delay === undefined) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
+
 async function persistAgentConversationEvent(input: {
     actorUserId: string;
     conversationId: string;
@@ -79,7 +95,7 @@ async function persistAgentConversationEvent(input: {
         throw new AppError('Agent conversation event is too large', 400);
     }
 
-    const { data, error } = await supabaseAdmin.rpc('persist_agent_conversation_turn', {
+    const rpcArgs = {
         p_actor_user_id: input.actorUserId,
         p_conversation_id: input.conversationId,
         p_client_turn_key: input.clientTurnKey.trim(),
@@ -88,7 +104,17 @@ async function persistAgentConversationEvent(input: {
         p_input_mode: input.inputMode,
         p_result_kind: input.resultKind,
         p_result: result,
-    });
+    };
+
+    let data: any = null;
+    let error: { message?: string; code?: string } | null = null;
+    for (let attempt = 1; attempt <= MAX_PERSISTENCE_ATTEMPTS; attempt += 1) {
+        const response = await supabaseAdmin.rpc('persist_agent_conversation_turn', rpcArgs);
+        data = response.data;
+        error = response.error;
+        if (!error || !isTransientPersistenceError(error) || attempt === MAX_PERSISTENCE_ATTEMPTS) break;
+        await waitForPersistenceRetry(attempt);
+    }
 
     if (error) throw mapPersistenceError(error);
     const row = Array.isArray(data) ? data[0] : data;
