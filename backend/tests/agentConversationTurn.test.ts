@@ -73,6 +73,38 @@ describe('Agent conversation persistence', () => {
         });
     });
 
+    it('persists the bounded temporal/status read scope without changing the idempotency identity', async () => {
+        const db = seedPersistence({
+            data: [{ turn_id: 'turn-scope', idempotent_replay: false, created_at: '2026-10-22T19:00:00.000Z' }],
+            error: null,
+        });
+        const { persistAgentConversationTurn } = await import('../src/services/agentConversationTurn.service');
+
+        await persistAgentConversationTurn({
+            actorUserId: ACTOR_ID,
+            conversationId: CONVERSATION_ID,
+            clientTurnKey: 'client-turn-scope',
+            inputText: '¿Qué tengo esta semana?',
+            inputMode: 'text',
+            result,
+            readContext: {
+                kind: 'commitment_query',
+                timeRange: { from: '2026-10-19T03:00:00.000Z', to: '2026-10-26T03:00:00.000Z' },
+                sourceTurnId: 'turn-scope',
+                commitmentReferents: [],
+                statuses: ['accepted', 'proposed'],
+            },
+        });
+
+        expect(db.getRpcCalls()[0]?.args.p_result.__pingAgentHistory).toEqual({
+            dialogueConversationId: null,
+            readContext: {
+                timeRange: { from: '2026-10-19T03:00:00.000Z', to: '2026-10-26T03:00:00.000Z' },
+                statuses: ['accepted', 'proposed'],
+            },
+        });
+    });
+
     it('maps same-key/different-content conflicts to a retry-safe 409', async () => {
         const db = seedPersistence({
             data: null,
@@ -149,6 +181,41 @@ describe('Agent conversation persistence', () => {
             'agent_conversation_turns',
             'agent_conversation_turns',
         ]);
+    });
+
+    it('rehydrates temporal/status scope after restart and still requires canonical citations for referents', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            agent_conversation_turns: [{
+                data: [{
+                    id: 'turn-read-scope',
+                    result_kind: 'response',
+                    result: {
+                        kind: 'response',
+                        response: {
+                            status: 'answered',
+                            citations: [{ sourceType: 'commitment', sourceId: 'commitment-1' }],
+                        },
+                        __pingAgentHistory: {
+                            dialogueConversationId: null,
+                            readContext: {
+                                timeRange: { from: '2026-10-19T03:00:00.000Z', to: '2026-10-26T03:00:00.000Z' },
+                                statuses: ['accepted', 'not-a-status', 'proposed'],
+                            },
+                        },
+                    },
+                }],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(db);
+        const { loadLatestAgentReadContext } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(loadLatestAgentReadContext(ACTOR_ID, CONVERSATION_ID)).resolves.toMatchObject({
+            timeRange: { from: '2026-10-19T03:00:00.000Z', to: '2026-10-26T03:00:00.000Z' },
+            statuses: ['accepted', 'proposed'],
+            commitmentReferents: [{ entityType: 'commitment', canonicalId: 'commitment-1' }],
+        });
     });
 
     it('retries resolving the source plan before projecting an execution event', async () => {

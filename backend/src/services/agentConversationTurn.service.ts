@@ -6,6 +6,7 @@ import type { AgentTurnResult } from '../types/agentTurn';
 import type { AgentExecutionResult } from '../types/agentExecution';
 import type { AgentPlanPresentation } from '../types/agentTurn';
 import type { AgentReadContext } from '../types/agentDialogueState';
+import { isCanonicalCommitmentStatus } from '../utils/commitmentStatus';
 
 const MAX_HISTORY_INPUT_LENGTH = 12_000;
 const MAX_HISTORY_RESULT_BYTES = 128_000;
@@ -43,6 +44,11 @@ export type AgentConversationEventKind = AgentTurnResult['kind'] | 'execution';
  */
 export interface AgentConversationHistoryMetadata {
     dialogueConversationId: string | null;
+    /** Durable scope needed to continue temporal/status follow-ups after restart. */
+    readContext?: {
+        timeRange: AgentReadContext['timeRange'];
+        statuses: AgentReadContext['statuses'];
+    } | null;
 }
 
 const HISTORY_METADATA_KEY = '__pingAgentHistory' as const;
@@ -50,11 +56,19 @@ const HISTORY_METADATA_KEY = '__pingAgentHistory' as const;
 function addHistoryMetadata(
     result: AgentConversationEventResult,
     dialogueConversationId: string | undefined,
+    readContext?: AgentReadContext | null,
 ): AgentConversationEventResult {
     const copy = { ...(result as unknown as Record<string, unknown>) };
-    copy[HISTORY_METADATA_KEY] = {
+    const metadata: AgentConversationHistoryMetadata = {
         dialogueConversationId: dialogueConversationId?.trim() || null,
-    } satisfies AgentConversationHistoryMetadata;
+    };
+    if (readContext) {
+        metadata.readContext = {
+            timeRange: readContext.timeRange,
+            statuses: readContext.statuses ?? null,
+        };
+    }
+    copy[HISTORY_METADATA_KEY] = metadata;
     return copy as unknown as AgentConversationEventResult;
 }
 
@@ -72,8 +86,20 @@ function publicResult(result: AgentConversationEventResult): AgentConversationEv
 }
 
 function fingerprint(inputText: string, inputMode: string, result: AgentConversationEventResult): string {
+    const stableResult = { ...(result as unknown as Record<string, unknown>) };
+    const metadata = stableResult[HISTORY_METADATA_KEY];
+    if (metadata && typeof metadata === 'object') {
+        // Read-scope metadata is an internal projection and can be added by a
+        // later retry without changing the user's actual turn. Keep the
+        // pre-existing dialogueConversationId in the fingerprint for backward
+        // compatibility with rows written before this field existed.
+        stableResult[HISTORY_METADATA_KEY] = {
+            ...(metadata as Record<string, unknown>),
+        };
+        delete (stableResult[HISTORY_METADATA_KEY] as Record<string, unknown>).readContext;
+    }
     return createHash('sha256')
-        .update(JSON.stringify({ inputText, inputMode, result: publicResult(result) }))
+        .update(JSON.stringify({ inputText, inputMode, result: publicResult(stableResult as unknown as AgentConversationEventResult) }))
         .digest('hex');
 }
 
@@ -107,6 +133,7 @@ async function persistAgentConversationEvent(input: {
     resultKind: AgentConversationEventKind;
     result: AgentConversationEventResult;
     dialogueConversationId?: string;
+    readContext?: AgentReadContext | null;
 }): Promise<{ turnId: string; idempotentReplay: boolean; createdAt: string }> {
     await assertConversationParticipant(input.actorUserId, input.conversationId);
 
@@ -118,6 +145,7 @@ async function persistAgentConversationEvent(input: {
     const result = addHistoryMetadata(
         publicResult(input.result),
         input.dialogueConversationId,
+        input.readContext,
     );
     const serializedResult = JSON.stringify(result);
     if (Buffer.byteLength(serializedResult, 'utf8') > MAX_HISTORY_RESULT_BYTES) {
@@ -164,6 +192,8 @@ export async function persistAgentConversationTurn(input: {
     result: AgentTurnResult;
     /** Semantic scope; null/undefined means the main Ping `agent:mobile` scope. */
     dialogueConversationId?: string;
+    /** Core-derived read scope used only to restore safe temporal/status continuity. */
+    readContext?: AgentReadContext | null;
 }) {
     return persistAgentConversationEvent({ ...input, resultKind: input.result.kind });
 }
@@ -278,6 +308,20 @@ export async function loadLatestAgentReadContext(
             : null;
         if (!response || response.status !== 'answered' || !Array.isArray(response.citations)) continue;
 
+        const metadata = result?.[HISTORY_METADATA_KEY] as Record<string, unknown> | null;
+        const storedReadContext = metadata?.readContext as Record<string, unknown> | null;
+        const storedTimeRange = storedReadContext?.timeRange as Record<string, unknown> | null;
+        const timeRange = storedTimeRange
+            && (storedTimeRange.from === null || typeof storedTimeRange.from === 'string')
+            && (storedTimeRange.to === null || typeof storedTimeRange.to === 'string')
+            && (storedTimeRange.from === null || Number.isFinite(Date.parse(storedTimeRange.from)))
+            && (storedTimeRange.to === null || Number.isFinite(Date.parse(storedTimeRange.to)))
+            ? { from: (storedTimeRange.from as string | null) ?? undefined, to: (storedTimeRange.to as string | null) ?? undefined }
+            : null;
+        const statuses = Array.isArray(storedReadContext?.statuses)
+            ? storedReadContext.statuses.filter(isCanonicalCommitmentStatus)
+            : null;
+
         const referents = response.citations
             .filter((citation: unknown): citation is { sourceType: string; sourceId: string } => {
                 if (!citation || typeof citation !== 'object') return false;
@@ -293,13 +337,13 @@ export async function loadLatestAgentReadContext(
                 canonicalId: citation.sourceId,
             }));
 
-        if (referents.length === 0) continue;
+        if (referents.length === 0 && !timeRange && (!statuses || statuses.length === 0)) continue;
         return {
             kind: 'commitment_query',
-            timeRange: null,
+            timeRange,
             sourceTurnId: String(row.id),
             commitmentReferents: referents,
-            statuses: null,
+            statuses: statuses && statuses.length > 0 ? statuses : null,
         };
     }
 

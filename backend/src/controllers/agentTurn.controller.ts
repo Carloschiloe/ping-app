@@ -126,14 +126,12 @@ export async function turn(req: Request, res: Response): Promise<void> {
         // semantic continuity remains `agent:mobile` when no conversation was
         // supplied by the client.
         const dialogueConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
+        const dialogueScopeKey = buildDialogueScopeKey({
+            conversationId: dialogueConversationId,
+            surface: historyInput?.envelope.surface ?? resolveTextSurface(req.body.channel),
+        });
         const localReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
-            ? getAgentDialogueReadContextSnapshot(
-                actorUserId,
-                buildDialogueScopeKey({
-                    conversationId: dialogueConversationId,
-                    surface: historyInput?.envelope.surface ?? resolveTextSurface(req.body.channel),
-                }),
-            )
+            ? getAgentDialogueReadContextSnapshot(actorUserId, dialogueScopeKey)
             : null;
         const fallbackReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled() && !localReadContext
             ? await loadLatestAgentReadContext(actorUserId, historyConversationId).catch((error) => {
@@ -167,6 +165,13 @@ export async function turn(req: Request, res: Response): Promise<void> {
                     : req.body.voiceInputToken
                         ? 'voice'
                         : 'text',
+                // The process-local dialogue snapshot is only a projection
+                // for the legacy fallback. Persist its bounded scope beside
+                // the response so a restart/device change can restore the
+                // temporal/status window without trusting old evidence.
+                readContext: !durableEnabled && result.kind === 'response'
+                    ? getAgentDialogueReadContextSnapshot(actorUserId, dialogueScopeKey)
+                    : undefined,
                 result,
             }, false);
         }

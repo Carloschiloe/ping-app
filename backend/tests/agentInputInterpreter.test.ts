@@ -67,6 +67,10 @@ describe('deterministic temporal collection language', () => {
         '¿Qué debería hacer mañana?',
         '¿Qué me toca mañana?',
         '¿Qué está pendiente para mañana?',
+        '¿Qué tengo este finde?',
+        '¿Qué hay para el fin de semana?',
+        '¿Qué tengo la semana que viene?',
+        '¿Qué tengo la semana entrante?',
         'What should I do tomorrow?',
         'What is due tomorrow?',
     ])('detects the collection speech shape: %s', (input) => {
@@ -84,6 +88,10 @@ describe('deterministic temporal collection language', () => {
         '¿Qué debería hacer mañana?',
         '¿Qué me toca mañana?',
         '¿Qué está pendiente para mañana?',
+        '¿Qué tengo este finde?',
+        '¿Qué hay para el fin de semana?',
+        '¿Qué tengo la semana que viene?',
+        '¿Qué tengo la semana entrante?',
         'What should I do tomorrow?',
         'What is due tomorrow?',
     ])('normalizes collection language without an FTS topic: %s', async (input) => {
@@ -136,6 +144,14 @@ describe('deterministic upcoming horizon parsing', () => {
         expect(inferTemporalIntent('¿Qué tengo para pasado manana?')).toEqual({
             kind: 'calendar_day', offsetDays: 2, futureOnly: false,
         });
+    });
+
+    it.each([
+        ['¿Qué hay para este viernes?', { kind: 'calendar_weekday', weekday: 5, occurrence: 'current', futureOnly: false }],
+        ['¿Qué tengo el próximo viernes?', { kind: 'calendar_weekday', weekday: 5, occurrence: 'next', futureOnly: false }],
+        ['¿Qué tengo el proximo lunes?', { kind: 'calendar_weekday', weekday: 1, occurrence: 'next', futureOnly: false }],
+    ])('normaliza un día de semana sin dejar el alcance al proveedor: %s', (input, expected) => {
+        expect(inferTemporalIntent(input)).toEqual(expected);
     });
 });
 

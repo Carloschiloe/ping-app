@@ -247,6 +247,20 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it('resuelve "próximo viernes" y no deja que el typo de acento lo vuelva un rango abierto', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { DeterministicInputInterpreter, inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        const now = new Date('2026-10-23T12:31:00.000Z');
+        const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo el próximo viernes?');
+
+        expect(interpretation.timeExpression).toBe('el próximo viernes');
+        expect(interpretation.temporalIntent).toEqual({ kind: 'calendar_weekday', weekday: 5, occurrence: 'next', futureOnly: false });
+        expect(resolveTimeExpression(interpretation.timeExpression, now, 'America/Santiago', inferTemporalIntent('¿Qué tengo el próximo viernes?'))).toEqual({
+            from: '2026-10-30T03:00:00.000Z',
+            to: '2026-10-31T03:00:00.000Z',
+        });
+    });
+
     it('resuelve "este fin de semana" como sábado-domingo en la zona del usuario', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const { DeterministicInputInterpreter } = await import('../src/services/agentInputInterpreter.service');
@@ -257,6 +271,23 @@ describe('M-1D: resolveTimeExpression', () => {
         expect(resolveTimeExpression(interpretation.timeExpression, now, 'America/Santiago')).toEqual({
             from: '2026-10-24T03:00:00.000Z',
             to: '2026-10-26T03:00:00.000Z',
+        });
+    });
+
+    it.each([
+        ['este finde', '2026-10-24T03:00:00.000Z', '2026-10-26T03:00:00.000Z'],
+        ['el fin de semana', '2026-10-24T03:00:00.000Z', '2026-10-26T03:00:00.000Z'],
+        ['próximo finde', '2026-10-31T03:00:00.000Z', '2026-11-02T03:00:00.000Z'],
+    ])('resuelve la familia de alias de fin de semana: %s', async (expression, from, to) => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        expect(resolveTimeExpression(expression, new Date('2026-10-23T12:31:00.000Z'), 'America/Santiago')).toEqual({ from, to });
+    });
+
+    it.each(['la semana que viene', 'semana entrante', 'esta semana que viene'])('resuelve %s como la semana siguiente', async (expression) => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        expect(resolveTimeExpression(expression, new Date('2026-10-23T12:31:00.000Z'), 'America/Santiago')).toEqual({
+            from: '2026-10-26T03:00:00.000Z',
+            to: '2026-11-02T03:00:00.000Z',
         });
     });
 

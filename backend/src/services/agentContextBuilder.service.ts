@@ -146,24 +146,33 @@ function startOfWeekendInZone(date: Date, timeZone: string): Date {
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
 export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: import('../types/agentContext').TemporalIntent | null): RetrievalTimeRange | null {
-    if (!expression) return null;
+    if (!expression) {
+        if (temporalIntent?.kind !== 'calendar_weekday') return null;
+        const startToday = startOfDayInZone(now, timezone);
+        const offsetMs = timeZoneOffsetMs(startToday, timezone);
+        const localToday = new Date(startToday.getTime() + offsetMs);
+        let delta = (temporalIntent.weekday - localToday.getUTCDay() + 7) % 7;
+        if (delta === 0 && temporalIntent.occurrence === 'next') delta = 7;
+        const target = addDays(startToday, delta);
+        return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
+    }
     const expr = expression.toLowerCase();
     const normalizedExpression = expression.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     if (/pasado\s+manana|day\s+after\s+tomorrow/.test(normalizedExpression)) {
         const target = addDays(now, 2);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
     }
-    if (/proxima\s+semana|next\s+week/.test(normalizedExpression)) {
+    if (/\besta\s+semana\s+que\s+viene\b|\b(?:la\s+)?(?:proxima|siguiente)\s+semana\b|\b(?:la\s+)?semana\s+(?:que\s+viene|entrante)\b|\bnext\s+week\b/.test(normalizedExpression)) {
         const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
         return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
     }
-    if (/(?:este\s+fin\s+de\s+semana|this\s+weekend)/.test(normalizedExpression)) {
-        const weekendStart = startOfWeekendInZone(now, timezone);
+    if (/\b(?:el\s+)?proximo\s+(?:fin\s+de\s+semana|finde)\b|\bnext\s+weekend\b/.test(normalizedExpression)) {
+        const weekendStart = startOfDayInZone(addDays(startOfWeekendInZone(now, timezone), 7), timezone);
         const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
         return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
     }
-    if (/(?:proximo\s+fin\s+de\s+semana|next\s+weekend)/.test(normalizedExpression)) {
-        const weekendStart = startOfDayInZone(addDays(startOfWeekendInZone(now, timezone), 7), timezone);
+    if (/\b(?:este\s+)?fin\s+de\s+semana\b|\b(?:este\s+)?finde\b|\b(?:el\s+)?weekend\b|\bthis\s+weekend\b/.test(normalizedExpression)) {
+        const weekendStart = startOfWeekendInZone(now, timezone);
         const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
         return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
     }
@@ -174,14 +183,14 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
     // Friday. `este` means the occurrence in the current calendar week,
     // while an unqualified/`el`/`proximo` weekday means the next occurrence.
     const weekday = normalizedExpression.match(
-        /\b(?:(este)\s+|(?:el\s+)?(proximo)\s+|(?:el)\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/
+        /\b(?:(este)\s+|(?:(?:el\s+)?proximo\s+|el\s+))?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/
     );
     if (weekday) {
         const weekdays: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
         const startToday = startOfDayInZone(now, timezone);
         const offsetMs = timeZoneOffsetMs(startToday, timezone);
         const localToday = new Date(startToday.getTime() + offsetMs);
-        let delta = (weekdays[weekday[3]] - localToday.getUTCDay() + 7) % 7;
+        let delta = (weekdays[weekday[2]] - localToday.getUTCDay() + 7) % 7;
         if (delta === 0 && !weekday[1]) delta = 7;
         const target = addDays(startToday, delta);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };

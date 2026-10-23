@@ -154,6 +154,7 @@ export interface AgentPriorReadSummary {
 export type TemporalIntent =
     | { kind: 'calendar_day'; offsetDays: number; futureOnly: boolean }
     | { kind: 'calendar_week'; offsetWeeks: number; futureOnly: boolean }
+    | { kind: 'calendar_weekday'; weekday: number; occurrence: 'current' | 'next'; futureOnly: boolean }
     | { kind: 'relative_days'; daysAhead: number; futureOnly: true }
     | { kind: 'upcoming_horizon'; daysAhead: number | null; futureOnly: true };
 
