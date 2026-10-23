@@ -277,6 +277,26 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
         expect(proposalContext.proposalFocus).toBe('needs_my_response');
     });
 
+    it('uses dueAt, never the commitment title, to exclude a future item named "mañana"', async () => {
+        const futureTitleNamedTomorrow = {
+            ...TOMORROW,
+            title: 'Reunión mañana',
+            dueAt: '2026-09-23T14:00:00.000Z',
+        };
+        retrieveCommitments.mockResolvedValue([OVERDUE, futureTitleNamedTomorrow] as any);
+
+        const input = '¿Qué tengo fuera de plazo?';
+        const interpreter = new DeterministicInputInterpreter();
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1', input, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'UTC', traceId: 'm7-overdue-title-not-date',
+        }, { interpreter, interpretation: await interpreter.interpret(input, {}) });
+
+        expect(context.commitments.map((item) => item.id)).toEqual([OVERDUE.id]);
+        expect(context.commitments.some((item) => item.title === 'Reunión mañana')).toBe(false);
+        expect(context.wantsOverdueFocus).toBe(true);
+    });
+
     it('preserves the repaired substantive FTS topic inside the future range', async () => {
         useUpcomingDatabaseRows();
         const input = 'Oye Ping, qu\u00e9 pendientes tengo para los pr\u00f3ximos d\u00edas sobre el proyecto Aurora?';
