@@ -993,6 +993,29 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
         expect(mockRetrieveCommitments).not.toHaveBeenCalled();
     });
 
+    it('no permite que el LLM convierta "esta semana" en sólo futuro cuando Core ya reconoció la semana calendario', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-week' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query',
+            timeExpression: 'esta semana',
+            temporalIntent: { kind: 'calendar_week', offsetWeeks: 0, futureOnly: true },
+            statusHints: ['accepted'],
+        }));
+
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Qué pendientes tengo esta semana?',
+            now: '2026-09-08T22:00:00Z',
+            timezone: 'UTC',
+        }, { interpreter });
+
+        expect(ctx.entities.timeRange).toEqual({
+            from: '2026-09-07T00:00:00.000Z',
+            to: '2026-09-14T00:00:00.000Z',
+        });
+    });
+
     // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: requestedTransition debe
     // llegar intacto al AgentContext de salida, exactamente como
     // wantsOverdueFocus arriba -- síntesis no puede verificar la transición

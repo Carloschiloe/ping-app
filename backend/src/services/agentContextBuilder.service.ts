@@ -620,6 +620,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     const normalizedTimeExpression = isSocialConversation
         ? null
         : deterministicSignals.timeExpression ?? groundedRawTimeExpression;
+    // When Core recognizes the temporal expression itself, its bounded
+    // temporal operator is authoritative too. Otherwise a provider can turn
+    // the neutral phrase "esta semana" into futureOnly=true and silently
+    // drop commitments earlier in the same week. For expressions Core does
+    // not know yet, retain a grounded model operator as an advisory fallback.
+    const normalizedTemporalIntent = isSocialConversation
+        ? null
+        : deterministicSignals.temporalIntent ?? (groundedRawTimeExpression ? rawInterpretation.temporalIntent ?? null : null);
     const ungroundedRawTemporalClaim = rawTimeExpression !== null
         && deterministicSignals.timeExpression === null
         && groundedRawTimeExpression === null;
@@ -716,8 +724,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && normalizedTimeExpression !== null
         && deterministicSignals.statusHints === null
         && !deterministicSignals.wantsOverdueFocus;
-    const futureOnlyTemporal = deterministicSignals.temporalIntent?.futureOnly === true
-        || rawInterpretation.temporalIntent?.futureOnly === true;
+    const futureOnlyTemporal = normalizedTemporalIntent?.futureOnly === true;
     const normalizedIntent = commitmentSignalConfident || !ungroundedRawTemporalClaim
         ? (commitmentSignalConfident ? 'commitment_query' : rawInterpretation.intent)
         : 'general_context';
@@ -734,6 +741,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         personHints: advisoryPersonHints,
         proposalFocus: deterministicSignals.proposalFocus ?? rawInterpretation.proposalFocus,
         timeExpression: normalizedTimeExpression,
+        temporalIntent: normalizedTemporalIntent,
         intent: normalizedIntent,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
