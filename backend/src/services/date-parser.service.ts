@@ -290,8 +290,14 @@ export const parseDateFromText = (
         .replace(/Ã³/g, 'ó').replace(/Ãº/g, 'ú').replace(/Ã±/g, 'ñ')
         .replace(/Ã‰/g, 'É').replace(/Ã‘/g, 'Ñ');
     const timeZone = resolveTimeZone(requestedTimeZone);
-    const relativeDay = normalizeSpanish(parserText).match(/\b(pasado\s+manana|manana|hoy)\b/u);
+    const normalizedParserText = normalizeSpanish(parserText);
+    const relativeDay = normalizedParserText.match(/\b(pasado\s+manana|manana|hoy)\b/u);
     if (relativeDay) {
+        // Keep the exact original span for callers that remove the temporal
+        // clause from the user's utterance. Recognition and arithmetic use
+        // the accent-folded value, but provenance/text surgery must preserve
+        // "mañana" rather than returning the synthetic "manana" spelling.
+        const originalRelativeDay = parserText.match(/\b(pasado\s+mañana|pasado\s+manana|mañana|manana|hoy)\b/iu);
         const reference = wallClockParts(referenceDate, timeZone);
         const offsetDays = relativeDay[1] === 'pasado manana' ? 2 : relativeDay[1] === 'manana' ? 1 : 0;
         const calendar = new Date(Date.UTC(reference.year, reference.month - 1, reference.day + offsetDays));
@@ -305,7 +311,7 @@ export const parseDateFromText = (
                 minute: explicitTime?.minute ?? reference.minute,
                 second: explicitTime ? 0 : reference.second,
             }, timeZone),
-            textRef: relativeDay[0],
+            textRef: originalRelativeDay?.[0] ?? relativeDay[0],
         };
     }
     const explicitWeekday = parseExplicitWeekday(parserText, referenceDate, timeZone);
