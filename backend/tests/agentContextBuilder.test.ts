@@ -291,6 +291,15 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it('puede resolver un operador de fin de semana aun si el proveedor no devuelve el texto crudo', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        expect(resolveTimeExpression(null, new Date('2026-10-23T12:31:00.000Z'), 'America/Santiago', inferTemporalIntent('¿Qué tengo el próximo fin de semana?'))).toEqual({
+            from: '2026-10-31T03:00:00.000Z',
+            to: '2026-11-02T03:00:00.000Z',
+        });
+    });
+
     it('resuelve "manana" sin tilde con el mismo rango que "mañana"', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const now = new Date('2026-06-15T12:00:00.000Z');

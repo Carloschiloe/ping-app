@@ -4,6 +4,7 @@ const TEMPORAL_INTENT_SCHEMA = z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('calendar_day'), offsetDays: z.number().int().min(-366).max(366), futureOnly: z.boolean() }),
     z.object({ kind: z.literal('calendar_week'), offsetWeeks: z.number().int().min(-52).max(52), futureOnly: z.boolean() }),
     z.object({ kind: z.literal('calendar_weekday'), weekday: z.number().int().min(0).max(6), occurrence: z.enum(['current', 'next']), futureOnly: z.boolean() }),
+    z.object({ kind: z.literal('calendar_weekend'), occurrence: z.enum(['current', 'next']), futureOnly: z.boolean() }),
     z.object({ kind: z.literal('relative_days'), daysAhead: z.number().int().min(1).max(366), futureOnly: z.literal(true) }),
     z.object({ kind: z.literal('upcoming_horizon'), daysAhead: z.number().int().min(1).max(366).nullable(), futureOnly: z.literal(true) }),
 ]);

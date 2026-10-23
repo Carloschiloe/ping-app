@@ -153,6 +153,13 @@ describe('deterministic upcoming horizon parsing', () => {
     ])('normaliza un día de semana sin dejar el alcance al proveedor: %s', (input, expected) => {
         expect(inferTemporalIntent(input)).toEqual(expected);
     });
+
+    it.each([
+        ['¿Qué tengo este finde?', { kind: 'calendar_weekend', occurrence: 'current', futureOnly: false }],
+        ['¿Qué hay para el próximo fin de semana?', { kind: 'calendar_weekend', occurrence: 'next', futureOnly: false }],
+    ])('normaliza el fin de semana como operador acotado: %s', (input, expected) => {
+        expect(inferTemporalIntent(input)).toEqual(expected);
+    });
 });
 
 const validPayload = (overrides: Partial<Record<string, any>> = {}) => JSON.stringify({

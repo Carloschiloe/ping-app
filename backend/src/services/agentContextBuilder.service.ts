@@ -147,6 +147,14 @@ function startOfWeekendInZone(date: Date, timeZone: string): Date {
 // testeable con `now`/`timezone` fijos sin depender del reloj real.
 export function resolveTimeExpression(expression: string | null, now: Date, timezone: string, temporalIntent?: import('../types/agentContext').TemporalIntent | null): RetrievalTimeRange | null {
     if (!expression) {
+        if (temporalIntent?.kind === 'calendar_weekend') {
+            const currentWeekend = startOfWeekendInZone(now, timezone);
+            const weekendStart = temporalIntent.occurrence === 'next'
+                ? startOfDayInZone(addDays(currentWeekend, 7), timezone)
+                : currentWeekend;
+            const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
+            return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
+        }
         if (temporalIntent?.kind !== 'calendar_weekday') return null;
         const startToday = startOfDayInZone(now, timezone);
         const offsetMs = timeZoneOffsetMs(startToday, timezone);
