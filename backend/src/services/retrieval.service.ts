@@ -486,6 +486,49 @@ function deriveProposalViewStatus(row: any): CanonicalCommitmentStatus {
     return 'proposed';
 }
 
+// A shared proposal can receive a newer date without mutating its original
+// `due_at`. Temporal reads must match either date, but the latest
+// counterproposal is the effective date once it exists. The OR is pushed to
+// PostgREST so a date-bounded query does not discard a valid proposal before
+// the participation/status logic runs in JS.
+function applyProposalEffectiveDateRange(query: any, timeRange?: RetrieveContextInput['timeRange']): any {
+    if (!timeRange?.from && !timeRange?.to) return query;
+    const clauses: string[] = [];
+    const original: string[] = [];
+    const counterproposal: string[] = [];
+    if (timeRange.from) {
+        original.push(`due_at.gte.${timeRange.from}`);
+        counterproposal.push(`latest_counterproposal_due_at.gte.${timeRange.from}`);
+    }
+    if (timeRange.to) {
+        original.push(`due_at.lt.${timeRange.to}`);
+        counterproposal.push(`latest_counterproposal_due_at.lt.${timeRange.to}`);
+    }
+    if (original.length > 0) clauses.push(`and(${original.join(',')})`);
+    if (counterproposal.length > 0) clauses.push(`and(${counterproposal.join(',')})`);
+    return clauses.length > 0 ? query.or(clauses.join(',')) : query;
+}
+
+function isWithinEffectiveProposalDateRange(
+    dueAt: string | null,
+    proposedDueAt: string | null,
+    timeRange?: RetrieveContextInput['timeRange'],
+): boolean {
+    if (!timeRange) return true;
+    const effectiveDueAt = proposedDueAt ?? dueAt;
+    const dueMs = effectiveDueAt ? Date.parse(effectiveDueAt) : NaN;
+    if (!Number.isFinite(dueMs)) return false;
+    if (timeRange.from) {
+        const fromMs = Date.parse(timeRange.from);
+        if (!Number.isFinite(fromMs) || dueMs < fromMs) return false;
+    }
+    if (timeRange.to) {
+        const toMs = Date.parse(timeRange.to);
+        if (!Number.isFinite(toMs) || dueMs >= toMs) return false;
+    }
+    return true;
+}
+
 // M-1H v5 — el Core (nunca el modelo) resuelve la participación real del
 // actor sobre esta proposal ANTES de que llegue a síntesis. `responses` es
 // [] para una proposal SOLO (sin filas en commitment_proposal_responses);
@@ -535,7 +578,7 @@ function toRetrievalCommitmentFromProposal(
         pendingResponderNamesSafe: participation.pendingResponderIds.map((id) => namesByUserId.get(id) || 'Alguien'),
         pendingResponderIds: participation.pendingResponderIds,
         isFullyApproved: participation.isFullyApproved,
-        proposalDatePassed: isProposalDatePassed(row.due_at, nowIso),
+        proposalDatePassed: isProposalDatePassed(row.latest_counterproposal_due_at ?? row.due_at, nowIso),
     };
 }
 
@@ -600,8 +643,7 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     if (input.conversationId) query = query.eq('conversation_id', input.conversationId);
     if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
-    if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
-    if (input.timeRange?.to) query = query.lt('due_at', input.timeRange.to);
+    query = applyProposalEffectiveDateRange(query, input.timeRange);
     // Topic real vía FTS, empujado a SQL (sección 6/7 del ticket) -- mismo
     // operador/config que retrieveCommitments, nunca un ILIKE/JS fallback.
     if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
@@ -641,6 +683,11 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     let rows = dedupeById(proposalRows.map((row: any) =>
         toRetrievalCommitmentFromProposal(row, input.actorUserId, nowIso, responsesByProposal.get(row.id) || [], namesByUserId)
     ));
+    // The SQL OR is intentionally broad enough to avoid dropping a proposal
+    // before its effective date is known. Apply the exact effective-date
+    // predicate here too so callers that use this retrieval function directly
+    // receive the same half-open range contract as the context builder.
+    rows = rows.filter((row) => isWithinEffectiveProposalDateRange(row.dueAt, row.proposedDueAt, input.timeRange));
     if (input.statuses && input.statuses.length > 0) {
         const wanted = new Set(input.statuses);
         rows = rows.filter((r) => wanted.has(r.status));

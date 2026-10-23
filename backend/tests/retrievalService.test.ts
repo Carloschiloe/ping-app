@@ -859,7 +859,7 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         expect(result.map((p) => p.id)).toEqual(['pr-match']);
     });
 
-    it('sección 8F: topic + timeRange combinados -- ambos se piden a SQL (gte/lt de fecha, textSearch de topic)', async () => {
+    it('sección 8F: topic + timeRange combinados -- el rango usa la fecha original o la última contrapropuesta', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],
             commitment_proposals: [{
@@ -872,10 +872,41 @@ describe('M-1H: retrieveCommitmentProposals', () => {
 
         const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'viaje', timeRange: { from: '2026-09-01T00:00:00Z', to: '2026-09-30T00:00:00Z' } }, 20);
         const chain = mainProposalsChain(mock);
-        expect(chain.gte).toHaveBeenCalledWith('due_at', '2026-09-01T00:00:00Z');
-        expect(chain.lt).toHaveBeenCalledWith('due_at', '2026-09-30T00:00:00Z');
+        expect(chain.or).toHaveBeenCalledWith(
+            'and(due_at.gte.2026-09-01T00:00:00Z,due_at.lt.2026-09-30T00:00:00Z),and(latest_counterproposal_due_at.gte.2026-09-01T00:00:00Z,latest_counterproposal_due_at.lt.2026-09-30T00:00:00Z)',
+        );
         expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'viaje', { type: 'websearch', config: 'ping_text' }]]);
         expect(result.map((p) => p.id)).toEqual(['pr-match']);
+    });
+
+    it('incluye una proposal cuya fecha original está fuera, pero cuya última contrapropuesta cae dentro del rango', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitment_proposals: [{
+                data: [proposalRow({
+                    id: 'pr-counter',
+                    due_at: '2026-08-01T00:00:00Z',
+                    latest_counterproposal_due_at: '2026-09-15T00:00:00Z',
+                })],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitmentProposals } = await import('../src/services/retrieval.service');
+
+        const result = await retrieveCommitmentProposals({
+            actorUserId: 'u1',
+            now: '2026-09-10T00:00:00Z',
+            timeRange: { from: '2026-09-01T00:00:00Z', to: '2026-09-30T00:00:00Z' },
+        }, 20);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]).toMatchObject({
+            id: 'pr-counter',
+            dueAt: '2026-08-01T00:00:00Z',
+            proposedDueAt: '2026-09-15T00:00:00Z',
+            proposalDatePassed: false,
+        });
     });
 
     it('multilingual (sección 28): un topic en inglés se pasa a textSearch sin ninguna transformación/lógica específica de idioma', async () => {

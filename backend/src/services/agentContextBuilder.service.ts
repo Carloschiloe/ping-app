@@ -66,6 +66,7 @@ import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 import { traceProposal } from '../utils/overdueTrace';
 import { resolveAgentTimezone, timeZoneOffsetMs, startOfDayInZone } from '../utils/timezone';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
+import { effectiveCommitmentDueAt } from '../utils/commitmentDates';
 
 // ─── Context budget (sección 16) — mismo orden de magnitud que los defaults
 // de M-1B/M-1C; M-1D no inventa un techo distinto, sólo lo hace explícito a
@@ -362,8 +363,10 @@ function mergeCommitmentSources(
     const merged = [...commitments, ...proposals];
     merged.sort((a, b) => {
         if (orderByOverdueFirst) {
-            const aTime = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
-            const bTime = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
+            const aDueAt = effectiveCommitmentDueAt(a);
+            const bDueAt = effectiveCommitmentDueAt(b);
+            const aTime = aDueAt ? new Date(aDueAt).getTime() : Number.POSITIVE_INFINITY;
+            const bTime = bDueAt ? new Date(bDueAt).getTime() : Number.POSITIVE_INFINITY;
             // Tiebreaker explícito (sección 4 del ticket "STAGING
             // PUBLICATION"): mismo criterio (id ASC) que el ORDER BY real
             // de retrieveCommitmentProposals/retrieveCommitments -- nunca
@@ -1412,7 +1415,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             const fromMs = Date.parse(timeRange.from ?? '');
             const toMs = Date.parse(timeRange.to ?? '');
             return sortedCommitments.filter((commitment) => {
-                const dueMs = commitment.dueAt ? Date.parse(commitment.dueAt) : NaN;
+                const effectiveDueAt = effectiveCommitmentDueAt(commitment);
+                const dueMs = effectiveDueAt ? Date.parse(effectiveDueAt) : NaN;
                 return Number.isFinite(dueMs) && Number.isFinite(fromMs) && Number.isFinite(toMs)
                     && dueMs >= fromMs && dueMs < toMs;
             });

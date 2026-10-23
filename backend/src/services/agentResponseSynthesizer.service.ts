@@ -37,6 +37,7 @@ import type {
 } from '../types/agentResponse';
 import type { AgentClarification, AgentContext } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
+import { effectiveCommitmentDueAt } from '../utils/commitmentDates';
 import { formatCommitmentDueAtInZone, formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
@@ -263,16 +264,19 @@ function isCommitmentLikeSourceType(sourceType: string): boolean {
 
 function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNTHESIS_CONTEXT_CHARS, locale?: string): SerializedEvidence {
     const full: SerializedContext = {
-        commitments: context.commitments.map((c) => ({
-            id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: c.dueAt,
-            dueAtLocal: c.dueAt ? formatCommitmentDueAtInZone(c.dueAt, context.timezone, locale) : null,
-            resolvedAt: c.resolvedAt, resolutionResult: c.resolutionResult, ownerUserId: c.ownerUserId,
-            assignedToUserId: c.assignedToUserId,
-            isOverdue: isCommitmentOverdue(c.dueAt, c.status, context.now, context.timezone, c.entityType),
-            actorHasApproved: c.actorHasApproved, actorCanRespond: c.actorCanRespond,
-            pendingResponderNamesSafe: c.pendingResponderNamesSafe, isFullyApproved: c.isFullyApproved,
-            proposalDatePassed: c.proposalDatePassed,
-        })),
+        commitments: context.commitments.map((c) => {
+            const effectiveDueAt = effectiveCommitmentDueAt(c);
+            return {
+                id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: effectiveDueAt,
+                dueAtLocal: effectiveDueAt ? formatCommitmentDueAtInZone(effectiveDueAt, context.timezone, locale) : null,
+                resolvedAt: c.resolvedAt, resolutionResult: c.resolutionResult, ownerUserId: c.ownerUserId,
+                assignedToUserId: c.assignedToUserId,
+                isOverdue: isCommitmentOverdue(c.dueAt, c.status, context.now, context.timezone, c.entityType),
+                actorHasApproved: c.actorHasApproved, actorCanRespond: c.actorCanRespond,
+                pendingResponderNamesSafe: c.pendingResponderNamesSafe, isFullyApproved: c.isFullyApproved,
+                proposalDatePassed: c.proposalDatePassed,
+            };
+        }),
         events: context.events.map((e) => ({
             id: e.id, commitmentId: e.commitmentId, eventType: e.eventType, previousStatus: e.previousStatus, newStatus: e.newStatus,
             createdAt: e.createdAt, createdAtLocal: formatEventTimestampInZone(e.createdAt, context.timezone, locale),
@@ -1134,7 +1138,7 @@ function buildReadReferentAttributeResponse(
         citations: [reference],
     });
     const es = language === 'es';
-    const dueAt = commitment.dueAt ?? commitment.proposedDueAt ?? null;
+    const dueAt = effectiveCommitmentDueAt(commitment);
 
     if (context.followUpAttribute === 'time' || context.followUpAttribute === 'date') {
         if (!dueAt || !Number.isFinite(Date.parse(dueAt))) {
@@ -1184,7 +1188,10 @@ function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', time
         .map((commitment) => ({
             commitment,
             overdue: isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, timezone, commitment.entityType),
-            dueMs: commitment.dueAt ? Date.parse(commitment.dueAt) : Number.POSITIVE_INFINITY,
+            dueMs: (() => {
+                const dueAt = effectiveCommitmentDueAt(commitment);
+                return dueAt ? Date.parse(dueAt) : Number.POSITIVE_INFINITY;
+            })(),
             priority: priorityRank[commitment.priority?.toLowerCase() ?? ''] ?? 0,
         }))
         .filter((entry) => !['resolved', 'cancelled', 'rejected'].includes(entry.commitment.status));
@@ -1196,8 +1203,9 @@ function buildUrgencyResponse(context: AgentContext, language: 'es' | 'en', time
         || a.commitment.id.localeCompare(b.commitment.id));
     const selected = candidates[0];
     const title = selected.commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-    const due = selected.commitment.dueAt
-        ? formatEventTimestampInZone(selected.commitment.dueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
+    const selectedDueAt = effectiveCommitmentDueAt(selected.commitment);
+    const due = selectedDueAt
+        ? formatEventTimestampInZone(selectedDueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
         : null;
     const label = selected.commitment.entityType === 'commitment'
         ? (language === 'es' ? 'compromiso' : 'commitment')
@@ -1230,15 +1238,19 @@ function buildTemporalComparisonResponse(
     if (!comparison) return null;
 
     const dated = context.commitments
-        .map((commitment) => ({ commitment, dueMs: commitment.dueAt ? Date.parse(commitment.dueAt) : NaN }))
+        .map((commitment) => {
+            const dueAt = effectiveCommitmentDueAt(commitment);
+            return { commitment, dueMs: dueAt ? Date.parse(dueAt) : NaN };
+        })
         .filter((entry) => Number.isFinite(entry.dueMs));
     if (dated.length === 0) return null;
 
     dated.sort((a, b) => comparison === 'earliest' ? a.dueMs - b.dueMs : b.dueMs - a.dueMs);
     const selected = dated[0].commitment;
     const title = selected.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
-    const due = selected.dueAt
-        ? formatEventTimestampInZone(selected.dueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
+    const selectedDueAt = effectiveCommitmentDueAt(selected);
+    const due = selectedDueAt
+        ? formatEventTimestampInZone(selectedDueAt, timezone, locale ?? (language === 'es' ? 'es-CL' : 'en-US'))
         : (language === 'es' ? 'sin fecha' : 'no date');
     const isProposal = selected.entityType === 'commitment_proposal';
     const ref: AgentCitation = { sourceType: selected.provenance.sourceType, sourceId: selected.provenance.sourceId };
