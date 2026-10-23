@@ -144,11 +144,10 @@ router.get('/health', async (req, res) => {
                     ? 'process_local_read_fallback'
                     : 'process_local',
             agent_conversation_events: agentConversationEvents,
-            agent_history_persistence: !agentConversationEvents
-                ? 'disabled'
-                : durableAgentRuntime
-                    ? 'required'
-                    : 'best_effort',
+            // Conversation events are a secondary projection. Durable
+            // checkpoint/admission state remains strict, but a temporary
+            // history projection outage must not discard a valid turn.
+            agent_history_persistence: agentConversationEvents ? 'best_effort' : 'disabled',
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,
             agent_private_database_diagnostic: getLatestPrivateAgentTurnDatabaseDiagnostic(),
