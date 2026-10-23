@@ -475,6 +475,7 @@ describe('M-1B: retrieveCommitments', () => {
         const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
         expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
         expect(chain.order).not.toHaveBeenCalledWith('created_at', expect.anything());
+        expect(chain.limit).toHaveBeenCalledWith(11);
     });
 
     it('orderByOverdueFirst ausente/false preserva el orden previo por created_at descendente', async () => {

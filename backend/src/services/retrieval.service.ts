@@ -378,7 +378,18 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     // siempre) porque el orden final lo decide rankCommitments incluyendo
     // relevancia textual — sin esto, el "order by created_at + limit" del
     // SQL podría cortar antes de traer el match textualmente más fuerte.
-    const fetchLimit = textQuery ? overfetchLimit(limit, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER) : limit;
+    // Para una consulta de vencidos se pide una fila adicional como sonda de
+    // completitud. El contexto final sigue limitado al budget del Agent, pero
+    // si la fila 11 también sobrevive al filtro semántico Core puede informar
+    // honestamente que la lista visible está truncada. Sin esta sonda, una
+    // consulta con 38 vencidos reales y budget 10 parecía completa porque el
+    // SQL devolvía exactamente 10 y no había evidencia local de la fila 11.
+    const retrievalLimit = input.orderByOverdueFirst
+        ? Math.min(limit + 1, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER)
+        : limit;
+    const fetchLimit = textQuery
+        ? overfetchLimit(retrievalLimit, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER)
+        : retrievalLimit;
 
     let query = supabaseAdmin
         .from('commitments')
