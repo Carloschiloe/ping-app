@@ -1014,6 +1014,10 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
             from: '2026-09-07T00:00:00.000Z',
             to: '2026-09-14T00:00:00.000Z',
         });
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({
+            timeRange: { from: '2026-09-07T00:00:00.000Z', to: '2026-09-14T00:00:00.000Z' },
+            statuses: ['proposed', 'accepted', 'counter_proposal'],
+        }), expect.any(Number));
     });
 
     // PING — M-2 HISTORICAL TRANSITION ABSENCE FIX: requestedTransition debe

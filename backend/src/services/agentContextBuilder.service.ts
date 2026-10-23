@@ -786,11 +786,19 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         // that semantics (not even the deterministic value, since the
         // requested transition itself is what the answer must verify
         // against, never a retrieval-narrowing status filter).
+        // A bounded calendar query with an explicit status word ("pendientes",
+        // "resueltos", "cancelados", ...) must keep the Core's deterministic
+        // status signal. Otherwise a provider response such as
+        // `statusHints=['accepted']` can silently replace the user's open
+        // request and make proposed/counter-proposal commitments disappear.
+        // Future-only horizons retain their established accepted-only
+        // contract; historical lifecycle questions remain unfiltered because
+        // they ask about an occurrence, not current status.
         statusHints: isHistoricalLifecycleQuery(input.input) || neutralTemporalCollection || ungroundedRawTemporalClaim
             ? null
             : futureOnlyTemporal
                 ? ['accepted']
-                : rawInterpretation.statusHints,
+                : deterministicSignals.statusHints ?? rawInterpretation.statusHints,
         topicHints: ungroundedRawTemporalClaim
             ? []
             : commitmentSignalConfident
