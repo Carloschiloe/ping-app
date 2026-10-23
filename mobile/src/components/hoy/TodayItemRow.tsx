@@ -147,10 +147,13 @@ export const TodayItemRow = React.memo(function TodayItemRow({ commitment: c, cu
 
     const goToChat = () => {
         if (!conversationId) return;
-        navigation.navigate('Chat' as any, {
-            conversationId,
-            isSelf: false,
-            scrollToMessageId: c.message_id,
+        navigation.navigate('Chats', {
+            screen: 'Chat',
+            params: {
+                conversationId,
+                isSelf: false,
+                scrollToMessageId: c.message_id,
+            },
         });
     };
 

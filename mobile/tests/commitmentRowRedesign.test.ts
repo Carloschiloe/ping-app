@@ -72,6 +72,10 @@ describe('sección 17: menú de overflow Android usa Modal real (mismo primitivo
         expect(TODAY_ITEM_ROW_SRC).toMatch(/<Modal visible=\{menuVisible\}/);
         expect(TODAY_ITEM_ROW_SRC).not.toMatch(/position: 'absolute',\s*right: 0,\s*top: 32/);
     });
+    it('TodayItemRow.tsx navega al chat anidado mediante el tab Chats', () => {
+        expect(TODAY_ITEM_ROW_SRC).toMatch(/navigation\.navigate\('Chats',\s*\{\s*screen:\s*'Chat'/s);
+        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/navigation\.navigate\('Chat'\s+as\s+any/);
+    });
     it('ambos menús preservan exactamente las mismas acciones (sección 17: "Do NOT redesign navigation")', () => {
         expect(TODAY_ITEM_ROW_SRC).toMatch(/Ver conversación/);
         expect(TODAY_ITEM_ROW_SRC).toMatch(/Ver en Compromisos/);

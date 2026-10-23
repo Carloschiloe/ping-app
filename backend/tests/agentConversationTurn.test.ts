@@ -259,6 +259,27 @@ describe('Agent conversation persistence', () => {
         expect(retryDb.getRpcCalls()[0]?.args.p_client_turn_key).toBe('client-turn-1:execution');
     });
 
+    it('loads the newest bounded history window and returns it chronologically', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            agent_conversation_turns: [{
+                data: [
+                    { id: 'turn-new', conversation_id: CONVERSATION_ID, actor_user_id: ACTOR_ID, client_turn_key: 'new', input_text: 'new', input_mode: 'text', result_kind: 'response', result, created_at: '2026-10-23T19:02:00.000Z', conversations: { deleted_at: null, agent_history_cleared_at: null } },
+                    { id: 'turn-old', conversation_id: CONVERSATION_ID, actor_user_id: ACTOR_ID, client_turn_key: 'old', input_text: 'old', input_mode: 'text', result_kind: 'response', result, created_at: '2026-10-23T19:01:00.000Z', conversations: { deleted_at: null, agent_history_cleared_at: null } },
+                ],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(db);
+        const { listAgentConversationTurns } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(listAgentConversationTurns(ACTOR_ID, CONVERSATION_ID)).resolves.toMatchObject([
+            { clientTurnKey: 'old' },
+            { clientTurnKey: 'new' },
+        ]);
+        expect(db.getCalledTables()).toEqual(['conversation_participants', 'agent_conversation_turns']);
+    });
+
     it('clears the Agent projection with a reversible cutoff, without deleting events', async () => {
         const db = createSupabaseAdminMock({
             conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],

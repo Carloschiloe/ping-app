@@ -204,6 +204,10 @@ export interface RetrieveContextInput {
     personId?: string;   // profiles.id ya resuelto
     contactId?: string;  // contacts.id ya resuelto
     timeRange?: RetrievalTimeRange;
+    // Exact count support for overdue queries. The boundary is the start of
+    // the actor's current calendar day, so same-day past items are not
+    // misclassified as overdue by the count path.
+    overdueBefore?: string;
     types?: RetrievalSourceType[];
     statuses?: CanonicalCommitmentStatus[];
     // M-1G.2 — hallazgo real de staging: sin esto, retrieveCommitments

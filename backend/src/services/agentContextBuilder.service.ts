@@ -15,6 +15,7 @@ import {
     resolvePerson,
     retrieveCommitments,
     retrieveCommitmentProposals,
+    countVisibleCommitments,
     retrieveCommitmentEvents,
     retrieveMessages,
     retrieveTranscriptions,
@@ -1591,7 +1592,37 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // modelo de síntesis nunca cuenta manualmente (ver
     // agentResponseSynthesizer.service.ts, camino de respuesta determinística
     // para queryCardinality='count').
-    const countResult = queryCardinality === 'count' ? commitments.length : undefined;
+    // COUNT CONTRACT: list retrieval is intentionally budgeted, therefore its
+    // length can never be used as the total. For ordinary commitment counts,
+    // ask PostgreSQL for the exact authorized cardinality using the same
+    // structured filters. Proposal-focused counts keep the existing
+    // proposal-aware Core result because their truth lives in a second table
+    // and participation state, not in the canonical commitment count query.
+    let exactCommitmentCount: number | undefined;
+    if (queryCardinality === 'count'
+        && interpretation.proposalFocus === null
+        && !needsClarification
+        && !personScopeBlocked
+        && !priorReferentId
+        && !input.authorizedCommitmentReferentId
+        && interpretation.wantsCommitments) {
+        exactCommitmentCount = await countVisibleCommitments({
+            actorUserId: input.actorUserId,
+            conversationId,
+            personId: resolvedPersonId,
+            statuses: interpretation.wantsOverdueFocus
+                ? ['proposed', 'accepted', 'counter_proposal']
+                : interpretation.statusHints ?? undefined,
+            timeRange: timeRange ?? undefined,
+            query: interpretation.textQuery ?? undefined,
+            overdueBefore: interpretation.wantsOverdueFocus
+                ? startOfDayInZone(now, timezone).toISOString()
+                : undefined,
+        });
+    }
+    const countResult = queryCardinality === 'count'
+        ? (exactCommitmentCount ?? commitments.length)
+        : undefined;
 
     if (interpretation.proposalFocus !== null || queryCardinality === 'exhaustive_list' || queryCardinality === 'count') {
         traceProposal(input.traceId, 'REQUIRED_SOURCE_REFS', {

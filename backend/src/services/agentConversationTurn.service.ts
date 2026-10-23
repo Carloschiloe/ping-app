@@ -253,7 +253,12 @@ export async function listAgentConversationTurns(
         .eq('conversation_id', conversationId)
         .eq('actor_user_id', actorUserId)
         .is('conversations.deleted_at', null)
-        .order('created_at', { ascending: true })
+        // Load the newest bounded window, then restore chronological order for
+        // the mobile renderer. Ordering ascending before applying the limit
+        // returned the oldest 200 turns and silently hid the active tail of a
+        // long-lived conversation.
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(Math.min(Math.max(limit, 1), 200));
 
     if (error) throw new AppError('Could not load the Agent conversation history', 500);
@@ -269,7 +274,8 @@ export async function listAgentConversationTurns(
         resultKind: row.result_kind,
         result: row.result,
         createdAt: row.created_at,
-        }));
+        }))
+        .reverse();
 }
 
 function isClearedAgentHistoryRow(row: any): boolean {

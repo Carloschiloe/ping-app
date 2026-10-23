@@ -361,6 +361,7 @@ function applyCommitmentReadFilters(query: any, input: RetrieveContextInput): an
     // builders use the next midnight as `to`; `lt` prevents a commitment at
     // exactly that boundary from leaking into the previous calendar query.
     if (input.timeRange?.to) query = query.lt('due_at', input.timeRange.to);
+    if (input.overdueBefore) query = query.lt('due_at', input.overdueBefore);
     if (input.query?.trim()) query = query.textSearch('search_tsv', input.query.trim(), { type: 'websearch', config: FTS_CONFIG });
     return query;
 }
@@ -384,7 +385,10 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     // honestamente que la lista visible está truncada. Sin esta sonda, una
     // consulta con 38 vencidos reales y budget 10 parecía completa porque el
     // SQL devolvía exactamente 10 y no había evidencia local de la fila 11.
-    const retrievalLimit = input.orderByOverdueFirst
+    // Any ordered temporal list needs one extra row as a completeness probe.
+    // Without this, a calendar query such as "esta semana" that has exactly
+    // the presentation budget looks complete even when the next row exists.
+    const retrievalLimit = input.orderByOverdueFirst || input.orderByDueAtFirst
         ? Math.min(limit + 1, DEFAULT_LIMITS.commitments * MAX_LIMIT_MULTIPLIER)
         : limit;
     const fetchLimit = textQuery

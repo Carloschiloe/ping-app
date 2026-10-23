@@ -491,6 +491,20 @@ describe('M-1B: retrieveCommitments', () => {
         expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
         expect(chain.order).not.toHaveBeenCalledWith('due_at', expect.anything());
     });
+
+    it('orderByDueAtFirst también solicita una fila de sondeo para detectar listas temporales truncadas', async () => {
+        const mock = createSupabaseAdminMock({
+            commitment_proposal_responses: [{ data: [], error: null }],
+            commitments: [{ data: [row()], error: null }],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveCommitments } = await import('../src/services/retrieval.service');
+
+        await retrieveCommitments({ actorUserId: 'u1', orderByDueAtFirst: true }, 10);
+        const chain = mock.from.mock.results[mock.from.mock.results.length - 1].value;
+        expect(chain.order).toHaveBeenCalledWith('due_at', { ascending: true, nullsFirst: false });
+        expect(chain.limit).toHaveBeenCalledWith(11);
+    });
 });
 
 // ─── M-1H: retrieveCommitmentProposals (hallazgo real de staging, caso
