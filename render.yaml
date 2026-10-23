@@ -34,6 +34,8 @@ services:
         sync: false
       - key: M8_LIVE_VOICE_ENABLED
         value: "true"
+      - key: M8_LIVE_VOICE_TELEMETRY_PERSISTENCE
+        value: "true"
       - key: M8_LIVE_VOICE_MODEL
         value: gpt-realtime-2.1
       - key: SUPABASE_URL
