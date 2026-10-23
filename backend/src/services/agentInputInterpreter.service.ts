@@ -235,7 +235,21 @@ const SUMMARY_KEYWORDS = wordBounded('res[úu]me\\w*|resumen|summarize|summary')
 // siempre gana). Deliberadamente pequeño y genérico, mismo principio que
 // COUNT_KEYWORDS/SUMMARY_KEYWORDS -- nunca vocabulario de una sola frase.
 const EXPLICIT_LIST_KEYWORDS = wordBounded('todos|todas|cada uno|cu[áa]les|every|all( my)?|which (ones|commitments|tasks)');
-const TEMPORAL_COLLECTION_INTERROGATIVE = wordBounded('cu[áa]les?|which');
+// A temporal collection request is defined by its speech shape, not by a
+// memorized sentence: an interrogative asks what the actor has/needs/owes or
+// what exists in a time window. This covers both the explicit noun form
+// ("qué compromisos tengo mañana") and the elliptical follow-up form
+// ("y cuáles tengo esta semana") while leaving recall questions such as
+// "qué pasó ayer" to RECALL_KEYWORDS.
+const TEMPORAL_COLLECTION_QUERY = wordBounded(
+    '(?:cu[áa]l(?:es)?|qu[eé]|which|what)\\s+'
+    + '(?:(?:pendientes?|compromisos?|tareas?|commitments?|tasks?|cosas?|things?)\\s+)?'
+    + '(?:tengo|hay|debo|debemos|son|queda|quedan|falta|faltan|viene|vienen|'
+    + 'do\\s+i\\s+have|are\\s+there|is\\s+there)',
+);
+export function isTemporalCollectionQuery(input: string): boolean {
+    return TEMPORAL_COLLECTION_QUERY.test(input) && extractTimeExpression(input) !== null;
+}
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 // Natural obligation language is normalized here, once, so the same meaning
 // drives status filtering, cardinality and FTS cleanup. These phrases are
@@ -652,7 +666,7 @@ const STOPWORDS = new Set([
     // preguntas de vencido/status ("¿Qué hay vencido?" -> "hay", "¿Tengo
     // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
     // have..." -> "I") — sin significado temático propio en ningún idioma.
-    'hay', 'algo', 'es', 'is', 'i', 'y', 'tiene', 'has', 'mayor', 'estos', 'estas', 'queda', 'quedan', 'falta', 'faltan',
+    'hay', 'algo', 'es', 'is', 'i', 'y', 'tiene', 'has', 'mayor', 'estos', 'estas', 'queda', 'quedan', 'falta', 'faltan', 'sigue', 'son',
     // M-1H v6: mismo residuo que arriba pero para proposalFocus -- "¿Qué
     // estoy esperando?" ya captura "esperando" vía
     // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo
@@ -1027,7 +1041,7 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     // "Y cuáles tengo esta semana?". The temporal operator is canonicalized
     // below; this gate keeps the domain deterministic and prevents the
     // interrogative from becoming an FTS topic.
-    if (TEMPORAL_COLLECTION_INTERROGATIVE.test(input) && extractTimeExpression(input) !== null) {
+    if (isTemporalCollectionQuery(input)) {
         return { type: 'commitment_query', confidence: 0.8 };
     }
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };

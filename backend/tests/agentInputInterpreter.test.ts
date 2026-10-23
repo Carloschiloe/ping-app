@@ -5,6 +5,7 @@ import {
     isSocialConversationInput,
     inferDeterministicFollowUpAttribute,
     inferTemporalIntent,
+    isTemporalCollectionQuery,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -60,10 +61,21 @@ describe('deterministic read follow-up safety net', () => {
 
 describe('deterministic temporal collection language', () => {
     it.each([
+        '¿Qué tengo para mañana?',
+        '¿Qué hay el viernes?',
+        '¿Cuáles son mis compromisos esta semana?',
+    ])('detects the collection speech shape: %s', (input) => {
+        expect(isTemporalCollectionQuery(input)).toBe(true);
+    });
+
+    it.each([
         'Y cuáles tengo esta semana?',
         '¿Cuáles compromisos tengo esta semana?',
         '¿Qué me falta esta semana?',
         '¿Qué me queda para estos días?',
+        '¿Qué tengo para mañana?',
+        '¿Qué hay el viernes?',
+        '¿Cuáles son mis compromisos esta semana?',
     ])('normalizes collection language without an FTS topic: %s', async (input) => {
         const result = await new DeterministicInputInterpreter().interpret(input, {});
 
@@ -71,6 +83,23 @@ describe('deterministic temporal collection language', () => {
         expect(result.textQuery).toBeNull();
         expect(result.wantsCommitments).toBe(true);
         expect(result.intent).toBe('commitment_query');
+    });
+
+    it.each([
+        '¿Qué pasó ayer?',
+        '¿Qué me dijiste esta semana?',
+    ])('does not confuse temporal recall with a collection query: %s', async (input) => {
+        const result = await new DeterministicInputInterpreter().interpret(input, {});
+
+        expect(result.intent).not.toBe('commitment_query');
+    });
+
+    it('removes functional collection language from a status query without removing a real topic', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué sigue pendiente sobre el viaje?', {});
+
+        expect(result.intent).toBe('commitment_query');
+        expect(result.statusHints).toEqual(['proposed', 'accepted', 'counter_proposal']);
+        expect(result.textQuery).toBe('viaje');
     });
 });
 
@@ -1918,9 +1947,9 @@ describe('CANONICAL RETRIEVAL ROUTING: DeterministicInputInterpreter — domain 
         expect(r.wantsCommitments).toBe(true);
     });
 
-    it('"Que tengo para hoy?" (general_context CON timeExpression real) -> retrieval permitido, nunca tratado como "Hola"', async () => {
+    it('"Que tengo para hoy?" (colección temporal) -> commitment_query y retrieval permitido, nunca tratado como "Hola"', async () => {
         const r = await new DeterministicInputInterpreter().interpret('Que tengo para hoy?', {});
-        expect(r.intent).toBe('general_context');
+        expect(r.intent).toBe('commitment_query');
         expect(r.timeExpression).toBe('hoy');
         expect(r.wantsCommitments).toBe(true);
         expect(r.wantsMessages).toBe(true);
