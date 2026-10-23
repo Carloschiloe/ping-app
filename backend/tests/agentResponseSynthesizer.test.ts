@@ -884,7 +884,7 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         const synthesizer = new LlmResponseSynthesizer({ model });
         const response = await synthesizer.synthesize({ input: '¿Qué tengo vencido?', context: ctx });
 
-        expect(response.answer).toContain('Entrenar está vencido.');
+        expect(response.answer).toContain('Entrenar está vencido. Programado para');
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
@@ -908,8 +908,31 @@ describe('M-1G.1: overdue disclosure — hallazgo real de staging (M-1G-S2, Caso
         expect(model.synthesize).not.toHaveBeenCalled();
         expect(response.status).toBe('answered');
         expect(response.claims).toHaveLength(10);
-        expect(response.answer).toContain('Pendiente vencido 1 está vencido.');
-        expect(response.answer).toContain('Pendiente vencido 10 está vencido.');
+        expect(response.answer).toContain('Pendiente vencido 1 está vencido. Programado para');
+        expect(response.answer).toContain('Pendiente vencido 10 está vencido. Programado para');
+    });
+
+    it('una lista vencida acotada informa que hay más resultados y no finge completitud', async () => {
+        const overdueCommitments = Array.from({ length: 10 }, (_, index) => commitment(`cm-overdue-truncated-${index}`, {
+            title: `Pendiente truncado ${index + 1}`,
+            status: 'accepted',
+            dueAt: '2026-07-31T00:00:00Z',
+        }));
+        const ctx = baseContext({
+            evidenceFound: true,
+            wantsOverdueFocus: true,
+            commitments: overdueCommitments as any,
+            requiredSourceRefsTruncated: true,
+            provenance: overdueCommitments.map((item) => item.provenance),
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: '¿Qué tengo fuera de plazo?', context: ctx });
+
+        expect(response.status).toBe('answered');
+        expect(response.answer).toMatch(/hay más compromisos vencidos/i);
+        expect(response.answer).toContain('Pendiente truncado 1 está vencido. Programado para');
+        expect(model.synthesize).not.toHaveBeenCalled();
     });
 
     it('un commitment con dueAt futuro NUNCA se marca isOverdue, aunque wantsOverdueFocus sea true', async () => {

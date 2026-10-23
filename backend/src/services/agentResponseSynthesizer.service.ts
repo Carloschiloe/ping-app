@@ -1183,6 +1183,7 @@ function isDeterministicTemporalCommitmentList(context: AgentContext): boolean {
 }
 
 function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const locale = language === 'es' ? 'es-CL' : 'en-US';
     const overdue = context.commitments.filter((commitment) =>
         commitment.entityType === 'commitment'
         && isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, context.timezone, 'commitment')
@@ -1196,12 +1197,25 @@ function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): Age
         };
     }
     const claims = overdue.map((commitment) => ({
-        text: language === 'es' ? commitment.title + ' está vencido.' : commitment.title + ' is overdue.',
+        text: (() => {
+            const dueAt = effectiveCommitmentDueAt(commitment);
+            const due = dueAt
+                ? formatCommitmentDueAtInZone(dueAt, context.timezone, locale)
+                : (language === 'es' ? 'sin fecha' : 'no date');
+            return language === 'es'
+                ? `${commitment.title} está vencido. Programado para ${due}.`
+                : `${commitment.title} is overdue. Scheduled for ${due}.`;
+        })(),
         sourceRefs: [commitment.provenance],
     }));
+    const truncationNotice = context.requiredSourceRefsTruncated
+        ? (language === 'es'
+            ? ' Muestro los más antiguos disponibles; hay más compromisos vencidos fuera de esta respuesta.'
+            : ' I am showing the oldest available items; more overdue commitments are outside this response.')
+        : '';
     return {
         status: 'answered',
-        answer: claims.map((claim) => claim.text).join(' '),
+        answer: claims.map((claim) => claim.text).join(' ') + truncationNotice,
         claims,
         citations: claims.flatMap((claim) => claim.sourceRefs),
     };
@@ -1681,7 +1695,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
 
         // Secciones 15-17: 3 de los 4 caminos NUNCA llaman al modelo — cero
         // riesgo de alucinación, cero costo/latencia extra (sección 38).
-        const explicitOverdueQuestion = /\b(vencid[oa]s?|atrasad[oa]s?|overdue|late)\b/iu.test(input.input);
+        const explicitOverdueQuestion = /\b(vencid[oa]s?|atrasad[oa]s?|retrasad[oa]s?|caducad[oa]s?|overdue|late)\b|fuera\s+de\s+plazo/iu.test(input.input);
         if (status === 'answered'
             && context.wantsOverdueFocus
             && explicitOverdueQuestion
