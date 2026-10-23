@@ -1057,14 +1057,73 @@ export function enforceExhaustiveCoverage(claims: AgentClaim[], context: AgentCo
 // (needs_clarification/no_evidence/capability_gap más abajo): cero riesgo de
 // alucinación numérica, cero costo/latencia de un llamado al modelo para un
 // hecho que el Core ya conoce con certeza estructural.
+function localCalendarKey(date: Date, timezone: string): string {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function calendarDayDifference(fromKey: string, toKey: string): number | null {
+    const from = Date.parse(`${fromKey}T00:00:00Z`);
+    const to = Date.parse(`${toKey}T00:00:00Z`);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    return Math.round((to - from) / 86_400_000);
+}
+
+// For a one-day temporal collection, repeat the user's semantic frame rather
+// than redundantly returning the full calendar date. The underlying dueAt is
+// still formatted in the actor's timezone; only the presentation changes.
+function formatCommitmentDueForTemporalQuery(
+    dueAt: string,
+    context: AgentContext,
+    language: 'es' | 'en',
+    locale: string,
+): string {
+    const absolute = formatCommitmentDueAtInZone(dueAt, context.timezone, locale);
+    const range = context.entities.timeRange;
+    if (!range?.from || !range.to) return absolute;
+
+    const rangeStart = new Date(range.from);
+    const rangeEnd = new Date(range.to);
+    const dueDate = new Date(dueAt);
+    if ([rangeStart, rangeEnd, dueDate].some((date) => !Number.isFinite(date.getTime()))) return absolute;
+
+    const rangeStartKey = localCalendarKey(rangeStart, context.timezone);
+    const rangeEndKey = localCalendarKey(new Date(rangeEnd.getTime() - 1), context.timezone);
+    const dueKey = localCalendarKey(dueDate, context.timezone);
+    // Only collapse a true single-calendar-day query. A week/horizon keeps
+    // the absolute weekday/date so each item remains independently clear.
+    if (rangeStartKey !== rangeEndKey || dueKey !== rangeStartKey) return absolute;
+
+    const nowKey = localCalendarKey(new Date(context.now), context.timezone);
+    const offset = calendarDayDifference(nowKey, rangeStartKey);
+    if (offset === null) return absolute;
+    const time = new Intl.DateTimeFormat(locale, {
+        timeZone: context.timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(dueDate);
+    if (language === 'es') {
+        if (offset === 0) return `hoy a las ${time}`;
+        if (offset === 1) return `mañana a las ${time}`;
+        if (offset === -1) return `ayer a las ${time}`;
+    } else {
+        if (offset === 0) return `today at ${time}`;
+        if (offset === 1) return `tomorrow at ${time}`;
+        if (offset === -1) return `yesterday at ${time}`;
+    }
+    return absolute;
+}
+
 function buildCommitmentListResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
+    const locale = language === 'es' ? 'es-CL' : 'en-US';
     const claims = context.commitments.map((commitment) => {
         const overdue = commitment.entityType === 'commitment'
             && isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, context.timezone, 'commitment');
         const suffix = overdue ? (language === 'es' ? ' (vencido)' : ' (overdue)') : '';
         const dueAt = effectiveCommitmentDueAt(commitment);
         const due = dueAt
-            ? formatCommitmentDueAtInZone(dueAt, context.timezone, language === 'es' ? 'es-CL' : 'en-US')
+            ? formatCommitmentDueForTemporalQuery(dueAt, context, language, locale)
             : null;
         const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
         return { text: `${title}${due ? ` — ${due}` : ''}${suffix}.`, sourceRefs: [commitment.provenance] };

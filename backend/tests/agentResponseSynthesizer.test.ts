@@ -612,6 +612,33 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
+    it('una consulta de mañana usa el marco relativo y conserva sólo la hora necesaria', async () => {
+        const ctx = baseContext({
+            input: '¿Qué compromisos tengo mañana?',
+            now: '2026-09-22T12:00:00Z',
+            timezone: 'America/Santiago',
+            evidenceFound: true,
+            commitments: [commitment('cm-pan-relative', {
+                title: 'comprar pan para probar ping',
+                dueAt: '2026-09-23T13:00:00Z',
+            })] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T03:00:00.000Z', to: '2026-09-24T03:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.answer).toContain('comprar pan para probar ping — mañana a las 10:00.');
+        expect(response.answer).not.toContain('23 de septiembre de 2026');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
     it('una consulta temporal sin compromisos responde sólo sobre compromisos, aunque exista otra evidencia', async () => {
         const ctx = baseContext({
             input: '¿Qué compromisos tengo mañana?',
