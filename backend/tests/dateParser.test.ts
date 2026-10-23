@@ -35,6 +35,14 @@ describe('parseDateFromText', () => {
         expect(result?.date.toISOString()).toBe('2026-08-05T17:00:00.000Z');
     });
 
+    it.each([
+        ['manana a las 13:00', '2026-09-02T17:00:00.000Z'],
+        ['pasado manana a las 13:00', '2026-09-03T17:00:00.000Z'],
+    ])('resuelve días relativos sin tilde y no confunde pasado manana: %s', (text, expectedIso) => {
+        const result = parseDateFromText(text, TUESDAY_SEPTEMBER_1, 'America/Santiago');
+        expect(result?.date.toISOString()).toBe(expectedIso);
+    });
+
     it('"próximo miércoles" dicho un miércoles siempre avanza siete días', () => {
         const wednesdayReference = new Date('2026-08-05T15:00:00.000Z');
         const result = parseDateFromText(

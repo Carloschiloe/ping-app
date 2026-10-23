@@ -357,7 +357,10 @@ function applyCommitmentReadFilters(query: any, input: RetrieveContextInput): an
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
     if (input.statuses && input.statuses.length > 0) query = query.in('status', input.statuses);
     if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
-    if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    // Time ranges are canonical half-open intervals [from, to). All range
+    // builders use the next midnight as `to`; `lt` prevents a commitment at
+    // exactly that boundary from leaking into the previous calendar query.
+    if (input.timeRange?.to) query = query.lt('due_at', input.timeRange.to);
     if (input.query?.trim()) query = query.textSearch('search_tsv', input.query.trim(), { type: 'websearch', config: FTS_CONFIG });
     return query;
 }
@@ -598,7 +601,7 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
     if (input.personId) query = query.or(`proposed_responsible_user_id.eq.${input.personId},proposed_by_user_id.eq.${input.personId}`);
     if (input.contactId) query = query.eq('counterparty_contact_id', input.contactId);
     if (input.timeRange?.from) query = query.gte('due_at', input.timeRange.from);
-    if (input.timeRange?.to) query = query.lte('due_at', input.timeRange.to);
+    if (input.timeRange?.to) query = query.lt('due_at', input.timeRange.to);
     // Topic real vía FTS, empujado a SQL (sección 6/7 del ticket) -- mismo
     // operador/config que retrieveCommitments, nunca un ILIKE/JS fallback.
     if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });

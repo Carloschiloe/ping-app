@@ -1260,6 +1260,11 @@ export function inferTemporalIntent(input: string): TemporalIntent | null {
     }
     if (/\b(?:hoy|today)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 0, futureOnly: false };
     if (/\b(?:ayer|yesterday)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: -1, futureOnly: false };
+    // Check the two-day expression before the one-day token: "pasado
+    // mañana" contains "mañana", so the generic branch must never win.
+    if (/\b(?:pasado\s+mañana|pasado\s+manana|day\s+after\s+tomorrow)\b/i.test(lower)) {
+        return { kind: 'calendar_day', offsetDays: 2, futureOnly: false };
+    }
     if (/\b(?:ma\u00f1ana|manana|tomorrow)\b/i.test(lower)) return { kind: 'calendar_day', offsetDays: 1, futureOnly: false };
     return null;
 }

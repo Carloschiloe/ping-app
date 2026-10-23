@@ -128,6 +128,15 @@ describe('deterministic upcoming horizon parsing', () => {
     it('does not invent a temporal range for an unrelated number', () => {
         expect(inferTemporalIntent('Tengo 3 compromisos')).toBeNull();
     });
+
+    it('resolves accentless tomorrow and keeps the two-day expression distinct', () => {
+        expect(inferTemporalIntent('¿Qué tengo para manana?')).toEqual({
+            kind: 'calendar_day', offsetDays: 1, futureOnly: false,
+        });
+        expect(inferTemporalIntent('¿Qué tengo para pasado manana?')).toEqual({
+            kind: 'calendar_day', offsetDays: 2, futureOnly: false,
+        });
+    });
 });
 
 const validPayload = (overrides: Partial<Record<string, any>> = {}) => JSON.stringify({

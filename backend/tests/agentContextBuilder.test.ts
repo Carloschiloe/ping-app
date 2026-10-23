@@ -234,6 +234,15 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it('resuelve "manana" sin tilde con el mismo rango que "mañana"', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const now = new Date('2026-06-15T12:00:00.000Z');
+        expect(resolveTimeExpression('manana', now, 'UTC')).toEqual({
+            from: '2026-06-16T00:00:00.000Z',
+            to: '2026-06-17T00:00:00.000Z',
+        });
+    });
+
     it('resuelve "los próximos N días" como un horizonte futuro acotado', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');

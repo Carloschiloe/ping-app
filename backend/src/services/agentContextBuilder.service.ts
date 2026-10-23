@@ -178,14 +178,14 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
     }
 
 
-    if (/hoy|today/.test(expr)) {
+    if (/hoy|today/.test(normalizedExpression)) {
         return { from: startOfDayInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
     }
-    if (/ayer|yesterday/.test(expr)) {
+    if (/ayer|yesterday/.test(normalizedExpression)) {
         const yesterday = addDays(now, -1);
         return { from: startOfDayInZone(yesterday, timezone).toISOString(), to: endOfDayInZone(yesterday, timezone).toISOString() };
     }
-    if (/mañana|tomorrow/.test(expr)) {
+    if (/manana|tomorrow/.test(normalizedExpression)) {
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
     }

@@ -290,7 +290,7 @@ export const parseDateFromText = (
         .replace(/Ã³/g, 'ó').replace(/Ãº/g, 'ú').replace(/Ã±/g, 'ñ')
         .replace(/Ã‰/g, 'É').replace(/Ã‘/g, 'Ñ');
     const timeZone = resolveTimeZone(requestedTimeZone);
-    const relativeDay = normalizeSpanish(parserText).match(/\\b(pasado\\s+manana|manana|hoy)\\b/u);
+    const relativeDay = normalizeSpanish(parserText).match(/\b(pasado\s+manana|manana|hoy)\b/u);
     if (relativeDay) {
         const reference = wallClockParts(referenceDate, timeZone);
         const offsetDays = relativeDay[1] === 'pasado manana' ? 2 : relativeDay[1] === 'manana' ? 1 : 0;

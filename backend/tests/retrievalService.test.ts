@@ -859,7 +859,7 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         expect(result.map((p) => p.id)).toEqual(['pr-match']);
     });
 
-    it('sección 8F: topic + timeRange combinados -- ambos se piden a SQL (gte/lte de fecha, textSearch de topic)', async () => {
+    it('sección 8F: topic + timeRange combinados -- ambos se piden a SQL (gte/lt de fecha, textSearch de topic)', async () => {
         const mock = createSupabaseAdminMock({
             commitment_proposal_responses: [{ data: [], error: null }],
             commitment_proposals: [{
@@ -873,7 +873,7 @@ describe('M-1H: retrieveCommitmentProposals', () => {
         const result = await retrieveCommitmentProposals({ actorUserId: 'u1', query: 'viaje', timeRange: { from: '2026-09-01T00:00:00Z', to: '2026-09-30T00:00:00Z' } }, 20);
         const chain = mainProposalsChain(mock);
         expect(chain.gte).toHaveBeenCalledWith('due_at', '2026-09-01T00:00:00Z');
-        expect(chain.lte).toHaveBeenCalledWith('due_at', '2026-09-30T00:00:00Z');
+        expect(chain.lt).toHaveBeenCalledWith('due_at', '2026-09-30T00:00:00Z');
         expect(mock.getTextSearchCalls('commitment_proposals')).toEqual([['search_tsv', 'viaje', { type: 'websearch', config: 'ping_text' }]]);
         expect(result.map((p) => p.id)).toEqual(['pr-match']);
     });
