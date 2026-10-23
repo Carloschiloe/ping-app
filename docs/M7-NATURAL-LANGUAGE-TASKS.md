@@ -93,6 +93,7 @@ Procedimiento mínimo: comprobar en Render la existencia de `PING_M7_DATABASE_UR
 | 2026-09-22 | Regresión backend sin red | 11 pruebas con Supabase fallaron por `fetch failed`/`AuthRetryableFetchError`; se repitió con acceso autorizado de staging y no reprodujo fallos |
 | 2026-09-22 | Regresión mobile | 108/108 PASS |
 | 2026-10-23 | Integración privada de producción | Pendiente: Render reporta `missing_url`; no se modificaron secretos |
+| 2026-10-23 | Revisión de avisos CI y gate actual | Los avisos históricos de `fd884ac`/`f71bc53` correspondían a regresiones ya corregidas; estado actual: 174 suites PASS, 2.529 pruebas PASS, 4 suites/5 pruebas omitidas y 18 TODO; regresiones específicas 11/11 PASS |
 
 La batería ciega quedó definida después del congelamiento de implementación y no reutiliza el fixture general. Incluye equivalencias y contrastes consulta/creación, rechazo/cancelación y negación/confirmación, además de expresiones inéditas y coloquialismos. Está en `backend/tests/m7NaturalLanguageBlind.test.ts`.
 
