@@ -247,6 +247,19 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it('resuelve "este fin de semana" como sábado-domingo en la zona del usuario', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { DeterministicInputInterpreter } = await import('../src/services/agentInputInterpreter.service');
+        const now = new Date('2026-10-23T12:31:00.000Z'); // viernes 23 en America/Santiago
+        const interpretation = await new DeterministicInputInterpreter().interpret('¿Qué tengo este fin de semana?');
+
+        expect(interpretation.timeExpression).toBe('este fin de semana');
+        expect(resolveTimeExpression(interpretation.timeExpression, now, 'America/Santiago')).toEqual({
+            from: '2026-10-24T03:00:00.000Z',
+            to: '2026-10-26T03:00:00.000Z',
+        });
+    });
+
     it('resuelve "manana" sin tilde con el mismo rango que "mañana"', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const now = new Date('2026-06-15T12:00:00.000Z');

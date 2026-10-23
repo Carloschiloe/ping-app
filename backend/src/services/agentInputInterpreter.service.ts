@@ -1019,7 +1019,7 @@ const TIME_EXPRESSIONS: RegExp[] = [
     /\bpasado\s+mañana\b|\bday\s+after\s+tomorrow\b/i,
     /\besta semana\b|\bthis week\b/i,
     /\b(?:el\s+|este\s+|proximo\s+|\u00fapr\u00f3ximo\s+)?(?:lunes|martes|mi(?:e|\u00e9)rcoles|jueves|viernes|s(?:a|\u00e1)bado|domingo)\b/i,
-    /\b(?:la\s+)?pr[oó]xima\s+semana\b|\bnext week\b|\bthis weekend\b|\beste fin de semana\b/i,
+    /\b(?:la\s+)?pr[oó]xima\s+semana\b|\bnext week\b|\bthis weekend\b|\beste fin de semana\b|\b(?:el\s+)?pr[oó]ximo fin de semana\b|\bnext weekend\b/i,
     UPCOMING_DAYS_TIME_EXPRESSION,
     FOLLOWING_DAYS_TIME_EXPRESSION,
     RELATIVE_DAYS_TIME_EXPRESSION,

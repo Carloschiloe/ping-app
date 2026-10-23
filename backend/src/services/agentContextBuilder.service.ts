@@ -130,6 +130,17 @@ function startOfMonthInZone(date: Date, timeZone: string): Date {
     return new Date(monthStartUtcMs - offsetMs);
 }
 
+function startOfWeekendInZone(date: Date, timeZone: string): Date {
+    const startToday = startOfDayInZone(date, timeZone);
+    const offsetMs = timeZoneOffsetMs(startToday, timeZone);
+    const local = new Date(startToday.getTime() + offsetMs);
+    const localWeekday = local.getUTCDay();
+    // Saturday/Sunday belong to the weekend already in progress. On
+    // Monday-Friday, "este fin de semana" means the next Saturday.
+    const daysToSaturday = localWeekday === 0 ? -1 : 6 - localWeekday;
+    return startOfDayInZone(addDays(startToday, daysToSaturday), timeZone);
+}
+
 // Resuelve una expresión temporal cruda (detectada por el intérprete) a un
 // RetrievalTimeRange concreto, timezone-aware — nunca UTC silencioso
 // (sección 12). Separado del intérprete a propósito: 100% determinista,
@@ -145,6 +156,16 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
     if (/proxima\s+semana|next\s+week/.test(normalizedExpression)) {
         const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
         return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
+    }
+    if (/(?:este\s+fin\s+de\s+semana|this\s+weekend)/.test(normalizedExpression)) {
+        const weekendStart = startOfWeekendInZone(now, timezone);
+        const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
+        return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
+    }
+    if (/(?:proximo\s+fin\s+de\s+semana|next\s+weekend)/.test(normalizedExpression)) {
+        const weekendStart = startOfDayInZone(addDays(startOfWeekendInZone(now, timezone), 7), timezone);
+        const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
+        return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
     }
     // Keep the weekday qualifier in the same deterministic resolver as the
     // extractor. Previously `este viernes` was detected as a time expression
