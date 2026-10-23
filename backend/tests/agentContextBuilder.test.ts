@@ -247,12 +247,27 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
-    it('"esta semana" empieza el lunes ISO', async () => {
+    it('"esta semana" cubre la semana ISO completa, no sólo hasta hoy', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const now = new Date('2026-06-17T12:00:00.000Z'); // miércoles
         const range = resolveTimeExpression('esta semana', now, 'UTC');
         const from = new Date(range!.from!);
         expect(from.getUTCDay()).toBe(1); // lunes
+        expect(range).toEqual({
+            from: '2026-06-15T00:00:00.000Z',
+            to: '2026-06-22T00:00:00.000Z',
+        });
+    });
+
+    it('"el resto de esta semana" conserva sólo el futuro dentro de la semana ISO', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        const now = new Date('2026-06-17T12:00:00.000Z'); // miércoles
+        const range = resolveTimeExpression('el resto de esta semana', now, 'UTC', inferTemporalIntent('el resto de esta semana'));
+        expect(range).toEqual({
+            from: '2026-06-17T12:00:00.000Z',
+            to: '2026-06-22T00:00:00.000Z',
+        });
     });
 
     it('"hace 3 días" resuelve al día correcto', async () => {
@@ -3248,6 +3263,32 @@ describe('M-1H.1: topic + structured filters (sección 8) -- ninguna combinació
         expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-viaje']);
         expect(ctx.entities.timeRange).not.toBeNull();
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'viaje', timeRange: expect.anything() }), expect.any(Number));
+    });
+
+    it('F.1) la frase exacta de la UI incluye pendientes futuros dentro de la semana completa', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({
+            id: 'cm-sabado',
+            title: 'Preparar la presentación',
+            status: 'accepted',
+            dueAt: '2026-09-12T15:00:00.000Z',
+        })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: CARLOS,
+            input: '¿Qué pendientes tengo esta semana?',
+            now: '2026-09-08T22:00:00Z',
+        });
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.commitments.map((c) => c.id)).toEqual(['cm-sabado']);
+        expect(ctx.entities.timeRange).toEqual({
+            from: '2026-09-07T00:00:00.000Z',
+            to: '2026-09-14T00:00:00.000Z',
+        });
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({
+            statuses: ['proposed', 'accepted', 'counter_proposal'],
+            timeRange: ctx.entities.timeRange,
+        }), expect.any(Number));
     });
 
     it('G) topic + person -- "¿Qué compromisos tengo con Alejandra sobre viaje?"', async () => {

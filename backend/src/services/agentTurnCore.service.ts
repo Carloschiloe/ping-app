@@ -956,6 +956,15 @@ export async function runAgentTurn(
         isWriteActionRequest,
         contextCapabilityWriteSignal,
         explicitPersonMention: context.explicitPersonMention,
+        // Keep production diagnosis actionable without logging user text,
+        // titles, identifiers, or model payloads. These fields distinguish a
+        // real empty authorized result from a bad temporal/routing plan.
+        evidenceFound: context.evidenceFound,
+        needsClarification: context.needsClarification,
+        queryCardinality: context.queryCardinality,
+        timeRange: context.entities.timeRange,
+        sourceCounts: context.diagnostics?.sourceCounts ?? {},
+        retrievalStepCount: context.retrievalPlan.length,
     });
     traceAgentDevice(traceId, 'AGENT_CONTEXT_RESULT', {
         path: 'read_pipeline',

@@ -205,11 +205,21 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         return { from: startLastWeek.toISOString(), to: startThisWeek.toISOString() };
     }
     if (/esta semana|this week/.test(expr)) {
+        const weekStart = startOfWeekInZone(now, timezone);
+        const weekEnd = addDays(weekStart, 7);
         if (temporalIntent?.futureOnly === true) {
-            const weekStart = startOfWeekInZone(now, timezone);
-            return { from: now.toISOString(), to: addDays(weekStart, 7).toISOString() };
+            // "El resto de esta semana" / "lo que viene esta semana" starts
+            // at the current instant, while the neutral "esta semana" query
+            // below covers the complete calendar week. Both share the same
+            // Monday-to-Monday upper bound so future commitments are not
+            // silently excluded near the end of the week.
+            return { from: now.toISOString(), to: weekEnd.toISOString() };
         }
-        return { from: startOfWeekInZone(now, timezone).toISOString(), to: endOfDayInZone(now, timezone).toISOString() };
+        // A request such as "¿Qué pendientes tengo esta semana?" is a
+        // calendar-week collection, not a "since Monday until this instant"
+        // query. Limiting the upper bound to today's end made valid upcoming
+        // commitments disappear from the result as soon as the week advanced.
+        return { from: weekStart.toISOString(), to: weekEnd.toISOString() };
     }
     if (/mes pasado|last month/.test(expr)) {
         const startThisMonth = startOfMonthInZone(now, timezone);
