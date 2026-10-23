@@ -12,6 +12,7 @@ import {
     loadLatestAgentReadContext,
     persistAgentConversationTurn,
 } from '../services/agentConversationTurn.service';
+import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { resolveAgentRequestInput, resolveTextSurface } from '../services/agentInputEnvelope.service';
 import { buildDialogueScopeKey, getAgentDialogueReadContextSnapshot } from '../services/agentDialogueState.service';
 
@@ -34,6 +35,28 @@ async function persistTurnWithRuntimePolicy(input: PersistTurnInput, required: b
     }
 }
 
+/**
+ * The main Ping surface intentionally has no chat route parameter. When
+ * conversation-event persistence is enabled, still give those turns a
+ * canonical, actor-owned conversation scope so restart/device continuity is
+ * durable. The self-chat RPC is idempotent (`reuse_existing=true`); failure
+ * remains best-effort here so a history outage cannot turn a valid answer
+ * into a generic Agent error.
+ */
+async function resolveHistoryConversationId(input: {
+    actorUserId: string;
+    explicitConversationId?: string;
+}): Promise<string | undefined> {
+    const explicit = input.explicitConversationId?.trim();
+    if (explicit) return explicit;
+    try {
+        return await getOrCreateSelfConversationId(input.actorUserId);
+    } catch (error: any) {
+        console.warn('[AgentTurn] Self conversation unavailable; continuing without persisted history.', error?.message ?? error);
+        return undefined;
+    }
+}
+
 export async function turn(req: Request, res: Response): Promise<void> {
     try {
         const actorUserId = req.user!.id;
@@ -47,10 +70,13 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 readCapability: req.body.readCapability, conversationId: req.body.conversationId,
                 locale: req.body.locale, timezone: req.body.timezone,
             });
-            if (isAgentConversationTurnPersistenceEnabled() && req.body.conversationId) {
+            const historyConversationId = isAgentConversationTurnPersistenceEnabled()
+                ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: req.body.conversationId })
+                : undefined;
+            if (historyConversationId) {
                 await persistTurnWithRuntimePolicy({
                     actorUserId,
-                    conversationId: req.body.conversationId,
+                    conversationId: historyConversationId,
                     clientTurnKey: idempotencyKey,
                     inputText: req.body.input,
                     inputMode: 'text',
@@ -84,12 +110,22 @@ export async function turn(req: Request, res: Response): Promise<void> {
         const historyInput = isAgentConversationTurnPersistenceEnabled()
             ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
             : null;
-        const historyConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
+        const historyConversationId = isAgentConversationTurnPersistenceEnabled()
+            ? await resolveHistoryConversationId({
+                actorUserId,
+                explicitConversationId: historyInput?.envelope.conversationId ?? req.body.conversationId,
+            })
+            : undefined;
+        // Storage scope and Core dialogue scope are intentionally separate for
+        // the main Ping surface: its events live in the actor self-chat, but
+        // semantic continuity remains `agent:mobile` when no conversation was
+        // supplied by the client.
+        const dialogueConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
         const localReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
             ? getAgentDialogueReadContextSnapshot(
                 actorUserId,
                 buildDialogueScopeKey({
-                    conversationId: historyConversationId,
+                    conversationId: dialogueConversationId,
                     surface: historyInput?.envelope.surface ?? resolveTextSurface(req.body.channel),
                 }),
             )
