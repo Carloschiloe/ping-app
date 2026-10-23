@@ -216,6 +216,11 @@ export interface RetrieveContextInput {
     // creación — sólo se usa cuando la consulta es específicamente sobre
     // vencidos (ver agentContextBuilder.service.ts, Interpretation.wantsOverdueFocus).
     orderByOverdueFirst?: boolean;
+    // Las listas con una ventana temporal explícita también deben recuperar
+    // por fecha efectiva, aunque no sean consultas de vencidos. Esto evita
+    // que el límite de retrieval descarte los compromisos más próximos sólo
+    // por haber sido creados antes.
+    orderByDueAtFirst?: boolean;
     // M-1H FINAL CERTIFICATION (ticket "STAGING PUBLICATION", sección 1/2/6)
     // — hallazgo real durante el audit: KEYSET pagination por página fue
     // implementada primero y luego DESCARTADA tras una prueba empírica

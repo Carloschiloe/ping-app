@@ -126,6 +126,31 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
         expect(context.needsClarification).toBe(false);
     });
 
+    it('orders an explicit temporal list by effective due date, not creation time', async () => {
+        const laterDueButNewer = {
+            ...TOMORROW,
+            createdAt: '2026-09-21T12:00:00.000Z',
+        };
+        const earlierDueButOlder = {
+            ...TODAY,
+            createdAt: '2026-09-19T12:00:00.000Z',
+        };
+        retrieveCommitments.mockResolvedValue([laterDueButNewer, earlierDueButOlder]);
+        const input = '¿Qué compromisos tengo esta semana?';
+        const interpreter = new DeterministicInputInterpreter();
+        const interpretation = await interpreter.interpret(input, {});
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1',
+            input,
+            now: '2026-09-22T12:00:00.000Z',
+            timezone: 'UTC',
+            traceId: 'm7-chronological-order',
+        }, { interpreter, interpretation });
+
+        expect(context.commitments.map((item) => item.id)).toEqual(['cm-today', 'cm-tomorrow']);
+        expect(retrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ orderByDueAtFirst: true }), expect.any(Number));
+    });
+
     it('keeps a substantive topic as FTS while removing only conversational and temporal scaffolding', async () => {
         const interpretation = await new DeterministicInputInterpreter().interpret(
             'Oye Ping, qué pendientes tengo para los próximos días sobre el proyecto Aurora?',

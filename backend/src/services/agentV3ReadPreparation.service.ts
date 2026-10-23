@@ -5,7 +5,7 @@ import type { PersonResolutionResult, RetrievalResult, RetrieveContextInput } fr
 import type { AgentStructuredClarification } from '../types/agentClarification';
 import { personClarification, structuredClarification, temporalClarification } from './agentStructuredClarification.service';
 
-export type V3ReadScope = Pick<RetrieveContextInput, 'conversationId' | 'personId' | 'contactId' | 'query' | 'timeRange' | 'types' | 'statuses' | 'orderByOverdueFirst'>;
+export type V3ReadScope = Pick<RetrieveContextInput, 'conversationId' | 'personId' | 'contactId' | 'query' | 'timeRange' | 'types' | 'statuses' | 'orderByOverdueFirst' | 'orderByDueAtFirst'>;
 
 export type V3ReadPreparationInput = {
     actorUserId: string;

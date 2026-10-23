@@ -402,7 +402,7 @@ export async function retrieveCommitments(input: RetrieveContextInput, limit: nu
     // fuera del budget si el actor tiene actividad más reciente sin
     // relación. No aplica cuando hay textQuery: rankCommitments decide el
     // orden final ahí, este orden SQL sólo sirve al overfetch previo.
-    query = input.orderByOverdueFirst
+    query = input.orderByDueAtFirst || input.orderByOverdueFirst
         ? query.order('due_at', { ascending: true, nullsFirst: false })
         : query.order('created_at', { ascending: false });
     query = query.limit(fetchLimit);
@@ -621,7 +621,7 @@ export async function retrieveCommitmentProposals(input: RetrieveContextInput, l
         .or(visibilityFilter)
         .neq('status', 'confirmed'); // dedupe: ya materializada -> el commitment canónico prevalece
 
-    query = input.orderByOverdueFirst
+    query = input.orderByDueAtFirst || input.orderByOverdueFirst
         ? query.order('due_at', { ascending: true, nullsFirst: false })
         : query.order('created_at', { ascending: false });
     // Tiebreaker estable (sección 4/11 del ticket) -- determinismo cuando

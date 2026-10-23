@@ -52,6 +52,7 @@ function scopeCopy(scope: CanonicalReadScope): CanonicalReadScope {
         ...(scope.sourceTypes ? { sourceTypes: [...scope.sourceTypes] } : {}),
         ...(scope.statuses ? { statuses: [...scope.statuses] } : {}),
         ...(scope.orderByOverdueFirst !== undefined ? { orderByOverdueFirst: scope.orderByOverdueFirst } : {}),
+        ...(scope.orderByDueAtFirst !== undefined ? { orderByDueAtFirst: scope.orderByDueAtFirst } : {}),
     };
 }
 

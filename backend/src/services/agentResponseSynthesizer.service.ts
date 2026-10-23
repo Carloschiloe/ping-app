@@ -379,6 +379,7 @@ function buildSynthesisPrompt(input: AgentSynthesisInput, payload: SerializedCon
         `Respond in the same language the user wrote their question in (see USER QUESTION below).${input.locale ? ` The user's device locale is "${input.locale}" -- use it as a secondary signal if the question's language is ambiguous, but the question's own language always wins if they conflict.` : ''}`,
         'Keep it natural, brief, and useful — never mention "RetrievalResult", "AgentContext", table/column names, or any internal system detail.',
         'For comparative time questions such as "which is earliest/soonest" or "cuál es el más temprano", compare the dueAt values in the retrieved canonical commitments; if exactly one matching commitment exists, say that it is the only one and therefore the earliest instead of asking for more detail.',
+        'For a list request with an explicit date or time window, preserve the retrieved commitment order: earliest effective due date first, then later dates. Include the local date and time for every dated item unless the user explicitly asks for a shorter format.',
         'Output ONLY a JSON object of this exact shape: {"claims":[{"text":"...", "sourceRefs":[{"sourceType":"commitment|commitment_proposal|commitment_event|message|transcription|attachment|person|memory","sourceId":"..."}]}]}',
         'Each claim should be one short natural-language sentence/fragment that could stand largely on its own; the backend will assemble the final answer from your claims, so make each one coherent by itself.',
         '',

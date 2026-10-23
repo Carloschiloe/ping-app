@@ -359,10 +359,11 @@ function mergeCommitmentSources(
     commitments: RetrievalCommitment[],
     proposals: RetrievalCommitment[],
     orderByOverdueFirst: boolean,
+    orderByDueAtFirst: boolean,
 ): RetrievalCommitment[] {
     const merged = [...commitments, ...proposals];
     merged.sort((a, b) => {
-        if (orderByOverdueFirst) {
+        if (orderByOverdueFirst || orderByDueAtFirst) {
             const aDueAt = effectiveCommitmentDueAt(a);
             const bDueAt = effectiveCommitmentDueAt(b);
             const aTime = aDueAt ? new Date(aDueAt).getTime() : Number.POSITIVE_INFINITY;
@@ -1219,7 +1220,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // sólo evita transferir un pool que ya sabemos que no puede sobrevivir.
     const commitmentsPromise = interpretation.wantsCommitments && !needsClarification && !priorReferentAmbiguous && !personScopeBlocked && !interpretation.proposalFocus
         ? (() => {
-            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus } });
+            retrievalPlan.push({ step: 'retrieveCommitments', params: { personId: !!resolvedPersonId, conversationId: !!conversationId, statuses: interpretation.statusHints, hasTextQuery: !!interpretation.textQuery, orderByOverdueFirst: interpretation.wantsOverdueFocus, orderByDueAtFirst: timeRange !== null } });
             // [PING_OVERDUE_TRACE] TEMPORARY — retrieval input + query path.
             if (interpretation.wantsOverdueFocus) {
                 traceOverdue(input.traceId, 'RETRIEVAL_INPUT', {
@@ -1251,6 +1252,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
                 // M-1G.2: prioriza lo realmente vencido en el budget de 10
                 // en vez de dejarlo a merced de created_at DESC.
                 orderByOverdueFirst: interpretation.wantsOverdueFocus,
+                orderByDueAtFirst: timeRange !== null,
             }, budget.commitments);
         })()
         : Promise.resolve([]);
@@ -1280,6 +1282,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         timeRange: timeRange ?? undefined,
         query: interpretation.textQuery ?? undefined,
         orderByOverdueFirst: interpretation.wantsOverdueFocus,
+        orderByDueAtFirst: timeRange !== null,
         now: now.toISOString(), // M-1H v5: para proposalDatePassed, determinista
     };
     // M-1H FINAL (ticket "WORLD-CLASS AGENT QUERY ARCHITECTURE", secciones
@@ -1437,7 +1440,16 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // aquí es idempotente (mismo predicado puro por fila) y se mantiene por
     // uniformidad/defensa en profundidad, nunca cambia el resultado. El
     // budget final se aplica DESPUÉS del filtro, nunca antes.
-    const sortedCommitments = mergeCommitmentSources(commitmentsOnly, proposalsOnly, interpretation.wantsOverdueFocus);
+    // Las consultas con rango temporal se presentan de lo más próximo a lo
+    // más lejano. El mismo criterio ya se empuja a SQL arriba para que el
+    // budget no recorte la lista en orden de creación.
+    const orderByDueAtFirst = timeRange !== null;
+    const sortedCommitments = mergeCommitmentSources(
+        commitmentsOnly,
+        proposalsOnly,
+        interpretation.wantsOverdueFocus,
+        orderByDueAtFirst,
+    );
     // Retrieval implementations should honor the range, but Core also
     // filters the returned set defensively so a broad adapter or a stale
     // cache cannot leak an item outside an explicit temporal request.

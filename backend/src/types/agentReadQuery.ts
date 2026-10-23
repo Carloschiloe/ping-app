@@ -18,6 +18,7 @@ export type CanonicalReadScope = {
     sourceTypes?: RetrievalSourceType[];
     statuses?: string[];
     orderByOverdueFirst?: boolean;
+    orderByDueAtFirst?: boolean;
 };
 
 export type CanonicalReadTemporalConstraint = {
