@@ -41,7 +41,12 @@ function hangingModel(delayMs: number, finalResponse: string): AgentInputModel {
 describe('deterministic read follow-up safety net', () => {
     it.each([
         ['¿Y a qué hora?', 'time'],
+        ['¿Y qué hora?', 'time'],
+        ['¿A qué hora quedó?', 'time'],
         ['¿Para qué día?', 'date'],
+        ['¿Para qué fecha?', 'date'],
+        ['¿Y cuándo?', 'date'],
+        ['¿Cuándo vence?', 'date'],
         ['¿Y con quién?', 'responsible'],
         ['¿Sigue pendiente?', 'status'],
         ['¿Me das más detalles?', 'details'],
@@ -56,6 +61,12 @@ describe('deterministic read follow-up safety net', () => {
     it('propaga el atributo al intérprete determinístico', async () => {
         const result = await new DeterministicInputInterpreter().interpret('¿Y a qué hora?', {});
         expect(result.followUpAttribute).toBe('time');
+    });
+
+    it('no convierte el detalle de hora de una lista temporal en un tema FTS', async () => {
+        const result = await new DeterministicInputInterpreter().interpret('¿Qué tengo esta semana y a qué hora?', {});
+        expect(result.timeExpression).toMatch(/esta semana/i);
+        expect(result.textQuery).toBeNull();
     });
 });
 
@@ -706,9 +717,12 @@ describe('M-1G.1: reconocimiento de "vencido"/"overdue"', () => {
         expect(result.wantsOverdueFocus).toBe(true);
     });
 
-    it('DeterministicInputInterpreter: "atrasado"/"overdue"/"past due" también activan wantsOverdueFocus', async () => {
+    it('DeterministicInputInterpreter: sinónimos de vencido también activan wantsOverdueFocus', async () => {
         for (const phrase of [
             '¿Qué tengo atrasado?',
+            '¿Qué tengo caducado?',
+            '¿Qué tengo fuera de plazo?',
+            '¿Qué tengo retrasado?',
             'What is overdue?',
             'Anything past due?',
             '¿Qué se me pasó?',

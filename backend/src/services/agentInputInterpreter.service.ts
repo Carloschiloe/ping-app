@@ -274,7 +274,9 @@ const NATURAL_OVERDUE_QUERY_KEYWORDS = wordBounded(
     'se\\s+me\\s+pas(?:o|ó|aron)'
     + '|venc(?:i[oó]|ieron)\\s+recientemente',
 );
-const OVERDUE_KEYWORDS = wordBounded('vencid[oa]s?|atrasad[oa]s?|overdue|past due|late');
+const OVERDUE_KEYWORDS = wordBounded(
+    'vencid[oa]s?|atrasad[oa]s?|caducad[oa]s?|retrasad[oa]s?|fuera\\s+de\\s+plazo|overdue|past due|late',
+);
 
 function hasOverdueSignal(input: string): boolean {
     return OVERDUE_KEYWORDS.test(input)
@@ -895,6 +897,7 @@ function stripTimeExpressionLanguage(text: string, temporalExpression?: string |
 function stripPresentationDetailLanguage(text: string): string {
     return text
         .replace(/\b(?:con|incluyendo|incluye|mostrando|junto\s+con)\s+(?:sus?\s+|los?\s+|las?\s+)?(?:horarios?|horas?|fechas?)\b/giu, ' ')
+        .replace(/\b(?:y\s+)?a\s+qu[eé]\s+(?:hora|fecha)\b/giu, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -1464,12 +1467,16 @@ export function generalContextHasRetrievableSignal(
 
 
 export function inferDeterministicFollowUpAttribute(input: string): NonNullable<Interpretation['followUpAttribute']> | null {
-    const normalized = input.trim().toLocaleLowerCase('es');
-    if (/^[¿?¡!\s]*(?:y\s+)?a\s+qué\s+hora[?¿!\s.]*$/iu.test(normalized)) return 'time';
-    if (/^[¿?¡!\s]*para\s+qué\s+día[?¿!\s.]*$/iu.test(normalized)) return 'date';
-    if (/^[¿?¡!\s]*(?:y\s+)?con\s+quién[?¿!\s.]*$/iu.test(normalized)) return 'responsible';
-    if (/^[¿?¡!\s]*(?:sigue\s+)?pendiente[?¿!\s.]*$/iu.test(normalized)) return 'status';
-    if (/^[¿?¡!\s]*me\s+das\s+más\s+detalles?[?¿!\s.]*$/iu.test(normalized)) return 'details';
+    const normalized = input
+        .trim()
+        .toLocaleLowerCase('es')
+        .replace(/^[¿¡?\s]+|[?!.\s]+$/gu, '')
+        .replace(/\s+/g, ' ');
+    if (/^(?:y\s+)?(?:a\s+qu[eé]\s+hora|qu[eé]\s+hora)(?:\s+(?:qued[oó]|es|ser[aá]))?$/iu.test(normalized)) return 'time';
+    if (/^(?:y\s+)?(?:para\s+qu[eé]\s+(?:d[ií]a|fecha)|qu[eé]\s+(?:d[ií]a|fecha)|cu[aá]ndo(?:\s+vence)?)$/iu.test(normalized)) return 'date';
+    if (/^(?:y\s+)?con\s+qui[eé]n$/iu.test(normalized)) return 'responsible';
+    if (/^(?:sigue\s+)?pendiente$/iu.test(normalized)) return 'status';
+    if (/^me\s+das\s+m[aá]s\s+detalles?$/iu.test(normalized)) return 'details';
     return null;
 }
 
