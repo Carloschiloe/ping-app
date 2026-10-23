@@ -431,6 +431,29 @@ export const useGetOrCreateSelfConversation = () => {
     });
 };
 
+export function parseSelfConversationId(raw: unknown): string {
+    if (!raw || typeof raw !== 'object' || typeof (raw as Record<string, unknown>).conversationId !== 'string') {
+        throw new Error('invalid_self_conversation_shape');
+    }
+    const conversationId = ((raw as Record<string, unknown>).conversationId as string).trim();
+    if (!conversationId) throw new Error('invalid_self_conversation_shape');
+    return conversationId;
+}
+
+/**
+ * Main Ping needs the actor-owned self-chat only to hydrate its durable
+ * conversation projection. The idempotent endpoint is owned by this module,
+ * keeping agent.ts free of conversation writes and preserving its static
+ * safety boundary.
+ */
+export const useSelfConversationId = (enabled = true) => useQuery({
+    queryKey: ['agent-self-conversation-id'],
+    queryFn: async () => parseSelfConversationId(await apiClient.post('/conversations/self', {})),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: 1,
+});
+
 export const useDeleteMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
     return useMutation({

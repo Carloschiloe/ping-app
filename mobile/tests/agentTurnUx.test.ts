@@ -275,6 +275,8 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(screen).not.toContain('useAgentRespond');
         expect(screen).toContain('reviewedVoiceInputToken: matchingVoiceDraft.token');
         expect(screen).toContain('input: trimmed, reviewedVoiceInputToken: matchingVoiceDraft.token, idempotencyKey');
+        expect(screen).toContain('useSelfConversationId');
+        expect(screen).toContain('historyConversationId');
     });
 
     it('Q/R) PlanCard renders Core presentation directly and never derives confirmation copy from toolId', () => {

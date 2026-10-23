@@ -595,7 +595,11 @@ export function parseAgentConversationTurns(raw: unknown): {
 }
 
 export function isAgentConversationEventsEnabled(): boolean {
-    return process.env.EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS === 'true';
+    // The backend is the rollout authority and returns `{ enabled: false }`
+    // when the persistence contract is disabled. Keeping the client default
+    // enabled is required for Expo Go and for OTA-compatible builds where this
+    // optional flag is not present in the local environment.
+    return process.env.EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS !== 'false';
 }
 
 export function useAgentConversationTurns(conversationId?: string) {

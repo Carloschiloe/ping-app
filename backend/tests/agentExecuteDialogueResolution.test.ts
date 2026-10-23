@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { executeMock, historyEnabledMock, persistHistoryMock } = vi.hoisted(() => ({
+const { executeMock, historyEnabledMock, persistHistoryMock, selfConversationMock } = vi.hoisted(() => ({
     executeMock: vi.fn(),
     historyEnabledMock: vi.fn(() => false),
     persistHistoryMock: vi.fn(),
+    selfConversationMock: vi.fn(),
 }));
 
 vi.mock('../src/services/agentExecution.service', () => ({
@@ -12,6 +13,9 @@ vi.mock('../src/services/agentExecution.service', () => ({
 vi.mock('../src/services/agentConversationTurn.service', () => ({
     isAgentConversationTurnPersistenceEnabled: historyEnabledMock,
     persistAgentExecutionConversationEvent: persistHistoryMock,
+}));
+vi.mock('../src/services/conversation.service', () => ({
+    getOrCreateSelfConversationId: selfConversationMock,
 }));
 
 import { execute } from '../src/controllers/agentExecute.controller';
@@ -75,6 +79,8 @@ describe('POST /agent/execute dialogue cleanup', () => {
     beforeEach(() => {
         clearAgentDialogueStateForTests();
         vi.clearAllMocks();
+        historyEnabledMock.mockReturnValue(false);
+        selfConversationMock.mockResolvedValue('self-conversation-1');
         executeMock.mockResolvedValue({
             status: 'done',
             executedSteps: [{ status: 'succeeded', verified: true }],
@@ -111,5 +117,20 @@ describe('POST /agent/execute dialogue cleanup', () => {
         expect(new AgentDialogueStateService().getSnapshot(ACTOR, scope)).toMatchObject({
             lifecycle: 'plan_pending_authorization',
         });
+    });
+
+    it('projects a main Ping execution into the actor self-chat when no conversationId is sent', async () => {
+        historyEnabledMock.mockReturnValue(true);
+        await execute({
+            ...request(),
+            body: { authorizationId: AUTHORIZATION_ID, sourceTurnKey: 'main-turn-1' },
+        } as any, response());
+
+        expect(selfConversationMock).toHaveBeenCalledWith(ACTOR);
+        expect(persistHistoryMock).toHaveBeenCalledWith(expect.objectContaining({
+            actorUserId: ACTOR,
+            conversationId: 'self-conversation-1',
+            sourceTurnKey: 'main-turn-1',
+        }));
     });
 });

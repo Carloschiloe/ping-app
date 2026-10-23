@@ -12,6 +12,24 @@ import {
     isAgentConversationTurnPersistenceEnabled,
     persistAgentExecutionConversationEvent,
 } from '../services/agentConversationTurn.service';
+import { getOrCreateSelfConversationId } from '../services/conversation.service';
+
+async function resolveExecutionHistoryConversationId(
+    actorUserId: string,
+    explicitConversationId?: string,
+): Promise<string | undefined> {
+    const explicit = explicitConversationId?.trim();
+    if (explicit) return explicit;
+    try {
+        return await getOrCreateSelfConversationId(actorUserId);
+    } catch (error: any) {
+        // Execution is already authoritative at this point. History is an
+        // auxiliary projection; preserve the real execution result if the
+        // self-chat cannot be resolved.
+        console.warn('[AgentHistory] self conversation unavailable for execution projection', error?.message ?? error);
+        return undefined;
+    }
+}
 
 export const execute = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -61,11 +79,14 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
                 }
             }
         }
-        if (isAgentConversationTurnPersistenceEnabled() && conversationId && sourceTurnKey) {
+        const historyConversationId = isAgentConversationTurnPersistenceEnabled() && sourceTurnKey
+            ? await resolveExecutionHistoryConversationId(actorUserId, conversationId)
+            : undefined;
+        if (historyConversationId && sourceTurnKey) {
             try {
                 await persistAgentExecutionConversationEvent({
                     actorUserId,
-                    conversationId,
+                    conversationId: historyConversationId,
                     sourceTurnKey,
                     execution: result,
                 });

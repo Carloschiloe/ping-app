@@ -1,7 +1,6 @@
-// M-1G — Preview interna del nuevo Ping Agent (read-only, POST /agent/respond).
-// Coexiste con PingAIScreen (legacy, /ai/ask) sin reemplazarlo. Historial
-// SOLO en estado local de esta pantalla -- nunca ai_messages, nunca DB
-// nueva (sección 6/23 del ticket).
+// Ping Core surface (POST /agent/turn). The main entry has no route
+// conversationId, so its durable history is projected through the actor's
+// idempotent self-chat while semantic dialogue scope remains Core-owned.
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
@@ -15,8 +14,9 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
     createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
-    useAgentConversationTurns, type AgentFollowUpOption, type AgentVoiceTranscriptResult,
+    isAgentConversationEventsEnabled, useAgentConversationTurns, type AgentFollowUpOption, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
+import { useSelfConversationId } from '../api/query-modules/conversations';
 import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
@@ -75,7 +75,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const { mutate: submitTurn, isPending: isTurnPending } = useAgentTurn();
     const { mutateAsync: authorizePlan, isPending: isAuthorizePending } = useAgentAuthorize();
     const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
-    const { data: persistedHistory } = useAgentConversationTurns(conversationId);
+    const { data: selfConversationId } = useSelfConversationId(
+        isMainCoreEntry && !conversationId && isAgentConversationEventsEnabled(),
+    );
+    const historyConversationId = conversationId ?? selfConversationId;
+    const { data: persistedHistory } = useAgentConversationTurns(historyConversationId);
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
     const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
     // Ping Voz is a production capability of the main Ping entry. Keep the
@@ -84,14 +88,14 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const liveVoiceEnabled = isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
 
     useEffect(() => {
-        if (!conversationId || !persistedHistory || hydratedConversationRef.current === conversationId) return;
-        hydratedConversationRef.current = conversationId;
+        if (!historyConversationId || !persistedHistory || hydratedConversationRef.current === historyConversationId) return;
+        hydratedConversationRef.current = historyConversationId;
         if (!localInteractionRef.current) {
             setMessages(restoreAgentConversationMessages(persistedHistory.turns));
             const pending = restorePendingAgentPlan(persistedHistory.turns);
             if (pending) dispatchTurn({ type: 'RESTORE_PENDING_PLAN', pending });
         }
-    }, [conversationId, persistedHistory]);
+    }, [historyConversationId, persistedHistory]);
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
         setInputText(result.transcript.text);
@@ -239,7 +243,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 authorize: (pendingPlan) => authorizePlan({ source: pendingPlan.source, turn: pendingPlan.turn }),
                 execute: (authorizationId) => executePlan({
                     authorizationId,
-                    conversationId: pending.source.conversationId,
+                    conversationId: pending.source.conversationId ?? historyConversationId,
                     sourceTurnKey: pending.source.idempotencyKey,
                 }),
                 onAuthorized: (authorization) => {
