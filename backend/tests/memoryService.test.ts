@@ -520,6 +520,23 @@ describe('M-2: retrieveMemory', () => {
         expect(mock.getTextSearchCalls('memory_records')).toEqual([['search_tsv', 'Puerto Montt', { type: 'websearch', config: 'ping_text' }]]);
     });
 
+    it('reintenta una lectura de memoria ante un fallo transitorio sin perder el scope del owner', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: null, error: { code: '08006', message: 'connection reset by peer' } },
+                { data: [row({ id: 'retried-memory' })], error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+        const { retrieveMemory } = await import('../src/services/memory.service');
+
+        await expect(retrieveMemory(basePlan({ ownerUserId: 'actor-x' }))).resolves.toMatchObject([
+            { id: 'retried-memory' },
+        ]);
+        expect(mock.getCalledTables().filter((table) => table === 'memory_records')).toHaveLength(2);
+        expect(mock.getEqCalls('memory_records')).toContainEqual(['owner_user_id', 'actor-x']);
+    });
+
     it('sin topicQuery, nunca se llama textSearch (nunca un FTS fantasma)', async () => {
         const mock = createSupabaseAdminMock({ memory_records: [{ data: [], error: null }] });
         setSupabaseAdminMock(mock);

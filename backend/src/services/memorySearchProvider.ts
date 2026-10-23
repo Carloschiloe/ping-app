@@ -25,6 +25,21 @@ import type {
 import { traceMemory } from '../utils/memoryTrace';
 
 const FTS_CONFIG = 'ping_text';
+const MEMORY_READ_MAX_ATTEMPTS = 3;
+const MEMORY_READ_RETRY_DELAYS_MS = [50, 150] as const;
+
+function isTransientMemoryReadError(error: { message?: string; code?: string } | null): boolean {
+    const code = error?.code ?? '';
+    if (/^(08|40|53|57)/.test(code)) return true;
+    return /connection reset|connection refused|network|timeout|timed out|temporarily unavailable|service unavailable/i
+        .test(error?.message ?? '');
+}
+
+async function waitForMemoryReadRetry(attempt: number): Promise<void> {
+    const delay = MEMORY_READ_RETRY_DELAYS_MS[attempt - 1];
+    if (delay === undefined) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
 
 export interface MemorySearchProvider {
     readonly providerName: string;
@@ -190,28 +205,35 @@ export class PostgresMemorySearchProvider implements MemorySearchProvider {
     readonly providerName = 'postgres-fts';
 
     async search(plan: MemoryQueryPlan, traceId?: string): Promise<RetrievalMemory[]> {
-        let query = supabaseAdmin
-            .from('memory_records')
-            .select('*')
-            .eq('owner_user_id', plan.ownerUserId)
-            .in('status', statusesForFreshness(plan.freshness));
-
-        if (plan.subjectPersonId) query = query.eq('subject_person_id', plan.subjectPersonId);
-        if (plan.subjectContactId) query = query.eq('subject_contact_id', plan.subjectContactId);
-        if (plan.memoryTypes && plan.memoryTypes.length > 0) query = query.in('memory_type', plan.memoryTypes);
-        if (plan.sourceTypes && plan.sourceTypes.length > 0) query = query.in('source_type', plan.sourceTypes);
-        if (plan.timeRange?.from) query = query.gte('observed_at', plan.timeRange.from);
-        if (plan.timeRange?.to) query = query.lte('observed_at', plan.timeRange.to);
-
         const textQuery = plan.topicQuery?.trim();
-        if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
+        let data: any[] | null = null;
+        let error: { message?: string; code?: string } | null = null;
+        for (let attempt = 1; attempt <= MEMORY_READ_MAX_ATTEMPTS; attempt += 1) {
+            let query = supabaseAdmin
+                .from('memory_records')
+                .select('*')
+                .eq('owner_user_id', plan.ownerUserId)
+                .in('status', statusesForFreshness(plan.freshness));
 
-        // Empate estable por id, mismo patrón que retrieval.service.ts --
-        // nunca se depende únicamente de la estabilidad implícita del
-        // ordenamiento SQL.
-        query = query.order('observed_at', { ascending: false }).order('id', { ascending: true }).limit(plan.limit);
+            if (plan.subjectPersonId) query = query.eq('subject_person_id', plan.subjectPersonId);
+            if (plan.subjectContactId) query = query.eq('subject_contact_id', plan.subjectContactId);
+            if (plan.memoryTypes && plan.memoryTypes.length > 0) query = query.in('memory_type', plan.memoryTypes);
+            if (plan.sourceTypes && plan.sourceTypes.length > 0) query = query.in('source_type', plan.sourceTypes);
+            if (plan.timeRange?.from) query = query.gte('observed_at', plan.timeRange.from);
+            if (plan.timeRange?.to) query = query.lte('observed_at', plan.timeRange.to);
+            if (textQuery) query = query.textSearch('search_tsv', textQuery, { type: 'websearch', config: FTS_CONFIG });
 
-        const { data, error } = await query;
+            // Empate estable por id, mismo patrón que retrieval.service.ts --
+            // nunca se depende únicamente de la estabilidad implícita del
+            // ordenamiento SQL.
+            query = query.order('observed_at', { ascending: false }).order('id', { ascending: true }).limit(plan.limit);
+
+            const response = await query;
+            data = response.data;
+            error = response.error;
+            if (!error || !isTransientMemoryReadError(error) || attempt === MEMORY_READ_MAX_ATTEMPTS) break;
+            await waitForMemoryReadRetry(attempt);
+        }
         if (error) throw error;
 
         const nowMs = Date.now();
