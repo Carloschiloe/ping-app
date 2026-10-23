@@ -37,6 +37,43 @@ import { defaultMemorySearchProvider } from './memorySearchProvider';
 
 const VALID_MEMORY_TYPES = new Set<MemoryType>(['episodic', 'semantic']);
 const VALID_SENSITIVITY = new Set<MemorySensitivity>(['normal', 'sensitive', 'restricted']);
+const MEMORY_WRITE_MAX_ATTEMPTS = 3;
+const MEMORY_WRITE_RETRY_DELAYS_MS = [50, 150] as const;
+
+type MemoryWriteError = { code?: string; message?: string };
+
+function isTransientMemoryWriteError(error: unknown): boolean {
+    const candidate = error as MemoryWriteError | null;
+    const code = candidate?.code ?? '';
+    if (['P0003', '22023', '23503', '23505', '23514', '42501'].includes(code)) return false;
+    if (/^(08|40|53|57)/.test(code)) return true;
+    return /fetch failed|network|timeout|timed out|connection reset|connection refused|temporarily unavailable|service unavailable/i
+        .test(candidate?.message ?? '');
+}
+
+async function waitForMemoryWriteRetry(attempt: number): Promise<void> {
+    const delay = MEMORY_WRITE_RETRY_DELAYS_MS[attempt - 1];
+    if (delay === undefined) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
+
+async function withMemoryWriteRetry<T>(
+    operation: () => PromiseLike<{ data: T; error: MemoryWriteError | null }>,
+): Promise<T> {
+    let lastError: MemoryWriteError | null = null;
+    for (let attempt = 1; attempt <= MEMORY_WRITE_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            const response = await operation();
+            if (!response.error) return response.data;
+            lastError = response.error;
+        } catch (error) {
+            lastError = error as MemoryWriteError;
+        }
+        if (!lastError || !isTransientMemoryWriteError(lastError) || attempt === MEMORY_WRITE_MAX_ATTEMPTS) break;
+        await waitForMemoryWriteRetry(attempt);
+    }
+    throw lastError ?? new Error('Memory write failed without an error response');
+}
 
 // ─── Normalización / hashing (dedup e idempotencia) ────────────────────────
 function normalizeForHash(value: string): string {
@@ -195,11 +232,10 @@ async function resolveMemorySubject(
 // tabla en cada escritura -- nunca una segunda fuente de verdad independiente
 // que pueda desincronizarse.
 async function appendEvidenceAtomic(memoryRecordId: string, evidenceRefs: MemoryEvidenceRef[]): Promise<void> {
-    const { error } = await supabaseAdmin.rpc('append_memory_evidence_atomic', {
+    await withMemoryWriteRetry(() => supabaseAdmin.rpc('append_memory_evidence_atomic', {
         p_memory_record_id: memoryRecordId,
         p_evidence_rows: evidenceRefs,
-    });
-    if (error) throw error;
+    }));
 }
 
 async function insertMemoryAtomic(
@@ -207,12 +243,11 @@ async function insertMemoryAtomic(
     evidenceRefs: MemoryEvidenceRef[],
     supersedesId: string | null,
 ): Promise<string> {
-    const { data, error } = await supabaseAdmin.rpc('insert_memory_record_with_evidence_atomic', {
+    const data = await withMemoryWriteRetry(() => supabaseAdmin.rpc('insert_memory_record_with_evidence_atomic', {
         p_memory_record: memoryRecord,
         p_evidence_rows: evidenceRefs,
         p_supersedes_id: supersedesId,
-    });
-    if (error) throw error;
+    }));
     const memoryId = Array.isArray(data) ? data[0]?.memory_id : (data as { memory_id?: unknown } | null)?.memory_id;
     if (typeof memoryId !== 'string' || memoryId.length === 0) {
         throw new Error('Atomic Memory ingestion RPC returned no memory id');

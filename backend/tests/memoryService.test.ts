@@ -386,6 +386,42 @@ describe('M-2: ingestMemoryFromEvent', () => {
         expect(mock.getInsertCalls('memory_records')).toHaveLength(0); // nunca una segunda fila
     });
 
+    it('REINTENTO SEGURO: una caída transitoria al fusionar evidencia se reintenta porque el RPC usa ON CONFLICT DO NOTHING', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: { id: 'existing-id', evidence_refs: [] }, error: null },
+            ],
+            'rpc:append_memory_evidence_atomic': [
+                { data: null, error: { code: '08006', message: 'connection reset' } },
+                { data: [], error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+        const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
+        const result = await ingestMemoryFromEvent(baseEvent() as any);
+        expect(result).toEqual({ kind: 'duplicate', existingId: 'existing-id' });
+        expect(mock.getRpcCalls().filter(call => call.name === 'append_memory_evidence_atomic')).toHaveLength(2);
+    });
+
+    it('REINTENTO SEGURO: una caída transitoria del insert atómico se reintenta sin abrir una segunda vía de escritura', async () => {
+        const mock = createSupabaseAdminMock({
+            memory_records: [
+                { data: null, error: null },
+                { data: null, error: null },
+                { data: null, error: null },
+            ],
+            'rpc:insert_memory_record_with_evidence_atomic': [
+                { data: null, error: { code: '08006', message: 'connection reset' } },
+                { data: [{ memory_id: 'recovered-id' }], error: null },
+            ],
+        });
+        setSupabaseAdminMock(mock);
+        const { ingestMemoryFromEvent } = await import('../src/services/memory.service');
+        const result = await ingestMemoryFromEvent(baseEvent() as any);
+        expect(result).toEqual({ kind: 'inserted', id: 'recovered-id', status: 'active' });
+        expect(mock.getRpcCalls().filter(call => call.name === 'insert_memory_record_with_evidence_atomic')).toHaveLength(2);
+    });
+
     it('SUPERSESSION: un hecho más nuevo con valor distinto reemplaza al activo -- el viejo pasa a superseded', async () => {
         const mock = createSupabaseAdminMock({
             memory_records: [
