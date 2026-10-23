@@ -3,12 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const storageState = vi.hoisted(() => ({
     objects: new Map<string, string>(),
     bucketCreates: 0,
+    bucketCreateFailures: 0,
 }));
 
 vi.mock('../src/lib/supabaseAdmin', () => ({
     supabaseAdmin: {
         storage: {
-            createBucket: async () => { storageState.bucketCreates += 1; return { error: null }; },
+            createBucket: async () => {
+                storageState.bucketCreates += 1;
+                if (storageState.bucketCreateFailures > 0) {
+                    storageState.bucketCreateFailures -= 1;
+                    return { error: { message: 'temporary storage unavailable' } };
+                }
+                return { error: null };
+            },
             from: () => ({
                 upload: async (path: string, body: Buffer) => {
                     storageState.objects.set(path, Buffer.from(body).toString('utf8'));
@@ -52,6 +60,7 @@ describe('M8 production telemetry durable storage contract', () => {
         process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE = 'true';
         storageState.objects.clear();
         storageState.bucketCreates = 0;
+        storageState.bucketCreateFailures = 0;
         clearM8LiveVoiceTelemetryForTests();
     });
 
@@ -79,6 +88,28 @@ describe('M8 production telemetry durable storage contract', () => {
         expect(recovered).toMatchObject({ voiceSessionId: voice, deviceSessionId: device, closed: true, eventCount: 2, sideEffects: 0 });
         expect(JSON.stringify(recovered)).not.toContain(conversation);
         expect(JSON.stringify(recovered)).not.toContain('hidden');
-        expect(storageState.bucketCreates).toBe(1);
+        expect(storageState.bucketCreates).toBe(2);
+    });
+
+    it('recovers bucket initialization after a transient storage failure', async () => {
+        storageState.bucketCreateFailures = 1;
+
+        await expect(recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'session_started',
+            atMs: 1,
+            sideEffects: 0,
+        })).rejects.toMatchObject({ statusCode: 503 });
+
+        await expect(recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'session_started',
+            atMs: 2,
+            sideEffects: 0,
+        })).resolves.toBeUndefined();
+
+        expect(storageState.bucketCreates).toBe(2);
     });
 });

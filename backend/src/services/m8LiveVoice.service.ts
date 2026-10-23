@@ -180,10 +180,18 @@ const telemetryWriteQueues = new Map<string, Promise<void>>();
 
 async function ensureTelemetryBucket(): Promise<void> {
     if (!telemetryPersistenceEnabled()) return;
-    telemetryBucketReady ??= (async () => {
-        const { error } = await supabaseAdmin.storage.createBucket(telemetryBucket(), { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
-        if (error && !/already exists|duplicate/i.test(error.message || '')) throw new AppError('Live voice telemetry storage unavailable', 503);
-    })();
+    if (!telemetryBucketReady) {
+        const pending = (async () => {
+            const { error } = await supabaseAdmin.storage.createBucket(telemetryBucket(), { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
+            if (error && !/already exists|duplicate/i.test(error.message || '')) throw new AppError('Live voice telemetry storage unavailable', 503);
+        })();
+        // Do not permanently cache a transient provider/storage failure. A
+        // later voice session must be able to recover without a process restart.
+        telemetryBucketReady = pending.catch((error) => {
+            telemetryBucketReady = null;
+            throw error;
+        });
+    }
     await telemetryBucketReady;
 }
 
@@ -411,4 +419,5 @@ export function clearM8LiveVoiceTelemetryForTests(): void {
     telemetryByVoiceSession.clear();
     latestTelemetryByActor.clear();
     latestTelemetryGlobalVoiceSessionId = null;
+    telemetryBucketReady = null;
 }
