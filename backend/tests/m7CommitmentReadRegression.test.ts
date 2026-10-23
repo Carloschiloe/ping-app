@@ -106,6 +106,7 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
         'Muéstrame mis pendientes de los próximos días',
         '¿Qué compromisos tengo hoy?',
         '¿Qué pendientes hay mañana?',
+        'Muéstrame los pendientes de esta semana con sus horarios',
     ])('does not turn a broad commitment read into an FTS topic: %s', async (input) => {
         const interpreter = new DeterministicInputInterpreter();
         const interpretation = await interpreter.interpret(input, {});

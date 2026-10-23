@@ -886,6 +886,19 @@ function stripTimeExpressionLanguage(text: string, temporalExpression?: string |
     return text.replace(detected, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// A display request such as "con sus horarios" changes the shape of the
+// answer; it is not a topic to search for in commitment titles. Leaving it
+// in the residual FTS query makes PostgreSQL require the commitment to contain
+// "horarios", which turns a valid temporal list into an empty result. Keep
+// this as a bounded presentation phrase instead of globally stripping
+// "horario" so a real topic such as "horario de clases" remains searchable.
+function stripPresentationDetailLanguage(text: string): string {
+    return text
+        .replace(/\b(?:con|incluyendo|incluye|mostrando|junto\s+con)\s+(?:sus?\s+|los?\s+|las?\s+)?(?:horarios?|horas?|fechas?)\b/giu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 // Invocation words are transport/conversation scaffolding, not user data.
 // This is intentionally anchored to the beginning and to a named Ping
 // invocation; a real topic named "Ping" in the body is never discarded.
@@ -1381,6 +1394,7 @@ function normalizeControlLanguageFromTextQuery(candidate: string, temporalExpres
     cleaned = stripTemporalComparisonLanguage(cleaned);
     cleaned = stripUrgencyComparisonLanguage(cleaned);
     cleaned = stripTimeExpressionLanguage(cleaned, temporalExpression);
+    cleaned = stripPresentationDetailLanguage(cleaned);
     return cleaned;
 }
 
