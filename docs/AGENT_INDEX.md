@@ -415,15 +415,15 @@ Start with a focused failing test. Expand only when an observed dependency requi
 **Usually do not read:** `mobile/src/screens/PingAIScreen.tsx`; it is a separate legacy surface.
 **Known non-blocking debt (audited, not a bug):** citations are shown as a bare count + type-label list (`describeCitationsSummary`/`describeCitationTypes`, `agentChat.ts`) — the backend already computes full per-claim provenance (`AgentResponse.claims[].sourceRefs`), but mobile's `AgentRespondResult` type never models `claims`, only the deduplicated `citations` list, and there is no tap-through from a citation to the actual cited commitment/message. A user can see "this answer is backed by 2 sources" but not verify *which* commitment/message those are. Real click-through would need a new `claims` field on the mobile type plus navigation wiring — a UX feature addition, not a one-line fix, so left as documented debt.
 
-### Staging / deployment
+### Production / deployment
 
-**Purpose:** Build only `backend/`, run the public health check, and guard the staging Supabase project identity.
-**Canonical owner:** `render.staging.yaml` for versioned staging service configuration; runtime validation in `backend/src/config/env.ts` and health route in `backend/src/routes/index.ts`.
-**Read first:** `render.staging.yaml`, `backend/src/config/env.ts`, `backend/src/routes/index.ts`, `docs/23-STAGING-BETA-VALIDATION.md`.
+**Purpose:** Build only `backend/`, run the public health check, and verify that every deployment targets Ping production.
+**Canonical owner:** `render.yaml` for the production service configuration; runtime validation in `backend/src/config/env.ts` and the health route in `backend/src/routes/index.ts`.
+**Read first:** `render.yaml`, `backend/src/config/env.ts`, `backend/src/routes/index.ts`, `scripts/production-readiness/production-preflight.mjs`.
 
-**Direct dependencies:** branch `codex/staging-beta`, service `ping-backend-staging`, expected Supabase ref `oonijgmddgyymhrlnvuu`.
-**Used by:** Render auto-deploy and staging mobile configuration.
-**Tests/checks:** `mobile/tests/stagingConfig.test.ts`, `backend/scripts/e2e-staging-beta.mjs`, `/api/health`.
+**Direct dependencies:** branch `main`, service `ping-app`, production Supabase ref `wbigqhtuzfmpnxservlf`.
+**Used by:** Render auto-deploy and production mobile configuration.
+**Tests/checks:** `scripts/production-readiness/test-offline.mjs`, `backend/tests/backendHealth.test.ts`, `/api/health`.
 
-**Common symptoms:** health old SHA, `db_status` disconnected, wrong project ref, accidental production target.
-**Usually do not read:** `render.yaml` or local `.env` for a staging-only task unless comparing targets; never print secrets.
+**Common symptoms:** health old SHA, `db_status` disconnected, wrong project ref, unavailable durable runtime.
+**Usually do not read:** historical release notes or archived environment files; never print secrets.
