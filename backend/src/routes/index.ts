@@ -36,6 +36,7 @@ import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import { getDurableAgentRuntimeStatus } from '../services/agentDurableConfig.service';
+import { getLatestPrivateAgentTurnDatabaseDiagnostic } from '../services/privateAgentTurnAdmission.service';
 import { isAgentConversationTurnPersistenceEnabled } from '../services/agentConversationTurn.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
@@ -147,6 +148,12 @@ router.get('/health', async (req, res) => {
                     : 'best_effort',
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,
+            agent_private_database_diagnostic: getLatestPrivateAgentTurnDatabaseDiagnostic(),
+            live_voice: {
+                enabled: process.env.PING_ENVIRONMENT === 'production'
+                    && process.env.M8_LIVE_VOICE_ENABLED === 'true',
+                telemetry_persistence: process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE === 'true',
+            },
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER
                 || process.env.RENDER_SERVICE_NAME
