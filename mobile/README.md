@@ -1,6 +1,6 @@
-# Welcome to your Expo app 👋
+# Ping mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cliente móvil de Ping. La entrada real es `App.tsx` y la navegación usa React Navigation.
 
 ## Get started
 
@@ -16,24 +16,10 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+En la salida encontrarás opciones para abrir la app en un dispositivo conectado o en Expo Go.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- development build (the supported runtime for Ping)
+El backend de producción se configura mediante `EXPO_PUBLIC_API_URL` en `.env`.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
 
 ## Learn more
 

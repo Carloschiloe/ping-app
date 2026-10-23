@@ -14,8 +14,7 @@
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_aOjJ_9AKfuwSRlR4kDklkw_ZovW2dML",
         "EXPO_PUBLIC_API_URL": "https://ping-app-con3.onrender.com/api",
         "EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS": "true",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true",
-        "EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK": "1"
+        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
       },
       "android": {
         "buildType": "app-bundle"
@@ -31,8 +30,7 @@
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_aOjJ_9AKfuwSRlR4kDklkw_ZovW2dML",
         "EXPO_PUBLIC_API_URL": "https://ping-app-con3.onrender.com/api",
         "EXPO_PUBLIC_ENABLE_AGENT_CONVERSATION_EVENTS": "true",
-        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true",
-        "EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK": "1"
+        "EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED": "true"
       },
       "android": {
         "buildType": "apk"

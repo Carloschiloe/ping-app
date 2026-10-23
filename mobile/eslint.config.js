@@ -5,15 +5,10 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    // The shipped app entrypoint is App.tsx. These are unused Expo Router
-    // starter files retained in the repository, but expo-router is not part
-    // of Ping's navigation/runtime dependency graph.
     ignores: [
       '.expo/**/*',
       'android/**/*',
       'dist/**/*',
-      'app/**/*',
-      'components/external-link.tsx',
     ],
   },
   {
