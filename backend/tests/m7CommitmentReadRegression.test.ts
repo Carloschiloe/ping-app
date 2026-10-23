@@ -413,6 +413,31 @@ describe('M-7 conversational continuity: a singular follow-up keeps the authoriz
         expect(retrieveCommitmentProposals).not.toHaveBeenCalled();
     });
 
+    it('does not guess after restart when durable prior citations have no display labels', async () => {
+        const interpreter = new DeterministicInputInterpreter();
+        const followInput = '¿A qué hora quedó?';
+        const context = await buildAgentContext({
+            actorUserId: 'actor-1', input: followInput, now: '2026-09-22T12:00:00.000Z',
+            timezone: 'America/Santiago', traceId: 'm7-continuity-durable-ambiguous',
+            priorReadContext: {
+                kind: 'commitment_query', timeRange: null, sourceTurnId: 'm7-persisted-prior',
+                // Durable rehydration intentionally stores rawText as an empty
+                // string; cardinality must still prevent selecting one result.
+                commitmentReferents: [
+                    { rawText: '', entityType: 'commitment', canonicalId: 'commitment-1' },
+                    { rawText: '', entityType: 'commitment', canonicalId: 'commitment-2' },
+                ], statuses: ['accepted'],
+            },
+        }, { interpreter, interpretation: await interpreter.interpret(followInput, {}) });
+
+        expect(context.needsClarification).toBe(true);
+        expect(context.clarification?.reason).toBe('entity_ambiguous');
+        expect(context.commitments).toEqual([]);
+        expect(retrieveVisibleCommitmentById).not.toHaveBeenCalled();
+        expect(retrieveCommitments).not.toHaveBeenCalled();
+        expect(retrieveCommitmentProposals).not.toHaveBeenCalled();
+    });
+
     it('lets an explicit new topic replace the previous referent instead of inheriting it', async () => {
         const interpreter = new DeterministicInputInterpreter();
         retrieveCommitments.mockResolvedValue([OVERDUE] as any);
