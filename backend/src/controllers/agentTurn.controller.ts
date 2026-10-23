@@ -58,12 +58,14 @@ async function resolveHistoryConversationId(input: {
 }
 
 export async function turn(req: Request, res: Response): Promise<void> {
+    let traceId = generateTraceId();
+    let phase = 'start';
     try {
         const actorUserId = req.user!.id;
-        const traceId = generateTraceId();
 
         const idempotencyKey = req.get('Idempotency-Key');
         if (req.body.readCapability !== undefined) {
+            phase = 'exact_read_v4';
             if (!idempotencyKey) throw new AppError('Idempotency-Key is required for READ V4', 400);
             const result = await runExactCommitmentCountV4({
                 actorUserId, input: req.body.input, idempotencyKey,
@@ -108,15 +110,17 @@ export async function turn(req: Request, res: Response): Promise<void> {
         // and reviewed voice, the signed envelope is the only authoritative
         // source of conversationId and transcript text; never trust a client
         // copy for durable provenance.
-        const historyInput = isAgentConversationTurnPersistenceEnabled()
-            ? resolveAgentRequestInput({ actorUserId, body: req.body, traceId })
-            : null;
-        const historyConversationId = isAgentConversationTurnPersistenceEnabled()
-            ? await resolveHistoryConversationId({
+        let historyInput: ReturnType<typeof resolveAgentRequestInput> | null = null;
+        let historyConversationId: string | undefined;
+        if (isAgentConversationTurnPersistenceEnabled()) {
+            phase = 'resolve_history_input';
+            historyInput = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
+            phase = 'resolve_history_conversation';
+            historyConversationId = await resolveHistoryConversationId({
                 actorUserId,
-                explicitConversationId: historyInput?.envelope.conversationId ?? req.body.conversationId,
-            })
-            : undefined;
+                explicitConversationId: historyInput.envelope.conversationId ?? req.body.conversationId,
+            });
+        }
         // Storage scope and Core dialogue scope are intentionally separate for
         // the main Ping surface: its events live in the actor self-chat, but
         // semantic continuity remains `agent:mobile` when no conversation was
@@ -137,11 +141,13 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 return null;
             })
             : null;
+        phase = durableEnabled ? 'run_durable_turn' : 'run_legacy_turn';
         const result = durableEnabled
             ? await runDurableAgentTurn(turnInput, { fallbackReadContext }, idempotencyKey!)
             : await runAgentTurn(turnInput, { fallbackReadContext });
 
         if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
+            phase = 'persist_conversation_event';
             await persistTurnWithRuntimePolicy({
                 actorUserId,
                 conversationId: historyConversationId,
@@ -161,6 +167,14 @@ export async function turn(req: Request, res: Response): Promise<void> {
         res.status(200).json(result);
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
+        console.error('[AgentTurn] request failed', {
+            traceId,
+            phase,
+            statusCode,
+            errorName: error?.name ?? 'UnknownError',
+            errorCode: typeof error?.code === 'string' ? error.code : null,
+            errorMessage: typeof error?.message === 'string' ? error.message.slice(0, 300) : String(error).slice(0, 300),
+        });
         res.status(statusCode).json({
             error: statusCode === 500 ? 'The agent could not process your request right now.' : error.message,
         });

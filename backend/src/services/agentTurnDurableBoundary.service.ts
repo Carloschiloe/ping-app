@@ -195,6 +195,7 @@ export async function runDurableAgentTurn(
 
     const claimedAdmission = disposition.admission;
     let failureRecorded = false;
+    let phase = 'load_checkpoint';
     let checkpoint: DialogueCheckpointLoadResult;
     try {
         checkpoint = await dependencies.checkpoint.loadDialogueCheckpoint({
@@ -212,11 +213,13 @@ export async function runDurableAgentTurn(
             repository: createInMemoryDialogueStateRepository(restoredState ?? undefined),
             allowSameTurnSequence: true,
         });
+        phase = 'run_agent_turn';
         const result = await (dependencies.runTurn ?? runAgentTurn)(input, {
             ...options,
             dialogueService,
             dialogueTurnSequence: claimedAdmission.turnSequence,
         });
+        phase = 'post_process';
         const processedResult = postProcess
             ? await postProcess({
                 result,
@@ -232,6 +235,7 @@ export async function runDurableAgentTurn(
         // Read-only turns do not need to create or mutate a dialogue row.
         // This also keeps a pre-existing idle checkpoint untouched.
         if (!nextState) {
+            phase = 'complete_admission';
             await dependencies.admission.complete(
                 claimedAdmission,
                 (processedResult.kind === 'read' ? toAgentTurnReplayV2(processedResult) : toAgentTurnReplayV1(processedResult)) as unknown as Record<string, unknown>,
@@ -241,6 +245,7 @@ export async function runDurableAgentTurn(
 
         const expectedDialogueVersion = checkpoint.status === 'found' ? checkpoint.snapshot.version : 0;
         try {
+            phase = 'apply_turn_atomically';
             const applied = await dependencies.commit.applyTurn({
                 turnId: claimedAdmission.turnId,
                 actorUserId: input.actorUserId,
@@ -255,6 +260,7 @@ export async function runDurableAgentTurn(
             });
             return replayToResult(applied.replay as unknown as Record<string, unknown>);
         } catch (error) {
+            phase = 'reconcile_application';
             const reconciliation = await dependencies.commit.reconcileApplication({
                 turnId: claimedAdmission.turnId,
                 actorUserId: input.actorUserId,
@@ -270,6 +276,14 @@ export async function runDurableAgentTurn(
         }
     } catch (error) {
         if (!failureRecorded) await failBestEffort(claimedAdmission, dependencies.admission);
+        console.error('[AgentDurable] turn failed', {
+            phase,
+            turnId: claimedAdmission.turnId,
+            turnSequence: claimedAdmission.turnSequence,
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+            errorCode: typeof (error as any)?.code === 'string' ? (error as any).code : null,
+            errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+        });
         throw error;
     }
 }
