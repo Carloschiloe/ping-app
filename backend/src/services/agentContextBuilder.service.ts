@@ -1725,6 +1725,8 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
             topics: (interpretation.topicHints ?? []).length > 0 ? interpretation.topicHints : (interpretation.textQuery ? [interpretation.textQuery] : []),
             conversationId: conversationId ?? null,
         },
+        timeExpression: interpretation.timeExpression ?? null,
+        temporalIntent: interpretation.temporalIntent ?? null,
         commitments,
         events: resolvedEvents,
         messages,

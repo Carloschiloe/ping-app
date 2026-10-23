@@ -426,6 +426,11 @@ export interface AgentContext {
     // agentResponseSynthesizer.service.ts, camino de respuesta determinística.
     countResult?: number;
     entities: AgentContextEntities;
+    // Temporal semantics normalized by the Core. Keeping this alongside the
+    // resolved range lets presentation preserve "mañana/hoy/ayer" without
+    // reparsing user wording or guessing from the server timezone.
+    timeExpression?: string | null;
+    temporalIntent?: TemporalIntent | null;
 
     commitments: RetrievalCommitment[];
     events: RetrievalCommitmentEvent[];

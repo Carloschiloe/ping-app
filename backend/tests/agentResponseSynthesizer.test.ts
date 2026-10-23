@@ -628,6 +628,7 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
                 topics: [],
                 conversationId: null,
             },
+            temporalIntent: { kind: 'calendar_day', offsetDays: 1, futureOnly: true },
             queryCardinality: 'exhaustive_list' as any,
         });
         const model = fakeModel('{}');

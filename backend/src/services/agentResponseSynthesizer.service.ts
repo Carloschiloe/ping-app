@@ -1090,6 +1090,30 @@ function formatCommitmentDueForTemporalQuery(
     const dueDate = new Date(dueAt);
     if ([rangeStart, rangeEnd, dueDate].some((date) => !Number.isFinite(date.getTime()))) return absolute;
 
+    const dueMs = dueDate.getTime();
+    const rangeContainsDueAt = dueMs >= rangeStart.getTime() && dueMs < rangeEnd.getTime();
+    const calendarDayOffset = context.temporalIntent?.kind === 'calendar_day'
+        ? context.temporalIntent.offsetDays
+        : null;
+    // Prefer the normalized Core signal. This remains correct even when a
+    // device reports a timezone different from the timezone used to resolve
+    // the request, because the range and offset were already authorized by
+    // the same semantic interpretation.
+    if (rangeContainsDueAt && calendarDayOffset !== null) {
+        const time = new Intl.DateTimeFormat(locale, {
+            timeZone: context.timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+        }).format(dueDate);
+        if (language === 'es') {
+            if (calendarDayOffset === 0) return `hoy a las ${time}`;
+            if (calendarDayOffset === 1) return `mañana a las ${time}`;
+            if (calendarDayOffset === -1) return `ayer a las ${time}`;
+        } else {
+            if (calendarDayOffset === 0) return `today at ${time}`;
+            if (calendarDayOffset === 1) return `tomorrow at ${time}`;
+            if (calendarDayOffset === -1) return `yesterday at ${time}`;
+        }
+    }
+
     const rangeStartKey = localCalendarKey(rangeStart, context.timezone);
     const rangeEndKey = localCalendarKey(new Date(rangeEnd.getTime() - 1), context.timezone);
     const dueKey = localCalendarKey(dueDate, context.timezone);
