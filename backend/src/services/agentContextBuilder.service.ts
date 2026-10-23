@@ -146,15 +146,23 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
         return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
     }
-    const weekday = normalizedExpression.match(/\b(?:el\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+    // Keep the weekday qualifier in the same deterministic resolver as the
+    // extractor. Previously `este viernes` was detected as a time expression
+    // but fell through here because only `el viernes` matched; the query then
+    // retrieved an unbounded set and synthesis could label a Saturday item as
+    // Friday. `este` means the occurrence in the current calendar week,
+    // while an unqualified/`el`/`proximo` weekday means the next occurrence.
+    const weekday = normalizedExpression.match(
+        /\b(?:(este)\s+|(?:el\s+)?(proximo)\s+|(?:el)\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/
+    );
     if (weekday) {
         const weekdays: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
         const startToday = startOfDayInZone(now, timezone);
         const offsetMs = timeZoneOffsetMs(startToday, timezone);
         const localToday = new Date(startToday.getTime() + offsetMs);
-        let delta = (weekdays[weekday[1]] - localToday.getUTCDay() + 7) % 7;
-        if (delta === 0) delta = 7;
-        const target = addDays(now, delta);
+        let delta = (weekdays[weekday[3]] - localToday.getUTCDay() + 7) % 7;
+        if (delta === 0 && !weekday[1]) delta = 7;
+        const target = addDays(startToday, delta);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
     }
     if (temporalIntent?.kind === 'relative_days' && temporalIntent.futureOnly === true) {
