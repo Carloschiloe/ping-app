@@ -48,6 +48,29 @@ describe('Agent conversation persistence', () => {
             },
         });
         expect(db.getRpcCalls()[0]?.args.p_request_fingerprint).toMatch(/^[a-f0-9]{64}$/);
+        expect(db.getRpcCalls()[0]?.args.p_result.__pingAgentHistory).toEqual({ dialogueConversationId: null });
+    });
+
+    it('persists semantic scope separately from the durable history conversation', async () => {
+        const db = seedPersistence({
+            data: [{ turn_id: 'turn-scoped', idempotent_replay: false, created_at: '2026-10-22T19:00:00.000Z' }],
+            error: null,
+        });
+        const { persistAgentConversationTurn } = await import('../src/services/agentConversationTurn.service');
+
+        await persistAgentConversationTurn({
+            actorUserId: ACTOR_ID,
+            conversationId: CONVERSATION_ID,
+            dialogueConversationId: CONVERSATION_ID,
+            clientTurnKey: 'client-turn-scoped',
+            inputText: '¿Qué hablamos aquí?',
+            inputMode: 'text',
+            result,
+        });
+
+        expect(db.getRpcCalls()[0]?.args.p_result.__pingAgentHistory).toEqual({
+            dialogueConversationId: CONVERSATION_ID,
+        });
     });
 
     it('maps same-key/different-content conflicts to a retry-safe 409', async () => {

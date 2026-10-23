@@ -140,9 +140,22 @@ export function restorePendingAgentPlan(turns: AgentConversationTurnRecord[]): P
             pending = null;
             continue;
         }
+        const historyMetadata = (turn.result as AgentTurnPlan & {
+            __pingAgentHistory?: { dialogueConversationId?: unknown };
+        }).__pingAgentHistory;
+        // New events distinguish the actor self-chat used for durable
+        // storage from the semantic scope used by Core. Older events lack
+        // this marker and retain the historical conversationId behavior.
+        const hasSemanticScopeMarker = historyMetadata
+            && Object.prototype.hasOwnProperty.call(historyMetadata, 'dialogueConversationId');
+        const dialogueConversationId = hasSemanticScopeMarker
+            ? (typeof historyMetadata.dialogueConversationId === 'string'
+                ? historyMetadata.dialogueConversationId
+                : undefined)
+            : turn.conversationId;
         const source: AgentTurnInput = {
             input: turn.inputText,
-            conversationId: turn.conversationId,
+            conversationId: dialogueConversationId,
             channel: 'mobile',
             idempotencyKey: turn.clientTurnKey,
         };

@@ -33,6 +33,31 @@ export interface AgentExecutionConversationEvent {
 export type AgentConversationEventResult = AgentTurnResult | AgentExecutionConversationEvent;
 export type AgentConversationEventKind = AgentTurnResult['kind'] | 'execution';
 
+/**
+ * The actor self-chat is the durable storage projection for the main Ping
+ * surface. It must never be mistaken for the semantic conversation scope
+ * used when the turn is re-authorized after a restart or on another device.
+ * Keep this metadata inside the persisted result so it works without a
+ * production schema migration and remains backwards-compatible with older
+ * rows that do not have it.
+ */
+export interface AgentConversationHistoryMetadata {
+    dialogueConversationId: string | null;
+}
+
+const HISTORY_METADATA_KEY = '__pingAgentHistory' as const;
+
+function addHistoryMetadata(
+    result: AgentConversationEventResult,
+    dialogueConversationId: string | undefined,
+): AgentConversationEventResult {
+    const copy = { ...(result as unknown as Record<string, unknown>) };
+    copy[HISTORY_METADATA_KEY] = {
+        dialogueConversationId: dialogueConversationId?.trim() || null,
+    } satisfies AgentConversationHistoryMetadata;
+    return copy as unknown as AgentConversationEventResult;
+}
+
 export function isAgentConversationTurnPersistenceEnabled(): boolean {
     return process.env.PING_ENABLE_AGENT_CONVERSATION_EVENTS === 'true';
 }
@@ -81,6 +106,7 @@ async function persistAgentConversationEvent(input: {
     inputMode: 'text' | 'voice' | 'reviewed_voice_text';
     resultKind: AgentConversationEventKind;
     result: AgentConversationEventResult;
+    dialogueConversationId?: string;
 }): Promise<{ turnId: string; idempotentReplay: boolean; createdAt: string }> {
     await assertConversationParticipant(input.actorUserId, input.conversationId);
 
@@ -89,7 +115,10 @@ async function persistAgentConversationEvent(input: {
         throw new AppError('Invalid Agent conversation event', 400);
     }
 
-    const result = publicResult(input.result);
+    const result = addHistoryMetadata(
+        publicResult(input.result),
+        input.dialogueConversationId,
+    );
     const serializedResult = JSON.stringify(result);
     if (Buffer.byteLength(serializedResult, 'utf8') > MAX_HISTORY_RESULT_BYTES) {
         throw new AppError('Agent conversation event is too large', 400);
@@ -133,6 +162,8 @@ export async function persistAgentConversationTurn(input: {
     inputText: string;
     inputMode: 'text' | 'voice' | 'reviewed_voice_text';
     result: AgentTurnResult;
+    /** Semantic scope; null/undefined means the main Ping `agent:mobile` scope. */
+    dialogueConversationId?: string;
 }) {
     return persistAgentConversationEvent({ ...input, resultKind: input.result.kind });
 }

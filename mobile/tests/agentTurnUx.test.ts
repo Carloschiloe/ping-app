@@ -114,6 +114,20 @@ describe('M-6 mobile state machine', () => {
         expect(canConfirmAgentPlan(state)).toBe(true);
     });
 
+    it('restores the main Ping plan without turning the durable self-chat into semantic scope', () => {
+        const restored = restorePendingAgentPlan([{
+            id: 'turn-main', conversationId: 'actor-self-chat', actorUserId: 'actor', clientTurnKey: 'turn-main-key',
+            inputText: 'Crea el compromiso de llamar mañana', inputMode: 'text',
+            resultKind: 'plan',
+            result: {
+                ...turnPlan,
+                __pingAgentHistory: { dialogueConversationId: null },
+            } as any,
+            createdAt: new Date().toISOString(),
+        }]);
+        expect(restored?.source.conversationId).toBeUndefined();
+    });
+
     it('C) clarification and D) unsupported are first-class non-crash states', () => {
         expect(turnResultState({ kind: 'clarification', questions: [{ field: 'target', question: '¿Cuál Entrenar?' }] }).phase).toBe('clarification');
         expect(turnResultState({ kind: 'unsupported', reason: 'Aún no puedo hacer eso.' }).phase).toBe('unsupported');

@@ -75,6 +75,7 @@ describe('Agent Turn controller — main Ping history scope', () => {
         expect(persistMock).toHaveBeenCalledWith(expect.objectContaining({
             actorUserId: 'actor-1',
             conversationId: 'self-conversation-1',
+            dialogueConversationId: undefined,
             inputText: '¿Qué pendientes tengo esta semana?',
         }));
         expect(res.status).toHaveBeenCalledWith(200);
@@ -91,7 +92,10 @@ describe('Agent Turn controller — main Ping history scope', () => {
         await turn(req, res);
 
         expect(selfConversationMock).not.toHaveBeenCalled();
-        expect(persistMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conversation-1' }));
+        expect(persistMock).toHaveBeenCalledWith(expect.objectContaining({
+            conversationId: 'conversation-1',
+            dialogueConversationId: 'conversation-1',
+        }));
     });
 
     it('also persists count reads from the main Ping surface', async () => {

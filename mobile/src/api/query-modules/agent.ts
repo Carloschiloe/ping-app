@@ -371,6 +371,10 @@ export interface AgentConversationTurnRecord {
     createdAt: string;
 }
 
+export interface AgentConversationHistoryMetadata {
+    dialogueConversationId: string | null;
+}
+
 export interface AgentExecutionConversationEvent {
     kind: 'execution';
     execution: AgentExecutionResult;

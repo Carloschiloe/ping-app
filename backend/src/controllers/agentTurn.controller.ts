@@ -77,6 +77,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 await persistTurnWithRuntimePolicy({
                     actorUserId,
                     conversationId: historyConversationId,
+                    dialogueConversationId: req.body.conversationId,
                     clientTurnKey: idempotencyKey,
                     inputText: req.body.input,
                     inputMode: 'text',
@@ -144,6 +145,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
             await persistTurnWithRuntimePolicy({
                 actorUserId,
                 conversationId: historyConversationId,
+                dialogueConversationId: dialogueConversationId ?? undefined,
                 clientTurnKey: idempotencyKey ?? traceId,
                 inputText: historyInput.envelope.content,
                 inputMode: req.body.reviewedVoiceInputToken
