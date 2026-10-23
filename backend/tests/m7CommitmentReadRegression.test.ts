@@ -136,7 +136,7 @@ describe('M-7 physical regression: broad natural commitment reads use the UI uni
             createdAt: '2026-09-19T12:00:00.000Z',
         };
         retrieveCommitments.mockResolvedValue([laterDueButNewer, earlierDueButOlder]);
-        const input = '¿Qué compromisos tengo esta semana?';
+        const input = 'Muéstrame los pendientes de esta semana con sus horarios';
         const interpreter = new DeterministicInputInterpreter();
         const interpretation = await interpreter.interpret(input, {});
         const context = await buildAgentContext({
