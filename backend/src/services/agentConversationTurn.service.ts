@@ -212,15 +212,23 @@ export async function loadLatestAgentReadContext(
     conversationId: string,
 ): Promise<AgentReadContext | null> {
     await assertConversationParticipant(actorUserId, conversationId);
-    const { data, error } = await supabaseAdmin
-        .from('agent_conversation_turns')
-        .select('id, result, result_kind, conversations!inner(deleted_at)')
-        .eq('conversation_id', conversationId)
-        .eq('actor_user_id', actorUserId)
-        .eq('result_kind', 'response')
-        .is('conversations.deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(12);
+    let data: any[] | null = null;
+    let error: { message?: string; code?: string } | null = null;
+    for (let attempt = 1; attempt <= MAX_PERSISTENCE_ATTEMPTS; attempt += 1) {
+        const response = await supabaseAdmin
+            .from('agent_conversation_turns')
+            .select('id, result, result_kind, conversations!inner(deleted_at)')
+            .eq('conversation_id', conversationId)
+            .eq('actor_user_id', actorUserId)
+            .eq('result_kind', 'response')
+            .is('conversations.deleted_at', null)
+            .order('created_at', { ascending: false })
+            .limit(12);
+        data = response.data;
+        error = response.error;
+        if (!error || !isTransientPersistenceError(error) || attempt === MAX_PERSISTENCE_ATTEMPTS) break;
+        await waitForPersistenceRetry(attempt);
+    }
 
     if (error) throw new AppError('Could not load the Agent read context', 500);
 

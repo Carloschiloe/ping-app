@@ -92,4 +92,39 @@ describe('Agent conversation persistence', () => {
 
         expect(retryDb.getRpcCalls()).toHaveLength(2);
     });
+
+    it('retries a transient read-context failure after restart before dropping continuity', async () => {
+        const retryDb = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            agent_conversation_turns: [
+                { data: null, error: { code: '08006', message: 'connection reset by peer' } },
+                {
+                    data: [{
+                        id: 'turn-read-1',
+                        result_kind: 'response',
+                        result: {
+                            kind: 'response',
+                            response: {
+                                status: 'answered',
+                                citations: [{ sourceType: 'commitment', sourceId: 'commitment-1' }],
+                            },
+                        },
+                    }],
+                    error: null,
+                },
+            ],
+        });
+        setSupabaseAdminMock(retryDb);
+        const { loadLatestAgentReadContext } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(loadLatestAgentReadContext(ACTOR_ID, CONVERSATION_ID)).resolves.toMatchObject({
+            kind: 'commitment_query',
+            commitmentReferents: [{ entityType: 'commitment', canonicalId: 'commitment-1' }],
+        });
+        expect(retryDb.getCalledTables()).toEqual([
+            'conversation_participants',
+            'agent_conversation_turns',
+            'agent_conversation_turns',
+        ]);
+    });
 });
