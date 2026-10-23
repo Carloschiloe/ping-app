@@ -548,6 +548,8 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
         expect(response.answer).toContain('Llamar a Juan');
         expect(response.answer).toContain('Enviar el informe');
+        expect(response.answer).toContain('miércoles, 23 de septiembre de 2026, 15:00');
+        expect(response.answer).toContain('miércoles, 23 de septiembre de 2026, 18:00');
         expect(response.answer).not.toContain('más detalles');
         expect(model.synthesize).not.toHaveBeenCalled();
     });

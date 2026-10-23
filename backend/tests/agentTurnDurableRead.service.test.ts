@@ -14,4 +14,18 @@ describe('M-7 durable checkpoint read bindings', () => {
     it('loads active and suspended dialogue without mutating', async () => { const row = { actor_user_id: 'a', dialogue_scope_key: 's', lifecycle: 'active_and_suspended', active_dialogue: { objective: 'a' }, suspended_dialogue: { objective: 'b' }, version: 8, last_applied_turn_id: 't', last_applied_turn_sequence: 7, expires_at: '2030-01-01T00:00:00Z' }; let writes = 0; const result = await new AgentDialogueCheckpointService({ from: () => ({ select: () => ({ eq: function(this: any) { return this; }, maybeSingle: async () => ({ data: row, error: null }) }) }) }).loadDialogueCheckpoint({ actorUserId: 'a', dialogueScopeKey: 's' }); expect(result).toEqual({ status: 'found', expiresAt: row.expires_at, snapshot: { lifecycle: row.lifecycle, activeDialogue: row.active_dialogue, suspendedDialogue: row.suspended_dialogue, version: 8, lastAppliedTurnId: 't', lastAppliedTurnSequence: 7 } }); expect(writes).toBe(0); });
     it('distinguishes empty dialogue and preserves expiry metadata', async () => { const empty = await new AgentDialogueCheckpointService(query(null)).loadDialogueCheckpoint({ actorUserId: 'a', dialogueScopeKey: 's' }); expect(empty.status).toBe('not_found'); const result = await new AgentDialogueCheckpointService(query({ actor_user_id: 'a', dialogue_scope_key: 's', lifecycle: 'active', active_dialogue: {}, suspended_dialogue: null, version: 3, last_applied_turn_id: null, last_applied_turn_sequence: 0, expires_at: '2020-01-01T00:00:00Z' })).loadDialogueCheckpoint({ actorUserId: 'a', dialogueScopeKey: 's' }); expect(result).toMatchObject({ status: 'found', expiresAt: '2020-01-01T00:00:00Z' }); });
     it('uses actor and scope as the only lookup key and never the legacy Map', async () => { let calls = 0; const service = new AgentDialogueCheckpointService({ from: (table: string) => { expect(table).toBe('agent_dialogue_checkpoints'); calls++; return { select: () => ({ eq: function(this: any) { return this; }, maybeSingle: async () => ({ data: null, error: null }) }) }; } }); expect((await service.loadDialogueCheckpoint({ actorUserId: 'a', dialogueScopeKey: 's' })).status).toBe('not_found'); expect(calls).toBe(1); });
+    it('resets a scope through the atomic server-side RPC', async () => {
+        const calls: any[] = [];
+        const service = new AgentDialogueCheckpointService({
+            rpc: (name: string, args: any) => {
+                calls.push({ name, args });
+                return Promise.resolve({ data: true, error: null });
+            },
+        });
+        await expect(service.resetDialogueCheckpoint({ actorUserId: 'a', dialogueScopeKey: 's' })).resolves.toBe(true);
+        expect(calls).toEqual([{
+            name: 'reset_agent_dialogue_checkpoint',
+            args: { p_actor_user_id: 'a', p_dialogue_scope_key: 's' },
+        }]);
+    });
 });

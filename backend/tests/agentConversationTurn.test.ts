@@ -258,4 +258,47 @@ describe('Agent conversation persistence', () => {
         ]);
         expect(retryDb.getRpcCalls()[0]?.args.p_client_turn_key).toBe('client-turn-1:execution');
     });
+
+    it('clears the Agent projection with a reversible cutoff, without deleting events', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            'rpc:clear_agent_conversation_history': [{ data: '2026-10-23T19:00:00.000Z', error: null }],
+        });
+        setSupabaseAdminMock(db);
+        const { clearAgentConversationHistory } = await import('../src/services/agentConversationTurn.service');
+
+        const result = await clearAgentConversationHistory(ACTOR_ID, CONVERSATION_ID);
+
+        expect(result.clearedAt).toBe('2026-10-23T19:00:00.000Z');
+        expect(db.getCalledTables()).toEqual(['conversation_participants']);
+        expect(db.getRpcCalls()).toEqual([{
+            name: 'clear_agent_conversation_history',
+            args: {
+                p_actor_user_id: ACTOR_ID,
+                p_conversation_id: CONVERSATION_ID,
+                p_dialogue_scope_key: CONVERSATION_ID,
+            },
+        }]);
+    });
+
+    it('resets the main mobile dialogue scope without allowing an unrelated scope', async () => {
+        const db = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            'rpc:clear_agent_conversation_history': [{ data: '2026-10-23T19:00:00.000Z', error: null }],
+        });
+        setSupabaseAdminMock(db);
+        const { clearAgentConversationHistory } = await import('../src/services/agentConversationTurn.service');
+
+        await clearAgentConversationHistory(ACTOR_ID, CONVERSATION_ID, 'agent:mobile');
+        expect(db.getRpcCalls()[0]).toEqual({
+            name: 'clear_agent_conversation_history',
+            args: {
+                p_actor_user_id: ACTOR_ID,
+                p_conversation_id: CONVERSATION_ID,
+                p_dialogue_scope_key: 'agent:mobile',
+            },
+        });
+        await expect(clearAgentConversationHistory(ACTOR_ID, CONVERSATION_ID, 'other-scope'))
+            .rejects.toMatchObject({ statusCode: 400 });
+    });
 });

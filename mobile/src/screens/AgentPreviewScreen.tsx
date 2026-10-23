@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Modal, Pressable,
+    StatusBar, Modal, Pressable, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,7 @@ import {
     createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
     isAgentConversationEventsEnabled, useAgentConversationTurns, type AgentFollowUpOption, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
-import { useSelfConversationId } from '../api/query-modules/conversations';
+import { useSelfConversationId, useClearAgentConversationHistory } from '../api/query-modules/conversations';
 import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
@@ -80,6 +80,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     );
     const historyConversationId = conversationId ?? selfConversationId;
     const { data: persistedHistory } = useAgentConversationTurns(historyConversationId);
+    const dialogueScopeKey = conversationId || (isMainCoreEntry ? 'agent:mobile' : undefined);
+    const { mutateAsync: clearAgentConversationHistory, isPending: isClearingHistory } = useClearAgentConversationHistory(historyConversationId, dialogueScopeKey);
     const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
     const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
     // Ping Voz is a production capability of the main Ping entry. Keep the
@@ -268,6 +270,37 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         if (turnState.phase !== 'plan_ready') return;
         dispatchTurn({ type: 'CANCEL_PLAN' });
     };
+
+    const handleClearHistory = useCallback(() => {
+        if (!historyConversationId || isPending || isClearingHistory) return;
+        Alert.alert(
+            'Limpiar chat de Ping',
+            'Se ocultará este historial de Ping y se reiniciará la continuidad de la conversación. Tus compromisos y mensajes no se borrarán.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Limpiar',
+                    style: 'destructive',
+                    onPress: () => {
+                        void clearAgentConversationHistory()
+                            .then(() => {
+                                setMessages([]);
+                                setInputText('');
+                                setVoiceDraft(null);
+                                setVoiceError(null);
+                                localInteractionRef.current = true;
+                                hydratedConversationRef.current = historyConversationId;
+                                dispatchTurn({ type: 'RESET' });
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            })
+                            .catch(() => {
+                                Alert.alert('No se pudo limpiar', 'No se modificó el historial. Comprueba la conexión e inténtalo nuevamente.');
+                            });
+                    },
+                },
+            ],
+        );
+    }, [clearAgentConversationHistory, historyConversationId, isClearingHistory, isPending]);
     const voiceCopy = voiceStatusCopy(voice.state);
 
     const styles = React.useMemo(() => createStyles(theme), [theme]);
@@ -385,6 +418,20 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         <Ionicons name="radio" size={22} color={theme.colors.white} />
                     </TouchableOpacity>
                 ) : <View style={styles.headerBtn} />}
+                <TouchableOpacity
+                    onPress={handleClearHistory}
+                    style={styles.headerBtn}
+                    disabled={!historyConversationId || isPending || isClearingHistory}
+                    testID="ping-clear-history-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="Limpiar chat de Ping"
+                >
+                    {isClearingHistory ? (
+                        <ActivityIndicator size="small" color={theme.colors.white} />
+                    ) : (
+                        <Ionicons name="trash-outline" size={22} color={theme.colors.white} />
+                    )}
+                </TouchableOpacity>
             </View>
 
             <KeyboardAvoidingView

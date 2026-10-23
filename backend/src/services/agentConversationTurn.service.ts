@@ -249,7 +249,7 @@ export async function listAgentConversationTurns(
     await assertConversationParticipant(actorUserId, conversationId);
     const { data, error } = await supabaseAdmin
         .from('agent_conversation_turns')
-        .select('id, conversation_id, actor_user_id, client_turn_key, input_text, input_mode, result_kind, result, created_at, conversations!inner(deleted_at)')
+        .select('id, conversation_id, actor_user_id, client_turn_key, input_text, input_mode, result_kind, result, created_at, conversations!inner(deleted_at, agent_history_cleared_at)')
         .eq('conversation_id', conversationId)
         .eq('actor_user_id', actorUserId)
         .is('conversations.deleted_at', null)
@@ -257,7 +257,9 @@ export async function listAgentConversationTurns(
         .limit(Math.min(Math.max(limit, 1), 200));
 
     if (error) throw new AppError('Could not load the Agent conversation history', 500);
-    return (data || []).map((row: any) => ({
+    return (data || [])
+        .filter((row: any) => !isClearedAgentHistoryRow(row))
+        .map((row: any) => ({
         id: row.id,
         conversationId: row.conversation_id,
         actorUserId: row.actor_user_id,
@@ -267,7 +269,45 @@ export async function listAgentConversationTurns(
         resultKind: row.result_kind,
         result: row.result,
         createdAt: row.created_at,
-    }));
+        }));
+}
+
+function isClearedAgentHistoryRow(row: any): boolean {
+    const clearedAt = row?.conversations?.agent_history_cleared_at;
+    if (typeof clearedAt !== 'string' || !clearedAt.trim()) return false;
+    const createdAtMs = Date.parse(String(row?.created_at ?? ''));
+    const clearedAtMs = Date.parse(clearedAt);
+    return Number.isFinite(createdAtMs) && Number.isFinite(clearedAtMs) && createdAtMs <= clearedAtMs;
+}
+
+/**
+ * Clears only the visible Agent projection. Durable event rows remain for
+ * audit/recovery; the cutoff never deletes commitments, messages, or evidence.
+ */
+export async function clearAgentConversationHistory(
+    actorUserId: string,
+    conversationId: string,
+    dialogueScopeKey = conversationId,
+): Promise<{ clearedAt: string }> {
+    await assertConversationParticipant(actorUserId, conversationId);
+    const normalizedScope = dialogueScopeKey.trim();
+    if (normalizedScope !== conversationId && normalizedScope !== 'agent:mobile') {
+        throw new AppError('Invalid Agent dialogue scope', 400);
+    }
+    const { data, error } = await supabaseAdmin.rpc('clear_agent_conversation_history', {
+        p_actor_user_id: actorUserId,
+        p_conversation_id: conversationId,
+        p_dialogue_scope_key: normalizedScope,
+    });
+    if (error) {
+        if (error.code === '42501') throw new AppError('You do not have access to this conversation', 403);
+        throw new AppError('Could not clear the Agent conversation history', 500);
+    }
+    const clearedAt = Array.isArray(data) ? data[0] : data;
+    if (typeof clearedAt !== 'string' || !Number.isFinite(Date.parse(clearedAt))) {
+        throw new AppError('Invalid Agent conversation clear response', 500);
+    }
+    return { clearedAt };
 }
 
 /**
@@ -286,7 +326,7 @@ export async function loadLatestAgentReadContext(
     for (let attempt = 1; attempt <= MAX_PERSISTENCE_ATTEMPTS; attempt += 1) {
         const response = await supabaseAdmin
             .from('agent_conversation_turns')
-            .select('id, result, result_kind, conversations!inner(deleted_at)')
+            .select('id, result, result_kind, created_at, conversations!inner(deleted_at, agent_history_cleared_at)')
             .eq('conversation_id', conversationId)
             .eq('actor_user_id', actorUserId)
             .eq('result_kind', 'response')
@@ -302,6 +342,7 @@ export async function loadLatestAgentReadContext(
     if (error) throw new AppError('Could not load the Agent read context', 500);
 
     for (const row of data || []) {
+        if (isClearedAgentHistoryRow(row)) continue;
         const result = row?.result as Record<string, unknown> | null;
         const response = result?.kind === 'response'
             ? result.response as Record<string, unknown> | null

@@ -224,6 +224,7 @@ router.post(
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
 router.get('/conversations/:id/agent-turns', requireAuth, agentConversationTurnController.list);
+router.delete('/conversations/:id/agent-turns', requireAuth, agentConversationTurnController.clear);
 router.get(
     '/conversations/:id/shared-content',
     requireAuth,

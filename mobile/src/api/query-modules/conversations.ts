@@ -466,3 +466,19 @@ export const useDeleteMessage = (conversationId: string) => {
         },
     });
 };
+
+export const useClearAgentConversationHistory = (conversationId?: string, dialogueScopeKey?: string) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () => {
+            if (!conversationId) throw new Error('Agent conversation is not ready');
+            const scope = dialogueScopeKey || conversationId;
+            const query = scope ? `?dialogueScopeKey=${encodeURIComponent(scope)}` : '';
+            return apiClient.delete(`/conversations/${conversationId}/agent-turns${query}`);
+        },
+        onSuccess: () => {
+            if (!conversationId) return;
+            queryClient.setQueryData(['agent-conversation-turns', conversationId], { enabled: true, turns: [] });
+        },
+    });
+};

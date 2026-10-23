@@ -52,6 +52,7 @@ export type AgentTurnUiEvent =
     | { type: 'AUTHORIZED'; authorization: AgentAuthorizationResult }
     | { type: 'EXECUTION_RESULT'; execution: AgentExecutionResult }
     | { type: 'CANCEL_PLAN' }
+    | { type: 'RESET' }
     | { type: 'SOURCE_EDITED' }
     | { type: 'FAIL'; message: string; failureCode?: string; status?: number | null };
 
@@ -119,6 +120,8 @@ export function reduceAgentTurnUi(state: AgentTurnUiState, event: AgentTurnUiEve
         case 'SOURCE_EDITED':
             if (!state.pendingPlan || !['plan_ready', 'authorizing'].includes(state.phase)) return state;
             if (state.phase === 'authorizing') return state;
+            return initialAgentTurnUiState;
+        case 'RESET':
             return initialAgentTurnUiState;
         case 'FAIL':
             return {

@@ -1062,7 +1062,12 @@ function buildCommitmentListResponse(context: AgentContext, language: 'es' | 'en
         const overdue = commitment.entityType === 'commitment'
             && isCommitmentOverdue(commitment.dueAt, commitment.status, context.now, context.timezone, 'commitment');
         const suffix = overdue ? (language === 'es' ? ' (vencido)' : ' (overdue)') : '';
-        return { text: commitment.title + suffix + '.', sourceRefs: [commitment.provenance] };
+        const dueAt = effectiveCommitmentDueAt(commitment);
+        const due = dueAt
+            ? formatCommitmentDueAtInZone(dueAt, context.timezone, language === 'es' ? 'es-CL' : 'en-US')
+            : null;
+        const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
+        return { text: `${title}${due ? ` — ${due}` : ''}${suffix}.`, sourceRefs: [commitment.provenance] };
     });
     const answer = claims.length > 0
         ? claims.map((claim) => claim.text).join(' ')
