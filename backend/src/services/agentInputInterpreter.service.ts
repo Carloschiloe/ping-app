@@ -235,6 +235,7 @@ const SUMMARY_KEYWORDS = wordBounded('res[úu]me\\w*|resumen|summarize|summary')
 // siempre gana). Deliberadamente pequeño y genérico, mismo principio que
 // COUNT_KEYWORDS/SUMMARY_KEYWORDS -- nunca vocabulario de una sola frase.
 const EXPLICIT_LIST_KEYWORDS = wordBounded('todos|todas|cada uno|cu[áa]les|every|all( my)?|which (ones|commitments|tasks)');
+const TEMPORAL_COLLECTION_INTERROGATIVE = wordBounded('cu[áa]les?|which');
 const AUDIO_KEYWORDS = wordBounded('audio|grabaci[óo]n(?:es)?|recording|llamadas?|calls?');
 // Natural obligation language is normalized here, once, so the same meaning
 // drives status filtering, cardinality and FTS cleanup. These phrases are
@@ -244,6 +245,7 @@ const OPEN_STATUS_KEYWORDS = wordBounded(
     'pendientes?|pending|abiert[oa]s?|open|sin resolver|unresolved'
     + '|(?:debo|me\\s+falta|me\\s+qued[ae])\\s+(?:todav[ií]a|a[uú]n)'
     + '|todav[ií]a\\s+(?:debo|me\\s+falta|me\\s+queda)'
+    + '|me\\s+(?:falta|faltan|queda|quedan)'
     + '|(?:qu[eé]|cu[aá]les?|mu[eé]strame)\\s+[^?¡!\\n]{0,32}\\s+por\\s+hacer',
 );
 // Covers colloquial overdue questions that the provider may not normalize
@@ -650,7 +652,7 @@ const STOPWORDS = new Set([
     // preguntas de vencido/status ("¿Qué hay vencido?" -> "hay", "¿Tengo
     // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
     // have..." -> "I") — sin significado temático propio en ningún idioma.
-    'hay', 'algo', 'es', 'is', 'i', 'y', 'tiene', 'has', 'mayor',
+    'hay', 'algo', 'es', 'is', 'i', 'y', 'tiene', 'has', 'mayor', 'estos', 'estas', 'queda', 'quedan', 'falta', 'faltan',
     // M-1H v6: mismo residuo que arriba pero para proposalFocus -- "¿Qué
     // estoy esperando?" ya captura "esperando" vía
     // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo
@@ -989,7 +991,7 @@ const PENDING_RESPONSE_PERSON_CUE = new RegExp(
 // resolución a rango de fechas real (con timezone) vive en
 // agentContextBuilder.service.ts#resolveTimeExpression, separada a
 // propósito para que sea testeable de forma aislada y determinista.
-const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(?:(?:\d+)\s+)?d[i\u00ed]as?\b|\bnext\s+(?:few|\d+)\s+days?\b|\b(?:the\s+)?coming\s+days?\b/i;
+const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(?:(?:\d+)\s+)?d[i\u00ed]as?\b|\b(?:estos|estas)\s+d[i\u00ed]as?\b|\b(?:these|the\s+coming)\s+days?\b|\bnext\s+(?:few|\d+)\s+days?\b/i;
 const UPCOMING_DAYS_COUNT_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(\d+)\s+d[i\u00ed]as?\b|\bnext\s+(\d+)\s+days?\b/i;
 const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+que\s+siguen\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
 const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
@@ -1020,7 +1022,16 @@ function classifyIntent(input: string): { type: AgentIntentType; confidence: num
     }
     if (isTemporalComparisonQuery(input) || extractUrgencyComparison(input) !== null) return { type: 'commitment_query', confidence: 0.8 };
     if (DOCUMENT_KEYWORDS.test(input)) return { type: 'document_search', confidence: 0.8 };
+    // A plural collection question with an explicit temporal boundary is a
+    // commitment read even when the user omits "pendientes/compromisos":
+    // "Y cuáles tengo esta semana?". The temporal operator is canonicalized
+    // below; this gate keeps the domain deterministic and prevents the
+    // interrogative from becoming an FTS topic.
+    if (TEMPORAL_COLLECTION_INTERROGATIVE.test(input) && extractTimeExpression(input) !== null) {
+        return { type: 'commitment_query', confidence: 0.8 };
+    }
     if (COMMITMENT_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.8 };
+    if (OPEN_STATUS_KEYWORDS.test(input)) return { type: 'commitment_query', confidence: 0.75 };
     // M-1H v6 (Gap B): "¿qué estoy esperando?"/"¿qué tengo por aceptar?"/
     // "¿qué falta que acepte X?" son preguntas de commitment_query aunque no
     // usen ninguna palabra de COMMITMENT_KEYWORDS -- sin esto, caerían a

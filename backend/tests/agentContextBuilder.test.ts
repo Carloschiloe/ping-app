@@ -3345,6 +3345,40 @@ describe('M-1H.1: topic + structured filters (sección 8) -- ninguna combinació
         }), expect.any(Number));
     });
 
+    it.each([
+        ['¿Qué me falta esta semana?', 'esta semana'],
+        ['¿Qué me queda para estos días?', 'estos días'],
+    ])('F.3) %s conserva el rango temporal y el estado abierto sin tema textual', async (input, timeExpression) => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-open', status: 'accepted', dueAt: '2026-09-10T15:00:00.000Z' })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([]);
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: CARLOS,
+            input,
+            now: '2026-09-08T22:00:00Z',
+            timezone: 'UTC',
+        });
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.entities.timeRange).not.toBeNull();
+        expect(ctx.entities.topics).toEqual([]);
+        if (timeExpression === 'esta semana') {
+            expect(ctx.entities.timeRange).toEqual({
+                from: '2026-09-07T00:00:00.000Z',
+                to: '2026-09-14T00:00:00.000Z',
+            });
+        } else {
+            expect(ctx.entities.timeRange).toEqual({
+                from: '2026-09-08T22:00:00.000Z',
+                to: '2026-09-16T00:00:00.000Z',
+            });
+        }
+        expect(ctx.commitments).toHaveLength(1);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({
+            query: undefined,
+            timeRange: expect.any(Object),
+        }), expect.any(Number));
+    });
+
     it('G) topic + person -- "¿Qué compromisos tengo con Alejandra sobre viaje?"', async () => {
         mockResolvePerson.mockResolvedValue({ resolved: { kind: 'user', id: 'alejandra-id', displayName: 'Alejandra', email: null, avatarUrl: null }, ambiguous: false, candidates: [] });
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-viaje', title: 'Planear viaje' })] as any);

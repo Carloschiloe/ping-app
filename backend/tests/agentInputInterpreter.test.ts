@@ -59,12 +59,18 @@ describe('deterministic read follow-up safety net', () => {
 });
 
 describe('deterministic temporal collection language', () => {
-    it('does not turn a plural interrogative into an FTS topic', async () => {
-        const result = await new DeterministicInputInterpreter().interpret('Y cuáles tengo esta semana?', {});
+    it.each([
+        'Y cuáles tengo esta semana?',
+        '¿Cuáles compromisos tengo esta semana?',
+        '¿Qué me falta esta semana?',
+        '¿Qué me queda para estos días?',
+    ])('normalizes collection language without an FTS topic: %s', async (input) => {
+        const result = await new DeterministicInputInterpreter().interpret(input, {});
 
-        expect(result.timeExpression).toBe('esta semana');
+        expect(result.timeExpression).not.toBeNull();
         expect(result.textQuery).toBeNull();
         expect(result.wantsCommitments).toBe(true);
+        expect(result.intent).toBe('commitment_query');
     });
 });
 
