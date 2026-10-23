@@ -127,4 +127,45 @@ describe('Agent conversation persistence', () => {
             'agent_conversation_turns',
         ]);
     });
+
+    it('retries resolving the source plan before projecting an execution event', async () => {
+        const retryDb = createSupabaseAdminMock({
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            agent_conversation_turns: [
+                { data: null, error: { code: '08006', message: 'connection reset by peer' } },
+                {
+                    data: {
+                        input_text: 'Crea el compromiso de llamar mañana',
+                        input_mode: 'text',
+                        result: {
+                            kind: 'plan',
+                            presentation: { title: 'Llamar mañana' },
+                        },
+                    },
+                    error: null,
+                },
+            ],
+            'rpc:persist_agent_conversation_turn': [{
+                data: [{ turn_id: 'execution-turn', idempotent_replay: false, created_at: '2026-10-22T19:00:00.000Z' }],
+                error: null,
+            }],
+        });
+        setSupabaseAdminMock(retryDb);
+        const { persistAgentExecutionConversationEvent } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(persistAgentExecutionConversationEvent({
+            actorUserId: ACTOR_ID,
+            conversationId: CONVERSATION_ID,
+            sourceTurnKey: 'client-turn-1',
+            execution: { authorizationId: 'auth-1', status: 'done', executedSteps: [], failedSteps: [], waitingSteps: [], humanReadableSummary: 'Listo.' } as any,
+        })).resolves.toMatchObject({ turnId: 'execution-turn' });
+
+        expect(retryDb.getCalledTables()).toEqual([
+            'conversation_participants',
+            'agent_conversation_turns',
+            'agent_conversation_turns',
+            'conversation_participants',
+        ]);
+        expect(retryDb.getRpcCalls()[0]?.args.p_client_turn_key).toBe('client-turn-1:execution');
+    });
 });

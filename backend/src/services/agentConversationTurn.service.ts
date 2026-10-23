@@ -144,14 +144,22 @@ export async function persistAgentExecutionConversationEvent(input: {
     execution: AgentExecutionResult;
 }) {
     await assertConversationParticipant(input.actorUserId, input.conversationId);
-    const { data: source, error: sourceError } = await supabaseAdmin
-        .from('agent_conversation_turns')
-        .select('input_text, input_mode, result, conversations!inner(deleted_at)')
-        .eq('conversation_id', input.conversationId)
-        .eq('actor_user_id', input.actorUserId)
-        .eq('client_turn_key', input.sourceTurnKey)
-        .is('conversations.deleted_at', null)
-        .maybeSingle();
+    let source: any = null;
+    let sourceError: { message?: string; code?: string } | null = null;
+    for (let attempt = 1; attempt <= MAX_PERSISTENCE_ATTEMPTS; attempt += 1) {
+        const response = await supabaseAdmin
+            .from('agent_conversation_turns')
+            .select('input_text, input_mode, result, conversations!inner(deleted_at)')
+            .eq('conversation_id', input.conversationId)
+            .eq('actor_user_id', input.actorUserId)
+            .eq('client_turn_key', input.sourceTurnKey)
+            .is('conversations.deleted_at', null)
+            .maybeSingle();
+        source = response.data;
+        sourceError = response.error;
+        if (!sourceError || !isTransientPersistenceError(sourceError) || attempt === MAX_PERSISTENCE_ATTEMPTS) break;
+        await waitForPersistenceRetry(attempt);
+    }
     if (sourceError) throw new AppError('Could not resolve the source Agent turn', 500);
     if (!source || source.result?.kind !== 'plan' || !source.result.presentation) {
         throw new AppError('The source Agent plan was not found', 409);
