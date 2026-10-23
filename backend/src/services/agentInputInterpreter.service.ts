@@ -244,8 +244,12 @@ const EXPLICIT_LIST_KEYWORDS = wordBounded('todos|todas|cada uno|cu[áa]les|ever
 const TEMPORAL_COLLECTION_QUERY = wordBounded(
     '(?:cu[áa]l(?:es)?|qu[eé]|which|what)\\s+'
     + '(?:(?:pendientes?|compromisos?|tareas?|commitments?|tasks?|cosas?|things?)\\s+)?'
-    + '(?:tengo|hay|debo|debemos|son|queda|quedan|falta|faltan|viene|vienen|'
-    + 'do\\s+i\\s+have|are\\s+there|is\\s+there)',
+    + '(?:(?:(?:me|nos|se)\\s+)?(?:tengo|hay|debo|deber[ií]a|deberemos|'
+    + 'debemos|son|queda|quedan|falta|faltan|toca|tocan|corresponde|corresponden|'
+    + 'espera|esperan|viene|vienen)|'
+    + '(?:est[aá]\\s+(?:pendiente|pendientes?))|'
+    + '(?:do\\s+i\\s+have|should\\s+i|are\\s+there|is\\s+there|'
+    + 'needs?\\s+to\\s+be\\s+done|is\\s+due))',
 );
 export function isTemporalCollectionQuery(input: string): boolean {
     return TEMPORAL_COLLECTION_QUERY.test(input) && extractTimeExpression(input) !== null;
@@ -667,6 +671,7 @@ const STOPWORDS = new Set([
     // algo vencido?" -> "algo", "What is overdue?" -> "is", "What do I
     // have..." -> "I") — sin significado temático propio en ningún idioma.
     'hay', 'algo', 'es', 'is', 'i', 'y', 'tiene', 'has', 'mayor', 'estos', 'estas', 'queda', 'quedan', 'falta', 'faltan', 'sigue', 'son',
+    'toca', 'tocan', 'corresponde', 'corresponden', 'espera', 'esperan', 'está', 'esta', 'debería', 'deberia', 'deberemos', 'should', 'needs', 'due',
     // M-1H v6: mismo residuo que arriba pero para proposalFocus -- "¿Qué
     // estoy esperando?" ya captura "esperando" vía
     // stripProposalFocusLanguage; "estoy" es el mismo tipo de verbo

@@ -64,6 +64,11 @@ describe('deterministic temporal collection language', () => {
         '¿Qué tengo para mañana?',
         '¿Qué hay el viernes?',
         '¿Cuáles son mis compromisos esta semana?',
+        '¿Qué debería hacer mañana?',
+        '¿Qué me toca mañana?',
+        '¿Qué está pendiente para mañana?',
+        'What should I do tomorrow?',
+        'What is due tomorrow?',
     ])('detects the collection speech shape: %s', (input) => {
         expect(isTemporalCollectionQuery(input)).toBe(true);
     });
@@ -76,6 +81,11 @@ describe('deterministic temporal collection language', () => {
         '¿Qué tengo para mañana?',
         '¿Qué hay el viernes?',
         '¿Cuáles son mis compromisos esta semana?',
+        '¿Qué debería hacer mañana?',
+        '¿Qué me toca mañana?',
+        '¿Qué está pendiente para mañana?',
+        'What should I do tomorrow?',
+        'What is due tomorrow?',
     ])('normalizes collection language without an FTS topic: %s', async (input) => {
         const result = await new DeterministicInputInterpreter().interpret(input, {});
 
