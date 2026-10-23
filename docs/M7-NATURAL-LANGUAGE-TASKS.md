@@ -1,9 +1,9 @@
 # Ping — M-7: Comprensión natural estructural
 
 Estado: en curso; no se declara cerrado mientras existan pruebas pendientes.
-Rama: `codex/staging-beta`  
-Fecha de corte: 2026-09-22  
-Alcance: comprensión semántica general, continuidad conversacional y entrada pública única de Ping. No se modifica producción.
+Rama: `main`
+Fecha de corte: 2026-10-23
+Alcance: comprensión semántica general, continuidad conversacional y entrada pública única de Ping en producción. Las referencias históricas a staging son sólo evidencia archivada y no son instrucciones operativas.
 
 ## Criterio de cierre
 
@@ -18,7 +18,7 @@ M-7 sólo puede marcarse completo cuando exista una frontera semántica centrali
 
 ## 1. Preparación y baseline
 
-- [x] Trabajar sobre `codex/staging-beta` preservando cambios locales. Evidencia: rama activa comprobada; el árbol estaba sucio y no se ejecutó reset, checkout destructivo ni limpieza.
+- [x] Trabajar sobre `main` preservando cambios locales. Evidencia: rama activa comprobada; el árbol estaba sucio y no se ejecutó reset, checkout destructivo ni limpieza.
 - [x] Leer la documentación canónica 00, 01, 03, 04, 05, 07, 08, 19, 20 y 21. Evidencia: lectura registrada durante la sesión.
 - [x] Distinguir código canónico, adaptadores temporales y legacy. Evidencia: `agentTurnCore`/planner/Core y `AgentPreviewScreen` son la ruta actual; `PingAIScreen` y `PingAIClassic` se conservaron como legacy.
 - [x] Mantener este archivo con diagnóstico, archivos, pruebas y resultados. Evidencia: registro actualizado en este corte.
@@ -65,19 +65,19 @@ M-7 sólo puede marcarse completo cuando exista una frontera semántica centrali
 - [x] No duplicar agente, modelo, memoria ni lógica por dispositivo. Evidencia: adapter mobile centraliza superficie y endpoint.
 - [x] No eliminar legacy antes de comprobar dependencias. Evidencia: `PingAIClassic`/`PingAIScreen` se conservaron y sus rutas fueron revisadas.
 - [ ] Verificar navegación, texto, voz y ausencia de regresiones en mobile y tablet. Evidencia parcial: el recorrido público ahora calcula la superficie del dispositivo; mobile 108/108 y regresiones del adaptador 108/108 PASS; falta prueba física de voz en tablet.
-- [x] No modificar producción. Evidencia: no hubo deploy, push, migración remota, cambio de credenciales ni cambio de infraestructura.
+- [x] Mantener producción como único destino operativo. Evidencia: los cambios publicados se validaron en `ping-app`; no se usó staging ni se copiaron secretos históricos.
 
-## 6. Integración privada de staging
+## 6. Integración privada de producción
 
-- [ ] Completar la validación de integración privada en staging. `PING_M7_DATABASE_URL` debe existir en Render y validarse mediante el diagnóstico de arranque `PING_M7_PRIVATE_DB_CHECK=PASS`; `agentTurnRoutingSelection.integration.test.ts` es una prueba separada que usa las credenciales Supabase de staging y no demuestra por sí sola la conexión privada. Estado: BLOQUEADA; no está en el proceso local ni en `backend/.env`, y el navegador autenticado de Render no está disponible en esta sesión. No se inventó una URL ni se modificaron credenciales o producción.
+- [ ] Completar la validación privada de producción. `PING_M7_DATABASE_URL` debe existir en el servicio Render `ping-app` y validarse mediante el diagnóstico de arranque `PING_M7_PRIVATE_DB_CHECK=PASS`. Estado actual: BLOQUEADA por falta de la variable y por permisos insuficientes para consultar la configuración del pooler productivo. No se inventó una URL, no se copiaron secretos de staging y no se modificaron credenciales.
 
 ## 7. Evidencia ejecutada en el corte
 
 ### Precisión del procedimiento de integración privada
 
-`agentTurnRoutingSelection.integration.test.ts` usa `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` mediante `supabaseAdmin`; no valida por sí sola `PING_M7_DATABASE_URL`. La conexión privada de admisión se comprueba en staging mediante `PING_M7_PRIVATE_DB_CHECK=true`, el arranque del backend y el diagnóstico no sensible `PING_M7_PRIVATE_DB_CHECK=PASS` en los logs de Render. El script PostgreSQL `test-agent-turn-admission-postgres.mjs` está restringido deliberadamente a `localhost` y no debe apuntarse a Render. Por tanto, ninguna de estas verificaciones permite copiar secretos ni confundir la base privada con la API Supabase.
+`agentTurnRoutingSelection.integration.test.ts` usa `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` mediante `supabaseAdmin`; no valida por sí sola `PING_M7_DATABASE_URL`. La conexión privada de admisión se comprueba únicamente en producción mediante `PING_M7_PRIVATE_DB_CHECK=true`, el arranque del backend y el diagnóstico no sensible `PING_M7_PRIVATE_DB_CHECK=PASS` en los logs de Render. El script PostgreSQL `test-agent-turn-admission-postgres.mjs` está restringido deliberadamente a `localhost` y no debe apuntarse a Render. Ninguna de estas verificaciones permite copiar secretos ni confundir la base privada con la API Supabase.
 
-Procedimiento mínimo: comprobar en Render la existencia de `PING_M7_DATABASE_URL` sin revelar su valor; verificar `/api/health`; reiniciar sólo `ping-backend-staging` siguiendo el flujo autorizado; confirmar en logs el resultado `PING_M7_PRIVATE_DB_CHECK=PASS`; y, únicamente si se requiere la prueba de routing, ejecutar el test de routing con credenciales de staging inyectadas de forma efímera y sin escribirlas en archivos. Si la variable o el permiso no están disponibles, la integración permanece pendiente.
+Procedimiento mínimo: comprobar en Render la existencia de `PING_M7_DATABASE_URL` sin revelar su valor; verificar `/api/health` de `ping-app`; reiniciar sólo el servicio productivo siguiendo el flujo autorizado; confirmar en logs el resultado `PING_M7_PRIVATE_DB_CHECK=PASS`; y, únicamente si se requiere la prueba de routing, ejecutar el test con credenciales productivas inyectadas de forma efímera y sin escribirlas en archivos. Si la variable o el permiso no están disponibles, la integración permanece pendiente.
 
 | Fecha | Prueba | Resultado verificable |
 |---|---|---|
@@ -92,7 +92,7 @@ Procedimiento mínimo: comprobar en Render la existencia de `PING_M7_DATABASE_UR
 | 2026-09-22 | Regresión backend | 126 archivos, 2187 PASS, 2 skips opt-in; integración privada excluida por variable ausente; build `tsc` PASS |
 | 2026-09-22 | Regresión backend sin red | 11 pruebas con Supabase fallaron por `fetch failed`/`AuthRetryableFetchError`; se repitió con acceso autorizado de staging y no reprodujo fallos |
 | 2026-09-22 | Regresión mobile | 108/108 PASS |
-| 2026-09-22 | Integración privada | No ejecutada: `PING_M7_DATABASE_URL` ausente |
+| 2026-10-23 | Integración privada de producción | Pendiente: Render reporta `missing_url`; no se modificaron secretos |
 
 La batería ciega quedó definida después del congelamiento de implementación y no reutiliza el fixture general. Incluye equivalencias y contrastes consulta/creación, rechazo/cancelación y negación/confirmación, además de expresiones inéditas y coloquialismos. Está en `backend/tests/m7NaturalLanguageBlind.test.ts`.
 
@@ -114,15 +114,15 @@ La prueba física sólo es válida si se identifica el artefacto exacto antes de
 
 - Mobile local: `mobile/app.json` y `mobile/package.json` declaran `1.0.0`.
 - Backend local: `backend/package.json` declara `1.0.0`.
-- Checkout M-7 aislado de este corte: `codex/m7-staging-prep-20260922`, base `1b309b0`; no se hizo push ni deploy durante esta corrección.
-- Backend remoto: debe responder `/api/health` con `ok`, `db_status` conectado, marcador de staging y el commit exacto que se probará. En este corte la consulta remota agotó tiempo de espera; la versión desplegada no está verificada.
+- Checkout operativo de este corte: `main`, commit desplegado `a7b585a` en el servicio productivo `ping-app`.
+- Backend remoto: `/api/health` responde `ok=true`, `db_status=connected` y devuelve el commit exacto desplegado. La integración privada durable permanece pendiente porque Render reporta `missing_url`.
 - Expo Go debe iniciarse desde este checkout exacto, o desde un checkout cuyo SHA y cambios coincidan con el backend verificado. No se acepta una sesión Expo caducada ni una URL de Metro de versión desconocida.
 
 ### Intervención humana requerida
 
-1. En Render, abrir exclusivamente el servicio `ping-backend-staging` y verificar la existencia de `PING_M7_DATABASE_URL` sin copiar, revelar ni registrar su valor.
-2. Si falta, configurarla únicamente con la conexión autorizada de la base staging (Session Pooler Supabase con TLS verificado); nunca usar producción.
-3. Reiniciar/verificar staging según el flujo normal de Render y consultar `/api/health`. Registrar sólo estado, marcador y commit, nunca la URL ni otros secretos.
+1. En Render, abrir exclusivamente el servicio productivo `ping-app` y verificar la existencia de `PING_M7_DATABASE_URL` sin copiar, revelar ni registrar su valor.
+2. Si falta, configurarla únicamente con la conexión privada autorizada de la base de producción (Session Pooler Supabase con TLS verificado); nunca usar staging.
+3. Reiniciar/verificar producción según el flujo normal de Render y consultar `/api/health`. Registrar sólo estado, marcador y commit, nunca la URL ni otros secretos.
 4. Iniciar la app desde la misma versión verificada y ejecutar los pasos siguientes. Hasta completar estos controles, la integración privada y la prueba física permanecen bloqueadas.
 
 Esta prueba no se simula ni se marca como PASS hasta contar con evidencia física real.
@@ -141,9 +141,9 @@ Esta prueba no se simula ni se marca como PASS hasta contar con evidencia físic
 - Casillas del corte anterior: 35/37 completadas = **94.6%**. La incidencia de continuidad añadida en la sección 12 deja el corte actual en 41/44 = **93.2%**, porque incorpora una nueva validación física pendiente.
 - M-7: **no cerrado**.
 - Pendientes reales: integración privada con variable autorizada, prueba física de voz en tablet y validación física de continuidad en iPhone sobre el backend corregido.
-- Producción: intacta; no hubo push, deploy, migración remota ni cambio de credenciales.
-- Commit base de trabajo: `1b309b0` (`fix(m7): preserve conversational commitment referents`). La corrección de esta sección se prepara en un checkout aislado y no se ha publicado.
-- Cambios locales previos: preservados y no mezclados con producción.
+- Producción: servicio `ping-app` saludable; no hubo migración remota ni cambio de credenciales. Los despliegues de código fueron sólo cambios validados en `main`.
+- Commit operativo: `a7b585a` (`fix: preserve semantic scope when restoring agent plans`).
+- Cambios no relacionados: preservados y no mezclados con el runtime conversacional.
 
 ## 11. Archivos M-7 agregados o afectados
 

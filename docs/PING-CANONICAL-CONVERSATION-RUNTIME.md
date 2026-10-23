@@ -3,17 +3,21 @@
 Estado de diseño/implementación: 2026-10-04. Este documento describe el
 límite permanente que comparten texto y voz; no es un log de pruebas.
 
-> El entorno operativo vigente es producción. Las menciones históricas a
-> staging o a `PING_M7_DATABASE_URL` se conservan sólo para explicar gates de
-> certificación antiguos y no deben configurarse en producción.
+> El entorno operativo vigente es producción. No se debe configurar staging
+> ni reutilizar sus secretos. `PING_M7_DATABASE_URL` es una variable de
+> producción: contiene exclusivamente la conexión privada Session Pooler
+> autorizada para el proyecto productivo y nunca se registra ni se muestra.
 
 ## Fuente de verdad
 
-`POST /api/agent/turn` es la entrada del runtime conversacional. La frontera
-durable admite el turno con su `Idempotency-Key`, recupera el checkpoint por
-actor y scope, ejecuta el Core y persiste atómicamente el resultado y el estado
-de diálogo. `PING_M7_DATABASE_URL` queda documentada únicamente como variable
-histórica de certificación y no forma parte de la configuración de producción.
+`POST /api/agent/turn` es la entrada del runtime conversacional. Cuando
+`PING_ENABLE_DURABLE_AGENT_TURN=true` y `PING_M7_DATABASE_URL` está presente y
+validada, la frontera durable admite el turno con su `Idempotency-Key`,
+recupera el checkpoint por actor y scope, ejecuta el Core y persiste
+atómicamente el resultado y el estado de diálogo. Si falta la URL privada,
+el servicio conserva explícitamente el fallback de lectura local y el health
+reporta `agent_action_continuity=process_local_only`; no se debe falsear ese
+estado usando el transporte público de Supabase.
 
 El scope sin `conversationId` es `agent:mobile` tanto para `mobile_text` como
 para `mobile_voice`. Así una corrección o confirmación no cambia de contexto al

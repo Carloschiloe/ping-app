@@ -19,7 +19,8 @@
     "ENABLE_PRIVATE_AVATAR_UPLOADS": "false"
   },
   "gatesBeforeProductionPreflight": ["BACKUP_GATE=PASS", "BACKUP_CREATED=YES", "BACKUP_VERIFIED=YES", "SCHEMA_RECONCILIATION=PASS", "MIGRATION_ACCOUNTING=PASS", "LEGACY_CLIENT_ACCESS_REVIEW=PASS", "PRODUCTION_READONLY_HEALTH=PASS"],
-  "forbiddenFromStaging": ["oonijgmddgyymhrlnvuu", "PING_M7_DATABASE_URL", "PING_EXPECTED_SUPABASE_PROJECT_REF"],
+  "forbiddenFromStaging": ["oonijgmddgyymhrlnvuu"],
+  "productionOnlySecrets": ["PING_M7_DATABASE_URL", "PING_EXPECTED_SUPABASE_PROJECT_REF"],
   "neverCommitValues": true,
   "source": "RC runtime config inspected at ac7d72af5dfd4a9744a356eca6539bab75609b22"
 }
