@@ -28,6 +28,10 @@ services:
         value: "true"
       - key: PING_ENABLE_DURABLE_AGENT_TURN
         value: "true"
+      - key: PING_M7_DATABASE_URL
+        sync: false
+      - key: PING_M7_PRIVATE_DB_CHECK
+        sync: false
       - key: M8_LIVE_VOICE_ENABLED
         value: "true"
       - key: M8_LIVE_VOICE_MODEL

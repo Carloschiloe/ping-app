@@ -38,7 +38,7 @@ describe('M-7 private database startup diagnostic', () => {
         process.env.PING_M7_PRIVATE_DB_CHECK = 'true';
         expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(true);
         process.env.PING_ENVIRONMENT = 'production';
-        expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(false);
+        expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(true);
         process.env.PING_M7_PRIVATE_DB_CHECK = 'false';
         expect(isPrivateAgentTurnDatabaseDiagnosticEnabled()).toBe(false);
     });
