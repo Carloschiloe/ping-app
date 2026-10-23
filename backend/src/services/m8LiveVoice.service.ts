@@ -9,6 +9,8 @@ const MAX_TELEMETRY_EVENTS = 500;
 const TELEMETRY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TELEMETRY_BUCKET = 'm8-live-voice-telemetry';
 const IN_MEMORY_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+const TELEMETRY_WRITE_MAX_ATTEMPTS = 3;
+const TELEMETRY_WRITE_RETRY_DELAYS_MS = [75, 200] as const;
 
 function realtimeLanguage(locale: string | undefined): string {
     const language = (locale || 'es-CL').trim().split(/[-_]/)[0]?.toLowerCase() ?? '';
@@ -220,8 +222,27 @@ async function downloadJson(path: string): Promise<Record<string, any> | null> {
     }
 }
 
+function isTransientTelemetryStorageError(error: { message?: string; statusCode?: number | string } | null): boolean {
+    const statusCode = Number(error?.statusCode);
+    if (statusCode === 408 || statusCode === 429 || (Number.isFinite(statusCode) && statusCode >= 500)) return true;
+    return /network|timeout|timed out|temporar(?:y|ily).*unavailable|service unavailable|connection reset|connection refused/i
+        .test(error?.message ?? '');
+}
+
+async function waitForTelemetryWriteRetry(attempt: number): Promise<void> {
+    const delay = TELEMETRY_WRITE_RETRY_DELAYS_MS[attempt - 1];
+    if (delay === undefined) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
+
 async function uploadJson(path: string, value: unknown): Promise<void> {
-    const { error } = await supabaseAdmin.storage.from(telemetryBucket()).upload(path, Buffer.from(JSON.stringify(value)), { contentType: 'application/json', upsert: true });
+    let error: { message?: string; statusCode?: number | string } | null = null;
+    for (let attempt = 1; attempt <= TELEMETRY_WRITE_MAX_ATTEMPTS; attempt += 1) {
+        const response = await supabaseAdmin.storage.from(telemetryBucket()).upload(path, Buffer.from(JSON.stringify(value)), { contentType: 'application/json', upsert: true });
+        error = response.error;
+        if (!error || !isTransientTelemetryStorageError(error) || attempt === TELEMETRY_WRITE_MAX_ATTEMPTS) break;
+        await waitForTelemetryWriteRetry(attempt);
+    }
     if (error) throw new AppError('Live voice telemetry persistence failed', 503);
 }
 
