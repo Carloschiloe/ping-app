@@ -148,6 +148,14 @@ export async function turn(req: Request, res: Response): Promise<void> {
 
         if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
             phase = 'persist_conversation_event';
+            // The durable boundary above is the correctness contract for the
+            // turn: it commits the dialogue checkpoint and replay atomically.
+            // Conversation events are a secondary history projection. A
+            // transient projection outage must not turn an already valid
+            // answer/plan into a generic HTTP 500 or make the user retry a
+            // turn that was already admitted and committed. The persistence
+            // helper still emits a structured warning so the outage remains
+            // observable and can be repaired without losing the response.
             await persistTurnWithRuntimePolicy({
                 actorUserId,
                 conversationId: historyConversationId,
@@ -160,7 +168,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
                         ? 'voice'
                         : 'text',
                 result,
-            }, durableEnabled);
+            }, false);
         }
 
         // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render

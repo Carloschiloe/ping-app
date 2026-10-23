@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { runAgentTurnMock, runExactCountMock, durableEnabledMock, persistMock, historyEnabledMock, selfConversationMock, resolveInputMock } = vi.hoisted(() => ({
+const { runAgentTurnMock, runDurableTurnMock, runExactCountMock, durableEnabledMock, persistMock, historyEnabledMock, selfConversationMock, resolveInputMock } = vi.hoisted(() => ({
     runAgentTurnMock: vi.fn(),
+    runDurableTurnMock: vi.fn(),
     runExactCountMock: vi.fn(),
     durableEnabledMock: vi.fn(() => false),
     persistMock: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock('../src/services/agentTurn.service', () => ({ runAgentTurn: runAgentTurn
 vi.mock('../src/services/agentTurnReadV4Boundary.service', () => ({ runExactCommitmentCountV4: runExactCountMock }));
 vi.mock('../src/services/agentTurnDurableBoundary.service', () => ({
     isDurableGeneralAgentTurnEnabled: durableEnabledMock,
-    runDurableAgentTurn: vi.fn(),
+    runDurableAgentTurn: runDurableTurnMock,
 }));
 vi.mock('../src/services/agentConversationTurn.service', () => ({
     isAgentConversationTurnPersistenceEnabled: historyEnabledMock,
@@ -110,5 +111,27 @@ describe('Agent Turn controller — main Ping history scope', () => {
 
         expect(selfConversationMock).toHaveBeenCalledWith('actor-1');
         expect(persistMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'self-conversation-1' }));
+    });
+
+    it('returns a durable answer when the secondary history projection is unavailable', async () => {
+        durableEnabledMock.mockReturnValue(true);
+        runDurableTurnMock.mockResolvedValue(answer);
+        persistMock.mockRejectedValue(new Error('history projection unavailable'));
+        const req: any = {
+            user: { id: 'actor-1' },
+            body: { input: '¿Qué tengo para mañana?', channel: 'mobile' },
+            get: vi.fn(() => 'durable-turn-key'),
+        };
+        const res = response();
+
+        await turn(req, res);
+
+        expect(runDurableTurnMock).toHaveBeenCalledWith(
+            expect.objectContaining({ actorUserId: 'actor-1', input: '¿Qué tengo para mañana?' }),
+            expect.any(Object),
+            'durable-turn-key',
+        );
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.json).toHaveBeenCalledWith(answer);
     });
 });
