@@ -30,6 +30,7 @@ async function persistTurnWithRuntimePolicy(input: PersistTurnInput, required: b
         if (required) throw error;
         console.warn('[AgentTurn] Conversation history persistence degraded; answer preserved.', {
             message: error?.message ?? String(error),
+            errorCode: typeof error?.code === 'string' ? error.code : null,
             resultKind: input.result.kind,
         });
     }
