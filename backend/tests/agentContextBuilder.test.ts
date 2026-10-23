@@ -3384,6 +3384,43 @@ describe('M-1H.1: topic + structured filters (sección 8) -- ninguna combinació
         }), expect.any(Number));
     });
 
+    it('F.1.1) el operador de día de semana canónico impide que un intérprete externo excluya propuestas', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({
+            id: 'cm-viernes',
+            title: 'Compromiso del viernes',
+            dueAt: '2026-10-23T15:00:00.000Z',
+        })] as any);
+        mockRetrieveCommitmentProposals.mockResolvedValue([proposalFixture({
+            id: 'pr-viernes',
+            title: 'Propuesta del viernes',
+            proposedDueAt: '2026-10-23T16:00:00.000Z',
+        })] as any);
+        const base = await new DeterministicInputInterpreter().interpret('¿Qué hay para este viernes?', {});
+        const providerThatNarrowsByMistake = {
+            interpret: vi.fn(async () => ({
+                ...base,
+                temporalIntent: { kind: 'calendar_weekday' as const, weekday: 5, occurrence: 'current' as const, futureOnly: true },
+                statusHints: ['accepted' as const],
+            })),
+        };
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Qué hay para este viernes?',
+            now: '2026-10-23T12:31:00.000Z',
+            timezone: 'America/Santiago',
+        }, { interpreter: providerThatNarrowsByMistake });
+
+        expect(ctx.entities.timeRange).toEqual({
+            from: '2026-10-23T03:00:00.000Z',
+            to: '2026-10-24T03:00:00.000Z',
+        });
+        expect(ctx.commitments.map((item) => item.id)).toEqual(['cm-viernes', 'pr-viernes']);
+        expect(mockRetrieveCommitmentProposals).toHaveBeenCalledWith(expect.objectContaining({
+            timeRange: ctx.entities.timeRange,
+            statuses: undefined,
+        }), expect.any(Number));
+    });
+
     it('F.2) un follow-up natural como "Y cuáles tengo esta semana?" no se convierte en filtro FTS', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({
             id: 'cm-manana',
