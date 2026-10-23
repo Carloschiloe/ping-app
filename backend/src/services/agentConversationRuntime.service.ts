@@ -55,6 +55,18 @@ async function executeConfirmedTurn(
 
     if (!authorization.ok) return executionResponse(authorization.message, false);
 
+    const authorizedState = context.dialogueService.getSnapshot(input.actorUserId, context.dialogueScopeKey);
+    if (authorizedState?.lifecycle === 'plan_pending_authorization'
+        && authorizedState.currentPlanDigestRef === turn.plan.planDigest) {
+        context.dialogueService.markAuthorized({
+            actorUserId: input.actorUserId,
+            dialogueScopeKey: context.dialogueScopeKey,
+            authorizationId: authorization.authorization.id,
+            turnId: context.turnId,
+            turnSequence: context.turnSequence,
+        });
+    }
+
     const execution = await executeAuthorization({
         authorizationId: authorization.authorization.id,
         actorUserId: input.actorUserId,
@@ -70,6 +82,7 @@ async function executeConfirmedTurn(
             context.dialogueService.markResolvedAfterExecution({
                 actorUserId: input.actorUserId,
                 dialogueScopeKey: context.dialogueScopeKey,
+                authorizationId: authorization.authorization.id,
                 turnId: context.turnId,
                 turnSequence: context.turnSequence,
             });

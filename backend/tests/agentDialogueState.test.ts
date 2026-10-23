@@ -445,9 +445,10 @@ describe('verified execution terminal transition', () => {
         const service = new AgentDialogueStateService();
         service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
         service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'd1', turnId: 't1', turnSequence: 2 });
+        service.markAuthorized({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, authorizationId: 'auth-1', turnId: 't1', turnSequence: 2 });
 
         const resolved = service.markResolvedAfterExecution({
-            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, turnId: 't1', turnSequence: 1,
+            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, authorizationId: 'auth-1', turnId: 't1', turnSequence: 1,
         });
 
         expect(resolved.lifecycle).toBe('resolved');
@@ -455,6 +456,25 @@ describe('verified execution terminal transition', () => {
         expect(resolved.currentPlanDigestRef).toBeNull();
         expect(resolved.currentAuthorizationIdRef).toBeNull();
         expect(resolved.pendingClarification).toBeNull();
+    });
+
+    it('rejects a late execution replay when a newer authorization is pending', () => {
+        const service = new AgentDialogueStateService();
+        service.openObjective({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, objective: objective(), turnId: 't1', turnSequence: 1 });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'd1', turnId: 't1', turnSequence: 2 });
+        service.markAuthorized({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, authorizationId: 'auth-old', turnId: 't1', turnSequence: 2 });
+        service.applyCorrection({
+            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, slotName: 'time', previousValue: null,
+            newValue: 'mañana', reason: 'user_correction', turnId: 't2', turnSequence: 3,
+        });
+        service.markReadyForAuthorization({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, planDigest: 'd2', turnId: 't2', turnSequence: 4 });
+        service.markAuthorized({ actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, authorizationId: 'auth-new', turnId: 't2', turnSequence: 4 });
+
+        expect(() => service.markResolvedAfterExecution({
+            actorUserId: ACTOR_A, dialogueScopeKey: CONV_1, authorizationId: 'auth-old', turnId: 't1', turnSequence: 2,
+        })).toThrow(/does not match/i);
+        expect(service.getSnapshot(ACTOR_A, CONV_1)?.currentAuthorizationIdRef).toBe('auth-new');
+        expect(service.getSnapshot(ACTOR_A, CONV_1)?.lifecycle).toBe('plan_pending_authorization');
     });
 });
 

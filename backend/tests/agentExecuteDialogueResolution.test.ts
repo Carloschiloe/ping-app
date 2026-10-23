@@ -62,6 +62,13 @@ function openPendingMobilePlan(): void {
         turnId: 'turn-1',
         turnSequence: 2,
     });
+    service.markAuthorized({
+        actorUserId: ACTOR,
+        dialogueScopeKey,
+        authorizationId: AUTHORIZATION_ID,
+        turnId: 'turn-1',
+        turnSequence: 2,
+    });
 }
 
 describe('POST /agent/execute dialogue cleanup', () => {

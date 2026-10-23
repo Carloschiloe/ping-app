@@ -7,6 +7,7 @@ import { authorizePlan, revokeAuthorization } from '../services/agentAuthorizati
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
+import { AgentDialogueStateService, buildDialogueScopeKey } from '../services/agentDialogueState.service';
 
 const uuidParam = z.string().uuid();
 
@@ -46,6 +47,33 @@ export const authorize = async (req: Request, res: Response): Promise<void> => {
         }
 
         const a = result.authorization;
+        // Bind the issued authorization to the current in-process dialogue
+        // reference when this is the legacy two-request mobile flow. The
+        // durable authorization row remains the execution authority; this
+        // reference only prevents a late replay from closing a newer plan.
+        const dialogueService = new AgentDialogueStateService();
+        const dialogueScopeKey = buildDialogueScopeKey({
+            conversationId: envelope.conversationId ?? null,
+            surface: envelope.surface,
+        });
+        const dialogueState = dialogueService.getSnapshot(actorUserId, dialogueScopeKey);
+        if (dialogueState?.lifecycle === 'plan_pending_authorization'
+            && dialogueState.currentPlanDigestRef === planDigest) {
+            try {
+                dialogueService.markAuthorized({
+                    actorUserId,
+                    dialogueScopeKey,
+                    authorizationId: a.id,
+                    turnId: envelope.provenance.traceId,
+                    turnSequence: dialogueState.lastTurnSequence,
+                });
+            } catch (dialogueError: any) {
+                console.warn('[AgentDialogue] authorization binding skipped', {
+                    authorizationId: a.id,
+                    message: dialogueError?.message ?? String(dialogueError),
+                });
+            }
+        }
         res.status(200).json({
             authorizationId: a.id,
             status: a.status,

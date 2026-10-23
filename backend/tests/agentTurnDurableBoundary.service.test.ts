@@ -292,6 +292,7 @@ describe('general Agent Turn durable boundary', () => {
         const restored = dialogueState({
             lifecycle: 'plan_pending_authorization',
             currentPlanDigestRef: 'digest-1',
+            currentAuthorizationIdRef: 'auth-1',
         });
         const processed: AgentTurnResult = {
             kind: 'response',
@@ -307,7 +308,7 @@ describe('general Agent Turn durable boundary', () => {
         const output = await runDurableAgentTurn(input, {}, 'client-turn-1', deps, async (context) => {
             const current = context.dialogueService.getSnapshot(actorUserId, scope)!;
             context.dialogueService.markResolvedAfterExecution({
-                actorUserId, dialogueScopeKey: scope, turnId: context.turnId,
+                actorUserId, dialogueScopeKey: scope, authorizationId: 'auth-1', turnId: context.turnId,
                 turnSequence: context.turnSequence,
             });
             return processed;

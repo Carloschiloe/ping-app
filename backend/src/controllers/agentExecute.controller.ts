@@ -40,11 +40,13 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
             // Only close the state that is actually waiting for authorization.
             // A late/replayed execution must never resolve an unrelated or
             // already-idle dialogue objective.
-            if (dialogueState?.lifecycle === 'plan_pending_authorization') {
+            if (dialogueState?.lifecycle === 'plan_pending_authorization'
+                && dialogueState.currentAuthorizationIdRef === authorizationId) {
                 try {
                     dialogueService.markResolvedAfterExecution({
                         actorUserId,
                         dialogueScopeKey,
+                        authorizationId,
                         turnId: traceId,
                         turnSequence: dialogueState.lastTurnSequence,
                     });

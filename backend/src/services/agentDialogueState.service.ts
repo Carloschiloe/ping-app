@@ -691,7 +691,12 @@ export class AgentDialogueStateService {
         const now = this.now();
         const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
         if (!existing) throw new AppError('No open dialogue state to authorize', 404);
-        this.assertFreshTurn(existing, input.turnSequence);
+        // Authorization is often issued by the same logical turn that moved
+        // the plan into pending authorization. Equal sequence numbers are
+        // therefore valid here; older turns remain rejected.
+        if (input.turnSequence < existing.lastTurnSequence) {
+            throw new AppError('Stale dialogue turn rejected (a newer turn has already been applied)', 409);
+        }
 
         const next: AgentDialogueState = {
             ...existing,
@@ -785,11 +790,20 @@ export class AgentDialogueStateService {
     // the next admitted turn look stale. Reconcile the terminal state to the
     // admission sequence and clear references that must not be reused after
     // a verified write.
-    markResolvedAfterExecution(input: { actorUserId: string; dialogueScopeKey: string; turnId: string; turnSequence: number }): AgentDialogueState {
+    markResolvedAfterExecution(input: {
+        actorUserId: string;
+        dialogueScopeKey: string;
+        authorizationId: string;
+        turnId: string;
+        turnSequence: number;
+    }): AgentDialogueState {
         const now = this.now();
         const existing = this.repository.get(input.actorUserId, input.dialogueScopeKey, now);
         if (!existing) throw new AppError('No open dialogue state to resolve', 404);
         if (existing.lifecycle === 'resolved') return existing;
+        if (existing.currentAuthorizationIdRef !== input.authorizationId) {
+            throw new AppError('Authorization does not match the current dialogue plan', 409);
+        }
 
         const nextLifecycle = transitionDialogueState(existing.lifecycle, 'resolved');
         const next: AgentDialogueState = {
