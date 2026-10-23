@@ -962,9 +962,9 @@ export async function runAgentTurn(
         evidenceFound: context.evidenceFound,
         needsClarification: context.needsClarification,
         queryCardinality: context.queryCardinality,
-        timeRange: context.entities.timeRange,
+        timeRange: context.entities?.timeRange ?? null,
         sourceCounts: context.diagnostics?.sourceCounts ?? {},
-        retrievalStepCount: context.retrievalPlan.length,
+        retrievalStepCount: context.retrievalPlan?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_CONTEXT_RESULT', {
         path: 'read_pipeline',
