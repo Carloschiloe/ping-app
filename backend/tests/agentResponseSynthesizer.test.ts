@@ -281,6 +281,7 @@ describe('M-7 continuity: commitment due times remain in the actor timezone', ()
 
         const prompt = model.calls[0].prompt;
         expect(prompt).toContain('dueAtLocal');
+        expect(prompt).toContain('miércoles, 23 de septiembre de 2026, 11:00');
         expect(prompt).toContain('11:00');
         expect(response.answer).toContain('11:00');
         expect(response.answer).not.toContain('14:00');

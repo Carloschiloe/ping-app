@@ -37,7 +37,7 @@ import type {
 } from '../types/agentResponse';
 import type { AgentClarification, AgentContext } from '../types/agentContext';
 import { isCommitmentOverdue } from '../utils/overdueSemantics';
-import { formatEventTimestampInZone } from '../utils/timezone';
+import { formatCommitmentDueAtInZone, formatEventTimestampInZone } from '../utils/timezone';
 // [PING_OVERDUE_TRACE] TEMPORARY — ver backend/src/utils/overdueTrace.ts.
 import { traceOverdue, traceSafeTitle } from '../utils/overdueTrace';
 // PING — AGENT RESPONSE LANGUAGE CONSISTENCY: detectTemplateLanguage moved
@@ -265,7 +265,7 @@ function serializeContextForSynthesis(context: AgentContext, maxChars = MAX_SYNT
     const full: SerializedContext = {
         commitments: context.commitments.map((c) => ({
             id: c.id, entityType: c.entityType, title: c.title, status: c.status, dueAt: c.dueAt,
-            dueAtLocal: c.dueAt ? formatEventTimestampInZone(c.dueAt, context.timezone, locale) : null,
+            dueAtLocal: c.dueAt ? formatCommitmentDueAtInZone(c.dueAt, context.timezone, locale) : null,
             resolvedAt: c.resolvedAt, resolutionResult: c.resolutionResult, ownerUserId: c.ownerUserId,
             assignedToUserId: c.assignedToUserId,
             isOverdue: isCommitmentOverdue(c.dueAt, c.status, context.now, context.timezone, c.entityType),
@@ -1780,7 +1780,7 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             const lines = payload.commitments.slice(0, 8).map((commitment) => {
                 const title = commitment.title.trim() || (language === 'es' ? 'Sin título' : 'Untitled');
                 const due = commitment.dueAtLocal
-                    ?? (commitment.dueAt ? formatEventTimestampInZone(commitment.dueAt, timezone, resolvedLocale) : null)
+                    ?? (commitment.dueAt ? formatCommitmentDueAtInZone(commitment.dueAt, timezone, resolvedLocale) : null)
                     ?? (language === 'es' ? 'sin fecha' : 'no date');
                 const state = fallbackCommitmentState(commitment.status, commitment.isOverdue, language);
                 return language === 'es'

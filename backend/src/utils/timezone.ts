@@ -85,3 +85,26 @@ export function formatEventTimestampInZone(iso: string, timeZone: string, locale
     }).format(date);
     return `${datePart}, ${timePart}`;
 }
+
+// Canonical display for a commitment's due date. Commitments are commonly
+// shown in answers to weekday-based questions, so the weekday must be
+// computed from the same actor timezone as the calendar date. Keeping it in
+// the backend payload prevents a language model from combining a user's
+// weekday word with a different canonical date (for example, calling
+// Saturday 24 October 2026 "Friday 24 October"). Historical events and
+// memory intentionally keep using formatEventTimestampInZone above because
+// they have a different precision/presentation contract.
+export function formatCommitmentDueAtInZone(iso: string, timeZone: string, locale?: string): string {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return iso;
+    const resolvedLocale = locale || 'es-CL';
+    const dateOptions: Intl.DateTimeFormatOptions = {
+        timeZone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    };
+    const datePart = new Intl.DateTimeFormat(resolvedLocale, dateOptions).format(date);
+    if (!hasExplicitTimeComponent(iso)) return datePart;
+    const timePart = new Intl.DateTimeFormat(resolvedLocale, {
+        timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(date);
+    return `${datePart}, ${timePart}`;
+}
