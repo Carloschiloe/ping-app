@@ -36,7 +36,10 @@ import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import { getDurableAgentRuntimeStatus } from '../services/agentDurableConfig.service';
-import { getLatestPrivateAgentTurnDatabaseDiagnostic } from '../services/privateAgentTurnAdmission.service';
+import {
+    getLatestPrivateAgentTurnContractDiagnostic,
+    getLatestPrivateAgentTurnDatabaseDiagnostic,
+} from '../services/privateAgentTurnAdmission.service';
 import { isAgentConversationTurnPersistenceEnabled } from '../services/agentConversationTurn.service';
 import * as groupSchema from '../schemas/group.schema';
 import * as commitmentSchema from '../schemas/commitment.schema';
@@ -149,6 +152,7 @@ router.get('/health', async (req, res) => {
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,
             agent_private_database_diagnostic: getLatestPrivateAgentTurnDatabaseDiagnostic(),
+            agent_durable_contract_diagnostic: getLatestPrivateAgentTurnContractDiagnostic(),
             live_voice: {
                 enabled: process.env.PING_ENVIRONMENT === 'production'
                     && process.env.M8_LIVE_VOICE_ENABLED === 'true',

@@ -2,13 +2,23 @@ import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
 import { startScheduledJobs } from './services/cronCoordinator';
 import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
-import { diagnosePrivateAgentTurnDatabase, isPrivateAgentTurnDatabaseDiagnosticEnabled } from './services/privateAgentTurnAdmission.service';
+import {
+    diagnosePrivateAgentTurnDatabase,
+    getLatestPrivateAgentTurnContractDiagnostic,
+    isPrivateAgentTurnDatabaseDiagnosticEnabled,
+} from './services/privateAgentTurnAdmission.service';
 
 async function runPrivateDatabaseDiagnostic(): Promise<void> {
     if (!isPrivateAgentTurnDatabaseDiagnosticEnabled()) return;
     const result = await diagnosePrivateAgentTurnDatabase();
     if (result.passed) {
         console.log('PING_M7_PRIVATE_DB_CHECK=PASS');
+        const contract = getLatestPrivateAgentTurnContractDiagnostic();
+        if (contract?.passed) {
+            console.log('PING_M7_PRIVATE_DB_CONTRACT=PASS');
+        } else {
+            console.log(`PING_M7_PRIVATE_DB_CONTRACT=FAIL missing=${contract?.missing.join(',') ?? 'unknown'}`);
+        }
     } else {
         console.log(`PING_M7_PRIVATE_DB_CHECK=FAIL category=${result.category ?? 'unknown'} code=${result.driverCode ?? 'none'}`);
     }

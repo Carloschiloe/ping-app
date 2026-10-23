@@ -30,7 +30,28 @@ export type PrivateDatabaseCheckResult = {
     driverCode?: string;
 };
 
+export type PrivateAgentTurnContractDiagnostic = {
+    passed: boolean;
+    missing: string[];
+};
+
 let latestPrivateDatabaseDiagnostic: PrivateDatabaseCheckResult | null = null;
+let latestPrivateAgentTurnContractDiagnostic: PrivateAgentTurnContractDiagnostic | null = null;
+
+const REQUIRED_DURABLE_FUNCTION_SIGNATURES = [
+    'public.admit_agent_turn_with_routing_mode(uuid,text,text,text,text)',
+    'public.claim_agent_turn_admission(uuid,uuid,text)',
+    'public.complete_agent_turn_admission(uuid,uuid,text,jsonb)',
+    'public.fail_agent_turn_admission(uuid,uuid,text,text,jsonb)',
+    'public.apply_agent_turn_atomically(uuid,uuid,text,bigint,bigint,text,jsonb,jsonb,timestamptz,smallint,jsonb)',
+    'public.reconcile_agent_turn_application(uuid,uuid,text,bigint)',
+] as const;
+
+const REQUIRED_DURABLE_RELATIONS = [
+    'public.agent_turn_admissions',
+    'public.agent_turn_sequence_allocators',
+    'public.agent_dialogue_checkpoints',
+] as const;
 
 export type PrivatePoolerUrlFormatResult =
     | { valid: true }
@@ -242,6 +263,25 @@ export class PrivateAgentTurnAdmissionService {
     public async checkConnectionOrThrow(): Promise<void> {
         await this.pool.query('select 1');
     }
+
+    public async checkDurableAgentTurnContract(): Promise<PrivateAgentTurnContractDiagnostic> {
+        const functionResult = await this.pool.query<{ object_name: string; present: boolean }>(
+            `select 'function:' || signature as object_name,
+                    to_regprocedure(signature) is not null as present
+               from unnest($1::text[]) as signature`,
+            [REQUIRED_DURABLE_FUNCTION_SIGNATURES],
+        );
+        const relationResult = await this.pool.query<{ object_name: string; present: boolean }>(
+            `select 'relation:' || relation_name as object_name,
+                    to_regclass(relation_name) is not null as present
+               from unnest($1::text[]) as relation_name`,
+            [REQUIRED_DURABLE_RELATIONS],
+        );
+        const missing = [...functionResult.rows, ...relationResult.rows]
+            .filter((row) => !row.present)
+            .map((row) => row.object_name);
+        return { passed: missing.length === 0, missing };
+    }
 }
 
 export async function checkPrivateAgentTurnDatabase(): Promise<boolean> {
@@ -271,6 +311,11 @@ export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabas
     try {
         try {
             await adapter.checkConnectionOrThrow();
+            try {
+                latestPrivateAgentTurnContractDiagnostic = await adapter.checkDurableAgentTurnContract();
+            } catch {
+                latestPrivateAgentTurnContractDiagnostic = { passed: false, missing: ['contract_query'] };
+            }
             return finish({ passed: true });
         } catch (error) {
             const diagnosis = classifyPrivateDatabaseError(error);
@@ -287,6 +332,12 @@ export async function diagnosePrivateAgentTurnDatabase(): Promise<PrivateDatabas
 
 export function getLatestPrivateAgentTurnDatabaseDiagnostic(): PrivateDatabaseCheckResult | null {
     return latestPrivateDatabaseDiagnostic ? { ...latestPrivateDatabaseDiagnostic } : null;
+}
+
+export function getLatestPrivateAgentTurnContractDiagnostic(): PrivateAgentTurnContractDiagnostic | null {
+    return latestPrivateAgentTurnContractDiagnostic
+        ? { ...latestPrivateAgentTurnContractDiagnostic, missing: [...latestPrivateAgentTurnContractDiagnostic.missing] }
+        : null;
 }
 
 export function isPrivateAgentTurnDatabaseDiagnosticEnabled(): boolean {
