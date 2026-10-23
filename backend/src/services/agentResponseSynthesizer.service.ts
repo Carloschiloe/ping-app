@@ -1075,6 +1075,29 @@ function buildCommitmentListResponse(context: AgentContext, language: 'es' | 'en
     return { status: 'answered', answer, claims, citations: claims.flatMap((claim) => claim.sourceRefs) };
 }
 
+// A temporal collection is a Core-owned read, even when retrieval also
+// returned unrelated conversation evidence (events/memory) or the upstream
+// interpreter left cardinality undefined. Sending this shape through the LLM
+// made an otherwise exact answer lose the canonical due time while keeping
+// the commitment title. The exclusions preserve the specialized operators
+// below/above (follow-up attributes, comparisons, overdue and proposal
+// lifecycle questions), which have their own deterministic contracts.
+function isDeterministicTemporalCommitmentList(context: AgentContext): boolean {
+    return context.intent.type === 'commitment_query'
+        && context.entities.timeRange !== null
+        && context.commitments.length > 0
+        && context.commitments.length <= 10
+        && context.queryCardinality !== 'count'
+        && context.queryCardinality !== 'summary'
+        && context.queryCardinality !== 'focused_lookup'
+        && !context.proposalFocus
+        && !context.wantsOverdueFocus
+        && !context.requestedTransition
+        && !context.followUpAttribute
+        && !context.temporalComparison
+        && !context.urgencyComparison;
+}
+
 function buildOverdueResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {
     const overdue = context.commitments.filter((commitment) =>
         commitment.entityType === 'commitment'
@@ -1637,6 +1660,9 @@ export class LlmResponseSynthesizer implements AgentResponseSynthesizer {
             && context.events.length === 0
             && context.memoryFacts.length === 0
             && context.historicalMemoryFacts.length === 0) {
+            return this.withDiagnostics(buildCommitmentListResponse(context, language), 'deterministic', startedAt, sourceCount);
+        }
+        if (status === 'answered' && isDeterministicTemporalCommitmentList(context)) {
             return this.withDiagnostics(buildCommitmentListResponse(context, language), 'deterministic', startedAt, sourceCount);
         }
         if (status === 'answered' && context.followUpAttribute) {

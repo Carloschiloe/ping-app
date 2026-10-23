@@ -582,6 +582,36 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
+    it('una lista temporal conserva fecha y hora aunque retrieval también entregue evidencia de conversación', async () => {
+        const ctx = baseContext({
+            input: '¿Qué pendientes tengo mañana?',
+            evidenceFound: true,
+            commitments: [
+                commitment('cm-pan', { title: 'comprar pan para probar ping', dueAt: '2026-09-23T13:00:00Z' }),
+            ] as any,
+            events: [{ id: 'evt-unrelated', provenance: { sourceType: 'commitment_event', sourceId: 'evt-unrelated' } }] as any,
+            memoryFacts: [{ id: 'memory-unrelated', predicate: 'topic', objectValue: 'otro tema' }] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-23T00:00:00.000Z', to: '2026-09-24T00:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel(JSON.stringify({ claims: [{
+            text: 'comprar pan para probar ping',
+            sourceRefs: [{ sourceType: 'commitment', sourceId: 'cm-pan' }],
+        }] }));
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
+        expect(response.answer).toContain('comprar pan para probar ping');
+        expect(response.answer).toContain('miércoles, 23 de septiembre de 2026, 13:00');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
     it('una consulta temporal sin compromisos responde sólo sobre compromisos, aunque exista otra evidencia', async () => {
         const ctx = baseContext({
             input: '¿Qué compromisos tengo mañana?',
