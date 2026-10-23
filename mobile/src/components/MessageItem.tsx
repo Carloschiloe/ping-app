@@ -776,14 +776,14 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
         prev.item.status === next.item.status &&
         prev.item.content === next.item.content &&
         prev.item.text === next.item.text &&
-        JSON.stringify(prev.item.attachment) === JSON.stringify(next.item.attachment) &&
+        prev.item.attachment === next.item.attachment &&
         prev.item.message_type === next.item.message_type &&
-        JSON.stringify(prev.item.media_metadata) === JSON.stringify(next.item.media_metadata) &&
+        prev.item.media_metadata === next.item.media_metadata &&
         prev.item.media_bucket === next.item.media_bucket &&
         prev.item.media_object_path === next.item.media_object_path &&
-        JSON.stringify(prev.item.message_reactions) === JSON.stringify(next.item.message_reactions) &&
-        JSON.stringify(prev.item.meta) === JSON.stringify(next.item.meta) &&
-        JSON.stringify(prev.item.metadata) === JSON.stringify(next.item.metadata) &&
+        prev.item.message_reactions === next.item.message_reactions &&
+        prev.item.meta === next.item.meta &&
+        prev.item.metadata === next.item.metadata &&
         prev.conversationMode === next.conversationMode &&
         prev.activeCommitmentId === next.activeCommitmentId &&
         prev.groupTasks === next.groupTasks &&

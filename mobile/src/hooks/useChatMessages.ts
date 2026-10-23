@@ -64,6 +64,10 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     const {
         data: infiniteData,
         isLoading,
+        isError,
+        error,
+        isFetching,
+        refetch,
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage
@@ -265,13 +269,6 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
-                table: 'message_reactions'
-            }, () => {
-                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-            })
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
                 table: 'commitments'
             }, (payload: any) => {
                 const currentPayload = payload.new || payload.old;
@@ -365,6 +362,10 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     return {
         messages,
         isLoading,
+        isError,
+        error,
+        isFetching,
+        retryMessages: refetch,
         isSending: isSendingMutation || queue.some(q =>
             q.conversationId === conversationId && q.state !== 'rejected'
         ),

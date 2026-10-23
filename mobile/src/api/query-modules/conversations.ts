@@ -216,6 +216,8 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
         staleTime: 5_000,
         refetchOnMount: true,
         refetchOnReconnect: 'always',
+        retry: 2,
+        retryDelay: attemptIndex => Math.min(1_000 * (2 ** attemptIndex), 5_000),
         refetchInterval: 60_000,
         refetchIntervalInBackground: false,
     });

@@ -234,6 +234,19 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it('resuelve "los próximos N días" como un horizonte futuro acotado', async () => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        const now = new Date('2026-06-15T12:00:00.000Z');
+        const temporalIntent = inferTemporalIntent('¿Qué compromisos tengo los próximos 3 días?');
+
+        expect(temporalIntent).toEqual({ kind: 'upcoming_horizon', daysAhead: 3, futureOnly: true });
+        expect(resolveTimeExpression('los próximos 3 días', now, 'UTC', temporalIntent)).toEqual({
+            from: '2026-06-15T12:00:00.000Z',
+            to: '2026-06-19T00:00:00.000Z',
+        });
+    });
+
     it('"esta semana" empieza el lunes ISO', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const now = new Date('2026-06-17T12:00:00.000Z'); // miércoles

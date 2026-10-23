@@ -60,6 +60,15 @@ function rowToAuthorization(row: any): AgentAuthorization {
     };
 }
 
+function hasSameStepIds(left: unknown, right: string[]): boolean {
+    if (!Array.isArray(left)) return false;
+    const leftIds = left.map((value) => String(value));
+    const rightIds = right.map((value) => String(value));
+    if (leftIds.length !== rightIds.length) return false;
+    const expected = new Set(rightIds);
+    return leftIds.every((stepId) => expected.has(stepId)) && expected.size === leftIds.length;
+}
+
 async function replanInputForAuthorization(input: AuthorizePlanInput): Promise<string> {
     if (process.env.PING_ENABLE_DURABLE_AGENT_TURN !== 'true'
         || !process.env.PING_M7_DATABASE_URL
@@ -159,6 +168,28 @@ export async function authorizePlan(input: AuthorizePlanInput): Promise<Authoriz
     }, 'none');
 
     const expiresAt = new Date(now.getTime() + AUTHORIZATION_TTL_MS);
+
+    // A client retrying the same confirmation must not create a second
+    // authorization for the same executable plan. Execution is idempotent per
+    // authorization, so duplicate authorization rows would otherwise create
+    // duplicate execution identities. Reuse only an active row with the exact
+    // same digest and step set; an expired/consumed/revoked row is never reused.
+    const { data: existingData, error: existingError } = await supabaseAdmin
+        .from('agent_authorizations')
+        .select('*')
+        .eq('actor_user_id', input.actorUserId)
+        .eq('plan_digest', freshPlan.planDigest)
+        .eq('status', 'authorized')
+        .gt('expires_at', now.toISOString())
+        .order('issued_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (existingError) throw new AppError(existingError.message, 500);
+    if (existingData
+        && hasSameStepIds(existingData.authorized_step_ids, input.requestedStepIds)
+        && hasSameStepIds((existingData.frozen_steps ?? []).map((step: AgentPlanStep) => step.stepId), frozenSteps.map((step) => step.stepId))) {
+        return { ok: true, authorization: rowToAuthorization(existingData) };
+    }
 
     const { data, error } = await supabaseAdmin
         .from('agent_authorizations')

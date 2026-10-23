@@ -263,6 +263,40 @@ describe('multi-turn authorization binds to the durable pending objective', () =
     });
 });
 
+describe('authorization retry persistence', () => {
+    it('reuses an active exact-match authorization instead of inserting a duplicate row', async () => {
+        const { authorizePlan } = await import('../src/services/agentAuthorization.service');
+        const { runAgentPlanning, resolveDeterministicRouting } = await import('../src/services/agentPlanOrchestrator.service');
+        const input = 'Agenda entrenar mañana a las 8';
+        const routing = await resolveDeterministicRouting(input, { actorUserId: ACTOR_ID });
+        const plan = await runAgentPlanning({ actorUserId: ACTOR_ID, input, now }, { resolvedObjective: routing.resolvedObjective });
+        expect(plan.status).toBe('ready_for_authorization');
+        expect(plan.planDigest).toBeTruthy();
+
+        const db = createSupabaseAdminMock({
+            agent_authorizations: [{
+                data: {
+                    id: 'existing-authorization-id', actor_user_id: ACTOR_ID,
+                    plan_digest: plan.planDigest, objective_type: plan.objective.objectiveType,
+                    frozen_steps: plan.steps, authorized_step_ids: plan.steps.map((step) => step.stepId),
+                    confirmation_level: 'explicit', status: 'authorized', issued_at: now.toISOString(),
+                    expires_at: new Date(now.getTime() + 300000).toISOString(), consumed_at: null, revoked_at: null, trace_id: null,
+                }, error: null,
+            }],
+        });
+        setSupabaseAdminMock(db);
+
+        const result = await authorizePlan({
+            actorUserId: ACTOR_ID, input, now, planDigest: plan.planDigest!,
+            requestedStepIds: plan.steps.map((step) => step.stepId), confirm: true,
+        });
+
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.authorization.id).toBe('existing-authorization-id');
+        expect(db.getInsertCalls('agent_authorizations')).toHaveLength(0);
+    });
+});
+
 describe('M-4 exact-plan digest binding: altering ANY execution-relevant field is rejected before authorization', () => {
     async function realPlan(input: string, conversationId?: string) {
         const { runAgentPlanning, resolveDeterministicRouting } = await import('../src/services/agentPlanOrchestrator.service');

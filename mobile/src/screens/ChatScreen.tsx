@@ -159,17 +159,20 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
     const [mentionedUserId, setMentionedUserId] = useState<string | null>(null);
     const [groupParticipants, setGroupParticipants] = useState<{ id: string; full_name: string; email: string }[]>([]);
-    const [filteredParticipants, setFilteredParticipants] = useState<typeof groupParticipants>([]);
     const menuAnim = useRef(new Animated.Value(300)).current;
     const listRef = useRef<FlatList>(null);
     const swipeableRowRefs = useRef(new Map());
 
     const isMultiSelecting = multiSelect.length > 0;
+    const selectedMessageIds = React.useMemo(() => new Set(multiSelect), [multiSelect]);
 
     // Hooks Logic
     const {
         messages,
         isLoading: isMessagesLoading,
+        isError: isMessagesError,
+        isFetching: isMessagesFetching,
+        retryMessages,
         isSending,
         fetchNextPage,
         hasNextPage,
@@ -331,16 +334,19 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         if (atIndex !== -1 && (atIndex === 0 || t[atIndex - 1] === ' ')) {
             const query = t.substring(atIndex + 1);
             setMentionQuery(query);
-            setFilteredParticipants(
-                groupParticipants.filter(p =>
-                    p.full_name?.toLowerCase().includes(query.toLowerCase()) ||
-                    p.email?.toLowerCase().includes(query.toLowerCase())
-                )
-            );
         } else {
             setMentionQuery(null);
         }
     };
+
+    const filteredMentionParticipants = React.useMemo(() => {
+        if (mentionQuery === null) return [];
+        const normalizedQuery = mentionQuery.toLowerCase();
+        return groupParticipants.filter((participant) =>
+            participant.full_name?.toLowerCase().includes(normalizedQuery) ||
+            participant.email?.toLowerCase().includes(normalizedQuery)
+        );
+    }, [groupParticipants, mentionQuery]);
 
     const handleSelectMention = (p: any) => {
         const atIndex = text.lastIndexOf('@');
@@ -475,12 +481,12 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     }, [route.params?.scrollToMessageId, route.params?.commitmentTitle, messages, navigation, scrollToMessage, targetFound]);
 
     // ─── Multi-select Logic ───
-    const toggleSelect = (id: string) => {
+    const toggleSelect = React.useCallback((id: string) => {
         setMultiSelect(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-    };
+    }, []);
     const cancelMultiSelect = () => setMultiSelect([]);
 
-    const selectedMessages = messages.filter((message) => multiSelect.includes(message.id));
+    const selectedMessages = messages.filter((message) => selectedMessageIds.has(message.id));
     const canDeleteSelection = canDeleteMessages(selectedMessages, user?.id);
 
     const confirmDelete = (messageIds: string[]) => {
@@ -681,7 +687,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     // ─── Rendering ───────────────────────────────────────────────────────────
 
-    const renderMessage = ({ item, index }: { item: any; index: number }) => {
+    const renderMessage = React.useCallback(({ item, index }: { item: any; index: number }) => {
         const showDate = index === messages.length - 1 ||
             formatDateDivider(item.created_at) !== formatDateDivider(messages[index + 1]?.created_at);
 
@@ -697,7 +703,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     user={user}
                     isGroup={!!isGroup}
                     isMultiSelecting={isMultiSelecting}
-                    isSelected={multiSelect.includes(item.id)}
+                    isSelected={selectedMessageIds.has(item.id)}
                     highlightedMsgId={highlightedMsgId}
                     groupTasks={groupTasks}
                     groupParticipants={groupParticipants}
@@ -759,7 +765,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 />
             </>
         );
-    };
+    }, [activeOperationCommitment?.id, conversationMode, groupParticipants, groupTasks, highlightedMsgId, isGroup, isMultiSelecting, menuAnim, messages, selectedMessageIds, styles, swipeableRowRefs, toggleSelect, user]);
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
@@ -830,34 +836,65 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         />
                     )}
 
-                    {isMessagesLoading ? (
+                    {isMessagesLoading && messages.length === 0 ? (
                         <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
+                    ) : isMessagesError && messages.length === 0 ? (
+                        <View style={styles.messageLoadError}>
+                            <Text style={styles.messageLoadErrorText}>No se pudieron cargar los mensajes.</Text>
+                            <TouchableOpacity
+                                onPress={() => { void retryMessages(); }}
+                                disabled={isMessagesFetching}
+                                accessibilityRole="button"
+                                accessibilityLabel="Reintentar cargar mensajes"
+                            >
+                                {isMessagesFetching ? (
+                                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                                ) : (
+                                    <Text style={styles.messageLoadRetry}>Reintentar</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     ) : (
-                        <FlatList
-                            ref={listRef}
-                            data={messages}
-                            inverted
-                            keyExtractor={(item) => item.id}
-                            renderItem={renderMessage}
-                            onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
-                            onEndReachedThreshold={0.3}
-                            initialNumToRender={20}
-                            maxToRenderPerBatch={12}
-                            windowSize={10}
-                            removeClippedSubviews={Platform.OS === 'android'}
-                            keyboardShouldPersistTaps="handled"
-                            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                            onScrollToIndexFailed={(info) => {
-                                setTimeout(() => {
-                                    listRef.current?.scrollToOffset({
-                                        offset: Math.max(0, info.averageItemLength * info.index),
-                                        animated: true,
-                                    });
-                                }, 150);
-                            }}
-                            ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
-                            contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
-                        />
+                        <>
+                            {isMessagesError && (
+                                <View style={styles.messageLoadWarning}>
+                                    <Text style={styles.messageLoadWarningText}>No se pudo actualizar el chat.</Text>
+                                    <TouchableOpacity
+                                        onPress={() => { void retryMessages(); }}
+                                        disabled={isMessagesFetching}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Reintentar actualizar mensajes"
+                                    >
+                                        <Text style={styles.messageLoadRetry}>{isMessagesFetching ? 'Reintentando…' : 'Reintentar'}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            <FlatList
+                                ref={listRef}
+                                data={messages}
+                                inverted
+                                keyExtractor={(item) => item.id}
+                                renderItem={renderMessage}
+                                onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+                                onEndReachedThreshold={0.3}
+                                initialNumToRender={20}
+                                maxToRenderPerBatch={12}
+                                windowSize={10}
+                                removeClippedSubviews={Platform.OS === 'android'}
+                                keyboardShouldPersistTaps="handled"
+                                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                                onScrollToIndexFailed={(info) => {
+                                    setTimeout(() => {
+                                        listRef.current?.scrollToOffset({
+                                            offset: Math.max(0, info.averageItemLength * info.index),
+                                            animated: true,
+                                        });
+                                    }, 150);
+                                }}
+                                ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
+                                contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
+                            />
+                        </>
                     )}
                 </View>
 
@@ -885,7 +922,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 )}
 
                 {isGroup && mentionQuery !== null && (
-                    <MentionPopup participants={filteredParticipants} onSelect={handleSelectMention} />
+                    <MentionPopup participants={filteredMentionParticipants} onSelect={handleSelectMention} />
                 )}
 
                 {replyingToMsg && (
@@ -1188,6 +1225,31 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.chatBackground },
     chatBg: { flex: 1 },
+    messageLoadError: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        gap: 12,
+    },
+    messageLoadErrorText: {
+        color: theme.colors.text.secondary,
+        textAlign: 'center',
+        fontSize: 14,
+    },
+    messageLoadWarning: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: theme.colors.surfaceMuted,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.border,
+    },
+    messageLoadWarningText: { color: theme.colors.text.muted, fontSize: 12 },
+    messageLoadRetry: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
     dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
     dateDividerText: {
         backgroundColor: 'rgba(0,0,0,0.2)', color: theme.colors.white,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import {
     RecordingPresets,
@@ -38,6 +38,15 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
     const [recordingUri, setRecordingUri] = useState<string | null>(null);
     const [recordingDurationMs, setRecordingDurationMs] = useState(0);
     const recordingDurationRef = useRef(0);
+    const isRecordingRef = useRef(false);
+    const startInFlightRef = useRef(false);
+    const stopRequestedRef = useRef(false);
+    const recordingOperationRef = useRef(0);
+    const uploadInFlightRef = useRef(false);
+    const onAudioSentRef = useRef(onAudioSent);
+    onAudioSentRef.current = onAudioSent;
+    const onRecordingStateChangeRef = useRef(onRecordingStateChange);
+    onRecordingStateChangeRef.current = onRecordingStateChange;
 
     // Mismo workaround ya certificado (sección 7 del ticket, bug real
     // conocido): Expo puede reportar duración 0 al detener aunque el
@@ -55,34 +64,61 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
         }
     }, [recorderState.durationMillis, recorderState.isRecording]);
 
-    const startRecording = async () => {
-        if (isRecording) return;
+    const startRecording = useCallback(async () => {
+        if (isRecordingRef.current || startInFlightRef.current) return;
+        startInFlightRef.current = true;
+        stopRequestedRef.current = false;
+        const operation = ++recordingOperationRef.current;
         try {
             const { granted } = await requestRecordingPermissionsAsync();
-            if (!granted) {
-                Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
+            if (!granted || operation !== recordingOperationRef.current || stopRequestedRef.current) {
+                if (!granted) {
+                    Alert.alert('Permiso denegado', 'Necesitamos acceso al micrófono.');
+                }
                 return;
             }
             await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
+            if (operation !== recordingOperationRef.current || stopRequestedRef.current) return;
+
             await recorder.prepareToRecordAsync();
+            if (operation !== recordingOperationRef.current || stopRequestedRef.current) return;
+
             recorder.record();
+            if (operation !== recordingOperationRef.current || stopRequestedRef.current) {
+                await recorder.stop().catch(() => undefined);
+                return;
+            }
             recordingDurationRef.current = 0;
             setRecordingDurationMs(0);
+            isRecordingRef.current = true;
             setIsRecording(true);
-            onRecordingStateChange?.(true);
+            onRecordingStateChangeRef.current?.(true);
         } catch (e) {
             console.error('[Audio]', e);
+            isRecordingRef.current = false;
             setIsRecording(false);
             setRecordingDurationMs(0);
-            onRecordingStateChange?.(false);
+            onRecordingStateChangeRef.current?.(false);
+        } finally {
+            startInFlightRef.current = false;
+            if (!isRecordingRef.current) stopRequestedRef.current = false;
         }
-    };
+    }, [recorder]);
 
-    const stopRecording = async () => {
-        if (!isRecording) return;
+    const stopRecording = useCallback(async () => {
+        if (startInFlightRef.current && !isRecordingRef.current) {
+            // The press can end while permissions/native preparation are still
+            // pending. Mark the gesture as cancelled so start() cannot leave a
+            // recorder running after the user has already released the button.
+            stopRequestedRef.current = true;
+            recordingOperationRef.current += 1;
+            return;
+        }
+        if (!isRecordingRef.current) return;
+        isRecordingRef.current = false;
         setIsRecording(false);
-        onRecordingStateChange?.(false);
+        onRecordingStateChangeRef.current?.(false);
 
         try {
             await recorder.stop();
@@ -102,17 +138,21 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
         } catch (e) {
             console.error('[Audio stop]', e);
             setSendingMedia(false);
+        } finally {
+            await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
         }
-    };
+    }, [recorder, setSendingMedia]);
 
-    const cancelAudio = () => {
+    const cancelAudio = useCallback(() => {
         setRecordingUri(null);
         recordingDurationRef.current = 0;
         setRecordingDurationMs(0);
-    };
+        void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+    }, []);
 
-    const uploadAudio = async () => {
-        if (!recordingUri) return;
+    const uploadAudio = useCallback(async () => {
+        if (!recordingUri || uploadInFlightRef.current) return;
+        uploadInFlightRef.current = true;
         setSendingMedia(true);
         const durationMs = resolveRecordingDurationMs(
             recordingDurationRef.current,
@@ -127,7 +167,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
                 fileName,
                 durationMs,
             );
-            onAudioSent({ text: 'Audio', attachment });
+            onAudioSentRef.current({ text: 'Audio', attachment });
             setRecordingUri(null);
             recordingDurationRef.current = 0;
             setRecordingDurationMs(0);
@@ -142,7 +182,7 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
                 && (status === 408 || status === 429 || status >= 500))
                 || isNetworkFailure(e instanceof Error ? e.message : String(e));
             if (retryable) {
-                onAudioSent({
+                onAudioSentRef.current({
                     text: 'Audio',
                     attachment: {
                         localUri: recordingUri,
@@ -159,9 +199,19 @@ export function useAudioRecorder({ conversationId, onAudioSent, onRecordingState
             }
             Alert.alert('No se pudo enviar', 'El audio no se subió. Inténtalo nuevamente.');
         } finally {
+            uploadInFlightRef.current = false;
             setSendingMedia(false);
         }
-    };
+    }, [conversationId, recordingDurationMs, recordingUri, setSendingMedia]);
+
+    useEffect(() => () => {
+        recordingOperationRef.current += 1;
+        stopRequestedRef.current = true;
+        if (isRecordingRef.current || startInFlightRef.current) {
+            void recorder.stop().catch(() => undefined);
+        }
+        void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+    }, [recorder]);
 
     return {
         isRecording,

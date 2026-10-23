@@ -189,13 +189,13 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const tomorrow = addDays(now, 1);
         return { from: startOfDayInZone(tomorrow, timezone).toISOString(), to: endOfDayInZone(tomorrow, timezone).toISOString() };
     }
-    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim[oa]s?|siguientes?)\s+(?:(\d+)\s+)?d[ií]as?\b|\bnext\s+(?:(\d+)\s+)?days?\b/);
+    const upcomingDaysMatch = expr.match(/\b(?:pr[oó]xim(?:o|os|a|as)|siguientes?)\s+(?:(\d+)\s+)?d[ií]as?\b|\bnext\s+(?:(?:few|(?<nextDays>\d+))\s+)?days?\b/i);
     if (upcomingDaysMatch) {
         // "los próximos días" is intentionally bounded: seven calendar days
         // starting today, or the explicit count when the user gives one. This
         // keeps a natural request useful without silently turning it into an
         // unbounded database scan.
-        const spanDays = Math.min(Math.max(Number(upcomingDaysMatch[1] || upcomingDaysMatch[2] || 7), 1), 30);
+        const spanDays = Math.min(Math.max(Number(upcomingDaysMatch[1] || upcomingDaysMatch.groups?.nextDays || 7), 1), 30);
         const from = startOfDayInZone(now, timezone);
         return { from: from.toISOString(), to: addDays(from, spanDays).toISOString() };
     }

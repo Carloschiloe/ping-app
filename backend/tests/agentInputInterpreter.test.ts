@@ -4,6 +4,7 @@ import {
     generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition, classifyAgentInputProviderError,
     isSocialConversationInput,
     inferDeterministicFollowUpAttribute,
+    inferTemporalIntent,
     type AgentInputModel, type AgentInputModelRequest,
 } from '../src/services/agentInputInterpreter.service';
 
@@ -54,6 +55,23 @@ describe('deterministic read follow-up safety net', () => {
     it('propaga el atributo al intérprete determinístico', async () => {
         const result = await new DeterministicInputInterpreter().interpret('¿Y a qué hora?', {});
         expect(result.followUpAttribute).toBe('time');
+    });
+});
+
+describe('deterministic upcoming horizon parsing', () => {
+    it.each([
+        '¿Qué compromisos tengo los próximos 3 días?',
+        '¿Qué compromisos tengo en los próximos 3 días?',
+        'What is due in the next 3 days?',
+    ])('preserves an explicit day count: %s', async (input) => {
+        const result = await new DeterministicInputInterpreter().interpret(input, {});
+
+        expect(result.timeExpression).toMatch(/3\s+d[ií]as|3\s+days/i);
+        expect(result.temporalIntent).toEqual({ kind: 'upcoming_horizon', daysAhead: 3, futureOnly: true });
+    });
+
+    it('does not invent a temporal range for an unrelated number', () => {
+        expect(inferTemporalIntent('Tengo 3 compromisos')).toBeNull();
     });
 });
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
@@ -55,6 +55,10 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
     } : null, [authorization, conversationId]);
+    const injected = useMemo(() => config
+        ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
+        : '', [config]);
+    const source = useMemo(() => ({ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }), []);
 
     useEffect(() => {
         if (!visible) return;
@@ -88,28 +92,25 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         return () => { active = false; setAuthorization(null); setMicrophoneReady(false); };
     }, [visible, sessionKey]);
 
-    const injected = config
-        ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
-        : '';
-    const injectConfig = () => {
+    const injectConfig = useCallback(() => {
         if (injected) webViewRef.current?.injectJavaScript(injected);
-    };
-    const retry = () => {
+    }, [injected]);
+    const retry = useCallback(() => {
         if (!microphoneCanAskAgain) {
             void Linking.openSettings();
             return;
         }
         setError(null);
         setSessionKey((value) => value + 1);
-    };
-    const scheduleClose = () => {
+    }, [microphoneCanAskAgain]);
+    const scheduleClose = useCallback(() => {
         if (closeTimerRef.current) return;
         closeTimerRef.current = setTimeout(() => {
             closeTimerRef.current = null;
             onClose();
         }, 400);
-    };
-    const requestClose = () => {
+    }, [onClose]);
+    const requestClose = useCallback(() => {
         if (!webViewRef.current) {
             onClose();
             return;
@@ -120,8 +121,8 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         } catch {
             onClose();
         }
-    };
-    const androidWebViewProps = Platform.OS === 'android'
+    }, [onClose, scheduleClose]);
+    const androidWebViewProps = useMemo(() => Platform.OS === 'android'
         ? ({
             onPermissionRequest: (request: any) => {
                 const requestedResources = request.resources.filter((resource: string) => resource === 'AUDIO_CAPTURE');
@@ -129,8 +130,8 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 else request.deny();
             },
         } as any)
-        : {};
-    const handleMessage = (event: WebViewMessageEvent) => {
+        : {}, []);
+    const handleMessage = useCallback((event: WebViewMessageEvent) => {
         try {
             const message = JSON.parse(event.nativeEvent.data) as { type?: string };
             if (message.type === 'closed') scheduleClose();
@@ -138,7 +139,14 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
             if (message.type === 'retry') retry();
             if (message.type === 'error') setError('No se pudo iniciar la conversación de voz.');
         } catch { /* WebView telemetry is handled by the voice client. */ }
-    };
+    }, [injectConfig, retry, scheduleClose]);
+
+    useEffect(() => () => {
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    }, []);
 
     return <Modal visible={visible} animationType="slide" onRequestClose={requestClose}>
         <View style={styles.container}>
@@ -156,7 +164,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
             </View> : microphoneReady && config ? <WebView
                 key={sessionKey}
                 ref={webViewRef}
-                source={{ uri: `${API_URL.replace(/\/$/, '')}/agent/voice/live/client` }}
+                source={source}
                 injectedJavaScriptBeforeContentLoaded={injected}
                 onLoadEnd={injectConfig}
                 onMessage={handleMessage}

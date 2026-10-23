@@ -989,7 +989,8 @@ const PENDING_RESPONSE_PERSON_CUE = new RegExp(
 // resolución a rango de fechas real (con timezone) vive en
 // agentContextBuilder.service.ts#resolveTimeExpression, separada a
 // propósito para que sea testeable de forma aislada y determinista.
-const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]ximos?\s+d[i\u00ed]as?\b|\bnext\s+(?:few\s+)?days?\b|\b(?:the\s+)?coming\s+days?\b/i;
+const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(?:(?:\d+)\s+)?d[i\u00ed]as?\b|\bnext\s+(?:few|\d+)\s+days?\b|\b(?:the\s+)?coming\s+days?\b/i;
+const UPCOMING_DAYS_COUNT_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(\d+)\s+d[i\u00ed]as?\b|\bnext\s+(\d+)\s+days?\b/i;
 const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+que\s+siguen\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
 const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
 
@@ -1210,6 +1211,11 @@ function parseDayCount(token: string): number | null {
 // through the schema for wording the deterministic extractor does not know.
 export function inferTemporalIntent(input: string): TemporalIntent | null {
     const lower = input.toLowerCase();
+    const upcomingCount = lower.match(UPCOMING_DAYS_COUNT_EXPRESSION);
+    if (upcomingCount) {
+        const daysAhead = parseDayCount(upcomingCount[1] || upcomingCount[2]);
+        if (daysAhead !== null) return { kind: 'upcoming_horizon', daysAhead, futureOnly: true };
+    }
     const relative = lower.match(RELATIVE_DAYS_TIME_EXPRESSION);
     if (relative) {
         const daysAhead = parseDayCount(relative[1]);
