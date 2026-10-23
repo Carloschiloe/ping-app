@@ -43,6 +43,14 @@ describe('deterministic semantic read fast path', () => {
         expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
     });
 
+    it.each([
+        'I have to call an unregistered person',
+        'Assign tomorrow the review to an unregistered person',
+    ])('does not bypass declarative commitment capture in English: %s', async (input) => {
+        const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
+    });
+
     it('does not bypass dialogue reconciliation', async () => {
         const input = '¿Qué tengo para mañana?';
         const interpretation = await new DeterministicInputInterpreter().interpret(input, {});

@@ -57,7 +57,7 @@ const DETERMINISTIC_READ_INTENTS = new Set([
 // Keep this structural and bounded instead of growing a phrase-by-phrase
 // command list.
 function looksLikeDeclarativeWriteFrame(input: string): boolean {
-    return /^\s*(?:tengo\s+que|debo|necesito|recuerda(?:me)?\s+que|acuerda(?:me)?\s+que|agenda(?:r)?|anota(?:r)?|crea(?:r)?|recu[eé]rdame|llama(?:r)?|env[ií]a|dile|mueve|cancela(?:r)?|completa(?:r)?|elimina(?:r)?|marca(?:r)?|pon(?:er)?|programa(?:r)?|guarda(?:r)?)\b/iu.test(input);
+    return /^\s*(?:tengo\s+que|debo|necesito|recuerda(?:me)?\s+que|acuerda(?:me)?\s+que|agenda(?:r)?|anota(?:r)?|crea(?:r)?|recu[eé]rdame|llama(?:r)?|env[ií]a|dile|mueve|cancela(?:r)?|completa(?:r)?|elimina(?:r)?|marca(?:r)?|pon(?:er)?|programa(?:r)?|guarda(?:r)?|i\s+(?:have\s+to|need\s+to|must)|remember\s+to|remind\s+me\s+to|schedule|create|add|save|call|send|tell|move|assign|cancel|complete|delete|mark|set|put)\b/iu.test(input);
 }
 
 /**
