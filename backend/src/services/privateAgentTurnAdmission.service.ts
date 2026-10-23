@@ -8,6 +8,8 @@ const CLAIM_RPC = 'claim_agent_turn_admission';
 const COMPLETE_RPC = 'complete_agent_turn_admission';
 const FAIL_RPC = 'fail_agent_turn_admission';
 const SUPABASE_ROOT_CA_PATH = resolve(__dirname, '../../certs/prod-ca-2021.crt');
+const PRIVATE_RPC_MAX_ATTEMPTS = 3;
+const PRIVATE_RPC_RETRY_DELAYS_MS = [75, 200] as const;
 
 let cachedSupabaseRootCa: string | undefined;
 
@@ -106,6 +108,20 @@ function classifyPrivateDatabaseError(error: unknown): { category: PrivateDataba
     return { category: 'unknown', driverCode };
 }
 
+function isTransientPrivateRpcError(error: unknown): boolean {
+    const candidate = error as { code?: string; message?: string };
+    const code = candidate.code ?? '';
+    if (/^(08|40|53|57)/.test(code)) return true;
+    return /connection reset|connection refused|network|timeout|timed out|temporarily unavailable|service unavailable|socket hang up/i
+        .test(candidate.message ?? '');
+}
+
+async function waitForPrivateRpcRetry(attempt: number): Promise<void> {
+    const delay = PRIVATE_RPC_RETRY_DELAYS_MS[attempt - 1];
+    if (delay === undefined) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
+
 function preparePrivatePoolerConnection(databaseUrl: string): { connectionString: string; ssl: { ca: string; rejectUnauthorized: true } | undefined } {
     const parsed = new URL(databaseUrl);
     if (!parsed.hostname.endsWith('.pooler.supabase.com')) return { connectionString: databaseUrl, ssl: undefined };
@@ -164,39 +180,46 @@ export class PrivateAgentTurnAdmissionService {
 
     public async rpc(name: string, args: Record<string, unknown>) {
         try {
+            let sql: string;
+            let parameters: unknown[];
+            let firstRow = false;
             if (name === ADMISSION_RPC) {
                 const typedArgs = args as unknown as PrivateAdmissionRpcArgs;
-                const result = await this.pool.query(
-                    'select * from public.admit_agent_turn_with_routing_mode($1::uuid, $2::text, $3::text, $4::text, $5::text)',
-                    [typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_client_turn_key || null, typedArgs.p_request_fingerprint, typedArgs.p_routing_mode],
-                );
-                return { data: result.rows, error: null } as any;
-            }
-            if (name === CLAIM_RPC) {
+                sql = 'select * from public.admit_agent_turn_with_routing_mode($1::uuid, $2::text, $3::text, $4::text, $5::text)';
+                parameters = [typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_client_turn_key || null, typedArgs.p_request_fingerprint, typedArgs.p_routing_mode];
+            } else if (name === CLAIM_RPC) {
                 const typedArgs = args as unknown as PrivateClaimRpcArgs;
-                const result = await this.pool.query(
-                    'select * from public.claim_agent_turn_admission($1::uuid, $2::uuid, $3::text)',
-                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key],
-                );
-                return { data: result.rows[0] ?? null, error: null } as any;
-            }
-            if (name === COMPLETE_RPC) {
+                sql = 'select * from public.claim_agent_turn_admission($1::uuid, $2::uuid, $3::text)';
+                parameters = [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key];
+                firstRow = true;
+            } else if (name === COMPLETE_RPC) {
                 const typedArgs = args as unknown as PrivateCompleteRpcArgs;
-                const result = await this.pool.query(
-                    'select * from public.complete_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::jsonb)',
-                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, JSON.stringify(typedArgs.p_result_ref)],
-                );
-                return { data: result.rows[0] ?? null, error: null } as any;
-            }
-            if (name === FAIL_RPC) {
+                sql = 'select * from public.complete_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::jsonb)';
+                parameters = [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, JSON.stringify(typedArgs.p_result_ref)];
+                firstRow = true;
+            } else if (name === FAIL_RPC) {
                 const typedArgs = args as unknown as PrivateFailRpcArgs;
-                const result = await this.pool.query(
-                    'select * from public.fail_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb)',
-                    [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_failure_class, typedArgs.p_result_ref === null ? null : JSON.stringify(typedArgs.p_result_ref)],
-                );
-                return { data: result.rows[0] ?? null, error: null } as any;
+                sql = 'select * from public.fail_agent_turn_admission($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb)';
+                parameters = [typedArgs.p_turn_id, typedArgs.p_actor_user_id, typedArgs.p_dialogue_scope_key, typedArgs.p_failure_class, typedArgs.p_result_ref === null ? null : JSON.stringify(typedArgs.p_result_ref)];
+                firstRow = true;
+            } else {
+                throw new Error('Private admission transport does not support this RPC');
             }
-            throw new Error('Private admission transport does not support this RPC');
+
+            // Every allowlisted function is idempotent for its admitted turn:
+            // an unknown network outcome can therefore be retried without
+            // creating a second turn or applying a second completion.
+            let result: { rows: any[] } | undefined;
+            for (let attempt = 1; attempt <= PRIVATE_RPC_MAX_ATTEMPTS; attempt += 1) {
+                try {
+                    result = await this.pool.query(sql, parameters);
+                    break;
+                } catch (error) {
+                    if (!isTransientPrivateRpcError(error) || attempt === PRIVATE_RPC_MAX_ATTEMPTS) throw error;
+                    await waitForPrivateRpcRetry(attempt);
+                }
+            }
+            return { data: firstRow ? result?.rows[0] ?? null : result?.rows ?? [], error: null } as any;
         } catch (error) {
             const pgError = error as { message?: string; code?: string };
             return { data: null, error: { message: pgError.message ?? 'Private admission failed', code: pgError.code } } as any;

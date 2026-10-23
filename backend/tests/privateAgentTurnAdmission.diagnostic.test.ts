@@ -160,4 +160,32 @@ describe('M-7 private database startup diagnostic', () => {
         expect(query.mock.calls[2][0]).toContain('fail_agent_turn_admission');
         await service.close();
     });
+
+    it('retries a transient lifecycle RPC failure and preserves the fixed SQL allowlist', async () => {
+        const service = new PrivateAgentTurnAdmissionService('postgresql://private.invalid/test');
+        query
+            .mockRejectedValueOnce(Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }))
+            .mockResolvedValueOnce({ rows: [{ turn_id: 'turn-1', status: 'processing' }] });
+
+        await expect(service.rpc('claim_agent_turn_admission', {
+            p_turn_id: 'turn-1', p_actor_user_id: 'actor-1', p_dialogue_scope_key: 'agent:mobile_text',
+        })).resolves.toMatchObject({ data: { turn_id: 'turn-1' }, error: null });
+
+        expect(query).toHaveBeenCalledTimes(2);
+        expect(query.mock.calls[0][0]).toContain('claim_agent_turn_admission');
+        expect(query.mock.calls[1][0]).toContain('claim_agent_turn_admission');
+        await service.close();
+    });
+
+    it('does not retry non-transient authentication failures', async () => {
+        const service = new PrivateAgentTurnAdmissionService('postgresql://private.invalid/test');
+        query.mockRejectedValueOnce(Object.assign(new Error('password authentication failed'), { code: '28P01' }));
+
+        await expect(service.rpc('claim_agent_turn_admission', {
+            p_turn_id: 'turn-1', p_actor_user_id: 'actor-1', p_dialogue_scope_key: 'agent:mobile_text',
+        })).resolves.toMatchObject({ error: { code: '28P01' } });
+
+        expect(query).toHaveBeenCalledOnce();
+        await service.close();
+    });
 });
