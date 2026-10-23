@@ -216,6 +216,7 @@ export async function runAgentTurn(
     const dialogueService = options.dialogueService ?? new AgentDialogueStateService();
     let existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
     let resumedSuspendedObjective = false;
+    let readEscapedPendingPlan = false;
     traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_BEFORE', {
         stateFound: !!existingDialogueState,
         lifecycle: existingDialogueState?.lifecycle ?? null,
@@ -506,6 +507,7 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
+
         const pendingPlanContext = {
             actorUserId: input.actorUserId,
             conversationId,
@@ -646,6 +648,28 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
+        }
+        // A pending write plan must not hijack an independent retrieval
+        // question. The provider may omit the explicit `new_objective` act
+        // for a natural query such as "¿Qué pendientes tengo mañana?"; the
+        // canonical semantic route is still structural evidence that this
+        // turn is READ, not approval, correction, or replacement of the old
+        // plan. This check comes AFTER explicit lifecycle decisions above so
+        // a read-shaped provider proposal that clearly means "reject" still
+        // preserves the existing cancellation contract.
+        if (precomputedSemantic.route === 'read') {
+            dialogueService.suspendCurrentObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            readEscapedPendingPlan = true;
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'read_escapes_pending_plan', dialogueScopeKey,
+            });
+        }
+        if (precomputedSemantic.route !== 'read') {
         if (precomputedSemantic.route === 'write' && isPendingPlanUnchangedCandidate({
             pendingObjectiveType: existingDialogueState.openObjective.objectiveType,
             candidate: pendingPlanCandidate,
@@ -673,7 +697,7 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
-        if (isCompletePendingPlanReplacement(pendingPlanCandidate)) {
+        if (pendingPlanCandidate && isCompletePendingPlanReplacement(pendingPlanCandidate)) {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
             });
@@ -700,6 +724,10 @@ export async function runAgentTurn(
             }, traceId);
         }
         }
+    }
+
+    if (readEscapedPendingPlan) {
+        existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
     }
 
     // M-7: one semantic interpretation owns the route. Deterministic

@@ -827,6 +827,45 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
         expect(authorizePlanSpy).not.toHaveBeenCalled();
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });
+
+    it('suspends a pending create plan when the next turn is an independent read query', async () => {
+        llmInputInterpretMock
+            .mockResolvedValueOnce(writeInterpretation())
+            .mockResolvedValueOnce(readOnlyInterpretation({
+                intent: 'commitment_query',
+                intentConfidence: 0.95,
+                wantsCommitments: true,
+                timeExpression: 'mañana',
+            }));
+        llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
+            sourceUtterance: 'Recuérdame comprar pan para probar Ping mañana',
+            targetEntities: { personHints: [], entityHints: ['comprar pan para probar Ping'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }));
+
+        const first = await runAgentTurn({
+            actorUserId: ACTOR_A,
+            input: 'Recuérdame comprar pan para probar Ping mañana',
+        });
+        expect(first.kind).toBe('plan');
+
+        const second = await runAgentTurn({
+            actorUserId: ACTOR_A,
+            input: '¿Qué pendientes tengo mañana?',
+        });
+        expect(second.kind).toBe('response');
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+
+        const { AgentDialogueStateService, buildDialogueScopeKey } = await import('../src/services/agentDialogueState.service');
+        const state = new AgentDialogueStateService().getSnapshot(
+            ACTOR_A,
+            buildDialogueScopeKey({ surface: 'mobile_text' }),
+        );
+        expect(state?.lifecycle).toBe('idle');
+        expect(state?.currentPlanDigestRef).toBeNull();
+        expect(state?.suspendedObjectives).toHaveLength(1);
+    });
 });
 
 describe('Live wiring: structural safety (test areas 19, 20, 21, 22, 23)', () => {
