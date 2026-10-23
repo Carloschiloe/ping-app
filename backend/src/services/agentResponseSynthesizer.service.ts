@@ -1445,6 +1445,10 @@ const CAPABILITY_GAP_MESSAGES: Record<string, { es: string; en: string }> = {
         es: 'Todavía no puedo crear, cancelar, enviar ni modificar nada desde este preview — sólo puedo consultar tus compromisos, mensajes y documentos.',
         en: 'I can\'t create, cancel, send, or modify anything from this preview yet — I can only look up your commitments, messages, and documents.',
     },
+    retrieval_source_unavailable: {
+        es: 'Pude consultar parte de tu información, pero una fuente no respondió a tiempo. No voy a presentarlo como si fuera un resultado completo; inténtalo de nuevo para confirmar lo que falta.',
+        en: 'I could consult part of your information, but one source did not respond in time. I won\'t present this as a complete result; try again to confirm what is missing.',
+    },
 };
 
 function buildCapabilityGapResponse(context: AgentContext, language: 'es' | 'en'): AgentResponse {

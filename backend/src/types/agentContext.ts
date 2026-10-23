@@ -294,7 +294,7 @@ export interface AgentClarification {
 // pobre/confuso: el problema no era falta de evidencia, era una petición de
 // escritura que este Agent (read-only) no soporta. Mismo mecanismo de
 // capability gap ya existente, nunca confundir con "no había evidencia".
-export type CapabilityGapType = 'global_transcription_scope_not_supported' | 'global_attachment_scope_not_supported' | 'write_action_not_supported';
+export type CapabilityGapType = 'global_transcription_scope_not_supported' | 'global_attachment_scope_not_supported' | 'write_action_not_supported' | 'retrieval_source_unavailable';
 
 export interface AgentCapabilityGap {
     type: CapabilityGapType;

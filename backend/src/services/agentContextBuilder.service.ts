@@ -1394,9 +1394,40 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         })()
         : Promise.resolve<RetrievalMemory[]>([]);
 
-    const [commitmentsOnly, proposalsFill, messages, transcriptions, attachments, memoryFactsRaw] = await Promise.all([
-        commitmentsPromise, commitmentProposalsPromise, messagesPromise, transcriptionsPromise, attachmentsPromise, memoryPromise,
-    ]);
+    // Secondary retrieval sources must not erase evidence from the sources
+    // that did succeed. A single attachment/message/memory failure used to
+    // reject the whole context, which surfaced in the mobile client as a
+    // generic retry even when commitments were available. We still rethrow
+    // client/auth boundary errors (400-499); only server/provider failures
+    // degrade to an explicit capability gap, never to false "no evidence".
+    const retrievalResults = await Promise.allSettled([
+        commitmentsPromise, commitmentProposalsPromise, messagesPromise,
+        transcriptionsPromise, attachmentsPromise, memoryPromise,
+    ] as const);
+    const retrievalLabels = ['commitments', 'commitmentProposals', 'messages', 'transcriptions', 'attachments', 'memory'] as const;
+    for (let index = 0; index < retrievalResults.length; index += 1) {
+        const result = retrievalResults[index];
+        if (result.status !== 'rejected') continue;
+        const reason = result.reason;
+        const statusCode = reason instanceof AppError ? reason.statusCode : null;
+        if (statusCode !== null && statusCode < 500) throw reason;
+        const source = retrievalLabels[index];
+        const errorCode = reason instanceof AppError ? reason.statusCode : 'unknown';
+        console.warn(`[AGENT_RETRIEVAL_DEGRADED] trace=${input.traceId ?? 'none'} source=${source} code=${errorCode}`);
+        capabilityGaps.push({
+            type: 'retrieval_source_unavailable',
+            reason: `No pude consultar temporalmente la fuente ${source}. La respuesta sólo incluye las fuentes que sí estuvieron disponibles.`,
+        });
+    }
+    const [commitmentsResult, proposalsFillResult, messagesResult, transcriptionsResult, attachmentsResult, memoryResult] = retrievalResults;
+    const commitmentsOnly = commitmentsResult.status === 'fulfilled' ? commitmentsResult.value : [];
+    const proposalsFill = proposalsFillResult.status === 'fulfilled'
+        ? proposalsFillResult.value
+        : { matches: [], scannedCount: 0, sourceExhausted: false, safetyCapReached: false };
+    const messages = messagesResult.status === 'fulfilled' ? messagesResult.value : [];
+    const transcriptions = transcriptionsResult.status === 'fulfilled' ? transcriptionsResult.value : [];
+    const attachments = attachmentsResult.status === 'fulfilled' ? attachmentsResult.value : [];
+    const memoryFactsRaw = memoryResult.status === 'fulfilled' ? memoryResult.value : [];
     const proposalsOnly = proposalsFill.matches;
     // M-1H FINAL — CONTRATO CORREGIDO: authorized candidates -> structured
     // semantic filter -> canonical sort -> global budget -> requiredSourceRefs.

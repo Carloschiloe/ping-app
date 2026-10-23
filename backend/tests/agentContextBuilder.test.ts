@@ -831,6 +831,35 @@ describe('M-1D: buildAgentContext — outsider (consulta objetivo J: zero leakag
     });
 });
 
+describe('retrieval resilience: partial source failure is explicit, never false no-evidence', () => {
+    it('preserves commitments when messages fail with a server error and records a capability gap', async () => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-resilient' })] as any);
+        mockRetrieveMessages.mockRejectedValue(new Error('provider unavailable'));
+        const interpreter = mockInterpreter(interpretationFixture({ intent: 'general_context', wantsMessages: true }));
+
+        const ctx = await withDeterministicInterpreter(
+            { actorUserId: 'u1', input: '¿Qué pendientes tengo?' },
+            { interpreter },
+        );
+
+        expect(ctx.commitments).toHaveLength(1);
+        expect(ctx.evidenceFound).toBe(true);
+        expect(ctx.capabilityGaps).toEqual([
+            { type: 'retrieval_source_unavailable', reason: expect.stringContaining('messages') },
+        ]);
+    });
+
+    it('still propagates authorization failures instead of degrading them', async () => {
+        const { AppError } = await import('../src/utils/AppError');
+        mockRetrieveMessages.mockRejectedValue(new AppError('forbidden', 403));
+
+        await expect(withDeterministicInterpreter(
+            { actorUserId: 'outsider', input: '¿Qué hablamos?', conversationId: 'conv-ajeno' },
+            { interpreter: mockInterpreter(interpretationFixture({ intent: 'recall', wantsMessages: true })) },
+        )).rejects.toMatchObject({ statusCode: 403 });
+    });
+});
+
 describe('M-1D: buildAgentContext — self-chat es una fuente autorizada normal (sección 25)', () => {
     it('no hay tratamiento especial: conversationId de un self-chat funciona igual que cualquier conversación autorizada', async () => {
         mockRetrieveMessages.mockResolvedValue([messageFixture({ id: 'self-1', content: 'Comprar el regalo de cumpleaños' })] as any);
