@@ -55,20 +55,19 @@ import {
     requireFeature,
     requirePrivateFileFeature,
 } from '../middleware/featureGate';
+import { createAgentRateLimiter } from '../middleware/agentRateLimit';
 
 export const router = Router();
 
-// M-1F: límite dedicado para /agent/respond (sección 22) — más estricto que
-// el global de app.ts porque cada request puede costar hasta 2 llamadas LLM.
-// Keyed por usuario autenticado (requireAuth corre antes en la cadena), con
-// fallback a IP sólo si por algún motivo req.user no estuviera seteado.
-const agentRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
+// M-1F: límite dedicado por endpoint — más estricto que el global de app.ts
+// porque cada request puede costar hasta 2 llamadas LLM. Cada ruta tiene su
+// propio bucket: compartir un único middleware hacía que llamadas a
+// /agent/respond y /agent/plan agotaran el presupuesto de /agent/turn (y
+// viceversa), produciendo 429 para la siguiente consulta válida. El límite
+// sigue siendo por usuario autenticado, con fallback a IP.
+const agentRespondRateLimiter = createAgentRateLimiter();
+const agentPlanRateLimiter = createAgentRateLimiter();
+const agentTurnRateLimiter = createAgentRateLimiter();
 
 // M-4 (sección 52) — límite más estricto que el de lectura/planificación:
 // /agent/authorize y /agent/execute pueden producir efectos secundarios
@@ -424,7 +423,7 @@ router.get(
 router.post(
     '/agent/respond',
     requireAuth,
-    agentRateLimiter,
+    agentRespondRateLimiter,
     validateRequest(agentRequestSchema),
     agentController.respond,
 );
@@ -440,7 +439,7 @@ router.post(
 router.post(
     '/agent/plan',
     requireAuth,
-    agentRateLimiter,
+    agentPlanRateLimiter,
     validateRequest(agentPlanRequestSchema),
     agentPlanController.plan,
 );
@@ -452,7 +451,7 @@ router.post(
 router.post(
     '/agent/turn',
     requireAuth,
-    agentRateLimiter,
+    agentTurnRateLimiter,
     validateRequest(agentTurnRequestSchema),
     agentTurnController.turn,
 );

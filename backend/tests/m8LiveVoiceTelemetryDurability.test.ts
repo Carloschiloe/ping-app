@@ -106,7 +106,7 @@ describe('M8 production telemetry durable storage contract', () => {
             event: 'session_started',
             atMs: 1,
             sideEffects: 0,
-        })).rejects.toMatchObject({ statusCode: 503 });
+        })).resolves.toBeUndefined();
 
         await expect(recordM8LiveVoiceTelemetry(actor, {
             voiceSessionId: voice,
@@ -117,6 +117,8 @@ describe('M8 production telemetry durable storage contract', () => {
         })).resolves.toBeUndefined();
 
         expect(storageState.bucketCreates).toBe(2);
+        const recovered = await getLatestM8LiveVoiceTelemetryInternal();
+        expect(recovered).toMatchObject({ voiceSessionId: voice, eventCount: 2 });
     });
 
     it('retries a transient telemetry object write without losing the event', async () => {

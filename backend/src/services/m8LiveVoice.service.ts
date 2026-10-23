@@ -265,31 +265,60 @@ async function cleanupExpiredTelemetry(): Promise<void> {
 
 async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTelemetry, payload: Record<string, unknown>): Promise<void> {
     if (!telemetryPersistenceEnabled()) return;
-    await ensureTelemetryBucket();
+    try {
+        await ensureTelemetryBucket();
+    } catch (error) {
+        console.warn('[M8_TELEMETRY_DEGRADED]', {
+            voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
+            errorCode: error instanceof AppError ? error.statusCode : 'unknown',
+        });
+        return;
+    }
     const previous = telemetryWriteQueues.get(event.voiceSessionId) || Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
         const path = telemetryPath(actorUserId, event.voiceSessionId);
         const existing = await downloadJson(path);
-        const events = Array.isArray(existing?.events) ? existing.events.slice(-MAX_TELEMETRY_EVENTS + 1) : [];
+        // If Storage was temporarily unavailable, the in-process event ledger
+        // is the authoritative recovery source until the next successful
+        // upload. This prevents the first recovered write from silently
+        // discarding the events collected during the outage.
+        const inMemory = telemetryByVoiceSession.get(event.voiceSessionId);
+        const events = Array.isArray(existing?.events)
+            ? existing.events.slice(-MAX_TELEMETRY_EVENTS + 1)
+            : (inMemory?.events ?? []).slice(-MAX_TELEMETRY_EVENTS + 1);
+        const recordEvents = existing ? [...events, payload] : events;
         const now = new Date().toISOString();
         const record = {
             voiceSessionId: event.voiceSessionId,
             deviceSessionId: event.deviceSessionId,
             actorUserIdHash: actorTelemetryHash(actorUserId),
             conversationScopeHash: conversationScopeHash(event.conversationId),
-            createdAt: existing?.createdAt || now,
+            createdAt: existing?.createdAt || inMemory?.createdAt || now,
             lastEventAt: now,
-            closed: existing?.closed === true || event.event === 'session_closed',
-            eventCount: events.length + 1,
-            events: [...events, payload],
-            sideEffects: [...events, payload].some(item => Number(item?.sideEffects || 0) > 0) ? 1 : 0,
+            closed: existing?.closed === true || inMemory?.closed === true || event.event === 'session_closed',
+            eventCount: recordEvents.length,
+            events: recordEvents,
+            sideEffects: recordEvents.some(item => Number(item?.sideEffects || 0) > 0) ? 1 : 0,
         };
         await uploadJson(path, record);
         await uploadJson(latestTelemetryPath(event.voiceSessionId), { actorUserIdHash: record.actorUserIdHash, voiceSessionId: event.voiceSessionId, updatedAt: now });
         await cleanupExpiredTelemetry();
     });
     telemetryWriteQueues.set(event.voiceSessionId, next);
-    try { await next; } finally { if (telemetryWriteQueues.get(event.voiceSessionId) === next) telemetryWriteQueues.delete(event.voiceSessionId); }
+    try {
+        await next;
+    } catch (error) {
+        // Telemetry is diagnostic side-effect, never a prerequisite for the
+        // live voice turn. Keep the sanitized in-memory ledger and allow a
+        // later event to retry Storage; the voice client must still receive
+        // 202 so a Supabase incident cannot look like a broken conversation.
+        console.warn('[M8_TELEMETRY_DEGRADED]', {
+            voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
+            errorCode: error instanceof AppError ? error.statusCode : 'unknown',
+        });
+    } finally {
+        if (telemetryWriteQueues.get(event.voiceSessionId) === next) telemetryWriteQueues.delete(event.voiceSessionId);
+    }
 }
 
 function memoryTelemetry(existing: StoredTelemetry) {

@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { randomUUID } from 'crypto';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { createHash, randomUUID } from 'crypto';
 import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
@@ -77,11 +77,26 @@ app.use((req, res, next) => cors({
   },
 })(req, res, next));
 
+function globalRateLimitKey(req: express.Request): string {
+  const authorization = req.get('authorization')?.trim();
+  if (authorization && /^Bearer\s+\S+$/i.test(authorization)) {
+    // Never expose or store the access token itself in the limiter key.
+    // Hashing isolates authenticated mobile sessions from unrelated users
+    // behind the same NAT while keeping the limiter process-local and cheap.
+    return `auth:${createHash('sha256').update(authorization).digest('hex')}`;
+  }
+  return `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
+}
+
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: globalRateLimitKey,
+  // Liveness/readiness probes are not product traffic and must not consume
+  // the same budget as authenticated mobile requests.
+  skip: (req) => req.path === '/health' || req.path === '/api/health',
 }));
 
 app.use(express.json({ limit: '2mb' }));
