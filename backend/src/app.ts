@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { createRateLimitStore } from './middleware/rateLimitStore';
 import { createHash, randomUUID } from 'crypto';
 import { router } from './routes';
 import { globalErrorHandler } from './middleware/errorHandler';
@@ -91,6 +92,7 @@ function globalRateLimitKey(req: express.Request): string {
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
+  store: createRateLimitStore('global'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: globalRateLimitKey,

@@ -23,7 +23,6 @@ import * as agentAuthorizeController from '../controllers/agentAuthorize.control
 import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentRequestSchema } from '../schemas/agentRequest.schema';
@@ -56,6 +55,7 @@ import {
     requirePrivateFileFeature,
 } from '../middleware/featureGate';
 import { createAgentRateLimiter } from '../middleware/agentRateLimit';
+import { getRateLimitStoreStatus } from '../middleware/rateLimitStore';
 
 export const router = Router();
 
@@ -65,9 +65,9 @@ export const router = Router();
 // /agent/respond y /agent/plan agotaran el presupuesto de /agent/turn (y
 // viceversa), produciendo 429 para la siguiente consulta válida. El límite
 // sigue siendo por usuario autenticado, con fallback a IP.
-const agentRespondRateLimiter = createAgentRateLimiter();
-const agentPlanRateLimiter = createAgentRateLimiter();
-const agentTurnRateLimiter = createAgentRateLimiter();
+const agentRespondRateLimiter = createAgentRateLimiter('respond');
+const agentPlanRateLimiter = createAgentRateLimiter('plan');
+const agentTurnRateLimiter = createAgentRateLimiter('turn');
 
 // M-4 (sección 52) — límite más estricto que el de lectura/planificación:
 // /agent/authorize y /agent/execute pueden producir efectos secundarios
@@ -76,45 +76,11 @@ const agentTurnRateLimiter = createAgentRateLimiter();
 // protección REAL contra duplicados es la idempotencia a nivel de Core
 // (agent_executions unique + digest binding), este límite es defensa en
 // profundidad adicional, no el mecanismo primario.
-const agentExecutionRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
-
-const agentVoiceRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
-
-const agentVoiceCaptureRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
-
-const agentVoiceSessionRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 6,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
-
-const agentVoiceTelemetryRateLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 240,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip ?? 'unknown'),
-});
+const agentExecutionRateLimiter = createAgentRateLimiter('execution', 10);
+const agentVoiceRateLimiter = createAgentRateLimiter('voice', 10);
+const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
+const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
+const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 240);
 
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
@@ -147,6 +113,7 @@ router.get('/health', async (req, res) => {
             // checkpoint/admission state remains strict, but a temporary
             // history projection outage must not discard a valid turn.
             agent_history_persistence: agentConversationEvents ? 'best_effort' : 'disabled',
+            rate_limit_store: getRateLimitStoreStatus(),
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,
             agent_private_database_diagnostic: getLatestPrivateAgentTurnDatabaseDiagnostic(),
