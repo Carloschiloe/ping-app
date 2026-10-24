@@ -1,5 +1,10 @@
 import { Expo } from 'expo-server-sdk';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import {
+    claimNotificationDelivery,
+    completeNotificationDelivery,
+    failNotificationDelivery,
+} from './notificationDeliveryLedger.service';
 
 const expo = new Expo();
 
@@ -37,33 +42,48 @@ const fetchPushTokens = async (userIds: string[]) => {
     return tokenMap;
 };
 
-const sendPushBatch = async (commitments: any[], windowTitle: string) => {
+const sendPushBatch = async (commitments: any[], window: NotificationWindow) => {
     const messages = [];
     const uniqueUserIds = Array.from(new Set(commitments.map((c) => c.owner_user_id).filter(Boolean)));
     const tokenMap = await fetchPushTokens(uniqueUserIds);
+    const claimedDeliveries: Array<{ deliveryKey: string }> = [];
 
     for (const c of commitments) {
         const pushToken = tokenMap.get(c.owner_user_id);
-        if (pushToken) {
-            messages.push({
-                to: pushToken,
-                sound: 'default' as const,
-                title: `${windowTitle}: ${c.title}`,
-                body: c.title,
-                data: { commitmentId: c.id },
-            });
-        }
+        if (!pushToken || !c?.id || !c?.owner_user_id || !c?.due_at) continue;
+
+        const claim = await claimNotificationDelivery({
+            ownerUserId: c.owner_user_id,
+            commitmentId: c.id,
+            notificationKind: 'commitment_due',
+            windowLabel: window.label,
+            dueAt: c.due_at,
+        });
+        if (!claim.claimed) continue;
+
+        claimedDeliveries.push({ deliveryKey: claim.deliveryKey });
+        messages.push({
+            to: pushToken,
+            sound: 'default' as const,
+            title: `${window.title}: ${c.title}`,
+            body: c.title,
+            data: { commitmentId: c.id },
+        });
     }
 
     if (messages.length === 0) return;
 
-    const chunks = expo.chunkPushNotifications(messages);
-    for (const chunk of chunks) {
-        try {
+    try {
+        const chunks = expo.chunkPushNotifications(messages);
+        for (const chunk of chunks) {
             await expo.sendPushNotificationsAsync(chunk);
-        } catch (err) {
-            console.error('[Push] Error sending chunk:', err);
         }
+        await Promise.all(claimedDeliveries.map(({ deliveryKey }) => completeNotificationDelivery(deliveryKey)));
+    } catch (err) {
+        await Promise.all(claimedDeliveries.map(({ deliveryKey }) =>
+            failNotificationDelivery(deliveryKey, err instanceof Error ? err.message : 'push_send_failed')
+                .catch((ledgerError) => console.error('[Push] Failed to record delivery failure:', ledgerError))));
+        throw err;
     }
 };
 
@@ -95,7 +115,7 @@ export const checkDueCommitments = async () => {
 
             totalCommitments += commitments.length;
             console.info(`🔔 [${window.label}] Sending ${commitments.length} reminder(s)`);
-            await sendPushBatch(commitments, window.title);
+            await sendPushBatch(commitments, window);
 
         }
     } catch (err) {
