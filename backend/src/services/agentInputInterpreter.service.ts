@@ -1510,7 +1510,31 @@ export function inferContextualVoiceFollowUpAttribute(
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/^[¿¡?\s]+|[?!.\s]+$/gu, '')
         .replace(/\s+/g, ' ');
-    return /^(?:aca|aqui)$/iu.test(normalized) ? 'time' : null;
+    if (/^(?:aca|aqui)$/iu.test(normalized)) return 'time';
+
+    // Whisper can produce a short, interrogative residue that has no stable
+    // lexical form at all (the observed production transcript was
+    // "¿Alguera?" for the spoken "¿A qué hora?").  Do not enumerate those
+    // provider-specific words.  Instead use the conversation structure: one
+    // temporal referent was just read, the new turn is a 1–2 token question,
+    // and the deterministic interpreter found no independent semantic signal.
+    // Known follow-up attributes, temporal expressions, social turns and
+    // explicit references remain untouched; only an otherwise meaningless
+    // interrogative residue is recovered as the missing occurrence time.
+    const tokens = normalized ? normalized.split(' ') : [];
+    if (tokens.length < 1 || tokens.length > 2 || !/[¿?]/u.test(input)) return null;
+    if (inferDeterministicFollowUpAttribute(input) !== null
+        || isSocialConversationInput(input)
+        || extractTimeExpression(input) !== null
+        || inferTemporalIntent(input) !== null
+        || inferPriorReferenceIntent(input) !== null
+        // Keep recognizable attribute/topic questions on their normal
+        // semantic path. The fallback is only for text that has lost its
+        // lexical meaning entirely, not for a short but understandable
+        // question such as "¿Dónde?" or "¿Qué?".
+        || /\b(?:donde|adonde|quien|cual(?:es)?|que|como|cuando|por\s+que|despues|antes|otro|otra)\b/iu.test(normalized)) return null;
+    if (classifyIntent(input).type !== 'general_context') return null;
+    return 'time';
 }
 
 export class DeterministicInputInterpreter implements AgentInputInterpreter {

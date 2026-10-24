@@ -70,7 +70,7 @@ describe('deterministic read follow-up safety net', () => {
         expect(result.textQuery).toBeNull();
     });
 
-    it.each(['acá?', 'aquí?'])('recupera una transcripción de voz deíctica como seguimiento de hora: %s', (input) => {
+    it.each(['acá?', 'aquí?', '¿Alguera?'])('recupera un residuo corto de voz como seguimiento de hora: %s', (input) => {
         expect(inferContextualVoiceFollowUpAttribute(input, {
             kind: 'commitment_query',
             referentCount: 1,
@@ -78,6 +78,16 @@ describe('deterministic read follow-up safety net', () => {
             entityTypes: ['commitment'],
             hasTimeRange: true,
         })).toBe('time');
+    });
+
+    it('no convierte una pregunta semántica conocida en seguimiento de hora', () => {
+        expect(inferContextualVoiceFollowUpAttribute('¿Dónde?', {
+            kind: 'commitment_query',
+            referentCount: 1,
+            uniqueReferent: true,
+            entityTypes: ['commitment'],
+            hasTimeRange: true,
+        })).toBeNull();
     });
 
     it('no inventa un seguimiento de hora sin un único resultado temporal anterior', () => {
