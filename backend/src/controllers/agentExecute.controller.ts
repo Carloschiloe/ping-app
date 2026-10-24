@@ -4,7 +4,7 @@
 // these are real, honest results, never errors (sección 69, same principle
 // as agent.controller.ts's needs_clarification/no_evidence).
 import { Request, Response } from 'express';
-import { executeAuthorization } from '../services/agentExecution.service';
+import { executeAuthorization, markAgentExecutionHistoryProjection } from '../services/agentExecution.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
 import { AgentDialogueStateService, buildDialogueScopeKey } from '../services/agentDialogueState.service';
@@ -36,8 +36,21 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
         const actorUserId = req.user!.id;
         const { authorizationId, conversationId, sourceTurnKey } = req.body;
         const traceId = generateTraceId();
+        // Resolve and bind the history target before execution. The claim RPC
+        // creates the durable outbox in the same transaction that consumes
+        // the authorization, so a crash cannot leave a side effect without
+        // a recoverable history target.
+        const historyConversationId = isAgentConversationTurnPersistenceEnabled() && sourceTurnKey
+            ? await resolveExecutionHistoryConversationId(actorUserId, conversationId)
+            : undefined;
 
-        const result = await executeAuthorization({ authorizationId, actorUserId, traceId });
+        const result = await executeAuthorization({
+            authorizationId,
+            actorUserId,
+            traceId,
+            historyConversationId,
+            historySourceTurnKey: sourceTurnKey,
+        });
 
         // The legacy mobile flow confirms and executes through separate HTTP
         // calls.  The canonical in-turn flow already closes the dialogue
@@ -79,9 +92,6 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
                 }
             }
         }
-        const historyConversationId = isAgentConversationTurnPersistenceEnabled() && sourceTurnKey
-            ? await resolveExecutionHistoryConversationId(actorUserId, conversationId)
-            : undefined;
         if (historyConversationId && sourceTurnKey) {
             try {
                 await persistAgentExecutionConversationEvent({
@@ -90,10 +100,39 @@ export const execute = async (req: Request, res: Response): Promise<void> => {
                     sourceTurnKey,
                     execution: result,
                 });
+                const projectionMarker = typeof markAgentExecutionHistoryProjection === 'function'
+                    ? await markAgentExecutionHistoryProjection({ authorizationId, actorUserId })
+                    : { error: null };
+                const projectionError = projectionMarker.error;
+                if (projectionError) {
+                    console.warn('[AgentHistory] execution projection marker deferred', {
+                        authorizationId,
+                        errorCode: projectionError.code ?? 'unknown',
+                    });
+                }
             } catch (historyError: any) {
                 // Domain execution already completed. Keep the canonical result
-                // available to the caller while exposing a safe server-side
-                // diagnostic for the auxiliary conversation projection.
+                // available to the caller while preserving a pending outbox
+                // row for a later idempotent retry.
+                try {
+                    const markerResult = typeof markAgentExecutionHistoryProjection === 'function'
+                        ? await markAgentExecutionHistoryProjection({
+                            authorizationId,
+                            actorUserId,
+                            errorCode: historyError instanceof AppError ? `history_${historyError.statusCode}` : 'history_projection_failed',
+                        })
+                        : { error: null };
+                    const markerError = markerResult.error;
+                    if (markerError) {
+                        console.warn('[AgentHistory] execution projection failure marker deferred', {
+                            authorizationId,
+                            errorCode: markerError.code ?? 'unknown',
+                        });
+                    }
+                } catch {
+                    // Keep the execution response available even if the
+                    // observability marker is temporarily unavailable.
+                }
                 console.warn('[AgentHistory] execution projection skipped', {
                     code: historyError instanceof AppError ? historyError.statusCode : 'unknown',
                 });

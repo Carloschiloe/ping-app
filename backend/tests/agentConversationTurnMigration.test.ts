@@ -10,6 +10,10 @@ const ATOMIC_HISTORY_MIGRATION_PATH = path.resolve(
     __dirname,
     '../../supabase/migrations/20261024162334_agent_history_atomic_projection.sql',
 );
+const EXECUTION_OUTBOX_MIGRATION_PATH = path.resolve(
+    __dirname,
+    '../../supabase/migrations/20261024164210_agent_execution_history_outbox.sql',
+);
 
 describe('durable Agent conversation migration', () => {
     it('qualifies INSERT RETURNING columns so the output created_at is not ambiguous', () => {
@@ -30,5 +34,17 @@ describe('durable Agent conversation migration', () => {
         expect(sql).toMatch(/from public\.complete_agent_turn_admission\(/);
         expect(sql).toMatch(/grant execute on function public\.apply_agent_turn_atomically_with_history/);
         expect(sql).toMatch(/grant execute on function public\.complete_agent_turn_with_history/);
+    });
+
+    it('creates the execution-history outbox before effects and exposes only service-role RPCs', () => {
+        const sql = readFileSync(EXECUTION_OUTBOX_MIGRATION_PATH, 'utf8');
+
+        expect(sql).toMatch(/create table if not exists public\.agent_execution_history_outbox/);
+        expect(sql).toMatch(/create or replace function public\.claim_agent_authorization_for_execution_with_history/);
+        expect(sql).toMatch(/insert into public\.agent_execution_history_outbox/);
+        expect(sql).toMatch(/create or replace function public\.stage_agent_execution_history/);
+        expect(sql).toMatch(/create or replace function public\.complete_agent_execution_history/);
+        expect(sql).toMatch(/revoke all on function public\.claim_agent_authorization_for_execution_with_history/);
+        expect(sql).toMatch(/grant execute on function public\.stage_agent_execution_history/);
     });
 });

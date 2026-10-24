@@ -27,6 +27,25 @@ export interface ExecuteAuthorizationInput {
     authorizationId: string;
     actorUserId: string;
     traceId?: string;
+    /**
+     * When present, the execution history target is bound in Postgres before
+     * the first tool can run. The values are never used as tool arguments.
+     */
+    historyConversationId?: string;
+    historySourceTurnKey?: string;
+}
+
+export async function markAgentExecutionHistoryProjection(input: {
+    authorizationId: string;
+    actorUserId: string;
+    errorCode?: string | null;
+}): Promise<{ error: { code?: string; message?: string } | null }> {
+    const { error } = await supabaseAdmin.rpc('complete_agent_execution_history', {
+        p_authorization_id: input.authorizationId,
+        p_actor_user_id: input.actorUserId,
+        p_error_code: input.errorCode ?? null,
+    });
+    return { error };
 }
 
 function pgErrorToStatus(code: string | undefined): number {
@@ -36,10 +55,12 @@ function pgErrorToStatus(code: string | undefined): number {
     return 500;
 }
 
-async function claimAuthorization(authorizationId: string, actorUserId: string): Promise<AgentAuthorization> {
-    const { data, error } = await supabaseAdmin.rpc('claim_agent_authorization_for_execution', {
-        p_authorization_id: authorizationId,
-        p_actor_user_id: actorUserId,
+async function claimAuthorization(input: ExecuteAuthorizationInput): Promise<AgentAuthorization> {
+    const { data, error } = await supabaseAdmin.rpc('claim_agent_authorization_for_execution_with_history', {
+        p_authorization_id: input.authorizationId,
+        p_actor_user_id: input.actorUserId,
+        p_history_conversation_id: input.historyConversationId ?? null,
+        p_history_source_turn_key: input.historySourceTurnKey ?? null,
     });
     if (error) throw new AppError(error.message, pgErrorToStatus(error.code));
     return {
@@ -94,7 +115,7 @@ export function isStepReadyNow(step: AgentPlanStep, succeededStepIds: Set<string
 }
 
 export async function executeAuthorization(input: ExecuteAuthorizationInput): Promise<AgentExecutionResult> {
-    const authorization = await claimAuthorization(input.authorizationId, input.actorUserId);
+    const authorization = await claimAuthorization(input);
     traceExecution(input.traceId, 'AUTHORIZATION_CLAIMED', { authorizationId: authorization.id, status: authorization.status });
 
     const authorizedSteps = authorization.frozenSteps.filter((s) => authorization.authorizedStepIds.includes(s.stepId));
@@ -225,7 +246,32 @@ export async function executeAuthorization(input: ExecuteAuthorizationInput): Pr
         });
     }
 
-    return buildResult(authorization.id, stepResults);
+    const result = buildResult(authorization.id, stepResults);
+    if (input.historyConversationId && input.historySourceTurnKey) {
+        try {
+            const { error } = await supabaseAdmin.rpc('stage_agent_execution_history', {
+                p_authorization_id: authorization.id,
+                p_actor_user_id: input.actorUserId,
+                p_execution_result: result,
+            });
+            if (error) {
+                // The outbox was created before any side effect. If staging is
+                // temporarily unavailable, the execution result remains the
+                // source of truth and the next idempotent execute request can
+                // stage it again.
+                console.warn('[AgentHistory] execution result staging deferred', {
+                    authorizationId: authorization.id,
+                    errorCode: error.code ?? 'unknown',
+                });
+            }
+        } catch (error: any) {
+            console.warn('[AgentHistory] execution result staging failed', {
+                authorizationId: authorization.id,
+                message: error?.message ?? String(error),
+            });
+        }
+    }
+    return result;
 }
 
 export function buildResult(authorizationId: string, stepResults: AgentExecutionStepResult[]): AgentExecutionResult {
