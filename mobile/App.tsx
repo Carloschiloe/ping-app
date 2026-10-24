@@ -15,6 +15,7 @@ import { getBackendHealthUrl } from './src/utils/backendHealth';
 
 const queryClient = new QueryClient();
 const BACKEND_HEALTH_URL = getBackendHealthUrl(API_URL);
+const BACKEND_HEALTH_TIMEOUT_MS = 20_000;
 
 const BackendBanner = () => {
     const [status, setStatus] = useState<'checking' | 'waking' | 'connected' | 'offline'>('checking');
@@ -30,7 +31,11 @@ const BackendBanner = () => {
         const wakingTimer = setTimeout(() => {
             setStatus(current => current === 'connected' ? current : 'waking');
         }, 2_000);
-        const timeout = setTimeout(() => controller.abort(), 10_000);
+        // Render may need a few seconds to wake the production instance from
+        // sleep. The banner already exposes "Conectando" after 2s, so give
+        // the liveness request enough time before classifying that wake-up as
+        // an outage.
+        const timeout = setTimeout(() => controller.abort(), BACKEND_HEALTH_TIMEOUT_MS);
 
         try {
             const res = await fetch(BACKEND_HEALTH_URL, {
@@ -43,10 +48,17 @@ const BackendBanner = () => {
         } catch (error: any) {
             failuresRef.current += 1;
             setStatus(failuresRef.current >= 3 ? 'offline' : 'waking');
-            console.warn('[Backend health] Check failed', {
+            const details = {
                 name: error?.name || 'NetworkError',
+                message: error?.message || 'Request failed',
                 attempts: failuresRef.current,
-            });
+            };
+            // The first two failures are expected while a free Render
+            // instance wakes up or the device changes networks. Avoid noisy
+            // LogBox warnings for those retries; preserve a warning once the
+            // app has actually crossed the offline threshold.
+            if (failuresRef.current >= 3) console.warn('[Backend health] Check failed', details);
+            else console.info('[Backend health] Temporary check failure; retrying', details);
         } finally {
             clearTimeout(wakingTimer);
             clearTimeout(timeout);
