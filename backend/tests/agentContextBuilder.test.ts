@@ -561,6 +561,38 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         );
     });
 
+    it('mantiene un seguimiento de hora aunque el intérprete primario lo devuelva sin atributo', async () => {
+        const target = commitmentFixture({ id: 'cm-leche', title: 'Comprar leche', dueAt: '2026-09-23T15:00:00Z' });
+        mockRetrieveVisibleCommitmentById.mockResolvedValue(target as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'general_context',
+            followUpAttribute: null,
+            wantsCommitments: false,
+            wantsMessages: false,
+        }));
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            {
+                actorUserId: 'u1',
+                input: '¿Y a qué hora?',
+                priorReadContext: {
+                    kind: 'commitment_query',
+                    timeRange: null,
+                    sourceTurnId: 'prior-turn',
+                    commitmentReferents: [{ rawText: 'Comprar leche', entityType: 'commitment', canonicalId: 'cm-leche' }],
+                },
+            },
+            { interpreter },
+        );
+
+        expect(ctx.followUpAttribute).toBe('time');
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments.map((commitment) => commitment.id)).toEqual(['cm-leche']);
+        expect(mockRetrieveVisibleCommitmentById).toHaveBeenCalledWith('u1', 'cm-leche');
+    });
+
     it('una comparativa reutiliza sólo la ventana temporal derivada del turno anterior', async () => {
         mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ id: 'cm-tomorrow', title: 'probar la voz de Ping' })] as any);
         const priorTimeRange = {

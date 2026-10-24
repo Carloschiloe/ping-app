@@ -758,11 +758,21 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // detail instead of retrieving the commitments already in scope.
     const temporalComparison = extractTemporalComparison(input.input) ?? rawInterpretation.temporalComparison ?? null;
     const urgencyComparison = extractUrgencyComparison(input.input) ?? rawInterpretation.urgencyComparison ?? null;
+    // A short attribute follow-up is a structural Core signal, not an LLM
+    // preference. The model may return `followUpAttribute: null` for a
+    // perfectly clear utterance such as "¿Y a qué hora?"; when a prior
+    // commitment read exists, allowing that null to win turns the same
+    // conversation into a generic clarification. Keep the signal bounded to
+    // a real prior commitment result so a standalone "¿a qué hora?" never
+    // broadens retrieval on its own.
+    const deterministicFollowUpAttribute = deterministicSignals.followUpAttribute;
+    const priorCommitmentRead = input.priorReadContext?.kind === 'commitment_query';
     const commitmentSignalConfident = deterministicSignals.intent === 'commitment_query'
         || deterministicSignals.proposalFocus !== null
         || deterministicSignals.timeExpression !== null
         || isHistoricalLifecycleQuery(input.input)
         || isDeclarativeLifecycleMention(input.input)
+        || (priorCommitmentRead && deterministicFollowUpAttribute !== null)
         // A bounded semantic operator returned by the LLM is enough to route
         // this turn into the commitment domain even when its wording is not
         // present in the deterministic multilingual fast-path.
@@ -799,6 +809,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         timeExpression: normalizedTimeExpression,
         temporalIntent: normalizedTemporalIntent,
         intent: normalizedIntent,
+        followUpAttribute: deterministicFollowUpAttribute ?? rawInterpretation.followUpAttribute ?? null,
         // Una vez que el Core tiene autoridad total sobre esta consulta
         // (proposalFocus confiado), el textQuery correcto es exactamente el
         // que produce el extractor determinístico sobre el MISMO input crudo
