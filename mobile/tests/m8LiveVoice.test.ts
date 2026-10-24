@@ -13,6 +13,8 @@ describe('M8 live voice production surface', () => {
         expect(source).toContain("protocolVersion: 1");
         expect(source).toContain("handshakeId");
         expect(source).toContain("message.type === 'retry'");
+        expect(source).toContain("message.type === 'm8_diagnostic_error'");
+        expect(source).toContain('message.details.errorCode');
         expect(source).not.toContain("const LIVE_VOICE_HTML");
         expect(source).toContain("ping-config");
         expect(source).toContain("onLoadEnd={injectConfig}");

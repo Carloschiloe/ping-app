@@ -26,6 +26,14 @@ type LiveConfig = {
     timezone: string;
 };
 
+type LiveVoiceWebViewMessage = {
+    type?: string;
+    stage?: string;
+    details?: {
+        errorCode?: string;
+    };
+};
+
 function voiceLocale(): string {
     try {
         const locale = Localization.getLocales?.()[0];
@@ -133,11 +141,18 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         : {}, []);
     const handleMessage = useCallback((event: WebViewMessageEvent) => {
         try {
-            const message = JSON.parse(event.nativeEvent.data) as { type?: string };
+            const message = JSON.parse(event.nativeEvent.data) as LiveVoiceWebViewMessage;
             if (message.type === 'closed') scheduleClose();
             if (message.type === 'config_requested' || message.type === 'webview_ready') injectConfig();
             if (message.type === 'retry') retry();
             if (message.type === 'error') setError('No se pudo iniciar la conversación de voz.');
+            if (message.type === 'm8_diagnostic_error') {
+                const stage = typeof message.stage === 'string' && message.stage.trim() ? message.stage.trim() : 'conexión';
+                const code = typeof message.details?.errorCode === 'string' && message.details.errorCode.trim()
+                    ? ` (${message.details.errorCode.trim()})`
+                    : '';
+                setError(`No se pudo iniciar la conversación de voz en la etapa ${stage}${code}.`);
+            }
         } catch { /* WebView telemetry is handled by the voice client. */ }
     }, [injectConfig, retry, scheduleClose]);
 
