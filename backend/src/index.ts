@@ -1,6 +1,6 @@
 import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
-import { startScheduledJobs } from './services/cronCoordinator';
+import { startAgentHistoryReconciler, startScheduledJobs } from './services/cronCoordinator';
 import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
 import {
     diagnosePrivateAgentTurnDatabase,
@@ -35,6 +35,7 @@ const env = getEnvConfig();
 const host = '0.0.0.0';
 
 startScheduledJobs();
+startAgentHistoryReconciler();
 startAudioTranscriptionWorker();
 void runPrivateDatabaseDiagnostic();
 

@@ -54,6 +54,9 @@ services:
         value: "false"
       - key: ENABLE_AUTOMATIONS
         value: "false"
+      # Safe durable-history repair only; does not enable reminders or pushes.
+      - key: ENABLE_AGENT_HISTORY_RECONCILER
+        value: "true"
       - key: ENABLE_NON_MVP_CAPABILITIES
         value: "false"
       - key: ENABLE_OPERATION_MODULE

@@ -6,6 +6,7 @@ type EnvConfig = {
     port: number;
     allowedOrigins: string[];
     runCronJobs: boolean;
+    agentHistoryReconciler: boolean;
     encryptionKey: string;
 };
 
@@ -71,6 +72,10 @@ export function getEnvConfig(): EnvConfig {
         // A legacy RUN_CRON_JOBS=true value alone can no longer reactivate them.
         runCronJobs: process.env.ENABLE_AUTOMATIONS === 'true'
             && process.env.RUN_CRON_JOBS === 'true',
+        // This repair loop only projects already-completed executions into
+        // durable history. It has its own explicit gate so enabling recovery
+        // never enables reminders, pushes, or other background automations.
+        agentHistoryReconciler: process.env.ENABLE_AGENT_HISTORY_RECONCILER === 'true',
         encryptionKey: process.env.ENCRYPTION_KEY!,
     };
 }

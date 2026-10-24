@@ -119,8 +119,7 @@ router.get('/health', async (req, res) => {
             agent_execution_history_persistence: agentConversationEvents
                 ? 'durable_recoverable_when_bound'
                 : 'disabled',
-            agent_execution_history_reconciler: process.env.ENABLE_AUTOMATIONS === 'true'
-                && process.env.RUN_CRON_JOBS === 'true'
+            agent_execution_history_reconciler: process.env.ENABLE_AGENT_HISTORY_RECONCILER === 'true'
                 ? 'enabled'
                 : 'disabled',
             rate_limit_store: getRateLimitStoreStatus(),
