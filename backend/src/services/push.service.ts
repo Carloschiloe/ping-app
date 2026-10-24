@@ -1,4 +1,4 @@
-import { Expo } from 'expo-server-sdk';
+import { Expo, ExpoPushTicket } from 'expo-server-sdk';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
     claimNotificationDelivery,
@@ -46,7 +46,7 @@ const sendPushBatch = async (commitments: any[], window: NotificationWindow) => 
     const messages = [];
     const uniqueUserIds = Array.from(new Set(commitments.map((c) => c.owner_user_id).filter(Boolean)));
     const tokenMap = await fetchPushTokens(uniqueUserIds);
-    const claimedDeliveries: Array<{ deliveryKey: string }> = [];
+    const claimedDeliveries: Array<{ deliveryKey: string; commitmentId: string }> = [];
 
     for (const c of commitments) {
         const pushToken = tokenMap.get(c.owner_user_id);
@@ -61,7 +61,7 @@ const sendPushBatch = async (commitments: any[], window: NotificationWindow) => 
         });
         if (!claim.claimed) continue;
 
-        claimedDeliveries.push({ deliveryKey: claim.deliveryKey });
+        claimedDeliveries.push({ deliveryKey: claim.deliveryKey, commitmentId: c.id });
         messages.push({
             to: pushToken,
             sound: 'default' as const,
@@ -75,10 +75,28 @@ const sendPushBatch = async (commitments: any[], window: NotificationWindow) => 
 
     try {
         const chunks = expo.chunkPushNotifications(messages);
+        let messageOffset = 0;
         for (const chunk of chunks) {
-            await expo.sendPushNotificationsAsync(chunk);
+            const tickets = await expo.sendPushNotificationsAsync(chunk);
+            await Promise.all(tickets.map(async (ticket: ExpoPushTicket, ticketOffset: number) => {
+                const delivery = claimedDeliveries[messageOffset + ticketOffset];
+                if (!delivery) return;
+
+                if (ticket.status === 'ok') {
+                    await completeNotificationDelivery(delivery.deliveryKey, 'expo', ticket.id);
+                    return;
+                }
+
+                const providerError = typeof ticket.details?.error === 'string'
+                    ? ticket.details.error
+                    : 'provider_rejected_notification';
+                await failNotificationDelivery(
+                    delivery.deliveryKey,
+                    `expo:${providerError} (commitment:${delivery.commitmentId})`
+                );
+            }));
+            messageOffset += chunk.length;
         }
-        await Promise.all(claimedDeliveries.map(({ deliveryKey }) => completeNotificationDelivery(deliveryKey)));
     } catch (err) {
         await Promise.all(claimedDeliveries.map(({ deliveryKey }) =>
             failNotificationDelivery(deliveryKey, err instanceof Error ? err.message : 'push_send_failed')
