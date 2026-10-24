@@ -561,6 +561,35 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         );
     });
 
+    it('la misma consulta por voz conserva el rango de mañana y recupera compromisos', async () => {
+        mockRetrieveCommitments.mockResolvedValue([
+            commitmentFixture({ id: 'cm-voice-tomorrow', title: 'Comprar leche', dueAt: '2026-10-25T15:00:00Z' }),
+        ] as any);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter(
+            {
+                actorUserId: 'u1',
+                input: '¿Qué tengo mañana?',
+                channel: 'mobile_voice',
+                locale: 'es-CL',
+                timezone: 'America/Santiago',
+                now: '2026-10-24T12:00:00Z',
+            },
+        );
+
+        expect(ctx.intent.type).toBe('commitment_query');
+        expect(ctx.entities.timeRange).toEqual({
+            from: '2026-10-25T03:00:00.000Z',
+            to: '2026-10-26T03:00:00.000Z',
+        });
+        expect(ctx.commitments.map((item) => item.title)).toEqual(['Comprar leche']);
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(
+            expect.objectContaining({ timeRange: ctx.entities.timeRange }),
+            expect.any(Number),
+        );
+    });
+
     it('mantiene un seguimiento de hora aunque el intérprete primario lo devuelva sin atributo', async () => {
         const target = commitmentFixture({ id: 'cm-leche', title: 'Comprar leche', dueAt: '2026-09-23T15:00:00Z' });
         mockRetrieveVisibleCommitmentById.mockResolvedValue(target as any);
