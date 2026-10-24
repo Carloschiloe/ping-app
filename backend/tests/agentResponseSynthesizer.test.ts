@@ -640,6 +640,35 @@ describe('M-1E: G) no evidence — respuesta honesta, sin inferir', () => {
         expect(model.synthesize).not.toHaveBeenCalled();
     });
 
+    it('una consulta semanal conserva nombre, día, fecha y hora para cada compromiso', async () => {
+        const ctx = baseContext({
+            input: '¿Qué compromisos tengo esta semana?',
+            now: '2026-09-22T12:00:00Z',
+            timezone: 'America/Santiago',
+            evidenceFound: true,
+            commitments: [
+                commitment('cm-week-1', { title: 'Revisar presupuesto', dueAt: '2026-09-22T13:00:00Z' }),
+                commitment('cm-week-2', { title: 'Reunión de producción', dueAt: '2026-09-26T15:30:00Z' }),
+            ] as any,
+            entities: {
+                people: [],
+                timeRange: { from: '2026-09-21T03:00:00.000Z', to: '2026-09-28T03:00:00.000Z' },
+                topics: [],
+                conversationId: null,
+            },
+            temporalIntent: { kind: 'calendar_week', offsetWeeks: 0, futureOnly: false },
+            queryCardinality: 'exhaustive_list' as any,
+        });
+        const model = fakeModel('{}');
+        const synthesizer = new LlmResponseSynthesizer({ model });
+        const response = await synthesizer.synthesize({ input: ctx.input, context: ctx, locale: 'es-CL' });
+
+        expect(response.diagnostics?.synthesizerUsed).toBe('deterministic');
+        expect(response.answer).toContain('Revisar presupuesto — martes, 22 de septiembre de 2026, 10:00.');
+        expect(response.answer).toContain('Reunión de producción — sábado, 26 de septiembre de 2026, 12:30.');
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
     it('una consulta temporal sin compromisos responde sólo sobre compromisos, aunque exista otra evidencia', async () => {
         const ctx = baseContext({
             input: '¿Qué compromisos tengo mañana?',
