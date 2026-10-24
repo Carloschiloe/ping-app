@@ -17,6 +17,7 @@ import {
     isSocialConversationInput,
     isTemporalComparisonQuery,
     LlmInputInterpreter,
+    inferContextualVoiceFollowUpAttribute,
     type AgentInputInterpreter,
     type InterpreterContext,
 } from './agentInputInterpreter.service';
@@ -134,8 +135,20 @@ export async function interpretAgentSemanticTurn(
     // interpreters must retain their exact semantics for certification.
     if (!options.inputInterpreter) {
         const deterministic = await new DeterministicInputInterpreter().interpret(input);
-        if (isDeterministicReadFastPathEligible(input, deterministic, context)) {
-            return { route: 'read', interpretation: deterministic, objective: null };
+        const contextualVoiceAttribute = inferContextualVoiceFollowUpAttribute(input, context.priorReadSummary);
+        const contextualFollowUp = contextualVoiceAttribute
+            ? {
+                ...deterministic,
+                intent: 'commitment_query' as const,
+                intentConfidence: Math.max(deterministic.intentConfidence, 0.7),
+                followUpAttribute: contextualVoiceAttribute,
+                textQuery: null,
+                topicHints: [],
+                wantsCommitments: true,
+            }
+            : deterministic;
+        if (isDeterministicReadFastPathEligible(input, contextualFollowUp, context)) {
+            return { route: 'read', interpretation: contextualFollowUp, objective: null };
         }
     }
 

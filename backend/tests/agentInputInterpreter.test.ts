@@ -4,6 +4,7 @@ import {
     generalContextHasRetrievableSignal, containsThirdPersonPronoun, extractRequestedTransition, classifyAgentInputProviderError,
     isSocialConversationInput,
     inferDeterministicFollowUpAttribute,
+    inferContextualVoiceFollowUpAttribute,
     inferTemporalIntent,
     isTemporalCollectionQuery,
     type AgentInputModel, type AgentInputModelRequest,
@@ -67,6 +68,27 @@ describe('deterministic read follow-up safety net', () => {
         const result = await new DeterministicInputInterpreter().interpret('¿Qué tengo esta semana y a qué hora?', {});
         expect(result.timeExpression).toMatch(/esta semana/i);
         expect(result.textQuery).toBeNull();
+    });
+
+    it.each(['acá?', 'aquí?'])('recupera una transcripción de voz deíctica como seguimiento de hora: %s', (input) => {
+        expect(inferContextualVoiceFollowUpAttribute(input, {
+            kind: 'commitment_query',
+            referentCount: 1,
+            uniqueReferent: true,
+            entityTypes: ['commitment'],
+            hasTimeRange: true,
+        })).toBe('time');
+    });
+
+    it('no inventa un seguimiento de hora sin un único resultado temporal anterior', () => {
+        expect(inferContextualVoiceFollowUpAttribute('acá?', {
+            kind: 'commitment_query',
+            referentCount: 2,
+            uniqueReferent: false,
+            entityTypes: ['commitment'],
+            hasTimeRange: true,
+        })).toBeNull();
+        expect(inferContextualVoiceFollowUpAttribute('acá?', null)).toBeNull();
     });
 });
 

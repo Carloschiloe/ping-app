@@ -131,6 +131,29 @@ describe('semantic boundary read/write regression', () => {
         expect(objectiveInterpreter.interpret).not.toHaveBeenCalled();
     });
 
+    it('recovers a short deictic voice fragment from the unique temporal read referent', async () => {
+        const result = await interpretAgentSemanticTurn(
+            'acá?',
+            {
+                actorUserId: ACTOR,
+                conversationId: 'conversation-regression',
+                priorReadSummary: {
+                    kind: 'commitment_query',
+                    referentCount: 1,
+                    uniqueReferent: true,
+                    entityTypes: ['commitment'],
+                    hasTimeRange: true,
+                },
+            },
+        );
+
+        expect(result.route).toBe('read');
+        expect(result.interpretation.intent).toBe('commitment_query');
+        expect(result.interpretation.followUpAttribute).toBe('time');
+        expect(result.interpretation.textQuery).toBeNull();
+        expect(result.interpretation.wantsCommitments).toBe(true);
+    });
+
     it('does not mistake a declarative "Tengo que" action for a punctuation-free question', async () => {
         const objective = personalCommitmentObjective();
         const objectiveInterpreter = { interpret: vi.fn(async () => objective) };

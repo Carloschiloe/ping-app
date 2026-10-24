@@ -1491,6 +1491,28 @@ export function inferDeterministicFollowUpAttribute(input: string): NonNullable<
     return null;
 }
 
+// A short voice transcript can collapse the spoken question "a qué hora?"
+// into a deictic fragment such as "acá?" or "aquí?".  That fragment is not a
+// trustworthy topic and must never become an FTS query: after a temporal read
+// with one unique referent, the safest semantic recovery is the same missing
+// attribute the user was asking for (the occurrence time).  The Core still
+// re-authorizes the canonical referent before answering, so this helper never
+// creates evidence or an ID from speech alone.
+export function inferContextualVoiceFollowUpAttribute(
+    input: string,
+    priorReadSummary?: AgentPriorReadSummary | null,
+): NonNullable<Interpretation['followUpAttribute']> | null {
+    if (!priorReadSummary?.uniqueReferent || priorReadSummary.referentCount !== 1 || !priorReadSummary.hasTimeRange) return null;
+    const normalized = input
+        .trim()
+        .toLocaleLowerCase('es')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/^[¿¡?\s]+|[?!.\s]+$/gu, '')
+        .replace(/\s+/g, ' ');
+    return /^(?:aca|aqui)$/iu.test(normalized) ? 'time' : null;
+}
+
 export class DeterministicInputInterpreter implements AgentInputInterpreter {
     async interpret(input: string): Promise<Interpretation> {
         const trimmed = input.trim();
