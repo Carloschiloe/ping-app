@@ -26,7 +26,7 @@ async function cleanup() {
     await supabaseAdmin.auth.admin.deleteUser(actor);
 }
 
-describe('durable READ V4 against local Supabase', () => {
+describe.skipIf(process.env.PING_RUN_LOCAL_SUPABASE_TESTS !== 'true' || process.env.SUPABASE_URL !== 'http://127.0.0.1:54321')('durable READ V4 against local Supabase', () => {
     beforeAll(async () => {
         await cleanup();
         const { error } = await supabaseAdmin.auth.admin.createUser({ id: actor, email: 'm7-durable-read@example.invalid', password: 'local-only-test-password', email_confirm: true });

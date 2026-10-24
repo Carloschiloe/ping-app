@@ -30,7 +30,7 @@ async function ensureUser() {
     if (error) throw error;
 }
 
-describe('M-7 routing selection against local Supabase', () => {
+describe.skipIf(process.env.PING_RUN_LOCAL_SUPABASE_TESTS !== 'true' || process.env.SUPABASE_URL !== 'http://127.0.0.1:54321')('M-7 routing selection against local Supabase', () => {
     beforeAll(async () => { await cleanup(); await ensureUser(); });
     afterAll(cleanup);
 

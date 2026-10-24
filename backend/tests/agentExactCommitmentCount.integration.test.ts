@@ -42,7 +42,7 @@ async function insertOrThrow(table: string, row: Record<string, unknown>) {
     if (error) throw new Error(`${table}: ${error.message}`);
 }
 
-describe('Exact Commitment Count against local Supabase', () => {
+describe.skipIf(process.env.PING_RUN_LOCAL_SUPABASE_TESTS !== 'true' || process.env.SUPABASE_URL !== 'http://127.0.0.1:54321')('Exact Commitment Count against local Supabase', () => {
     beforeAll(async () => {
         await removeFixtures();
         for (const [id, name] of [[owner, 'count-owner'], [assignee, 'count-assignee'], [participant, 'count-participant'], [outsider, 'count-outsider']]) {

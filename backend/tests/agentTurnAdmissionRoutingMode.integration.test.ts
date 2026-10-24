@@ -18,7 +18,7 @@ async function ensureUser(id: string, email: string) {
     if (error && !error.message.toLowerCase().includes('already been registered')) throw error;
 }
 
-describe('durable routing mode against local Supabase', () => {
+describe.skipIf(process.env.PING_RUN_LOCAL_SUPABASE_TESTS !== 'true' || process.env.SUPABASE_URL !== 'http://127.0.0.1:54321')('durable routing mode against local Supabase', () => {
     beforeAll(async () => {
         await cleanup();
         await ensureUser(actor, 'm7-routing-mode-a@example.invalid');
