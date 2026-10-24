@@ -14,6 +14,10 @@ const EXECUTION_OUTBOX_MIGRATION_PATH = path.resolve(
     __dirname,
     '../../supabase/migrations/20261024164210_agent_execution_history_outbox.sql',
 );
+const EXECUTION_SOURCE_GUARD_MIGRATION_PATH = path.resolve(
+    __dirname,
+    '../../supabase/migrations/20261024165000_agent_execution_history_source_guard.sql',
+);
 
 describe('durable Agent conversation migration', () => {
     it('qualifies INSERT RETURNING columns so the output created_at is not ambiguous', () => {
@@ -46,5 +50,14 @@ describe('durable Agent conversation migration', () => {
         expect(sql).toMatch(/create or replace function public\.complete_agent_execution_history/);
         expect(sql).toMatch(/revoke all on function public\.claim_agent_authorization_for_execution_with_history/);
         expect(sql).toMatch(/grant execute on function public\.stage_agent_execution_history/);
+    });
+
+    it('rejects an execution binding when its source plan is not persisted for the actor', () => {
+        const sql = readFileSync(EXECUTION_SOURCE_GUARD_MIGRATION_PATH, 'utf8');
+
+        expect(sql).toMatch(/from public\.agent_conversation_turns act/);
+        expect(sql).toMatch(/act\.result_kind = 'plan'/);
+        expect(sql).toMatch(/Source Agent plan was not found/);
+        expect(sql).toMatch(/using errcode = 'P0002'/);
     });
 });
