@@ -3,9 +3,15 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { generateMorningSummary, generateWeeklyReview } from './ai.service';
 import { sendPushNotification } from './push.service';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { isOpenCommitmentStatus, normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getOrCreateSelfConversationId } from './conversation.service';
+import {
+    AUTOMATION_DEFAULT_TIMEZONE,
+    isMorningRoutineWindow,
+    localDateKey,
+    localDayName,
+    resolveAutomationTimezone,
+} from './automationTimezone.service';
 
 let isMorningRoutineRunning = false;
 let isWeeklyReviewRunning = false;
@@ -31,7 +37,7 @@ async function routineAlreadyDelivered(conversationId: string, routineKey: strin
  *  3. Sends a push notification.
  */
 
-export async function runMorningRoutine() {
+export async function runMorningRoutine(now = new Date()) {
     if (isMorningRoutineRunning) {
         console.warn('[MorningRoutine] Skipped (previous run still in progress).');
         return;
@@ -41,19 +47,20 @@ export async function runMorningRoutine() {
     console.log('[MorningRoutine] 🌅 Starting morning routine...');
 
     try {
-        const today = new Date();
-        const startOfDay = new Date(today);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(today);
-        endOfDay.setHours(23, 59, 59, 999);
+        const today = now;
+        // Query a UTC envelope, then filter each commitment by the owner's
+        // local calendar day below. This avoids using Render's server timezone.
+        const startOfDay = new Date(today.getTime() - 36 * 60 * 60 * 1000);
+        const endOfDay = new Date(today.getTime() + 36 * 60 * 60 * 1000);
 
         // 1. Get all open commitments for today with profile info in ONE query (Batching)
         const { data: allCommitments, error: fetchError } = await supabaseAdmin
             .from('commitments')
             .select(`
-                title, 
+                title,
+                due_at,
                 owner_user_id, 
-                profiles!inner(full_name, expo_push_token)
+                profiles!inner(full_name, expo_push_token, timezone)
             `)
             // V2: los unicos estados abiertos son proposed/accepted/counter_proposal
             // (pending/in_progress eran legacy, V2 nunca los persiste).
@@ -71,22 +78,27 @@ export async function runMorningRoutine() {
             return;
         }
 
-        // 2. Group commitments by user in memory
+        // 2. Group commitments by user, keeping only that user's local day.
         const userMap: { 
             [userId: string]: { 
                 name: string; 
                 pushToken: string | null; 
-                commitments: string[] 
+                timezone: string;
+                commitments: string[];
             } 
         } = {};
 
         for (const row of allCommitments) {
             const userId = row.owner_user_id;
+            const profile = row.profiles as any;
+            const timezone = resolveAutomationTimezone(profile?.timezone ?? AUTOMATION_DEFAULT_TIMEZONE);
+            const dueAt = (row as any).due_at as string | null | undefined;
+            if (dueAt && localDateKey(new Date(dueAt), timezone) !== localDateKey(today, timezone)) continue;
             if (!userMap[userId]) {
-                const profile = row.profiles as any;
                 userMap[userId] = {
                     name: profile?.full_name || 'Amigo',
                     pushToken: profile?.expo_push_token || null,
+                    timezone,
                     commitments: []
                 };
             }
@@ -105,8 +117,8 @@ export async function runMorningRoutine() {
             await Promise.all(chunk.map(async (userId) => {
                 const userData = userMap[userId];
                 try {
-                    const dayName = format(today, 'EEEE d \'de\' MMMM', { locale: es });
-                    const routineKey = `morning:${format(today, 'yyyy-MM-dd')}`;
+                    const dayName = localDayName(today, userData.timezone);
+                    const routineKey = `morning:${localDateKey(today, userData.timezone)}`;
                     const selfConversationId = await getOrCreateSelfConversationId(userId);
                     if (await routineAlreadyDelivered(selfConversationId, routineKey)) {
                         console.log(`[MorningRoutine] ↩️ Already delivered to ${userData.name} (${routineKey})`);
@@ -282,13 +294,11 @@ let weeklyScheduleSet = false;
 
 export function startMorningRoutineCron() {
     if (!morningScheduleSet) {
-        cron.schedule('0 8 * * *', () => {
-            runMorningRoutine().catch(console.error);
-        }, {
-            timezone: 'America/Santiago'
+        cron.schedule('*/5 * * * *', () => {
+            runMorningRoutineForEligibleUsers().catch(console.error);
         });
         morningScheduleSet = true;
-        console.log('[MorningRoutine] 📅 Cron job scheduled for 8:00 AM (Santiago).');
+        console.log('[MorningRoutine] 📅 Polling every 5 minutes for each user\'s local 08:00 window.');
     }
 
     if (!weeklyScheduleSet) {
@@ -300,4 +310,24 @@ export function startMorningRoutineCron() {
         weeklyScheduleSet = true;
         console.log('[WeeklyReview] 📋 Cron job scheduled for Fridays at 6:00 PM (Santiago).');
     }
+}
+
+async function runMorningRoutineForEligibleUsers(): Promise<void> {
+    const now = new Date();
+    const { data: profiles, error } = await supabaseAdmin
+        .from('profiles')
+        .select('timezone');
+
+    if (error) {
+        // Until the profile-timezone migration is applied, fail closed and do
+        // not send any background notification.
+        console.error('[MorningRoutine] Could not read profile timezones; skipping tick:', error.message);
+        return;
+    }
+
+    const hasEligibleUser = (profiles || []).some((profile: any) =>
+        isMorningRoutineWindow(now, resolveAutomationTimezone(profile?.timezone))
+    );
+    if (!hasEligibleUser) return;
+    await runMorningRoutine(now);
 }
