@@ -6,6 +6,7 @@ import * as Linking from 'expo-linking';
 import { clearOfflineMessageQueue } from '../utils/offlineQueueStorage';
 import { parseAuthRedirectUrl } from '../utils/authRedirect';
 import { clearPrivateFileReadCache } from '../lib/privateFiles';
+import { getDeviceTimeZone } from '../utils/timeZone';
 
 type AuthConfig = {
     session: Session | null;
@@ -24,6 +25,7 @@ export type AuthProfile = {
     full_name: string | null;
     avatar_url: string | null;
     phone: string | null;
+    timezone?: string | null;
 };
 
 const AuthContext = createContext<AuthConfig>({
@@ -137,6 +139,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                         .update({
                             country_code: regionCode,
                             language_code: languageCode,
+                            timezone: getDeviceTimeZone(),
                             last_seen: new Date().toISOString()
                         })
                         .eq('id', userId);
