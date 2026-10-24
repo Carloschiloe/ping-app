@@ -297,6 +297,16 @@ describe('M-1D: resolveTimeExpression', () => {
         });
     });
 
+    it.each([
+        ['la semana próxima', '2026-10-26T03:00:00.000Z', '2026-11-02T03:00:00.000Z'],
+        ['el fin de semana que viene', '2026-10-31T03:00:00.000Z', '2026-11-02T03:00:00.000Z'],
+        ['el viernes que viene', '2026-10-30T03:00:00.000Z', '2026-10-31T03:00:00.000Z'],
+    ])('resuelve alias futuros en la misma zona horaria: %s', async (expression, from, to) => {
+        const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
+        const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');
+        expect(resolveTimeExpression(expression, new Date('2026-10-23T12:31:00.000Z'), 'America/Santiago', inferTemporalIntent(expression))).toEqual({ from, to });
+    });
+
     it('puede resolver un operador de fin de semana aun si el proveedor no devuelve el texto crudo', async () => {
         const { resolveTimeExpression } = await import('../src/services/agentContextBuilder.service');
         const { inferTemporalIntent } = await import('../src/services/agentInputInterpreter.service');

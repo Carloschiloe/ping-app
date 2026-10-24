@@ -173,14 +173,14 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const target = addDays(now, 2);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
     }
-    if (/\besta\s+semana\s+que\s+viene\b|\b(?:la\s+)?(?:proxima|siguiente)\s+semana\b|\b(?:la\s+)?semana\s+(?:que\s+viene|entrante)\b|\bnext\s+week\b/.test(normalizedExpression)) {
-        const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
-        return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
-    }
-    if (/\b(?:el\s+)?proximo\s+(?:fin\s+de\s+semana|finde)\b|\bnext\s+weekend\b/.test(normalizedExpression)) {
+    if (/\b(?:el\s+)?proximo\s+(?:fin\s+de\s+semana|finde)\b|\b(?:el\s+)?fin\s+de\s+semana\s+que\s+viene\b|\bnext\s+weekend\b/.test(normalizedExpression)) {
         const weekendStart = startOfDayInZone(addDays(startOfWeekendInZone(now, timezone), 7), timezone);
         const weekendEnd = startOfDayInZone(addDays(weekendStart, 2), timezone);
         return { from: weekendStart.toISOString(), to: weekendEnd.toISOString() };
+    }
+    if (/\besta\s+semana\s+(?:que\s+viene|proxima)\b|\b(?:la\s+)?(?:proxima|siguiente)\s+semana\b|\b(?:la\s+)?semana\s+(?:que\s+viene|entrante|proxima)\b|\bnext\s+week\b/.test(normalizedExpression)) {
+        const nextWeek = addDays(startOfWeekInZone(now, timezone), 7);
+        return { from: nextWeek.toISOString(), to: addDays(nextWeek, 7).toISOString() };
     }
     if (/\b(?:este\s+)?fin\s+de\s+semana\b|\b(?:este\s+)?finde\b|\b(?:el\s+)?weekend\b|\bthis\s+weekend\b/.test(normalizedExpression)) {
         const weekendStart = startOfWeekendInZone(now, timezone);
@@ -193,7 +193,10 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
     // retrieved an unbounded set and synthesis could label a Saturday item as
     // Friday. `este` means the occurrence in the current calendar week,
     // while an unqualified/`el`/`proximo` weekday means the next occurrence.
-    const weekday = normalizedExpression.match(
+    const nextWeekdaySuffix = normalizedExpression.match(
+        /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+(?:que\s+viene|proxim[oa])\b/
+    );
+    const weekday = nextWeekdaySuffix ?? normalizedExpression.match(
         /\b(?:(este)\s+|(?:(?:el\s+)?proximo\s+|el\s+))?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/
     );
     if (weekday) {
@@ -201,8 +204,9 @@ export function resolveTimeExpression(expression: string | null, now: Date, time
         const startToday = startOfDayInZone(now, timezone);
         const offsetMs = timeZoneOffsetMs(startToday, timezone);
         const localToday = new Date(startToday.getTime() + offsetMs);
-        let delta = (weekdays[weekday[2]] - localToday.getUTCDay() + 7) % 7;
-        if (delta === 0 && !weekday[1]) delta = 7;
+        const weekdayName = nextWeekdaySuffix ? weekday[1] : weekday[2];
+        let delta = (weekdays[weekdayName] - localToday.getUTCDay() + 7) % 7;
+        if (delta === 0 && (nextWeekdaySuffix || !weekday[1])) delta = 7;
         const target = addDays(startToday, delta);
         return { from: startOfDayInZone(target, timezone).toISOString(), to: endOfDayInZone(target, timezone).toISOString() };
     }

@@ -1026,24 +1026,30 @@ const PENDING_RESPONSE_PERSON_CUE = new RegExp(
 // resolución a rango de fechas real (con timezone) vive en
 // agentContextBuilder.service.ts#resolveTimeExpression, separada a
 // propósito para que sea testeable de forma aislada y determinista.
-const UPCOMING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(?:(?:\d+)\s+)?d[i\u00ed]as?\b|\b(?:estos|estas)\s+d[i\u00ed]as?\b|\b(?:these|the\s+coming)\s+days?\b|\bnext\s+(?:few|\d+)\s+days?\b/i;
-const UPCOMING_DAYS_COUNT_EXPRESSION = /\b(?:los\s+)?pr[o\u00f3]xim(?:o|os|a|as)\s+(\d+)\s+d[i\u00ed]as?\b|\bnext\s+(\d+)\s+days?\b/i;
-const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+que\s+siguen\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
-const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
+// These are semantic families, not a list of one-off sentences. The count
+// token is deliberately validated by parseDayCount below, so accepting a
+// spoken number here never turns an arbitrary word into a range.
+const DAY_COUNT_TOKEN = '[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+';
+const UPCOMING_DAYS_TIME_EXPRESSION = new RegExp(`\\b(?:los\\s+)?pr[o\\u00f3]xim(?:o|os|a|as)\\s+(?:(?:${DAY_COUNT_TOKEN})\\s+)?d[i\\u00ed]as?\\b|\\b(?:estos|estas)\\s+d[i\\u00ed]as?\\b|\\b(?:these|the\\s+coming)\\s+days?\\b|\\bnext\\s+(?:few|${DAY_COUNT_TOKEN})\\s+days?\\b`, 'i');
+const UPCOMING_DAYS_COUNT_EXPRESSION = new RegExp(`\\b(?:los\\s+)?pr[o\\u00f3]xim(?:o|os|a|as)\\s+(${DAY_COUNT_TOKEN})\\s+d[i\\u00ed]as?\\b|\\bnext\\s+(${DAY_COUNT_TOKEN})\\s+days?\\b`, 'i');
+const FOLLOWING_DAYS_TIME_EXPRESSION = /\b(?:los\s+)?d[i\u00ed]as?\s+(?:que\s+siguen|siguientes?|venideros?)\b|\b(?:los\s+)?(?:siguientes?|venideros?)\s+d[i\u00ed]as?\b|\b(?:the\s+)?days?\s+that\s+follow\b|\b(?:within|in)\s+[a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+\s+d[i\u00ed]as?\b/i;
+const RELATIVE_DAYS_TIME_EXPRESSION = /\b(?:dentro\s+de|en|de\s+aqu[i\u00ed]\s+a|within|in)\s+([a-z0-9\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+d[i\u00ed]as?\b/i;
 // Semantic aliases for ordinary speech. The resolver remains the single
 // source of truth for the concrete timezone-aware range.
-const NEXT_WEEK_TIME_EXPRESSION = /\besta\s+semana\s+que\s+viene\b|\b(?:la\s+)?(?:pr[o\u00f3]xima|siguiente)\s+semana\b|\b(?:la\s+)?semana\s+(?:que\s+viene|entrante)\b|\bnext\s+week\b/i;
+const NEXT_WEEK_TIME_EXPRESSION = /\besta\s+semana\s+(?:que\s+viene|pr[o\u00f3]xima)\b|\b(?:la\s+)?(?:pr[o\u00f3]xima|siguiente)\s+semana\b|\b(?:la\s+)?semana\s+(?:que\s+viene|entrante|pr[o\u00f3]xima)\b|\bnext\s+week\b/i;
 const CURRENT_WEEK_TIME_EXPRESSION = /\besta\s+semana\b|\bthis\s+week\b/i;
 const WEEKEND_TIME_EXPRESSION = /\b(?:este\s+)?fin\s+de\s+semana\b|\b(?:este\s+)?finde\b|\b(?:el\s+)?weekend\b|\bthis\s+weekend\b/i;
-const NEXT_WEEKEND_TIME_EXPRESSION = /\b(?:el\s+)?pr[o\u00f3]ximo\s+(?:fin\s+de\s+semana|finde)\b|\bnext\s+weekend\b/i;
+const NEXT_WEEKEND_TIME_EXPRESSION = /\b(?:el\s+)?pr[o\u00f3]ximo\s+(?:fin\s+de\s+semana|finde)\b|\b(?:el\s+)?fin\s+de\s+semana\s+que\s+viene\b|\bnext\s+weekend\b/i;
+const NEXT_WEEKDAY_SUFFIX_TIME_EXPRESSION = /\b(lunes|martes|mi[e\u00e9]rcoles|jueves|viernes|s[a\u00e1]bado|domingo)\s+(?:que\s+viene|pr[o\u00f3]xim[oa])\b/i;
 const WEEKDAY_TIME_EXPRESSION = /\b(?:(este)\s+|(?:(?:el\s+)?(?:proximo|pr[o\u00f3]ximo)\s+|el\s+))?(lunes|martes|mi(?:e|[e\u00e9])rcoles|jueves|viernes|s(?:a|[a\u00e1])bado|domingo)\b/i;
 
 const TIME_EXPRESSIONS: RegExp[] = [
     /\bpasado\s+mañana\b|\bday\s+after\s+tomorrow\b/i,
+    NEXT_WEEKEND_TIME_EXPRESSION,
     NEXT_WEEK_TIME_EXPRESSION,
     CURRENT_WEEK_TIME_EXPRESSION,
+    NEXT_WEEKDAY_SUFFIX_TIME_EXPRESSION,
     WEEKDAY_TIME_EXPRESSION,
-    NEXT_WEEKEND_TIME_EXPRESSION,
     WEEKEND_TIME_EXPRESSION,
     UPCOMING_DAYS_TIME_EXPRESSION,
     FOLLOWING_DAYS_TIME_EXPRESSION,
@@ -1279,6 +1285,12 @@ export function inferTemporalIntent(input: string): TemporalIntent | null {
     if (FOLLOWING_DAYS_TIME_EXPRESSION.test(lower) || UPCOMING_DAYS_TIME_EXPRESSION.test(lower)) {
         return { kind: 'upcoming_horizon', daysAhead: null, futureOnly: true };
     }
+    if (NEXT_WEEKEND_TIME_EXPRESSION.test(lower)) {
+        return { kind: 'calendar_weekend', occurrence: 'next', futureOnly: false };
+    }
+    if (WEEKEND_TIME_EXPRESSION.test(lower)) {
+        return { kind: 'calendar_weekend', occurrence: 'current', futureOnly: false };
+    }
     if (NEXT_WEEK_TIME_EXPRESSION.test(lower)) {
         return { kind: 'calendar_week', offsetWeeks: 1, futureOnly: false };
     }
@@ -1286,11 +1298,10 @@ export function inferTemporalIntent(input: string): TemporalIntent | null {
         const futureOnly = /\b(?:viene|vienen|venir|se me viene|coming|upcoming|resto|siguientes?)\b/i.test(lower);
         return { kind: 'calendar_week', offsetWeeks: 0, futureOnly };
     }
-    if (NEXT_WEEKEND_TIME_EXPRESSION.test(lower)) {
-        return { kind: 'calendar_weekend', occurrence: 'next', futureOnly: false };
-    }
-    if (WEEKEND_TIME_EXPRESSION.test(lower)) {
-        return { kind: 'calendar_weekend', occurrence: 'current', futureOnly: false };
+    const nextWeekdaySuffixMatch = lower.match(NEXT_WEEKDAY_SUFFIX_TIME_EXPRESSION);
+    if (nextWeekdaySuffixMatch) {
+        const weekdays: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
+        return { kind: 'calendar_weekday', weekday: weekdays[nextWeekdaySuffixMatch[1]], occurrence: 'next', futureOnly: false };
     }
     const weekdayMatch = lower.match(WEEKDAY_TIME_EXPRESSION);
     if (weekdayMatch) {

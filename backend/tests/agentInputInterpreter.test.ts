@@ -168,7 +168,18 @@ describe('deterministic upcoming horizon parsing', () => {
     it.each([
         ['¿Qué tengo este finde?', { kind: 'calendar_weekend', occurrence: 'current', futureOnly: false }],
         ['¿Qué hay para el próximo fin de semana?', { kind: 'calendar_weekend', occurrence: 'next', futureOnly: false }],
+        ['¿Qué tengo para el fin de semana que viene?', { kind: 'calendar_weekend', occurrence: 'next', futureOnly: false }],
     ])('normaliza el fin de semana como operador acotado: %s', (input, expected) => {
+        expect(inferTemporalIntent(input)).toEqual(expected);
+    });
+
+    it.each([
+        ['¿Qué compromisos tengo los próximos cinco días?', { kind: 'upcoming_horizon', daysAhead: 5, futureOnly: true }],
+        ['¿Qué tengo durante los días siguientes?', { kind: 'upcoming_horizon', daysAhead: null, futureOnly: true }],
+        ['¿Qué hay de aquí a tres días?', { kind: 'relative_days', daysAhead: 3, futureOnly: true }],
+        ['¿Qué tengo para la semana próxima?', { kind: 'calendar_week', offsetWeeks: 1, futureOnly: false }],
+        ['¿Qué tengo el viernes que viene?', { kind: 'calendar_weekday', weekday: 5, occurrence: 'next', futureOnly: false }],
+    ])('cubre una formulación natural equivalente sin depender del modelo: %s', (input, expected) => {
         expect(inferTemporalIntent(input)).toEqual(expected);
     });
 });
