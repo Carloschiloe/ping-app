@@ -281,6 +281,17 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
     });
 });
 
+describe('durable Agent history recovery contract', () => {
+    it('retries and revalidates the durable projection after reconnect or remount', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'src/api/query-modules/agent.ts'), 'utf8');
+        expect(source).toContain("queryKey: ['agent-conversation-turns', conversationId]");
+        expect(source).toContain("refetchOnReconnect: 'always'");
+        expect(source).toContain('refetchOnMount: true');
+        expect(source).toContain('retry: 2');
+        expect(source).toContain('refetchInterval: 60_000');
+    });
+});
+
 // ─── Endpoint mock integration (sección 35) ─────────────────────────────────
 
 describe('M-1G: useAgentRespond — integración con apiClient mockeado', () => {

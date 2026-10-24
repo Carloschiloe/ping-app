@@ -624,7 +624,15 @@ export function useAgentConversationTurns(conversationId?: string) {
         ),
         enabled: Boolean(conversationId && isAgentConversationEventsEnabled()),
         staleTime: 60_000,
-        retry: false,
+        // Durable history is the continuity source for restarts and other
+        // devices. A transient mobile/network failure must not turn into a
+        // permanent empty conversation until the user manually remounts it.
+        refetchOnMount: true,
+        refetchOnReconnect: 'always',
+        retry: 2,
+        retryDelay: attemptIndex => Math.min(1_000 * (2 ** attemptIndex), 5_000),
+        refetchInterval: 60_000,
+        refetchIntervalInBackground: false,
     });
 }
 
