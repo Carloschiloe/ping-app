@@ -277,6 +277,100 @@ export async function persistAgentExecutionConversationEvent(input: {
     });
 }
 
+function isRecoverableExecutionResult(value: unknown): value is AgentExecutionResult {
+    if (!value || typeof value !== 'object') return false;
+    const result = value as Partial<AgentExecutionResult>;
+    return typeof result.authorizationId === 'string'
+        && typeof result.status === 'string'
+        && Array.isArray(result.executedSteps)
+        && Array.isArray(result.failedSteps)
+        && Array.isArray(result.waitingSteps)
+        && typeof result.humanReadableSummary === 'string';
+}
+
+async function markExecutionHistoryOutbox(
+    authorizationId: string,
+    actorUserId: string,
+    errorCode?: string,
+): Promise<void> {
+    const { error } = await supabaseAdmin.rpc('complete_agent_execution_history', {
+        p_authorization_id: authorizationId,
+        p_actor_user_id: actorUserId,
+        p_error_code: errorCode ?? null,
+    });
+    if (error) throw new AppError('Could not update the Agent execution history outbox', 500);
+}
+
+/**
+ * Repairs only staged, pending execution projections. The domain execution is
+ * already authoritative in agent_executions; this loop is intentionally
+ * idempotent and never invokes a tool. Multiple web instances may observe the
+ * same row safely because persist_agent_conversation_turn uses the stable
+ * sourceTurnKey:execution key as its database idempotency boundary.
+ */
+export async function reconcilePendingAgentExecutionHistory(limit = 20): Promise<{
+    scanned: number;
+    projected: number;
+    deferred: number;
+}> {
+    const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
+    const { data, error } = await supabaseAdmin
+        .from('agent_execution_history_outbox')
+        .select('authorization_id, actor_user_id, conversation_id, source_turn_key, execution_result')
+        .eq('status', 'pending')
+        .not('execution_result', 'is', null)
+        .order('updated_at', { ascending: true })
+        .limit(boundedLimit);
+
+    if (error) throw new AppError('Could not load pending Agent execution history', 500);
+
+    let projected = 0;
+    let deferred = 0;
+    for (const row of data ?? []) {
+        const execution = row.execution_result;
+        if (!isRecoverableExecutionResult(execution)
+            || execution.authorizationId !== row.authorization_id) {
+            deferred += 1;
+            try {
+                await markExecutionHistoryOutbox(row.authorization_id, row.actor_user_id, 'invalid_staged_result');
+            } catch (markerError) {
+                console.warn('[AgentHistory] invalid outbox result could not be marked', {
+                    authorizationId: row.authorization_id,
+                    message: markerError instanceof Error ? markerError.message : String(markerError),
+                });
+            }
+            continue;
+        }
+
+        try {
+            await persistAgentExecutionConversationEvent({
+                actorUserId: row.actor_user_id,
+                conversationId: row.conversation_id,
+                sourceTurnKey: row.source_turn_key,
+                execution,
+            });
+            await markExecutionHistoryOutbox(row.authorization_id, row.actor_user_id);
+            projected += 1;
+        } catch (projectionError) {
+            deferred += 1;
+            try {
+                await markExecutionHistoryOutbox(row.authorization_id, row.actor_user_id, 'reconcile_projection_failed');
+            } catch (markerError) {
+                console.warn('[AgentHistory] pending projection marker unavailable', {
+                    authorizationId: row.authorization_id,
+                    message: markerError instanceof Error ? markerError.message : String(markerError),
+                });
+            }
+            console.warn('[AgentHistory] pending execution projection deferred', {
+                authorizationId: row.authorization_id,
+                error: projectionError instanceof Error ? projectionError.message : String(projectionError),
+            });
+        }
+    }
+
+    return { scanned: (data ?? []).length, projected, deferred };
+}
+
 export async function listAgentConversationTurns(
     actorUserId: string,
     conversationId: string,

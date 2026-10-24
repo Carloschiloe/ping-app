@@ -119,6 +119,10 @@ router.get('/health', async (req, res) => {
             agent_execution_history_persistence: agentConversationEvents
                 ? 'durable_recoverable_when_bound'
                 : 'disabled',
+            agent_execution_history_reconciler: process.env.ENABLE_AUTOMATIONS === 'true'
+                && process.env.RUN_CRON_JOBS === 'true'
+                ? 'enabled'
+                : 'disabled',
             rate_limit_store: getRateLimitStoreStatus(),
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,

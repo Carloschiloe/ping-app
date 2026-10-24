@@ -259,6 +259,89 @@ describe('Agent conversation persistence', () => {
         expect(retryDb.getRpcCalls()[0]?.args.p_client_turn_key).toBe('client-turn-1:execution');
     });
 
+    it('reconciles a staged execution without invoking tools and keeps the projection idempotent', async () => {
+        const execution = {
+            authorizationId: 'auth-reconcile',
+            status: 'done',
+            executedSteps: [],
+            failedSteps: [],
+            waitingSteps: [],
+            humanReadableSummary: 'Listo.',
+        };
+        const db = createSupabaseAdminMock({
+            agent_execution_history_outbox: [{
+                data: [{
+                    authorization_id: 'auth-reconcile',
+                    actor_user_id: ACTOR_ID,
+                    conversation_id: CONVERSATION_ID,
+                    source_turn_key: 'client-turn-reconcile',
+                    execution_result: execution,
+                }],
+                error: null,
+            }],
+            conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
+            agent_conversation_turns: [{
+                data: {
+                    input_text: 'Crea el compromiso de llamar mañana',
+                    input_mode: 'text',
+                    result: { kind: 'plan', presentation: { title: 'Llamar mañana' } },
+                },
+                error: null,
+            }],
+            'rpc:persist_agent_conversation_turn': [{
+                data: [{ turn_id: 'execution-turn-reconciled', idempotent_replay: false, created_at: '2026-10-24T19:00:00.000Z' }],
+                error: null,
+            }],
+            'rpc:complete_agent_execution_history': [{ data: {}, error: null }],
+        });
+        setSupabaseAdminMock(db);
+        const { reconcilePendingAgentExecutionHistory } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(reconcilePendingAgentExecutionHistory()).resolves.toEqual({
+            scanned: 1,
+            projected: 1,
+            deferred: 0,
+        });
+        expect(db.getRpcCalls().map((call) => call.name)).toEqual([
+            'persist_agent_conversation_turn',
+            'complete_agent_execution_history',
+        ]);
+        expect(db.getRpcCalls()[0]?.args.p_client_turn_key).toBe('client-turn-reconcile:execution');
+    });
+
+    it('quarantines an invalid staged result without trying to project it', async () => {
+        const db = createSupabaseAdminMock({
+            agent_execution_history_outbox: [{
+                data: [{
+                    authorization_id: 'auth-invalid',
+                    actor_user_id: ACTOR_ID,
+                    conversation_id: CONVERSATION_ID,
+                    source_turn_key: 'client-turn-invalid',
+                    execution_result: { authorizationId: 'different-authorization' },
+                }],
+                error: null,
+            }],
+            'rpc:complete_agent_execution_history': [{ data: {}, error: null }],
+        });
+        setSupabaseAdminMock(db);
+        const { reconcilePendingAgentExecutionHistory } = await import('../src/services/agentConversationTurn.service');
+
+        await expect(reconcilePendingAgentExecutionHistory()).resolves.toEqual({
+            scanned: 1,
+            projected: 0,
+            deferred: 1,
+        });
+        expect(db.getCalledTables()).toEqual(['agent_execution_history_outbox']);
+        expect(db.getRpcCalls()).toEqual([{
+            name: 'complete_agent_execution_history',
+            args: {
+                p_authorization_id: 'auth-invalid',
+                p_actor_user_id: ACTOR_ID,
+                p_error_code: 'invalid_staged_result',
+            },
+        }]);
+    });
+
     it('loads the newest bounded history window and returns it chronologically', async () => {
         const db = createSupabaseAdminMock({
             conversation_participants: [{ data: { conversation_id: CONVERSATION_ID }, error: null }],
