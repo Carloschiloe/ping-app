@@ -56,6 +56,7 @@ import {
 } from '../middleware/featureGate';
 import { createAgentRateLimiter } from '../middleware/agentRateLimit';
 import { getRateLimitStoreStatus } from '../middleware/rateLimitStore';
+import { getM8LiveVoiceTelemetryPersistenceStatus } from '../services/m8LiveVoice.service';
 
 export const router = Router();
 
@@ -131,6 +132,7 @@ router.get('/health', async (req, res) => {
                 enabled: process.env.PING_ENVIRONMENT === 'production'
                     && process.env.M8_LIVE_VOICE_ENABLED === 'true',
                 telemetry_persistence: process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE === 'true',
+                telemetry_runtime: getM8LiveVoiceTelemetryPersistenceStatus(),
             },
             commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || null,
             deployment_marker: process.env.PING_DEPLOYMENT_MARKER

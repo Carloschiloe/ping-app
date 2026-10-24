@@ -179,6 +179,33 @@ function telemetryBucket(): string {
 
 let telemetryBucketReady: Promise<void> | null = null;
 const telemetryWriteQueues = new Map<string, Promise<void>>();
+type TelemetryPersistenceState = 'unknown' | 'ready' | 'degraded';
+let telemetryPersistenceState: TelemetryPersistenceState = 'unknown';
+let telemetryPersistenceLastSuccessAt: string | null = null;
+let telemetryPersistenceLastFailureAt: string | null = null;
+let telemetryPersistenceLastFailureCode: string | number | null = null;
+
+function markTelemetryPersistenceReady(): void {
+    telemetryPersistenceState = 'ready';
+    telemetryPersistenceLastSuccessAt = new Date().toISOString();
+}
+
+function markTelemetryPersistenceDegraded(error: unknown): void {
+    telemetryPersistenceState = 'degraded';
+    telemetryPersistenceLastFailureAt = new Date().toISOString();
+    telemetryPersistenceLastFailureCode = error instanceof AppError ? error.statusCode : 'unknown';
+}
+
+export function getM8LiveVoiceTelemetryPersistenceStatus() {
+    const configured = telemetryPersistenceEnabled();
+    return {
+        configured,
+        state: configured ? telemetryPersistenceState : 'disabled' as const,
+        last_success_at: telemetryPersistenceLastSuccessAt,
+        last_failure_at: telemetryPersistenceLastFailureAt,
+        last_failure_code: telemetryPersistenceLastFailureCode,
+    };
+}
 
 async function ensureTelemetryBucket(): Promise<void> {
     if (!telemetryPersistenceEnabled()) return;
@@ -186,10 +213,12 @@ async function ensureTelemetryBucket(): Promise<void> {
         const pending = (async () => {
             const { error } = await supabaseAdmin.storage.createBucket(telemetryBucket(), { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
             if (error && !/already exists|duplicate/i.test(error.message || '')) throw new AppError('Live voice telemetry storage unavailable', 503);
+            markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
         // later voice session must be able to recover without a process restart.
         telemetryBucketReady = pending.catch((error) => {
+            markTelemetryPersistenceDegraded(error);
             telemetryBucketReady = null;
             throw error;
         });
@@ -207,6 +236,22 @@ function telemetryPath(actorUserId: string, voiceSessionId: string): string {
 
 function latestTelemetryPath(voiceSessionId: string): string {
     return `latest/${voiceSessionId}.json`;
+}
+
+function mergeTelemetryEvents(...sources: Array<unknown[]>): M8LiveVoiceTelemetry[] {
+    const seen = new Set<string>();
+    const merged: M8LiveVoiceTelemetry[] = [];
+    for (const source of sources) {
+        for (const item of source) {
+            if (!item || typeof item !== 'object') continue;
+            const event = item as M8LiveVoiceTelemetry;
+            const identity = JSON.stringify(event);
+            if (seen.has(identity)) continue;
+            seen.add(identity);
+            merged.push(event);
+        }
+    }
+    return merged.slice(-MAX_TELEMETRY_EVENTS);
 }
 
 async function downloadJson(path: string): Promise<Record<string, any> | null> {
@@ -268,6 +313,7 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
     try {
         await ensureTelemetryBucket();
     } catch (error) {
+        markTelemetryPersistenceDegraded(error);
         console.warn('[M8_TELEMETRY_DEGRADED]', {
             voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
             errorCode: error instanceof AppError ? error.statusCode : 'unknown',
@@ -283,10 +329,11 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         // upload. This prevents the first recovered write from silently
         // discarding the events collected during the outage.
         const inMemory = telemetryByVoiceSession.get(event.voiceSessionId);
-        const events = Array.isArray(existing?.events)
-            ? existing.events.slice(-MAX_TELEMETRY_EVENTS + 1)
-            : (inMemory?.events ?? []).slice(-MAX_TELEMETRY_EVENTS + 1);
-        const recordEvents = existing ? [...events, payload] : events;
+        const recordEvents = mergeTelemetryEvents(
+            Array.isArray(existing?.events) ? existing.events : [],
+            inMemory?.events ?? [],
+            [payload],
+        );
         const now = new Date().toISOString();
         const record = {
             voiceSessionId: event.voiceSessionId,
@@ -303,11 +350,13 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         await uploadJson(path, record);
         await uploadJson(latestTelemetryPath(event.voiceSessionId), { actorUserIdHash: record.actorUserIdHash, voiceSessionId: event.voiceSessionId, updatedAt: now });
         await cleanupExpiredTelemetry();
+        markTelemetryPersistenceReady();
     });
     telemetryWriteQueues.set(event.voiceSessionId, next);
     try {
         await next;
     } catch (error) {
+        markTelemetryPersistenceDegraded(error);
         // Telemetry is diagnostic side-effect, never a prerequisite for the
         // live voice turn. Keep the sanitized in-memory ledger and allow a
         // later event to retry Storage; the voice client must still receive
@@ -470,4 +519,8 @@ export function clearM8LiveVoiceTelemetryForTests(): void {
     latestTelemetryByActor.clear();
     latestTelemetryGlobalVoiceSessionId = null;
     telemetryBucketReady = null;
+    telemetryPersistenceState = 'unknown';
+    telemetryPersistenceLastSuccessAt = null;
+    telemetryPersistenceLastFailureAt = null;
+    telemetryPersistenceLastFailureCode = null;
 }

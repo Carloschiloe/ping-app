@@ -4,6 +4,7 @@ import {
     createM8LiveVoiceSession,
     getLatestM8LiveVoiceTelemetry,
     getM8LiveVoiceTelemetry,
+    getM8LiveVoiceTelemetryPersistenceStatus,
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
 import {
@@ -103,6 +104,16 @@ describe('M8 live voice environment boundary', () => {
             deviceSessionId,
             sideEffects: 0,
             events: [{ event: 'core_disposition', coreKind: 'response', sideEffects: 0 }],
+        });
+    });
+
+    it('exposes telemetry persistence readiness separately from the feature flag', () => {
+        expect(getM8LiveVoiceTelemetryPersistenceStatus()).toEqual({
+            configured: false,
+            state: 'disabled',
+            last_success_at: null,
+            last_failure_at: null,
+            last_failure_code: null,
         });
     });
 

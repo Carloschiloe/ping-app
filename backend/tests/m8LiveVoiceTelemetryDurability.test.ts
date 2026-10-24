@@ -135,4 +135,40 @@ describe('M8 production telemetry durable storage contract', () => {
         const recovered = await getLatestM8LiveVoiceTelemetryInternal();
         expect(recovered).toMatchObject({ voiceSessionId: voice, eventCount: 1 });
     });
+
+    it('merges in-memory events with the last persisted object after an intermediate outage', async () => {
+        await recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'session_started',
+            atMs: 10,
+            sideEffects: 0,
+        });
+
+        // Three failed attempts exhaust the write retry budget for event B.
+        // The event remains in the sanitized in-memory ledger while storage
+        // still contains event A.
+        storageState.uploadFailures = 3;
+        await expect(recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'transcript_received',
+            transcript: '¿Qué tengo mañana?',
+            atMs: 20,
+            sideEffects: 0,
+        })).resolves.toBeUndefined();
+
+        await recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'core_disposition',
+            coreKind: 'response',
+            atMs: 30,
+            sideEffects: 0,
+        });
+
+        const recovered = await getLatestM8LiveVoiceTelemetryInternal();
+        expect(recovered.eventCount).toBe(3);
+        expect(recovered.events.map((event: any) => event.atMs)).toEqual([10, 20, 30]);
+    });
 });
