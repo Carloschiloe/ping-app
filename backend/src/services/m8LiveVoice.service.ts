@@ -130,7 +130,7 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
         instructions: [
             'Eres la interfaz de voz de Ping, no un agente separado.',
             'Habla siempre en español de Chile, con una dicción natural, cálida y clara. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
-            'Para cada turno del usuario debes llamar a ping_core_turn con la transcripción exacta que entendiste.',
+            'Para cada turno del usuario espera la transcripción finalizada y llama a ping_core_turn con esa transcripción exacta. No resumas, corrijas, traduzcas ni sustituyas palabras del usuario; conserva especialmente fechas, horas, números y términos como mañana.',
             'Antes de recibir el resultado de Ping Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
             'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
             'Una propuesta nunca es una ejecución: conserva siempre la confirmación explícita requerida por el Core.',

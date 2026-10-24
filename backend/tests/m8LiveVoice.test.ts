@@ -175,6 +175,12 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("response_cancel_skipped_no_active_response");
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("core_turn_already_in_flight");
+        expect(html).toContain("rememberFinalTranscript(event.transcript||event.text)");
+        expect(html).toContain("input_transcription_selected_for_core");
+        expect(html).toContain("provider_tool_input_fallback");
+        expect(html).toContain("TRANSCRIPT_WAIT_MS=1500");
+        expect(html).toContain("if(!activeTurnId||!usableTranscript(value))return");
+        expect(html).toContain("if(turnId&&pendingTranscriptTurnId===turnId");
         expect(html).toContain("pendingPlaybackInterruption");
         expect(html).toContain("confirmed_user_turn_after_pending_output");
         expect(html).toContain("self_audio_echo_suspected");
@@ -225,8 +231,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("outputPlaybackPending=shouldReturnToListening");
         expect(html).toContain("pendingPlaybackInterruption=wasOutputPending");
         expect(html).toContain("if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false);outputPlaybackPending=false");
-        expect(html).toContain("if(pendingPlaybackInterruption){setAudioGate(false);outputPlaybackPending=false;pendingPlaybackInterruption=false");
-        expect(html).toContain("if(normalizedInput==='[inaudible noise]')");
+        expect(html).toContain("if(wasPendingPlaybackInterruption){setAudioGate(false);outputPlaybackPending=false;pendingPlaybackInterruption=false");
+        expect(html).toContain("if(selectedInput.trim().toLowerCase()==='[inaudible noise]')");
         const completionStart = html.indexOf("const completeAssistantResponse=(detailCode)=>");
         const completionEnd = html.indexOf("const createResponse=", completionStart);
         const completion = html.slice(completionStart, completionEnd);
@@ -246,8 +252,8 @@ describe('M8 live voice environment boundary', () => {
         const assistantBranch = speechBlock.indexOf('if(wasAssistantSpeaking)');
         expect(assistantBranch).toBeGreaterThanOrEqual(0);
         expect(speechBlock.slice(0, assistantBranch)).not.toContain('setAudioGate(false)');
-        expect(html).toContain("if(normalizedInput==='[inaudible noise]')");
-        expect(html).toContain("detailCode:pendingPlaybackInterruption?'self_audio_echo_suspected':'inaudible_input'");
+        expect(html).toContain("if(selectedInput.trim().toLowerCase()==='[inaudible noise]')");
+        expect(html).toContain("detailCode:wasPendingPlaybackInterruption?'self_audio_echo_suspected':'inaudible_input'");
         expect(html).toContain("stage:'confirmed_user_turn_after_pending_output'");
         expect(html).toContain("detailCode:'playback_gate_released_for_core'");
     });
@@ -256,7 +262,9 @@ describe('M8 live voice environment boundary', () => {
         const html = getM8LiveVoiceClientHtml('barge-in-contract-test-nonce');
         expect(html).toContain("if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false)");
         expect(html).toContain("if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result'");
-        expect(html).toContain("callCore(args.input,event.call_id,activeTurnId)");
+        expect(html).toContain("const selectedInput=await chooseCoreInput(providerInput,turnId)");
+        expect(html).toContain("const wasPendingPlaybackInterruption=pendingPlaybackInterruption");
+        expect(html).toContain("await callCore(selectedInput,event.call_id,turnId)");
         expect(html).toContain("if(event.type==='session.closed'){closed=true;clearPending();telemetry('session_closed'");
     });
 
