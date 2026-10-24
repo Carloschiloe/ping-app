@@ -72,11 +72,20 @@ RUN_POST_RESTORE_INSPECT=YES node scripts/production-readiness/production-post-r
 node scripts/production-readiness/reconcile-migrations.mjs --manifest ... --remote-history ... --remote-schema ... --project-ref wbigqhtuzfmpnxservlf
 node scripts/production-readiness/validate-backup-gate.mjs BACKUP_EVIDENCE.json
 node scripts/production-readiness/production-preflight.mjs
+node scripts/production-readiness/ping-production-smoke.mjs
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-final-backup-and-precutover.ps1
 ```
 
 The last four commands require operator-supplied evidence/secret presence and
 do not create or mutate remote resources.
+
+`ping-production-smoke.mjs` is a lightweight, repeatable read-only gate for the
+current production service. It verifies the public health contract (database,
+durable runtime, private diagnostics and live voice) plus the live voice client
+route. It refuses any hostname other than `ping-app-con3.onrender.com`, never
+requires credentials, and never reads or changes user data. Set
+`PING_EXPECTED_COMMIT` when the smoke must pin the result to a specific short
+or full Git SHA.
 
 `production-post-restore-inspect.mjs` is the single post-restore read-only
 orchestrator. It requires an explicit `RUN_POST_RESTORE_INSPECT=YES`, rejects
