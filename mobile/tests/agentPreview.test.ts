@@ -159,6 +159,11 @@ describe('M-1G: mapAgentErrorMessage — copy seguro, nunca detalle de proveedor
     it('429 con backoff del servidor -> informa el tiempo exacto', () => {
         expect(mapAgentErrorMessage(new ApiError('x', 429, false, undefined, 17))).toMatch(/17 segundos/i);
     });
+
+    it('429 con ventana larga -> informa los minutos aproximados en vez de ocultar el plazo', () => {
+        expect(mapAgentErrorMessage(new ApiError('x', 429, false, undefined, 300)))
+            .toMatch(/aproximadamente 5 minutos/i);
+    });
     it('500 -> genérico, nunca detalle', () => {
         const msg = mapAgentErrorMessage(new ApiError('OpenAI upstream error at gpt-4o-mini', 500, false));
         expect(msg).not.toMatch(/OpenAI|gpt-4o-mini|Render|Supabase/i);

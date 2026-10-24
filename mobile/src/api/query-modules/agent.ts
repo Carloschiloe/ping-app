@@ -233,6 +233,10 @@ export function mapAgentErrorMessage(error: unknown): string {
                 if (retryAfter !== undefined && retryAfter > 0 && retryAfter < 120) {
                     return `Demasiadas consultas. Reintenta en ${retryAfter} segundos.`;
                 }
+                if (retryAfter !== undefined && retryAfter >= 120) {
+                    const minutes = Math.max(1, Math.ceil(retryAfter / 60));
+                    return `Demasiadas consultas. Reintenta en aproximadamente ${minutes} minutos.`;
+                }
                 return 'Demasiadas consultas. Intenta nuevamente cuando se libere el límite.';
             }
             default: return 'No pude responder ahora. Intenta nuevamente.';
