@@ -73,6 +73,7 @@ node scripts/production-readiness/reconcile-migrations.mjs --manifest ... --remo
 node scripts/production-readiness/validate-backup-gate.mjs BACKUP_EVIDENCE.json
 node scripts/production-readiness/production-preflight.mjs
 node scripts/production-readiness/ping-production-smoke.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-ping-production-smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-final-backup-and-precutover.ps1
 ```
 
@@ -86,6 +87,17 @@ route. It refuses any hostname other than `ping-app-con3.onrender.com`, never
 requires credentials, and never reads or changes user data. Set
 `PING_EXPECTED_COMMIT` when the smoke must pin the result to a specific short
 or full Git SHA.
+
+On Windows, the wrapper avoids manual environment-variable syntax. Use
+`-ExpectedCommit` after a deployment when the deployed backend SHA is known:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-ping-production-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-readiness/run-ping-production-smoke.ps1 -ExpectedCommit 4528be0
+```
+
+Both commands are read-only. The second one fails closed if Render is still
+serving another backend commit, which prevents certifying a stale deployment.
 
 `production-post-restore-inspect.mjs` is the single post-restore read-only
 orchestrator. It requires an explicit `RUN_POST_RESTORE_INSPECT=YES`, rejects
