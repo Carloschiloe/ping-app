@@ -12,6 +12,7 @@ import type { SemanticCheckpointLoadResult } from '../types/agentTurnOrchestrati
 import type { NormalizedSemanticTurnV4 } from '../types/agentTurnCommit';
 import { normalizeSemanticTurnV4 } from './agentTurnSemanticV4.service';
 import { assertReadExecutionResult } from '../types/agentReadExecution';
+import type { AgentConversationHistoryProjection } from './agentConversationTurn.service';
 export type SemanticCheckpointV3LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV3; turnSequence: number; fingerprint: string; version: 3 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
 export type SemanticCheckpointV4LoadResult = { status: 'found'; semanticTurn: NormalizedSemanticTurnV4; turnSequence: number; fingerprint: string; version: 4 } | { status: 'not_found' } | { status: 'unsupported_version'; version: number } | { status: 'identity_mismatch' } | { status: 'invalid' };
 export type AgentTurnReconciliationResult = {
@@ -190,6 +191,65 @@ export class AgentTurnCommitService {
             checkpoint: mapCheckpoint(row), replay: row.replay as AgentTurnReplayV1 | AgentTurnReplayV2,
             replayed: Boolean(row.replayed),
         };
+    }
+
+    /**
+     * Commits the dialogue checkpoint, admission replay and conversation
+     * history projection in one Postgres transaction. The SQL wrapper calls
+     * the existing atomic boundary and then the idempotent history RPC; any
+     * error rolls the whole transaction back.
+     */
+    public async applyTurnWithHistory(input: {
+        turnId: string; actorUserId: string; dialogueScopeKey: string;
+        turnSequence: number; expectedDialogueVersion: number;
+        lifecycle: string; activeDialogue: Record<string, unknown> | null;
+        suspendedDialogue: Record<string, unknown> | null; expiresAt: string;
+        result: AgentTurnResult;
+        history: AgentConversationHistoryProjection;
+    }): Promise<AgentTurnAtomicApplication> {
+        const replayVersion = input.result.kind === 'read' ? AGENT_TURN_REPLAY_V2 : AGENT_TURN_REPLAY_VERSION;
+        const replay = input.result.kind === 'read' ? toAgentTurnReplayV2(input.result) : toAgentTurnReplayV1(input.result);
+        const { data, error } = await this.client.rpc('apply_agent_turn_atomically_with_history', {
+            p_turn_id: input.turnId, p_actor_user_id: input.actorUserId,
+            p_dialogue_scope_key: input.dialogueScopeKey, p_turn_sequence: input.turnSequence,
+            p_expected_dialogue_version: input.expectedDialogueVersion,
+            p_lifecycle: input.lifecycle, p_active_dialogue: input.activeDialogue,
+            p_suspended_dialogue: input.suspendedDialogue, p_expires_at: input.expiresAt,
+            p_replay_version: replayVersion, p_replay: replay,
+            p_history_conversation_id: input.history.conversationId,
+            p_history_client_turn_key: input.history.clientTurnKey,
+            p_history_request_fingerprint: input.history.requestFingerprint,
+            p_history_input_text: input.history.inputText,
+            p_history_input_mode: input.history.inputMode,
+            p_history_result_kind: input.history.resultKind,
+            p_history_result: input.history.result,
+        });
+        if (error) errorFromRpc(error);
+        const row = Array.isArray(data) ? data[0] : data;
+        return {
+            checkpoint: mapCheckpoint(row), replay: row.replay as AgentTurnReplayV1 | AgentTurnReplayV2,
+            replayed: Boolean(row.replayed),
+        };
+    }
+
+    public async completeTurnWithHistory(input: {
+        turnId: string; actorUserId: string; dialogueScopeKey: string;
+        result: AgentTurnResult;
+        history: AgentConversationHistoryProjection;
+    }): Promise<void> {
+        const { error } = await this.client.rpc('complete_agent_turn_with_history', {
+            p_turn_id: input.turnId, p_actor_user_id: input.actorUserId,
+            p_dialogue_scope_key: input.dialogueScopeKey,
+            p_result_ref: input.result.kind === 'read' ? toAgentTurnReplayV2(input.result) : toAgentTurnReplayV1(input.result),
+            p_history_conversation_id: input.history.conversationId,
+            p_history_client_turn_key: input.history.clientTurnKey,
+            p_history_request_fingerprint: input.history.requestFingerprint,
+            p_history_input_text: input.history.inputText,
+            p_history_input_mode: input.history.inputMode,
+            p_history_result_kind: input.history.resultKind,
+            p_history_result: input.history.result,
+        });
+        if (error) errorFromRpc(error);
     }
 
     public async reconcileApplication(input: { turnId: string; actorUserId: string; dialogueScopeKey: string; turnSequence: number }): Promise<AgentTurnReconciliationResult> {

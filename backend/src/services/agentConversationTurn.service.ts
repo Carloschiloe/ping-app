@@ -34,6 +34,16 @@ export interface AgentExecutionConversationEvent {
 export type AgentConversationEventResult = AgentTurnResult | AgentExecutionConversationEvent;
 export type AgentConversationEventKind = AgentTurnResult['kind'] | 'execution';
 
+export interface AgentConversationHistoryProjection {
+    conversationId: string;
+    clientTurnKey: string;
+    inputText: string;
+    inputMode: 'text' | 'voice' | 'reviewed_voice_text';
+    resultKind: AgentConversationEventKind;
+    result: AgentConversationEventResult;
+    requestFingerprint: string;
+}
+
 /**
  * The actor self-chat is the durable storage projection for the main Ping
  * surface. It must never be mistaken for the semantic conversation scope
@@ -101,6 +111,32 @@ function fingerprint(inputText: string, inputMode: string, result: AgentConversa
     return createHash('sha256')
         .update(JSON.stringify({ inputText, inputMode, result: publicResult(stableResult as unknown as AgentConversationEventResult) }))
         .digest('hex');
+}
+
+/**
+ * Builds the exact bounded projection used by the history RPC. Durable turns
+ * use this before the checkpoint RPC so the checkpoint and visible history row
+ * can commit in the same database transaction.
+ */
+export function buildAgentConversationHistoryProjection(input: {
+    conversationId: string;
+    clientTurnKey: string;
+    inputText: string;
+    inputMode: 'text' | 'voice' | 'reviewed_voice_text';
+    result: AgentConversationEventResult;
+    dialogueConversationId?: string;
+}): AgentConversationHistoryProjection {
+    const inputText = input.inputText.trim();
+    const result = addHistoryMetadata(publicResult(input.result), input.dialogueConversationId);
+    return {
+        conversationId: input.conversationId,
+        clientTurnKey: input.clientTurnKey.trim(),
+        inputText,
+        inputMode: input.inputMode,
+        resultKind: input.result.kind,
+        result,
+        requestFingerprint: fingerprint(inputText, input.inputMode, result),
+    };
 }
 
 function mapPersistenceError(error: { message?: string; code?: string } | null): AppError {

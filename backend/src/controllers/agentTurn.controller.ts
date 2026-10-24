@@ -141,11 +141,24 @@ export async function turn(req: Request, res: Response): Promise<void> {
             })
             : null;
         phase = durableEnabled ? 'run_durable_turn' : 'run_legacy_turn';
+        const durableHistoryInput = durableEnabled && historyConversationId && historyInput?.envelope.content
+            ? {
+                conversationId: historyConversationId,
+                clientTurnKey: idempotencyKey!,
+                inputText: historyInput.envelope.content,
+                inputMode: req.body.reviewedVoiceInputToken
+                    ? 'reviewed_voice_text' as const
+                    : req.body.voiceInputToken
+                        ? 'voice' as const
+                        : 'text' as const,
+                dialogueConversationId: dialogueConversationId ?? undefined,
+            }
+            : undefined;
         const result = durableEnabled
-            ? await runDurableAgentTurn(turnInput, { fallbackReadContext }, idempotencyKey!)
+            ? await runDurableAgentTurn(turnInput, { fallbackReadContext }, idempotencyKey!, undefined, undefined, durableHistoryInput)
             : await runAgentTurn(turnInput, { fallbackReadContext });
 
-        if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content) {
+        if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content && !durableHistoryInput) {
             phase = 'persist_conversation_event';
             // The durable boundary above is the correctness contract for the
             // turn: it commits the dialogue checkpoint and replay atomically.

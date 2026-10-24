@@ -84,4 +84,24 @@ describe('M-7 turn commit boundary', () => {
         await service.applyTurn({ turnId: 't', actorUserId: 'a', dialogueScopeKey: 's', turnSequence: 1, expectedDialogueVersion: 0, lifecycle: 'idle', activeDialogue: null, suspendedDialogue: null, expiresAt: '2026-10-01T00:00:00Z', result: readCount(0) as any });
         expect(rpc).toHaveBeenCalledWith('apply_agent_turn_atomically', expect.objectContaining({ p_replay_version: 2, p_replay: expect.objectContaining({ kind: 'read', execution: expect.objectContaining({ conclusion: 'count' }) }) }));
     });
+
+    it('sends the bounded history projection to the atomic history RPC', async () => {
+        const rpc = vi.fn().mockResolvedValue({ data: [{ actor_user_id: 'a', dialogue_scope_key: 's', lifecycle: 'idle', active_dialogue: null, suspended_dialogue: null, version: 1, last_applied_turn_id: 't', last_applied_turn_sequence: 1, expires_at: '2026-10-01T00:00:00Z', replay: { kind: 'response', response: { status: 'answered', answer: 'ok', citations: [] } }, replayed: false }], error: null });
+        const service = new AgentTurnCommitService({ rpc });
+        await service.applyTurnWithHistory({
+            turnId: 't', actorUserId: 'a', dialogueScopeKey: 's', turnSequence: 1,
+            expectedDialogueVersion: 0, lifecycle: 'idle', activeDialogue: null,
+            suspendedDialogue: null, expiresAt: '2026-10-01T00:00:00Z', result: response() as any,
+            history: {
+                conversationId: 'conversation-1', clientTurnKey: 'client-1', inputText: 'hola',
+                inputMode: 'text', resultKind: 'response', result: response() as any,
+                requestFingerprint: 'f'.repeat(64),
+            },
+        });
+        expect(rpc).toHaveBeenCalledWith('apply_agent_turn_atomically_with_history', expect.objectContaining({
+            p_turn_id: 't', p_history_conversation_id: 'conversation-1',
+            p_history_client_turn_key: 'client-1', p_history_request_fingerprint: 'f'.repeat(64),
+            p_history_result_kind: 'response',
+        }));
+    });
 });

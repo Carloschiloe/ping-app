@@ -130,6 +130,14 @@ describe('Agent Turn controller — main Ping history scope', () => {
             expect.objectContaining({ actorUserId: 'actor-1', input: '¿Qué tengo para mañana?' }),
             expect.any(Object),
             'durable-turn-key',
+            undefined,
+            undefined,
+            expect.objectContaining({
+                conversationId: 'self-conversation-1',
+                clientTurnKey: 'durable-turn-key',
+                inputText: '¿Qué tengo para mañana?',
+                inputMode: 'text',
+            }),
         );
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith(answer);

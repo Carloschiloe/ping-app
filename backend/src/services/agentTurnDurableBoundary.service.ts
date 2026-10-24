@@ -12,6 +12,7 @@ import { AgentTurnCommitService, toAgentTurnReplayV1, toAgentTurnReplayV2 } from
 import { resolveTextSurface } from './agentInputEnvelope.service';
 import { verifyVoiceInputToken } from './agentInputEnvelope.service';
 import { isCanonicalDurableAgentRuntimeEnabled } from './agentDurableConfig.service';
+import { buildAgentConversationHistoryProjection, type AgentConversationHistoryProjection } from './agentConversationTurn.service';
 
 const DIALOGUE_STATE_ENVELOPE = 'agent_dialogue_state_v1' as const;
 
@@ -23,7 +24,7 @@ type DurableDialogueEnvelope = {
 export type AgentTurnDurableBoundaryDeps = {
     admission: Pick<AgentTurnAdmissionService, 'admit' | 'claimForProcessing' | 'complete' | 'fail'>;
     checkpoint: Pick<AgentDialogueCheckpointService, 'loadDialogueCheckpoint'>;
-    commit: Pick<AgentTurnCommitService, 'applyTurn' | 'reconcileApplication'>;
+    commit: Pick<AgentTurnCommitService, 'applyTurn' | 'reconcileApplication'> & Partial<Pick<AgentTurnCommitService, 'applyTurnWithHistory' | 'completeTurnWithHistory'>>;
     runTurn?: typeof runAgentTurn;
 };
 
@@ -39,6 +40,14 @@ export type DurableTurnPostProcessContext = {
 export type DurableTurnPostProcess = (
     context: DurableTurnPostProcessContext,
 ) => Promise<AgentTurnResult>;
+
+export type DurableTurnHistoryInput = {
+    conversationId: string;
+    clientTurnKey: string;
+    inputText: string;
+    inputMode: 'text' | 'voice' | 'reviewed_voice_text';
+    dialogueConversationId?: string;
+};
 
 export function isDurableGeneralAgentTurnEnabled(): boolean {
     return isCanonicalDurableAgentRuntimeEnabled();
@@ -176,6 +185,7 @@ export async function runDurableAgentTurn(
     idempotencyKey: string,
     dependencies: AgentTurnDurableBoundaryDeps = defaultDependencies(),
     postProcess?: DurableTurnPostProcess,
+    historyInput?: DurableTurnHistoryInput,
 ): Promise<AgentTurnResult> {
     const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
     const dialogueScopeKey = durableDialogueScopeKey(input, options.now);
@@ -230,23 +240,36 @@ export async function runDurableAgentTurn(
                 turnSequence: claimedAdmission.turnSequence,
             })
             : result;
+        const history = historyInput
+            ? buildAgentConversationHistoryProjection({ ...historyInput, result: processedResult })
+            : undefined;
         const nextState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
 
         // Read-only turns do not need to create or mutate a dialogue row.
         // This also keeps a pre-existing idle checkpoint untouched.
         if (!nextState) {
             phase = 'complete_admission';
-            await dependencies.admission.complete(
-                claimedAdmission,
-                (processedResult.kind === 'read' ? toAgentTurnReplayV2(processedResult) : toAgentTurnReplayV1(processedResult)) as unknown as Record<string, unknown>,
-            );
+            if (history && dependencies.commit.completeTurnWithHistory) {
+                await dependencies.commit.completeTurnWithHistory({
+                    turnId: claimedAdmission.turnId,
+                    actorUserId: input.actorUserId,
+                    dialogueScopeKey,
+                    result: processedResult,
+                    history,
+                });
+            } else {
+                await dependencies.admission.complete(
+                    claimedAdmission,
+                    (processedResult.kind === 'read' ? toAgentTurnReplayV2(processedResult) : toAgentTurnReplayV1(processedResult)) as unknown as Record<string, unknown>,
+                );
+            }
             return processedResult;
         }
 
         const expectedDialogueVersion = checkpoint.status === 'found' ? checkpoint.snapshot.version : 0;
         try {
             phase = 'apply_turn_atomically';
-            const applied = await dependencies.commit.applyTurn({
+            const commitInput = {
                 turnId: claimedAdmission.turnId,
                 actorUserId: input.actorUserId,
                 dialogueScopeKey,
@@ -257,7 +280,10 @@ export async function runDurableAgentTurn(
                 suspendedDialogue: null,
                 expiresAt: nextState.expiresAt,
                 result: processedResult,
-            });
+            };
+            const applied = history && dependencies.commit.applyTurnWithHistory
+                ? await dependencies.commit.applyTurnWithHistory({ ...commitInput, history })
+                : await dependencies.commit.applyTurn(commitInput);
             return replayToResult(applied.replay as unknown as Record<string, unknown>);
         } catch (error) {
             phase = 'reconcile_application';

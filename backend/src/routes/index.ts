@@ -109,10 +109,13 @@ router.get('/health', async (req, res) => {
                     ? 'process_local_read_fallback'
                     : 'process_local',
             agent_conversation_events: agentConversationEvents,
-            // Conversation events are a secondary projection. Durable
-            // checkpoint/admission state remains strict, but a temporary
-            // history projection outage must not discard a valid turn.
-            agent_history_persistence: agentConversationEvents ? 'best_effort' : 'disabled',
+            // Durable turns now commit their history row in the same RPC as
+            // the checkpoint/admission. The legacy execute endpoint remains
+            // best-effort because it is a separate effect boundary.
+            agent_history_persistence: agentConversationEvents
+                ? durableAgentRuntime ? 'durable_for_durable_turns' : 'best_effort'
+                : 'disabled',
+            agent_execution_history_persistence: agentConversationEvents ? 'best_effort' : 'disabled',
             rate_limit_store: getRateLimitStoreStatus(),
             agent_action_continuity: durableAgentRuntime ? 'durable' : 'process_local_only',
             agent_durable_status: durableStatus,
