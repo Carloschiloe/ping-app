@@ -5,7 +5,7 @@ import type { Store, Options } from 'express-rate-limit';
 type RedisClient = ReturnType<typeof createClient>;
 
 let sharedRedisClient: RedisClient | null = null;
-let sharedRedisConnectStarted = false;
+let sharedRedisConnectPromise: Promise<void> | null = null;
 let lastRedisWarningAt = 0;
 
 class LocalRateLimitStore implements Store {
@@ -62,18 +62,26 @@ function getSharedRedisClient(): RedisClient | null {
         sharedRedisClient = createClient({ url });
         sharedRedisClient.on('error', (error) => warnRedis('Redis client error.', error));
     }
-    if (!sharedRedisConnectStarted) {
-        sharedRedisConnectStarted = true;
-        void sharedRedisClient.connect().catch((error) => warnRedis('Redis connection failed.', error));
-    }
+    ensureSharedRedisConnection(sharedRedisClient);
     return sharedRedisClient;
+}
+
+function ensureSharedRedisConnection(client: RedisClient): void {
+    if (client.isReady || client.isOpen || sharedRedisConnectPromise) return;
+    sharedRedisConnectPromise = client
+        .connect()
+        .then(() => undefined)
+        .catch((error) => warnRedis('Redis connection failed.', error))
+        .finally(() => {
+            sharedRedisConnectPromise = null;
+        });
 }
 
 /**
  * Shared rate-limit storage for Render's multi-instance topology.
  *
  * Redis is only a coordination layer for ephemeral counters: if it is not
- * configured or temporarily unavailable, the process-local MemoryStore keeps
+ * configured or temporarily unavailable, the process-local store keeps
  * the API available and preserves a conservative per-instance limit. No user
  * data is written to Redis and no request is retried here.
  */
@@ -88,6 +96,7 @@ export function createRateLimitStore(prefix: string): Store {
         : null;
 
     async function withFallback<T>(operation: () => Promise<T>, fallbackOperation: () => T | Promise<T>): Promise<T> {
+        if (client && !client.isReady) ensureSharedRedisConnection(client);
         if (!primary || !client?.isReady) return fallbackOperation();
         try {
             return await operation();
