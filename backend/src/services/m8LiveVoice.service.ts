@@ -196,6 +196,28 @@ function markTelemetryPersistenceDegraded(error: unknown): void {
     telemetryPersistenceLastFailureCode = error instanceof AppError ? error.statusCode : 'unknown';
 }
 
+type TelemetryStorageError = AppError & { storageDiagnostic?: string };
+
+function telemetryStorageError(message: string, providerError?: { message?: string } | null): TelemetryStorageError {
+    const error = new AppError(message, 503) as TelemetryStorageError;
+    const detail = typeof providerError?.message === 'string'
+        ? providerError.message
+            .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
+            .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
+            .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+            .slice(0, 160)
+        : undefined;
+    if (detail) error.storageDiagnostic = detail;
+    return error;
+}
+
+function telemetryErrorDiagnostic(error: unknown): string | undefined {
+    const value = error as { storageDiagnostic?: unknown; message?: unknown } | null;
+    if (typeof value?.storageDiagnostic === 'string') return value.storageDiagnostic;
+    if (typeof value?.message === 'string') return value.message.slice(0, 160);
+    return undefined;
+}
+
 export function getM8LiveVoiceTelemetryPersistenceStatus() {
     const configured = telemetryPersistenceEnabled();
     return {
@@ -212,7 +234,7 @@ async function ensureTelemetryBucket(): Promise<void> {
     if (!telemetryBucketReady) {
         const pending = (async () => {
             const { error } = await supabaseAdmin.storage.createBucket(telemetryBucket(), { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
-            if (error && !/already exists|duplicate/i.test(error.message || '')) throw new AppError('Live voice telemetry storage unavailable', 503);
+            if (error && !/already exists|duplicate/i.test(error.message || '')) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
             markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
@@ -258,12 +280,12 @@ async function downloadJson(path: string): Promise<Record<string, any> | null> {
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).download(path);
     if (error) {
         if (/not found|404|object does not exist/i.test(error.message || '')) return null;
-        throw new AppError('Live voice telemetry storage unavailable', 503);
+        throw telemetryStorageError('Live voice telemetry storage unavailable', error);
     }
     try {
         return JSON.parse(await data.text()) as Record<string, any>;
     } catch {
-        throw new AppError('Live voice telemetry storage unavailable', 503);
+        throw telemetryStorageError('Live voice telemetry storage unavailable');
     }
 }
 
@@ -288,12 +310,12 @@ async function uploadJson(path: string, value: unknown): Promise<void> {
         if (!error || !isTransientTelemetryStorageError(error) || attempt === TELEMETRY_WRITE_MAX_ATTEMPTS) break;
         await waitForTelemetryWriteRetry(attempt);
     }
-    if (error) throw new AppError('Live voice telemetry persistence failed', 503);
+    if (error) throw telemetryStorageError('Live voice telemetry persistence failed', error);
 }
 
 async function cleanupExpiredTelemetry(): Promise<void> {
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).list('latest', { limit: 1000, sortBy: { column: 'updated_at', order: 'asc' } });
-    if (error) throw new AppError('Live voice telemetry storage unavailable', 503);
+    if (error) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
     const cutoff = Date.now() - TELEMETRY_RETENTION_MS;
     const expired = (data || []).filter(item => item.updated_at && Date.parse(item.updated_at) < cutoff).map(item => item.name).filter(Boolean);
     if (!expired.length) return;
@@ -317,6 +339,7 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         console.warn('[M8_TELEMETRY_DEGRADED]', {
             voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
             errorCode: error instanceof AppError ? error.statusCode : 'unknown',
+            errorMessage: telemetryErrorDiagnostic(error),
         });
         return;
     }
@@ -364,6 +387,7 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         console.warn('[M8_TELEMETRY_DEGRADED]', {
             voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
             errorCode: error instanceof AppError ? error.statusCode : 'unknown',
+            errorMessage: telemetryErrorDiagnostic(error),
         });
     } finally {
         if (telemetryWriteQueues.get(event.voiceSessionId) === next) telemetryWriteQueues.delete(event.voiceSessionId);
