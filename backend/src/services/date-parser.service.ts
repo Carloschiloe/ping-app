@@ -19,6 +19,16 @@ export interface ParsedDateSpan {
  */
 export function extractDateTextSpans(text: string): ParsedDateSpan[] {
     return chrono.es.parse(text, new Date(), { forwardDate: true })
+        // Chrono can recognize a month abbreviation inside a proper name
+        // (for example "Mar" inside "María"). Such a substring is not a
+        // date span and must never steal the temporal slot from the actual
+        // expression later in the utterance.
+        .filter((result) => {
+            const before = result.index > 0 ? text[result.index - 1] : undefined;
+            const afterIndex = result.index + result.text.length;
+            const after = afterIndex < text.length ? text[afterIndex] : undefined;
+            return !before?.match(/[\p{L}\p{N}_]/u) && !after?.match(/[\p{L}\p{N}_]/u);
+        })
         .map((result) => ({ index: result.index, text: result.text }))
         .sort((left, right) => left.index - right.index);
 }

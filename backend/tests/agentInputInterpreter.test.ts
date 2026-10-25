@@ -2177,6 +2177,18 @@ describe('PRONOUN GROUNDING AUDIT: containsThirdPersonPronoun -- detecta pronomb
 // para el filtro de palabras interrogativas que nunca deben colarse como
 // candidato de persona.
 describe('PERSON-CANDIDATE COVERAGE: extractPersonHints captura nombres coordinados y sujetos de subordinada, y nunca filtra falsos positivos de palabras interrogativas', () => {
+    it('una fecha capitalizada por reconocimiento de voz nunca se convierte en persona', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué compromisos tengo para Mañana?', {});
+        expect(r.timeExpression).toMatch(/mañana/i);
+        expect(r.personHints).toEqual([]);
+    });
+
+    it('una persona real sigue siendo detectable junto a una fecha', async () => {
+        const r = await new DeterministicInputInterpreter().interpret('¿Qué tengo con María para Mañana?', {});
+        expect(r.personHints).toContain('María');
+        expect(r.personHints).not.toContain('Mañana');
+    });
+
     it('COORDINACIÓN: "Hablé con Alejandra y María" -> ambos nombres, incluso "y María" sin cue propio', async () => {
         const r = await new DeterministicInputInterpreter().interpret('Hablé con Alejandra y María. ¿Qué dijo ella?', {});
         expect(r.personHints).toContain('Alejandra');

@@ -590,6 +590,26 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         );
     });
 
+    it('una transcripción que capitaliza Mañana no activa el bloqueo de persona', async () => {
+        mockRetrieveCommitments.mockResolvedValue([]);
+
+        const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input: '¿Qué compromisos tengo para Mañana?',
+            channel: 'mobile_voice',
+            locale: 'es-CL',
+            timezone: 'America/Santiago',
+            now: '2026-10-24T12:00:00Z',
+        });
+
+        expect(ctx.explicitPersonMention).toBe(false);
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.clarification).toBeUndefined();
+        expect(mockResolvePerson).not.toHaveBeenCalled();
+        expect(mockRetrieveCommitments).toHaveBeenCalled();
+    });
+
     it('mantiene un seguimiento de hora aunque el intérprete primario lo devuelva sin atributo', async () => {
         const target = commitmentFixture({ id: 'cm-leche', title: 'Comprar leche', dueAt: '2026-09-23T15:00:00Z' });
         mockRetrieveVisibleCommitmentById.mockResolvedValue(target as any);

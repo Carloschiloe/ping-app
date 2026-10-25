@@ -25,6 +25,21 @@ describe('DeterministicObjectiveInterpreter: clasificación (sección 7 del tick
         expect(obj.timeConstraints.rawHint).toBeTruthy();
     });
 
+    it('no confunde una fecha capitalizada por voz con una persona y pide el título si falta', async () => {
+        const obj = await interpreter.interpret('Agendar un compromiso para Mañana', CTX);
+        expect(obj.objectiveType).toBe('create_commitment_or_proposal');
+        expect(obj.targetEntities.personHints).toEqual([]);
+        expect(obj.targetEntities.entityHints).toEqual([]);
+        expect(obj.ambiguities).toContainEqual(expect.objectContaining({ field: 'title', kind: 'blocking' }));
+        expect(obj.timeConstraints.rawHint).toMatch(/mañana/i);
+    });
+
+    it('mantiene una persona real después de "con" aunque la fecha venga después', async () => {
+        const obj = await interpreter.interpret('Agendar una reunión con María para Mañana', CTX);
+        expect(obj.targetEntities.personHints).toEqual(['María']);
+        expect(obj.timeConstraints.rawHint).toMatch(/mañana/i);
+    });
+
     it('separa el contenido accionable de fechas y discurso en una orden natural', async () => {
         const obj = await interpreter.interpret('Agendar mañana llamar a Pedro a las 10 de la mañana por favor.', CTX);
         expect(obj.targetEntities.entityHints[0]).toBe('llamar a Pedro');

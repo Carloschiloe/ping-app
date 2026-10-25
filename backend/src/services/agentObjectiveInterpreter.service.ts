@@ -34,6 +34,7 @@ import { isAiConfigured } from './synthesis.service';
 import { AGENT_OBJECTIVE_TYPE_VALUES, type AgentObjective, type AgentObjectiveType, type CommitmentOwnership, type MessageContentCandidate } from '../types/agentPlan';
 import { tracePlan } from '../utils/planTrace';
 import { extractDateTextSpans, extractTemporalHint, parseDateFromText } from './date-parser.service';
+import { filterTemporalPersonHints } from '../utils/personHintSemantics';
 
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
@@ -182,9 +183,13 @@ const PERSON_HINT_PATTERN = /\b(?:a|para)\s+([\p{Lu}][\p{L}]*)(?:\s+y\s+([\p{Lu}
 const MEMORY_PREFERENCE_PATTERN = /usa\s+(?:el|su)\s+horario\s+que\s+([\p{Lu}][\p{L}]*)\s+prefiere(?:\s+para\s+(.+))?/iu;
 
 const NATURAL_PERSON_HINT_PATTERN_V2 = /\b(?:a|para|con|junto\s+a|with|about|to)\s+([\p{Lu}][\p{L}]*)(?:\s+y\s+([\p{Lu}][\p{L}]*))?/u;
-function extractPersonHints(text: string): { primary: string | null; additional: string | null } {
+function extractPersonHints(text: string, temporalExpression?: string | null): { primary: string | null; additional: string | null } {
     const match = text.match(NATURAL_PERSON_HINT_PATTERN_V2) ?? text.match(PERSON_HINT_PATTERN);
-    return { primary: match?.[1] ?? null, additional: match?.[2] ?? null };
+    const hints = filterTemporalPersonHints(
+        [match?.[1] ?? null, match?.[2] ?? null].filter((hint): hint is string => !!hint),
+        temporalExpression,
+    );
+    return { primary: hints[0] ?? null, additional: hints[1] ?? null };
 }
 
 // ─── send_message payload candidate PROPOSAL (sección 1/36: "LLM/
@@ -278,7 +283,7 @@ const ENTITY_STOP_MARKER = /\b(?:al|el|por|para|a las|el próximo|next|on|by|ma[
 // que a veces despoja el artículo pero deja el sustantivo genérico) puede
 // llegar como "compromiso X" sin "el" delante; ambas formas deben limpiarse
 // igual, nunca sólo una.
-const GENERIC_TARGET_NOUN_PREFIX = /^\s*(?:(?:la fecha d(?:el|e la) )?(?:la |el )?compromiso(?: de| del)?|(?:la )?propuesta(?: de)?|(?:la )?tarea(?: de)?|(?:la )?reuni[óo]n(?: de)?|(?:la )?cita(?: de)?|la|el)\s+/iu;
+const GENERIC_TARGET_NOUN_PREFIX = /^\s*(?:(?:la fecha d(?:el|e la) )?(?:(?:la|el|un|una)\s+)?compromiso(?: de| del)?|(?:(?:la|una)\s+)?propuesta(?: de)?|(?:(?:la|una)\s+)?tarea(?: de)?|(?:(?:la|una)\s+)?reuni[óo]n(?: de)?|(?:(?:la|una)\s+)?cita(?: de)?|la|el|un|una)\s+/iu;
 
 // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
 // (root cause): "Completa el compromiso dejar excavadora en parcela
@@ -700,7 +705,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
         const pendingDecision = deterministicPendingPlanDecision(input, context);
         if (pendingDecision) return pendingDecision;
         const timeHint = extractTimeHint(text);
-        const { primary: personHint, additional: additionalPersonHint } = extractPersonHints(text);
+        const { primary: personHint, additional: additionalPersonHint } = extractPersonHints(text, timeHint);
 
         // Orden deliberado (específico -> general), mismo principio que
         // PROPOSAL_FOCUS_KEYWORDS en agentInputInterpreter.service.ts: una
@@ -1164,9 +1169,15 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     const obj = baseObjective(objectiveType, input, actorUserId, 'llm');
     obj.dialogueAct = payload.dialogueAct;
     obj.slotDelta = payload.slotDelta;
-    obj.targetEntities.personHints = payload.additionalPersonHint
+    const canonicalTimeHint = payload.timeHint ?? extractTimeHint(input);
+    const mappedPersonHints = payload.additionalPersonHint
         ? [...payload.personHints, payload.additionalPersonHint].slice(0, 5)
         : payload.personHints;
+    // LLM hints are advisory text. A temporal span recognized from the same
+    // utterance has a stronger structural meaning than capitalization in a
+    // transcript; never allow "para Mañana" to become a contact lookup when
+    // the provider happens to emit it as a person hint.
+    obj.targetEntities.personHints = filterTemporalPersonHints(mappedPersonHints, canonicalTimeHint);
     obj.targetEntities.entityHints = payload.entityHints;
     obj.contentHint = payload.contentHint;
     // PING — CREATE_COMMITMENT TITLE FIDELITY FIX: the LLM is the PRIMARY
@@ -1234,7 +1245,7 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
             obj.targetEntities.entityHints = [normalizeMutationTargetHint(obj.targetEntities.entityHints[0], input, isReschedule)];
         }
     }
-    obj.timeConstraints.rawHint = payload.timeHint;
+    obj.timeConstraints.rawHint = canonicalTimeHint;
     obj.constraints.decisionHint = payload.decisionHint;
     obj.constraints.draftOnly = payload.draftOnly;
     obj.constraints.responsibleHint = payload.responsibleHint;

@@ -32,6 +32,7 @@ import type { AmbiguityHintType, Interpretation, AgentIntentType, AgentInteracti
 import type { CanonicalCommitmentStatus } from '../utils/commitmentStatus';
 import type { CommitmentEventType } from '../utils/commitmentTransitions';
 import type { AgentObjective } from '../types/agentPlan';
+import { filterTemporalPersonHints } from '../utils/personHintSemantics';
 
 export interface InterpreterContext {
     conversationId?: string;
@@ -1197,7 +1198,7 @@ export function classifyQueryCardinality(
     return 'unknown';
 }
 
-function extractPersonHints(input: string): string[] {
+function extractPersonHints(input: string, temporalExpression?: string | null): string[] {
     const hints = new Set<string>();
     for (const pattern of [
         PERSON_HINT_CUE_BEFORE, PERSON_HINT_VERB_AFTER, PENDING_RESPONSE_PERSON_CUE,
@@ -1218,7 +1219,7 @@ function extractPersonHints(input: string): string[] {
             hints.add(candidate);
         }
     }
-    return Array.from(hints);
+    return filterTemporalPersonHints(Array.from(hints), temporalExpression);
 }
 
 // M-1H — "explicit person mention" contract (ticket "DETERMINISTIC QUERY
@@ -1541,8 +1542,12 @@ export class DeterministicInputInterpreter implements AgentInputInterpreter {
     async interpret(input: string): Promise<Interpretation> {
         const trimmed = input.trim();
         const { type: intent, confidence } = classifyIntent(trimmed);
-        const personHints = extractPersonHints(trimmed);
         const timeExpression = extractTimeExpression(trimmed);
+        // The temporal parser owns date words. This ordering is intentional:
+        // voice transcription may capitalize "Mañana" and the person
+        // extractor must see the recognized temporal span before returning
+        // any candidate to Core's person resolver.
+        const personHints = extractPersonHints(trimmed, timeExpression);
         const temporalIntent = inferTemporalIntent(trimmed);
         const priorReferenceIntent = inferPriorReferenceIntent(trimmed);
         const statusHints = extractStatusHints(trimmed);

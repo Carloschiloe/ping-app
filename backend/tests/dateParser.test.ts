@@ -80,6 +80,11 @@ describe('parseDateFromText', () => {
         expect(parseDateFromText('comprar pan y leche', THURSDAY_JULY_30_IN_CHILE)).toBeNull();
     });
 
+    it('no interpreta el prefijo "Mar" de un nombre como un mes', () => {
+        expect(extractTemporalHint('Agendar una reunión con María para mañana')).toMatch(/mañana/i);
+        expect(extractTemporalHint('Agendar una reunión con María para mañana')).not.toBe('Mar');
+    });
+
     it.each([
         ['hoy a las 16:00 juntarnos en el terreno', '2026-09-01T20:00:00.000Z', '16:00'],
         ['mañana a las 09:30 llamar a Ana', '2026-09-02T13:30:00.000Z', '09:30'],
