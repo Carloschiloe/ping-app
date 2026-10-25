@@ -70,9 +70,10 @@ describe('commitment ownership stays separate from content entities', () => {
         const { planObjective } = await import('../src/services/agentPlanner.service');
         const result = await planObjective({ actorUserId: ACTOR_ID, objective: current, input, now: NOW });
 
-        expect(result.blockingAmbiguities).toEqual([]);
-        expect(result.steps).toHaveLength(1);
-        expect(result.steps[0].arguments).toMatchObject({ responsiblePersonId: null });
+        // Ownership remains personal, but shared commitment creation still
+        // requires an explicit clock before Core can prepare a proposal.
+        expect(result.blockingAmbiguities.map((ambiguity) => ambiguity.field)).toEqual(['time']);
+        expect(result.steps).toHaveLength(0);
         expect(resolvePersonMock).not.toHaveBeenCalled();
     });
 

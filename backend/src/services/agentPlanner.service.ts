@@ -9,7 +9,7 @@
 // parseDateFromText) to ground a plan that a future M-4 would execute.
 import { randomUUID } from 'crypto';
 import { resolvePerson, retrieveCommitments, retrieveCommitmentProposals, retrieveVisibleCommitmentById, resolveDirectConversation } from './retrieval.service';
-import { parseDateFromText, resolveTimeZone } from './date-parser.service';
+import { extractExplicitTimeHint, parseDateFromText, resolveTimeZone } from './date-parser.service';
 import { retrieveMemory } from './memory.service';
 import { COMMITMENT_TRANSITION_TABLE } from '../utils/commitmentTransitions';
 import { getToolContract } from './toolRegistry.service';
@@ -28,6 +28,7 @@ import type {
 import { tracePlan } from '../utils/planTrace';
 import type { ContextReferent } from '../types/agentInput';
 import { detectAgentLanguage } from '../utils/agentLanguage';
+import { isGenericCommitmentTitleHint } from '../utils/commitmentTitleSemantics';
 import type { TemporalCoreResult } from './temporalCore.service';
 
 /**
@@ -546,10 +547,11 @@ async function tryResolveDateFromMemory(actorUserId: string, topicQuery: string,
 }
 
 async function planCreateCommitment(objective: AgentObjective, input: AgentPlannerInput, personal: boolean): Promise<DraftOutcome> {
-    const title = objective.targetEntities.entityHints[0];
-    if (!title) {
-        return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: 'No identifiqué qué quieres agendar.' }] };
-    }
+    const titleCandidate = objective.targetEntities.entityHints[0]?.trim() || null;
+    const title = titleCandidate && !isGenericCommitmentTitleHint(titleCandidate) ? titleCandidate : null;
+    const blockingAmbiguities: AgentObjectiveAmbiguity[] = [];
+    let timeMissing = false;
+    if (!title) blockingAmbiguities.push({ field: 'title', kind: 'blocking', reason: 'No identifiqué qué quieres agendar.' });
 
     const timezone = resolveTimeZone(input.timezone);
     const canonicalOnly = input.canonicalFacts?.canonicalOnly === true;
@@ -560,12 +562,34 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
         })()
         : parseDateFromText(objective.sourceUtterance, input.now, timezone);
     let dateFromMemory: MemoryDateResolution | null = null;
-    if (!parsed && !canonicalOnly) {
+    if (!parsed && !canonicalOnly && title) {
         dateFromMemory = await tryResolveDateFromMemory(input.actorUserId, title, input.now, timezone);
         if (dateFromMemory) parsed = { date: dateFromMemory.date, textRef: dateFromMemory.canonicalText };
     }
     if (!parsed) {
-        return { steps: [], blockingAmbiguities: [{ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' }] };
+        blockingAmbiguities.push({ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' });
+    } else {
+        const canonicalHasClockTime = input.canonicalFacts?.temporal?.status === 'resolved'
+            && (input.canonicalFacts.temporal.value.kind === 'civil_datetime'
+                || input.canonicalFacts.temporal.value.kind === 'elapsed_target');
+        const temporalSource = dateFromMemory?.canonicalText
+            || objective.timeConstraints.rawHint
+            || parsed.textRef
+            || objective.sourceUtterance;
+        const hasExplicitClockTime = canonicalHasClockTime || !!extractExplicitTimeHint(temporalSource);
+        // Shared commitments need an explicit appointment time. Personal
+        // reminders retain their existing date-only behavior; the reported
+        // failure is the shared "crea un compromiso" flow and must not
+        // regress ordinary date-only reminders.
+        timeMissing = !personal && !hasExplicitClockTime;
+    }
+    // When the title is also absent, return both missing creation slots in a
+    // single clarification. If the title is known, defer the time question
+    // until ownership/responsible-person validation has run, preserving the
+    // existing ordering for shared commitments.
+    if (!title && timeMissing) blockingAmbiguities.push({ field: 'time', kind: 'blocking', reason: '¿A qué hora quieres agendarlo? Necesito una hora exacta para crear el compromiso.' });
+    if (blockingAmbiguities.length > 0) {
+        return { steps: [], blockingAmbiguities };
     }
 
     const ownership = objective.constraints.commitmentOwnership
@@ -614,6 +638,20 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
         }
         responsiblePersonId = result.resolved.id;
         responsibleDisplayName = result.resolved.displayName;
+    }
+
+    if (timeMissing) {
+        return { steps: [], blockingAmbiguities: [{ field: 'time', kind: 'blocking', reason: '¿A qué hora quieres agendarlo? Necesito una hora exacta para crear el compromiso.' }] };
+    }
+    // Keep the final executable boundary explicitly narrowed. The earlier
+    // aggregate clarification return is semantically exhaustive, but TypeScript
+    // cannot infer that because title/parsed are mutable while memory/date
+    // resolution runs.
+    if (!title) {
+        return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: 'No identifiqué qué quieres agendar.' }] };
+    }
+    if (!parsed) {
+        return { steps: [], blockingAmbiguities: [{ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' }] };
     }
 
     const step = buildStep({

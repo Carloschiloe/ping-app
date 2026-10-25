@@ -36,6 +36,7 @@ import {
     stripTrailingDateSpan,
 } from './agentObjectiveInterpreter.service';
 import type { RetrievalPerson, RetrievalCommitment } from '../types/retrieval';
+import { isGenericCommitmentTitleHint } from '../utils/commitmentTitleSemantics';
 
 // PING — M-7B: only these two objective types are in scope for continuation
 // in this phase (both share planCreateCommitment's exact missing-slot
@@ -364,7 +365,9 @@ export function classifyContinuation(
     // respond_to_existing_proposal) is NEVER a continuation, regardless of
     // any LLM-side continuation claim -- the objective type mismatch alone
     // is structural proof of a different request.
-    if (newTurnObjective.objectiveType !== openType) {
+    const sameCreateFamily = CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES.has(openType)
+        && CONTINUATION_ELIGIBLE_OBJECTIVE_TYPES.has(newTurnObjective.objectiveType);
+    if (newTurnObjective.objectiveType !== openType && !sameCreateFamily) {
         return { isContinuation: false, reason: 'new_turn_different_objective_type' };
     }
 
@@ -375,9 +378,17 @@ export function classifyContinuation(
     // new request of the same type, never force-merged into the old one --
     // e.g. "Recuérdame comprar pan mañana" arriving while "llamar a Pedro"
     // is still open must not silently overwrite Pedro's reminder.
-    const newTurnHasOwnEntity = newTurnObjective.targetEntities.entityHints.length > 0
+    const priorTitle = dialogueState.openObjective.targetEntities.entityHints[0]?.trim() || null;
+    const newTitle = newTurnObjective.targetEntities.entityHints[0]?.trim() || null;
+    const fillingMissingTitle = sameCreateFamily
+        && !priorTitle
+        && !!newTitle
+        && !isGenericCommitmentTitleHint(newTitle)
+        && (dialogueState.pendingClarification?.field === 'title'
+            || dialogueState.ambiguities.some((ambiguity) => ambiguity.field === 'title'));
+    const newTurnHasOwnEntity = !!newTitle
         && newTurnObjective.targetEntities.entityHints[0] !== dialogueState.openObjective.targetEntities.entityHints[0];
-    if (newTurnHasOwnEntity) {
+    if (newTurnHasOwnEntity && !fillingMissingTitle) {
         return { isContinuation: false, reason: 'new_turn_names_its_own_entity' };
     }
 
@@ -408,9 +419,13 @@ export function reconcileContinuationObjective(
     priorObjective: AgentObjective,
     newTurnObjective: AgentObjective,
 ): ReconciledObjectiveResult {
-    const entityHints = priorObjective.targetEntities.entityHints.length > 0
+    const priorTitle = priorObjective.targetEntities.entityHints[0]?.trim() || null;
+    const newTitle = newTurnObjective.targetEntities.entityHints[0]?.trim() || null;
+    const entityHints = priorTitle && !isGenericCommitmentTitleHint(priorTitle)
         ? priorObjective.targetEntities.entityHints
-        : newTurnObjective.targetEntities.entityHints;
+        : newTitle && !isGenericCommitmentTitleHint(newTitle)
+            ? [newTitle]
+            : [];
     const personHints = priorObjective.targetEntities.personHints.length > 0
         ? priorObjective.targetEntities.personHints
         : newTurnObjective.targetEntities.personHints;
@@ -422,16 +437,34 @@ export function reconcileContinuationObjective(
     // caller will simply re-ask the same clarification.
     const newTimeText = newTurnObjective.timeConstraints.rawHint ?? newTurnObjective.sourceUtterance.trim();
     const priorHadNoDate = !priorObjective.timeConstraints.rawHint && !hasExplicitDateWord(priorObjective.sourceUtterance);
-    const filledField: ReconciledObjectiveResult['filledField'] = priorHadNoDate && newTimeText.length > 0 ? 'time' : 'none';
+    // buildPendingTemporalAnswerObjective carries the original source into
+    // the new objective before adding the answer. That provenance is the
+    // structural marker for a pending time slot: it must be allowed to add a
+    // clock to an already-known calendar date, unlike an unrelated fragment
+    // that happens to mention another time.
+    const isPendingTemporalMerge = Boolean(
+        priorObjective.sourceUtterance.trim()
+        && newTurnObjective.sourceUtterance.trim().startsWith(priorObjective.sourceUtterance.trim())
+        && newTurnObjective.timeConstraints.rawHint?.trim(),
+    );
+    const filledField: ReconciledObjectiveResult['filledField'] = (priorHadNoDate && newTimeText.length > 0) || isPendingTemporalMerge
+        ? 'time'
+        : 'none';
 
-    const reconciledSourceUtterance = filledField === 'time'
+    const reconciledSourceUtterance = isPendingTemporalMerge
+        ? newTurnObjective.sourceUtterance
+        : filledField === 'time'
         ? `${priorObjective.sourceUtterance.trim()} ${newTimeText}`.trim()
         : priorObjective.sourceUtterance;
+
+    const reconciledTimeHint = isPendingTemporalMerge
+        ? newTurnObjective.timeConstraints.rawHint
+        : priorObjective.timeConstraints.rawHint ?? newTurnObjective.timeConstraints.rawHint;
 
     const reconciled: AgentObjective = {
         ...priorObjective,
         targetEntities: { entityHints, personHints },
-        timeConstraints: { rawHint: priorObjective.timeConstraints.rawHint ?? newTurnObjective.timeConstraints.rawHint },
+        timeConstraints: { rawHint: reconciledTimeHint },
         sourceUtterance: reconciledSourceUtterance,
         // Ambiguities are always re-derived fresh by the planner from the
         // reconciled objective -- never carried forward stale.
@@ -500,7 +533,11 @@ export function buildPendingTemporalAnswerObjective(
     if (!timeHint) return null;
     return {
         ...dialogueState.openObjective,
-        sourceUtterance: rawAnswer.trim(),
+        // Keep the original date phrase in the same semantic source passed to
+        // Core's date parser. A reply such as "A las diez" supplies only the
+        // missing clock time; replacing the original utterance would discard
+        // "mañana" and make the planner lose the active commitment's date.
+        sourceUtterance: `${dialogueState.openObjective.sourceUtterance.trim()} ${rawAnswer.trim()}`.trim(),
         timeConstraints: { rawHint: timeHint },
         ambiguities: [],
     };

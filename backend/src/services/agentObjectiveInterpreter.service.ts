@@ -35,6 +35,7 @@ import { AGENT_OBJECTIVE_TYPE_VALUES, type AgentObjective, type AgentObjectiveTy
 import { tracePlan } from '../utils/planTrace';
 import { extractDateTextSpans, extractTemporalHint, parseDateFromText } from './date-parser.service';
 import { filterTemporalPersonHints } from '../utils/personHintSemantics';
+import { isGenericCommitmentTitleHint } from '../utils/commitmentTitleSemantics';
 
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
@@ -1199,8 +1200,17 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     // create, never an existing-entity reference.
     if (payload.objectiveType === 'create_commitment_or_proposal' || payload.objectiveType === 'create_personal_commitment') {
         const explicitTitle = extractExplicitTitle(input);
-        if (explicitTitle) obj.targetEntities.entityHints = [explicitTitle];
-        else if (payload.contentHint) obj.targetEntities.entityHints = [payload.contentHint];
+        if (explicitTitle) {
+            obj.targetEntities.entityHints = [explicitTitle];
+        } else {
+            // contentHint/entityHints are provider suggestions. Prefer the
+            // first meaningful candidate, but never let an object-type noun
+            // such as "un compromiso" pass as the activity title.
+            const modelTitle = [payload.contentHint, ...payload.entityHints]
+                .map((hint) => hint?.trim())
+                .find((hint): hint is string => !!hint && !isGenericCommitmentTitleHint(hint));
+            obj.targetEntities.entityHints = modelTitle ? [modelTitle] : [];
+        }
     }
     // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: for the
     // mutation objectives (reschedule/complete/respond), entityHints[0] is
@@ -1441,6 +1451,29 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
         // valid model response omits the hint or returns a generic one; Core
         // still resolves the entity and authorization against canonical data.
         const sameObjectiveFamily = structuralObjective.objectiveType === llmObjective.objectiveType;
+        const createObjectiveTypes: AgentObjectiveType[] = [
+            'create_commitment_or_proposal',
+            'create_personal_commitment',
+        ];
+        const sameCreateFamily = createObjectiveTypes.includes(structuralObjective.objectiveType)
+            && createObjectiveTypes.includes(llmObjective.objectiveType);
+        const structuralTitleMissing = sameCreateFamily
+            && structuralObjective.targetEntities.entityHints.length === 0
+            && structuralObjective.ambiguities.some((ambiguity) => ambiguity.field === 'title' && ambiguity.kind === 'blocking');
+        // The deterministic interpreter owns slot completeness. If it proves
+        // this is a creation request with no real activity, an LLM generic
+        // placeholder cannot satisfy the title slot. Keep the semantic
+        // objective family, but carry the blocking ambiguity into planning.
+        if (structuralTitleMissing
+            && (llmObjective.targetEntities.entityHints.length === 0
+                || isGenericCommitmentTitleHint(llmObjective.targetEntities.entityHints[0]))) {
+            llmObjective.targetEntities.entityHints = [];
+            for (const ambiguity of structuralObjective.ambiguities) {
+                if (ambiguity.kind === 'blocking' && !llmObjective.ambiguities.some((existing) => existing.field === ambiguity.field)) {
+                    llmObjective.ambiguities.push(ambiguity);
+                }
+            }
+        }
         if (sameObjectiveFamily && structuralObjective.confidence >= 0.7) {
             const structuralEntityHints = structuralObjective.targetEntities.entityHints;
             if (structuralEntityHints.length > 0 && llmObjective.targetEntities.entityHints.length === 0) {

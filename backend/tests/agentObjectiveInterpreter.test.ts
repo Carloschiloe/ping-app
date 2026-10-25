@@ -427,6 +427,22 @@ describe('PING — CREATE_COMMITMENT TITLE FIDELITY FIX: LlmObjectiveInterpreter
         expect(obj.targetEntities.entityHints[0]).toBe('prueba caché Ping');
     });
 
+    it('bare creation with a generic provider title remains incomplete: Core clears the placeholder and keeps the title ambiguity', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'create_commitment_or_proposal',
+            personHints: [], entityHints: ['un compromiso'], contentHint: 'un compromiso', timeHint: 'mañana',
+            decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('Crea un compromiso para mañana', CTX);
+        expect(obj.objectiveType).toBe('create_commitment_or_proposal');
+        expect(obj.targetEntities.entityHints).toEqual([]);
+        expect(obj.ambiguities).toEqual(expect.arrayContaining([
+            expect.objectContaining({ field: 'title', kind: 'blocking' }),
+        ]));
+    });
+
     it('no explicit marker in the source text -- the model\'s own entityHints proposal is trusted unchanged (override never fires without a real marker)', async () => {
         const model = fakeModel(JSON.stringify({
             objectiveType: 'create_commitment_or_proposal',

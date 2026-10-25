@@ -31,6 +31,7 @@ vi.mock('../src/services/retrieval.service', () => ({
 }));
 vi.mock('../src/services/date-parser.service', () => ({
     parseDateFromText: (...args: any[]) => parseDateFromTextMock(...args),
+    extractExplicitTimeHint: (text: string) => text.match(/\b(?:a|para)\s+las?\s+(?:[01]?\d|2[0-3])(?::[0-5]\d)?\b|\b[01]?\d:[0-5]\d\b/iu)?.[0] ?? null,
     resolveTimeZone: (tz?: string | null) => tz || 'America/Santiago',
 }));
 // Nunca debe tocar la red/Postgres real -- mismo motivo que
@@ -229,6 +230,58 @@ describe('planCreateCommitment (sección 14/15/37)', async () => {
         expect(result.steps[0].confirmationRequirement).toBe('explicit');
     });
 
+    it('no convierte el sustantivo del tipo de objeto en título ejecutable', async () => {
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T13:00:00.000Z'), textRef: 'mañana a las 10' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Crea un compromiso para mañana a las 10',
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            targetEntities: { personHints: [], entityHints: ['un compromiso'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toHaveLength(0);
+        expect(result.blockingAmbiguities.map((ambiguity) => ambiguity.field)).toContain('title');
+    });
+
+    it('un compromiso compartido con título válido pero solo fecha exige la hora explícita', async () => {
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T12:00:00.000Z'), textRef: 'mañana' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Crea comprar materiales para mañana',
+            timeConstraints: { rawHint: 'mañana' },
+            targetEntities: { personHints: [], entityHints: ['comprar materiales'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toHaveLength(0);
+        expect(result.blockingAmbiguities.map((ambiguity) => ambiguity.field)).toContain('time');
+    });
+
+    it('la solicitud exacta incompleta devuelve título y hora como slots pendientes', async () => {
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T12:00:00.000Z'), textRef: 'mañana' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Crea un compromiso para mañana',
+            timeConstraints: { rawHint: 'mañana' },
+            targetEntities: { personHints: [], entityHints: [] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toHaveLength(0);
+        expect(result.blockingAmbiguities.map((ambiguity) => ambiguity.field)).toEqual(['title', 'time']);
+    });
+
+    it('permite títulos legítimos que contienen palabras genéricas como parte de una frase', async () => {
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T13:00:00.000Z'), textRef: 'mañana a las 10' });
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Crea "Reunión sobre compromisos" para mañana a las 10',
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            targetEntities: { personHints: [], entityHints: ['Reunión sobre compromisos'] },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.steps).toHaveLength(1);
+        expect((result.steps[0].arguments as any).title).toBe('Reunión sobre compromisos');
+    });
+
     it('sin fecha -> ambigüedad bloqueante "dueDate ausente" (sección 15, ejemplo explícito de bloqueo)', async () => {
         const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
@@ -242,7 +295,7 @@ describe('planCreateCommitment (sección 14/15/37)', async () => {
     });
 
     it('create_personal_commitment nunca intenta resolver un responsable', async () => {
-        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T11:00:00.000Z'), textRef: 'mañana' });
+        parseDateFromTextMock.mockReturnValue({ date: new Date('2026-09-08T11:00:00.000Z'), textRef: 'mañana a las 8' });
         const objective = baseObjective({ objectiveType: 'create_personal_commitment', targetEntities: { personHints: [], entityHints: ['comprar pan'] }, constraints: { responsibleHint: 'Alguien' } });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(resolvePersonMock).not.toHaveBeenCalled();
@@ -636,7 +689,7 @@ describe('PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
 function memoryFixture(overrides: Record<string, any> = {}) {
     return {
         id: 'mem-1', isCurrent: true, sensitivity: 'normal', confidence: 0.9,
-        objectValue: 'el viernes', canonicalText: 'Alejandra prefiere el viernes',
+        objectValue: 'el viernes a las 10', canonicalText: 'Alejandra prefiere el viernes a las 10',
         ...overrides,
     };
 }
@@ -646,7 +699,7 @@ describe('MEMORY-INFORMED PLANNING: "Usa el horario que Alejandra prefiere" (sec
 
     it('sin fecha explícita pero con memoria vigente y no restringida cuyo texto sí es parseable -> se usa, declarado en provenance/preconditions', async () => {
         retrieveMemoryMock.mockResolvedValue([memoryFixture()]);
-        parseDateFromTextMock.mockImplementation((text: string) => (text === 'el viernes' ? { date: new Date('2026-09-11T12:00:00.000Z'), textRef: 'el viernes' } : null));
+        parseDateFromTextMock.mockImplementation((text: string) => (text === 'el viernes a las 10' ? { date: new Date('2026-09-11T13:00:00.000Z'), textRef: 'el viernes a las 10' } : null));
         const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(result.blockingAmbiguities).toEqual([]);

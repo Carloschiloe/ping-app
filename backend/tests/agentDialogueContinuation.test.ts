@@ -446,6 +446,52 @@ describe('reconcileContinuationObjective — slot merge (test areas 5, 6, 7)', (
         expect(Object.keys(reconciled.targetEntities).sort()).toEqual(['entityHints', 'personHints']);
         expect(reconciled.targetEntities.entityHints.every((h) => typeof h === 'string')).toBe(true);
     });
+
+    it('title answer fills a missing creation title instead of replacing the open objective', () => {
+        const prior = objective({
+            objectiveType: 'create_commitment_or_proposal',
+            targetEntities: { personHints: [], entityHints: [] },
+            sourceUtterance: 'Crea un compromiso para mañana',
+            timeConstraints: { rawHint: 'mañana' },
+        });
+        const fragment = objective({
+            objectiveType: 'create_personal_commitment',
+            sourceUtterance: 'Comprar materiales',
+            targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+            timeConstraints: { rawHint: null },
+        });
+        const state = dialogueState({
+            openObjective: prior,
+            ambiguities: [{ field: 'title', kind: 'blocking', reason: 'falta título' }],
+            pendingClarification: { field: 'title', question: '¿Qué quieres agendar?' },
+        });
+        expect(classifyContinuation(state, fragment)).toMatchObject({ isContinuation: true });
+        const reconciled = reconcileContinuationObjective(prior, fragment).objective;
+        expect(reconciled.targetEntities.entityHints).toEqual(['Comprar materiales']);
+        expect(reconciled.timeConstraints.rawHint).toBe('mañana');
+    });
+
+    it('generic title answer never fills the required title slot', () => {
+        const prior = objective({
+            objectiveType: 'create_commitment_or_proposal',
+            targetEntities: { personHints: [], entityHints: [] },
+            sourceUtterance: 'Crea un compromiso para mañana',
+            timeConstraints: { rawHint: 'mañana' },
+        });
+        const fragment = objective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'un compromiso',
+            targetEntities: { personHints: [], entityHints: ['un compromiso'] },
+            timeConstraints: { rawHint: null },
+        });
+        const state = dialogueState({
+            openObjective: prior,
+            ambiguities: [{ field: 'title', kind: 'blocking', reason: 'falta título' }],
+            pendingClarification: { field: 'title', question: '¿Qué quieres agendar?' },
+        });
+        expect(classifyContinuation(state, fragment).isContinuation).toBe(false);
+        expect(reconcileContinuationObjective(prior, fragment).objective.targetEntities.entityHints).toEqual([]);
+    });
 });
 
 // ─── Layer 2: live-wiring tests (runAgentTurn end-to-end) ──────────────────
@@ -519,7 +565,7 @@ beforeEach(async () => {
     const execModule = await import('../src/services/agentExecution.service');
     authorizePlanSpy = vi.spyOn(authModule, 'authorizePlan');
     executeAuthorizationSpy = vi.spyOn(execModule, 'executeAuthorization');
-}, 30000); // vi.resetModules() + several dynamic imports per test is slow under full-suite parallel load; default 10s hook timeout is too tight there (isolated runs finish in well under 1s).
+}, 60000); // vi.resetModules() + several dynamic imports per test is slow under full-suite parallel load; default 10s hook timeout is too tight there (isolated runs finish in well under 1s).
 
 afterEach(() => {
     clearAgentDialogueStateForTests();
@@ -975,6 +1021,50 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
         if (result.kind === 'plan') {
             expect(result.plan.steps[0]?.toolId).toBe('create_commitment');
         }
+    });
+});
+
+describe('Acceptance: incomplete shared commitment is a slot-filling conversation', () => {
+    it('Crea un compromiso para mañana -> Comprar materiales -> A las diez yields one guarded proposal', async () => {
+        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_commitment_or_proposal',
+                sourceUtterance: 'Crea un compromiso para mañana',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'mañana' },
+            }))
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_personal_commitment',
+                sourceUtterance: 'Comprar materiales',
+                targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+                timeConstraints: { rawHint: null },
+            }));
+
+        const turnContext = { timezone: 'America/Santiago', locale: 'es-CL' };
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Crea un compromiso para mañana', ...turnContext });
+        expect(first.kind).toBe('clarification');
+        if (first.kind === 'clarification') {
+            expect(first.questions.map((question) => question.field)).toEqual(expect.arrayContaining(['title', 'time']));
+        }
+
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Comprar materiales', ...turnContext });
+        expect(second.kind).toBe('clarification');
+        if (second.kind === 'clarification') {
+            expect(second.questions.map((question) => question.field)).toEqual(['time']);
+        }
+
+        const third = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las diez', ...turnContext });
+        expect(third.kind).toBe('plan');
+        if (third.kind === 'plan') {
+            expect(third.confirmationState).toBe('required');
+            expect(third.plan.steps).toHaveLength(1);
+            expect(third.plan.steps[0]?.toolId).toBe('create_commitment');
+            expect(third.presentation.stepPresentations[0]?.targetLabel).toBe('Comprar materiales');
+            expect(third.presentation.stepPresentations[0]?.dateLabel).toContain('10:00');
+        }
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });
 });
 
