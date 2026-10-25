@@ -919,6 +919,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             const obj = baseObjective('create_commitment_or_proposal', input, context.actorUserId, 'deterministic');
             obj.targetEntities.entityHints = entity ? [entity] : [];
             obj.targetEntities.personHints = preferPersonHint ? [preferPersonHint] : [];
+            obj.constraints.memoryTimeReference = { subjectHint: preferPersonHint ?? null };
             obj.confidence = entity ? 0.7 : 0.3;
             if (!entity) {
                 obj.ambiguities.push({ field: 'title', kind: 'blocking', reason: 'No pude identificar qué quieres agendar.' });
@@ -1259,6 +1260,10 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
     obj.constraints.decisionHint = payload.decisionHint;
     obj.constraints.draftOnly = payload.draftOnly;
     obj.constraints.responsibleHint = payload.responsibleHint;
+    if (MEMORY_PREFERENCE_PATTERN.test(input)) {
+        const memoryPreferenceMatch = input.match(MEMORY_PREFERENCE_PATTERN);
+        obj.constraints.memoryTimeReference = { subjectHint: memoryPreferenceMatch?.[1] ?? null };
+    }
     const inferredOwnership: CommitmentOwnership = payload.commitmentOwnership
         ?? (objectiveType === 'create_personal_commitment' ? 'personal' : 'personal');
     obj.constraints.commitmentOwnership = inferredOwnership;

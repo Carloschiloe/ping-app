@@ -492,6 +492,43 @@ describe('reconcileContinuationObjective — slot merge (test areas 5, 6, 7)', (
         expect(classifyContinuation(state, fragment).isContinuation).toBe(false);
         expect(reconcileContinuationObjective(prior, fragment).objective.targetEntities.entityHints).toEqual([]);
     });
+
+    it('does not absorb a new complete order with the same title and a new time', () => {
+        const prior = objective({
+            objectiveType: 'create_personal_commitment',
+            sourceUtterance: 'Recuérdame comprar materiales mañana a las 10',
+            targetEntities: { personHints: [], entityHints: ['comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+        });
+        const replacement = objective({
+            objectiveType: 'create_personal_commitment',
+            sourceUtterance: 'Recuérdame comprar materiales el viernes a las 12',
+            targetEntities: { personHints: [], entityHints: ['comprar materiales'] },
+            timeConstraints: { rawHint: 'el viernes a las 12' },
+        });
+        const state = dialogueState({ openObjective: prior });
+        expect(classifyContinuation(state, replacement)).toMatchObject({
+            isContinuation: false,
+            reason: 'same_title_new_temporal_request',
+        });
+    });
+
+    it('keeps an explicit correction as continuation when the title is omitted', () => {
+        const prior = objective({
+            objectiveType: 'create_personal_commitment',
+            sourceUtterance: 'Recuérdame comprar materiales mañana a las 10',
+            targetEntities: { personHints: [], entityHints: ['comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+        });
+        const correction = objective({
+            dialogueAct: 'correct',
+            sourceUtterance: 'Mejor el viernes a las 12',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: 'el viernes a las 12' },
+            slotDelta: { title: null, date: 'el viernes', time: 'a las 12' },
+        });
+        expect(classifyContinuation(dialogueState({ openObjective: prior }), correction).isContinuation).toBe(true);
+    });
 });
 
 // ─── Layer 2: live-wiring tests (runAgentTurn end-to-end) ──────────────────

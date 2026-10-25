@@ -27,7 +27,7 @@ describe('prepareV3Write', () => {
         const [plannerInput, options] = runAgentPlanningMock.mock.calls[0];
         expect(options.resolvedObjective.sourceUtterance).toBe('');
         expect(plannerInput.input).toBe('');
-        expect(plannerInput.canonicalFacts).toMatchObject({ canonicalOnly: true, temporal });
+        expect(plannerInput.canonicalFacts).toMatchObject({ canonicalOnly: true, temporal, temporalOrigin: 'current_turn' });
     });
 
     it('does not guess incomplete canonical facts', async () => {

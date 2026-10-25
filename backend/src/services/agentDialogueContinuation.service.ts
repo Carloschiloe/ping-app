@@ -388,11 +388,28 @@ export function classifyContinuation(
             || dialogueState.ambiguities.some((ambiguity) => ambiguity.field === 'title'));
     const newTurnHasOwnEntity = !!newTitle
         && newTurnObjective.targetEntities.entityHints[0] !== dialogueState.openObjective.targetEntities.entityHints[0];
+    const newTurnIntroducesTemporal = Boolean(
+        newTurnObjective.timeConstraints.rawHint?.trim()
+        || newTurnObjective.slotDelta?.date?.trim()
+        || newTurnObjective.slotDelta?.time?.trim(),
+    );
+    const sameTitleReplacement = !!priorTitle
+        && !!newTitle
+        && normalizeContinuationText(priorTitle) === normalizeContinuationText(newTitle)
+        && newTurnIntroducesTemporal
+        && newTurnObjective.dialogueAct !== 'correct';
+    if (sameTitleReplacement && !fillingMissingTitle) {
+        return { isContinuation: false, reason: 'same_title_new_temporal_request' };
+    }
     if (newTurnHasOwnEntity && !fillingMissingTitle) {
         return { isContinuation: false, reason: 'new_turn_names_its_own_entity' };
     }
 
     return { isContinuation: true, reason: 'same_type_fragment_continuation' };
+}
+
+function normalizeContinuationText(value: string): string {
+    return value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/gu, '').replace(/\s+/gu, ' ');
 }
 
 export interface ReconciledObjectiveResult {

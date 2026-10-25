@@ -154,6 +154,11 @@ export interface AgentObjective {
         draftOnly?: boolean; // true only when the user explicitly asked for a preview, never inferred silently
         responsibleHint?: string | null; // raw text naming who should be responsible for a new commitment
         commitmentOwnership?: CommitmentOwnership;
+        // Memory may supply a date/time only when the current request
+        // explicitly delegates temporal resolution to a remembered
+        // preference. Presence is a Core-validated intent signal, never a
+        // license for the planner to search memory for every date-less write.
+        memoryTimeReference?: { subjectHint: string | null };
     };
     desiredOutcome: string;   // short, human-readable restatement — never independently hallucinated prose (sección 27)
     timeConstraints: {

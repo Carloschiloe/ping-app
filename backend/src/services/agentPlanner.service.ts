@@ -42,6 +42,11 @@ export interface AgentPlannerCanonicalFacts {
     responsiblePerson?: RetrievalPerson | null;
     targetEntity?: RetrievalCommitment | null;
     temporal?: TemporalCoreResult;
+    // A canonical temporal fact is executable only when Core resolved it from
+    // the current turn. This prevents a stale checkpoint/context value from
+    // silently completing a new write request.
+    temporalOrigin?: 'current_turn';
+    temporalSourceRef?: string;
 }
 
 export interface AgentPlannerInput {
@@ -524,7 +529,27 @@ interface MemoryDateResolution {
     canonicalText: string;
 }
 
-async function tryResolveDateFromMemory(actorUserId: string, topicQuery: string, now: Date, timezone: string): Promise<MemoryDateResolution | null> {
+function normalizeMemoryMatchText(value: string): string {
+    return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/gu, '');
+}
+
+function memoryMatchesRequestedReference(record: { canonicalText: string; objectValue: string }, title: string, subjectHint: string | null): boolean {
+    const haystack = normalizeMemoryMatchText(`${record.canonicalText} ${record.objectValue}`);
+    const subject = subjectHint ? normalizeMemoryMatchText(subjectHint).trim() : '';
+    if (subject && !haystack.includes(subject)) return false;
+    const titleTokens = normalizeMemoryMatchText(title)
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((token) => token.length >= 3);
+    return titleTokens.length === 0 || titleTokens.every((token) => haystack.includes(token));
+}
+
+async function tryResolveDateFromMemory(
+    actorUserId: string,
+    topicQuery: string,
+    subjectHint: string | null,
+    now: Date,
+    timezone: string,
+): Promise<MemoryDateResolution | null> {
     const results = await retrieveMemory({
         ownerUserId: actorUserId,
         subjectPersonId: null,
@@ -540,6 +565,7 @@ async function tryResolveDateFromMemory(actorUserId: string, topicQuery: string,
         if (!record.isCurrent) continue;
         if (record.sensitivity === 'restricted') continue; // sección 30: nunca
         if (record.confidence < MEMORY_TIME_CONFIDENCE_FLOOR) continue;
+        if (!memoryMatchesRequestedReference(record, topicQuery, subjectHint)) continue;
         const parsed = parseDateFromText(record.objectValue, now, timezone);
         if (parsed) return { date: parsed.date, memoryId: record.id, canonicalText: record.canonicalText };
     }
@@ -555,21 +581,31 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
 
     const timezone = resolveTimeZone(input.timezone);
     const canonicalOnly = input.canonicalFacts?.canonicalOnly === true;
-    let parsed = canonicalOnly
+    const canonicalTemporalIsCurrentTurn = canonicalOnly
+        && input.canonicalFacts?.temporalOrigin === 'current_turn';
+    let parsed = canonicalTemporalIsCurrentTurn
         ? (() => {
             const date = dateFromCanonicalTemporal(input.canonicalFacts?.temporal);
             return date ? { date, textRef: 'canonical_temporal_fact' } : null;
         })()
         : parseDateFromText(objective.sourceUtterance, input.now, timezone);
     let dateFromMemory: MemoryDateResolution | null = null;
-    if (!parsed && !canonicalOnly && title) {
-        dateFromMemory = await tryResolveDateFromMemory(input.actorUserId, title, input.now, timezone);
+    const memoryTimeReference = objective.constraints.memoryTimeReference;
+    if (!parsed && !canonicalOnly && title && memoryTimeReference) {
+        dateFromMemory = await tryResolveDateFromMemory(
+            input.actorUserId,
+            title,
+            memoryTimeReference.subjectHint,
+            input.now,
+            timezone,
+        );
         if (dateFromMemory) parsed = { date: dateFromMemory.date, textRef: dateFromMemory.canonicalText };
     }
     if (!parsed) {
         blockingAmbiguities.push({ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' });
     } else {
-        const canonicalHasClockTime = input.canonicalFacts?.temporal?.status === 'resolved'
+        const canonicalHasClockTime = canonicalTemporalIsCurrentTurn
+            && input.canonicalFacts?.temporal?.status === 'resolved'
             && (input.canonicalFacts.temporal.value.kind === 'civil_datetime'
                 || input.canonicalFacts.temporal.value.kind === 'elapsed_target');
         const temporalSource = dateFromMemory?.canonicalText
@@ -654,6 +690,7 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
         return { steps: [], blockingAmbiguities: [{ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' }] };
     }
 
+    const temporalResolvedFromCurrentTurn = canonicalTemporalIsCurrentTurn && !dateFromMemory;
     const step = buildStep({
         toolId: 'create_commitment',
         operation: responsibleDisplayName
@@ -665,11 +702,18 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
             : `Se creará un nuevo compromiso "${title}".`,
         isShared: !!responsiblePersonId,
         sourceUtteranceSpan: title,
-        resolvedFrom: dateFromMemory ? 'memory' : 'user_text',
-        canonicalSourceRefs: dateFromMemory ? [{ sourceType: 'memory', sourceId: dateFromMemory.memoryId }] : [],
+        resolvedFrom: dateFromMemory ? 'memory' : temporalResolvedFromCurrentTurn ? 'canonical_context' : 'user_text',
+        canonicalSourceRefs: dateFromMemory
+            ? [{ sourceType: 'memory', sourceId: dateFromMemory.memoryId }]
+            : temporalResolvedFromCurrentTurn
+                ? [{ sourceType: 'agent_turn_temporal', sourceId: input.canonicalFacts?.temporalSourceRef ?? input.traceId ?? 'current_turn' }]
+                : [],
     });
     if (dateFromMemory) {
         step.preconditions.push('La fecha proviene de una preferencia registrada en memoria, no de una fecha explícita en esta solicitud.');
+    }
+    if (temporalResolvedFromCurrentTurn) {
+        step.preconditions.push('La fecha/hora proviene de la resolución temporal canónica de este turno.');
     }
     return { steps: [step], blockingAmbiguities: [] };
 }
@@ -819,7 +863,10 @@ async function planRescheduleOrCompleteOrRespond(objective: AgentObjective, inpu
         let parsed = parseDateFromText(objective.sourceUtterance, input.now, timezone);
         let dateFromMemory: MemoryDateResolution | null = null;
         if (!parsed) {
-            dateFromMemory = await tryResolveDateFromMemory(input.actorUserId, entity.title, input.now, timezone);
+            // Rescheduling an already resolved entity keeps its legacy,
+            // explicit memory preference path. New commitment creation uses
+            // the stricter memoryTimeReference gate above.
+            dateFromMemory = await tryResolveDateFromMemory(input.actorUserId, entity.title, null, input.now, timezone);
             if (dateFromMemory) parsed = { date: dateFromMemory.date, textRef: dateFromMemory.canonicalText };
         }
         if (!parsed) {

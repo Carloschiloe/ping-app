@@ -87,7 +87,14 @@ export async function prepareV3Write(input: V3WritePreparationInput): Promise<V3
     const plan = await runAgentPlanning({
         actorUserId: input.actorUserId, input: '', conversationId: input.conversationId,
         timezone: input.timezone, now: input.now, traceId: input.traceId, locale: input.locale,
-        canonicalFacts: { canonicalOnly: true, targetEntity: existingEntity, responsiblePerson: input.responsiblePerson, temporal: input.temporal },
+        canonicalFacts: {
+            canonicalOnly: true,
+            targetEntity: existingEntity,
+            responsiblePerson: input.responsiblePerson,
+            temporal: input.temporal,
+            temporalOrigin: 'current_turn',
+            temporalSourceRef: input.traceId ?? 'v3.current_turn',
+        },
     }, { resolvedObjective: objective });
     if (plan.status === 'needs_clarification' && plan.unresolvedInputs[0]) {
         const clarification = plannerClarification({ semanticTurn: input.semanticTurn, question: plan.unresolvedInputs[0] });

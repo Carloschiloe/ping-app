@@ -689,9 +689,18 @@ describe('PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX
 function memoryFixture(overrides: Record<string, any> = {}) {
     return {
         id: 'mem-1', isCurrent: true, sensitivity: 'normal', confidence: 0.9,
-        objectValue: 'el viernes a las 10', canonicalText: 'Alejandra prefiere el viernes a las 10',
+        objectValue: 'el viernes a las 10', canonicalText: 'Alejandra prefiere entrenar el viernes a las 10',
         ...overrides,
     };
+}
+
+function memoryBackedObjective(overrides: Record<string, any> = {}) {
+    return baseObjective({
+        sourceUtterance: 'Usa el horario que Alejandra prefiere para entrenar',
+        targetEntities: { personHints: ['Alejandra'], entityHints: ['entrenar'] },
+        constraints: { memoryTimeReference: { subjectHint: 'Alejandra' } },
+        ...overrides,
+    });
 }
 
 describe('MEMORY-INFORMED PLANNING: "Usa el horario que Alejandra prefiere" (sección 29/30, escenario H)', async () => {
@@ -700,7 +709,7 @@ describe('MEMORY-INFORMED PLANNING: "Usa el horario que Alejandra prefiere" (sec
     it('sin fecha explícita pero con memoria vigente y no restringida cuyo texto sí es parseable -> se usa, declarado en provenance/preconditions', async () => {
         retrieveMemoryMock.mockResolvedValue([memoryFixture()]);
         parseDateFromTextMock.mockImplementation((text: string) => (text === 'el viernes a las 10' ? { date: new Date('2026-09-11T13:00:00.000Z'), textRef: 'el viernes a las 10' } : null));
-        const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const objective = memoryBackedObjective({ objectiveType: 'create_commitment_or_proposal' });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(result.blockingAmbiguities).toEqual([]);
         expect(result.steps[0].provenance.resolvedFrom).toBe('memory');
@@ -710,21 +719,21 @@ describe('MEMORY-INFORMED PLANNING: "Usa el horario que Alejandra prefiere" (sec
 
     it('memoria "restricted" NUNCA se usa, ni siquiera si es vigente y confiable (sección 30: cero fuga)', async () => {
         retrieveMemoryMock.mockResolvedValue([memoryFixture({ sensitivity: 'restricted' })]);
-        const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const objective = memoryBackedObjective({ objectiveType: 'create_commitment_or_proposal' });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(result.blockingAmbiguities[0]?.field).toBe('dueAt');
     });
 
     it('memoria no vigente (isCurrent=false) NUNCA se usa -> sigue pidiendo aclaración', async () => {
         retrieveMemoryMock.mockResolvedValue([memoryFixture({ isCurrent: false })]);
-        const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const objective = memoryBackedObjective({ objectiveType: 'create_commitment_or_proposal' });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(result.blockingAmbiguities[0]?.field).toBe('dueAt');
     });
 
     it('sin ninguna memoria disponible -> clarificación normal (sección 29: "otherwise clarification")', async () => {
         retrieveMemoryMock.mockResolvedValue([]);
-        const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
+        const objective = memoryBackedObjective({ objectiveType: 'create_commitment_or_proposal' });
         const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(result.blockingAmbiguities[0]?.field).toBe('dueAt');
     });
@@ -734,6 +743,71 @@ describe('MEMORY-INFORMED PLANNING: "Usa el horario que Alejandra prefiere" (sec
         const objective = baseObjective({ objectiveType: 'create_commitment_or_proposal', targetEntities: { personHints: [], entityHints: ['entrenar'] } });
         await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
         expect(retrieveMemoryMock).not.toHaveBeenCalled();
+    });
+
+    it('no usa memoria por defecto para una solicitud nueva sin referencia explícita', async () => {
+        retrieveMemoryMock.mockResolvedValue([memoryFixture()]);
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: 'Crea entrenar para el viernes',
+            targetEntities: { personHints: [], entityHints: ['entrenar'] },
+            timeConstraints: { rawHint: null },
+        });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities[0]?.field).toBe('dueAt');
+        expect(retrieveMemoryMock).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una memoria vigente que no corresponde al título ni al sujeto solicitado', async () => {
+        retrieveMemoryMock.mockResolvedValue([memoryFixture({ canonicalText: 'Alejandra prefiere descansar el sábado a las 9' })]);
+        const objective = memoryBackedObjective({ objectiveType: 'create_commitment_or_proposal' });
+        const result = await planObjective({ objective, actorUserId: CARLOS, now: new Date() });
+        expect(result.blockingAmbiguities[0]?.field).toBe('dueAt');
+    });
+
+    it('no acepta un hecho temporal canónico sin origen verificable del turno actual', async () => {
+        const objective = baseObjective({
+            objectiveType: 'create_commitment_or_proposal',
+            sourceUtterance: '',
+            targetEntities: { personHints: [], entityHints: ['entrenar'] },
+        });
+        const result = await planObjective({
+            objective,
+            actorUserId: CARLOS,
+            now: new Date(),
+            canonicalFacts: {
+                canonicalOnly: true,
+                temporal: { status: 'resolved', value: { kind: 'civil_datetime', year: 2026, month: 9, day: 8, hour: 10, minute: 0, second: 0, timezone: 'America/Santiago', instant: '2026-09-08T14:00:00.000Z' } },
+            },
+        });
+        expect(result.blockingAmbiguities.map((ambiguity) => ambiguity.field)).toContain('dueAt');
+        expect(result.steps).toHaveLength(0);
+    });
+
+    it('marca la procedencia del temporal canónico del turno antes de autorizar', async () => {
+        const objective = baseObjective({
+            objectiveType: 'create_personal_commitment',
+            sourceUtterance: '',
+            targetEntities: { personHints: [], entityHints: ['entrenar'] },
+        });
+        const result = await planObjective({
+            objective,
+            actorUserId: CARLOS,
+            now: new Date(),
+            traceId: 'turn-temporal-1',
+            canonicalFacts: {
+                canonicalOnly: true,
+                temporalOrigin: 'current_turn',
+                temporalSourceRef: 'turn-temporal-1',
+                temporal: { status: 'resolved', value: { kind: 'civil_datetime', year: 2026, month: 9, day: 8, hour: 10, minute: 0, second: 0, timezone: 'America/Santiago', instant: '2026-09-08T14:00:00.000Z' } },
+            },
+        });
+        expect(result.blockingAmbiguities).toEqual([]);
+        expect(result.steps[0]?.provenance).toMatchObject({
+            resolvedFrom: 'canonical_context',
+            canonicalSourceRefs: [{ sourceType: 'agent_turn_temporal', sourceId: 'turn-temporal-1' }],
+        });
+        expect(result.steps[0]?.preconditions).toContain('La fecha/hora proviene de la resolución temporal canónica de este turno.');
     });
 });
 
