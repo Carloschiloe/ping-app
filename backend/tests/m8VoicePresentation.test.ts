@@ -71,10 +71,11 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
                 requiresExplicitConfirmation: true,
                 confirmationLabel: 'Confirmar',
                 cancelLabel: 'Cancelar',
+                stepPresentations: [{ effectDescription: 'Se preparará la actualización para mañana a las 10:00.' }],
             },
         })).toMatchObject({
             kind: 'plan',
-            authorizedText: 'Se preparará la actualización.',
+            authorizedText: 'Se preparará la actualización para mañana a las 10:00.',
             confirmationRequired: true,
             confirmationLabel: 'Confirmar',
             cancelLabel: 'Cancelar',

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+    extractExplicitTimeHint,
     extractTemporalHint,
     mergeTemporalCorrection,
     parseDateFromText,
@@ -174,5 +175,14 @@ describe('parseDateFromText', () => {
         expect(extractTemporalHint('No, mejor déjalo para las 12')).toBe('para las 12');
         expect(extractTemporalHint('mejor a las doce')).toBe('a las doce');
         expect(mergeTemporalCorrection('mañana a las 10', 'para las 12')).toBe('mañana para las 12');
+    });
+
+    it('reconoce una hora explícita inglesa en el mismo extractor canónico', () => {
+        const input = 'Agenda tomorrow at 10 call an unregistered person';
+
+        expect(extractExplicitTimeHint(input)).toBe('at 10');
+        expect(extractTemporalHint(input)).toBe('at 10');
+        expect(parseDateFromText(input, TUESDAY_SEPTEMBER_1, 'America/Santiago')?.date.toISOString())
+            .toBe('2026-09-02T14:00:00.000Z');
     });
 });

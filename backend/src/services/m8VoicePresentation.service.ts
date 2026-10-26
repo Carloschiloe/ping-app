@@ -61,9 +61,15 @@ export function buildM8VoiceCorePresentation(core: unknown): M8VoiceCorePresenta
         const confirmationLabel = firstText(presentation.confirmationLabel) || undefined;
         const cancelLabel = firstText(presentation.cancelLabel) || undefined;
         const confirmationRequired = confirmationState !== 'received' && presentation.requiresExplicitConfirmation === true;
+        const firstStepEffect = Array.isArray(presentation.stepPresentations)
+            ? firstText(presentation.stepPresentations[0]?.effectDescription)
+            : '';
         return {
             kind,
-            authorizedText: firstText(presentation.summary, presentation.headline, presentation.effectDescription) || EMPTY_CORE_PRESENTATION,
+            // Step effects are the Core-owned projection that retains the
+            // concrete date/time. A generic summary may be safe but omit the
+            // appointment slot, which makes voice confirmation incomplete.
+            authorizedText: firstText(firstStepEffect, presentation.summary, presentation.headline, presentation.effectDescription) || EMPTY_CORE_PRESENTATION,
             confirmationRequired,
             confirmationLabel,
             cancelLabel,
@@ -96,7 +102,7 @@ const buildM8VoiceCorePresentation=(core)=>{
   const empty='${EMPTY_CORE_PRESENTATION}';
   if(kind==='response')return {kind,authorizedText:firstText(value.response?.answer,value.answer)||empty,confirmationRequired:false};
   if(kind==='clarification'){const questions=Array.isArray(value.questions)?value.questions.map(question=>text(question?.question)).filter(Boolean):[];return {kind,authorizedText:firstText(questions.join(' '),value.partialResponse?.answer)||empty,confirmationRequired:false};}
-  if(kind==='plan'){const presentation=value.presentation&&typeof value.presentation==='object'?value.presentation:{};const confirmationState=resolveM8VoiceConfirmationState(value);const confirmationLabel=firstText(presentation.confirmationLabel)||undefined;const cancelLabel=firstText(presentation.cancelLabel)||undefined;const confirmationRequired=confirmationState!=='received'&&presentation.requiresExplicitConfirmation===true;return {kind,authorizedText:firstText(presentation.summary,presentation.headline,presentation.effectDescription)||empty,confirmationRequired,confirmationLabel,cancelLabel,confirmationPrompt:confirmationRequired&&confirmationLabel&&cancelLabel?'Puedes decir «'+confirmationLabel+'» para continuar o «'+cancelLabel+'» para dejarlo sin crear.':undefined};}
+  if(kind==='plan'){const presentation=value.presentation&&typeof value.presentation==='object'?value.presentation:{};const confirmationState=resolveM8VoiceConfirmationState(value);const confirmationLabel=firstText(presentation.confirmationLabel)||undefined;const cancelLabel=firstText(presentation.cancelLabel)||undefined;const confirmationRequired=confirmationState!=='received'&&presentation.requiresExplicitConfirmation===true;const firstStepEffect=Array.isArray(presentation.stepPresentations)?firstText(presentation.stepPresentations[0]?.effectDescription):'';return {kind,authorizedText:firstText(firstStepEffect,presentation.summary,presentation.headline,presentation.effectDescription)||empty,confirmationRequired,confirmationLabel,cancelLabel,confirmationPrompt:confirmationRequired&&confirmationLabel&&cancelLabel?'Puedes decir «'+confirmationLabel+'» para continuar o «'+cancelLabel+'» para dejarlo sin crear.':undefined};}
   if(kind==='unsupported')return {kind,authorizedText:text(value.reason)||empty,confirmationRequired:false};
   return {kind:'error',authorizedText:empty,confirmationRequired:false};
 };

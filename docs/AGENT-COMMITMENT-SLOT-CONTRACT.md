@@ -43,28 +43,44 @@ También se cubren título genérico aislado, fecha sin hora, título legítimo 
 - `m8LiveVoiceCoreBridge.integration.test.ts` ejecuta el JavaScript real del
   WebView con un PeerConnection/DataChannel controlado: transcripción final,
   VAD, `response.function_call_arguments.done`, llamada a `/agent/turn`,
-  presentación Core y ausencia de llamadas locales a `/agent/authorize` o
-  `/agent/execute`.
+  procesamiento real de `runAgentTurn`/Ping Core, presentación Core y ausencia
+  de llamadas locales a `/agent/authorize` o `/agent/execute`. El proveedor de
+  voz y sus dependencias externas se simulan; no se simula la respuesta final
+  del planificador.
+- La proyección de voz toma el efecto concreto del primer paso del plan antes
+  del resumen genérico, para no perder la hora en `authorizedText` cuando Core
+  ya resolvió el slot.
+
+### Regresión inglesa auditada
+
+- En `main` (`cbd942e`) el caso `Agenda tomorrow at 10 call an unregistered
+  person` pasa porque esa rama todavía no exigía evidencia de hora explícita.
+- En la rama auditada, antes de esta corrección, el mismo caso fallaba porque
+  el planificador compartido ya exigía `extractExplicitTimeHint`, pero el
+  extractor sólo reconocía la gramática española (`a las`/`para las`). La fecha
+  inglesa se resolvía, pero `tomorrow at 10` no producía evidencia de reloj y el
+  plan quedaba en aclaración.
+- `date-parser.service.ts` amplía el extractor canónico para `at 10`, `at
+  10:30` y horas inglesas en palabras, manteniendo la barrera de hora explícita.
+  La misma prueba vuelve a producir un plan autorizado pendiente en la rama,
+  sin inferir una hora desde memoria.
 
 ### Validación ejecutada
 
-- Suites dirigidas de planner/interpreter/continuidad/V3: **256/256**.
-- Voz WebView + broker: **19/19**.
-- Regresión completa backend fuera del sandbox: **2.669 pasaron, 20 skipped,
-  18 todo; 1 falló de 2.708**. El único fallo es el caso histórico en inglés
-  `tomorrow at 10` de
-  `agentTurnHttpBoundaryDialogueContinuity.test.ts:279`: el parser canónico
-  reconoce la fecha pero la ruta de compromiso compartido no reconoce esa hora
-  inglesa como hora explícita. No se relajó la expectativa ni se aumentó un
-  timeout.
+- Suites dirigidas de planner/interpreter/continuidad/V3, autorización y voz:
+  **12 archivos, 369/369 pruebas**.
+- Regresión completa backend fuera del sandbox: **182 archivos pasaron, 8
+  omitidos; 2.671 pasaron, 20 skipped y 18 todo; 0 fallos**. Se mantuvieron
+  las expectativas y los timeouts; apareció únicamente el aviso de sourcemap
+  incompleto de la dependencia `node-cron`.
 - Regresión móvil completa: **889/889** en 55 archivos.
 - TypeScript móvil: **exit 0**, 1.474 archivos, 59,88 s.
 - Build backend: **exit 0**.
 
-El fallo inglés anterior no usa memoria ni `canonicalFacts`; el diff de esta
-corrección sólo cambia la consulta de memoria cuando existe una referencia
-explícita, por lo que no se puede atribuir a la nueva barrera de procedencia.
-Queda como riesgo pendiente separado, no como una expectativa ocultada.
+La prueba de autorización conserva el digest, permisos e idempotencia: la
+confirmación válida ejecuta una sola operación, la confirmación repetida no
+crea otra, y la cancelación no ejecuta. El puente de voz no autoriza ni ejecuta
+localmente.
 
 Esta corrección se validó localmente. Los cambios se mantienen limitados a la
 rama de revisión: no se hizo merge, no se modificaron secretos ni migraciones,
