@@ -178,7 +178,8 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
         // pending-dialogue path, not by a fabricated provider plan.
         coreObjectiveMock.mockReset()
             .mockResolvedValueOnce(coreObjectiveFor('Crea un compromiso para mañana'))
-            .mockResolvedValueOnce(coreObjectiveFor('Comprar materiales'));
+            .mockResolvedValueOnce(coreObjectiveFor('Comprar materiales'))
+            .mockImplementation(async (input: string) => coreObjectiveFor(input));
         const elements = new Map([
             ['status', fakeElement()],
             ['hint', fakeElement()],
@@ -299,6 +300,13 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
                 () => sentProviderEvents.filter((event) => event.type === 'response.create' && event.response?.tool_choice === 'required').length >= expectedCoreCalls,
                 `tool-selection response ${expectedCoreCalls}`,
             );
+            // A new turn must close the audio gate again. This also covers the
+            // provider's alternate `response.audio.delta` event: it must not
+            // become audible while Ping Core is still being consulted.
+            const remote = elements.get('remote')!;
+            expect(remote.muted).toBe(true);
+            dataChannel!.onmessage?.({ data: JSON.stringify({ type: 'response.audio.delta', delta: 'provider text before Core' }) });
+            expect(remote.muted).toBe(true);
             // The provider arguments are deliberately wrong. The bridge must
             // still forward only the final transcript captured above.
             dataChannel!.onmessage?.({ data: JSON.stringify({
@@ -319,8 +327,9 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
         await sendVoiceTurn('Crea un compromiso para mañana', 'call-bridge-1');
         await sendVoiceTurn('Comprar materiales', 'call-bridge-2');
         await sendVoiceTurn('A las diez', 'call-bridge-3');
+        await sendVoiceTurn('Imbécil, esto sigue sin funcionar', 'call-bridge-4');
 
-        expect(coreResults.map((result) => result.kind)).toEqual(['clarification', 'clarification', 'plan']);
+        expect(coreResults.map((result) => result.kind)).toEqual(['clarification', 'clarification', 'plan', 'clarification']);
         expect(coreResults[0].questions.map((question: { field: string }) => question.field))
             .toEqual(expect.arrayContaining(['title', 'time']));
         expect(coreResults[1].questions.map((question: { field: string }) => question.field)).toEqual(['time']);
@@ -329,19 +338,19 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
         expect(coreResults[2].presentation.stepPresentations[0].dateLabel).toContain('10:00');
 
         const coreCalls = fetchCalls.filter((call) => call.url.endsWith('/agent/turn'));
-        expect(coreCalls).toHaveLength(3);
+        expect(coreCalls).toHaveLength(4);
         expect(coreCalls.map((call) => JSON.parse(String(call.init?.body)).input))
-            .toEqual(['Crea un compromiso para mañana', 'Comprar materiales', 'A las diez']);
+            .toEqual(['Crea un compromiso para mañana', 'Comprar materiales', 'A las diez', 'Imbécil, esto sigue sin funcionar']);
         expect(coreCalls.map((call) => JSON.parse(String(call.init?.body)))).toEqual(expect.arrayContaining([
             expect.objectContaining({ channel: 'mobile_voice', locale: 'es-CL', timezone: 'America/Santiago', conversationId: '11111111-1111-4111-8111-111111111111' }),
         ]));
-        expect(new Set(coreCalls.map((call) => (call.init?.headers as Record<string, string>)['Idempotency-Key'])).size).toBe(3);
+        expect(new Set(coreCalls.map((call) => (call.init?.headers as Record<string, string>)['Idempotency-Key'])).size).toBe(4);
         expect(fetchCalls.some((call) => /\/agent\/(authorize|execute)$/.test(call.url))).toBe(false);
 
         const outputs = sentProviderEvents
             .filter((event) => event.type === 'conversation.item.create')
             .map((event) => JSON.parse(event.item.output).core_presentation);
-        expect(outputs).toHaveLength(3);
+        expect(outputs).toHaveLength(4);
         expect(outputs[2]).toMatchObject({
             kind: 'plan',
             confirmationRequired: true,
@@ -349,6 +358,8 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
             cancelLabel: 'Cancelar',
         });
         expect(outputs[2].authorizedText).toMatch(/Comprar materiales.*10:00/);
+        expect(outputs[3]).toEqual(expect.objectContaining({ kind: 'clarification' }));
+        expect(outputs[3].authorizedText).not.toMatch(/no puedo verbalizar|lenguaje ofensivo/i);
         expect(postedNativeMessages).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'webview_ready' }),
             expect.objectContaining({ type: 'config_ack' }),

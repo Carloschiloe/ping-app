@@ -209,6 +209,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("tool_response_done");
         expect(html).toContain("response:toolChoice==='required'?{tool_choice:'required',output_modalities:['text']");
         expect(html).toContain("{tool_choice:'none',output_modalities:['audio']");
+        expect(html).toContain("if(toolChoice==='required')setAudioGate(false)");
+        expect(html).toContain("event.type==='response.audio.delta'||event.type==='response.output_audio_transcript.delta'");
         expect(html).toContain("keepalive:event==='session_closed'");
         expect(html).toContain("currentStage");
         expect(html).toContain("m8_diagnostic_error");
@@ -272,7 +274,7 @@ describe('M8 live voice environment boundary', () => {
     it('keeps real barge-in immediate while preserving the Core boundary', () => {
         const html = getM8LiveVoiceClientHtml('barge-in-contract-test-nonce');
         expect(html).toContain("if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false)");
-        expect(html).toContain("if(event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result'");
+        expect(html).toContain("if(event.type==='response.audio.delta'||event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'){if(!coreResultReady){telemetry('error',{detailCode:'audio_before_core_result'");
         expect(html).toContain("const selectedInput=await chooseCoreInput(providerInput,turnId)");
         expect(html).toContain("const wasPendingPlaybackInterruption=pendingPlaybackInterruption");
         expect(html).toContain("await callCore(selectedInput,event.call_id,turnId)");

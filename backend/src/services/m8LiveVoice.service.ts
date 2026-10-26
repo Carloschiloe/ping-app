@@ -200,8 +200,14 @@ type TelemetryStorageError = AppError & { storageDiagnostic?: string };
 
 function telemetryStorageError(message: string, providerError?: { message?: string } | null): TelemetryStorageError {
     const error = new AppError(message, 503) as TelemetryStorageError;
-    const detail = typeof providerError?.message === 'string'
-        ? providerError.message
+    const providerValue = providerError as ({ message?: unknown; statusCode?: unknown; code?: unknown; name?: unknown } | null | undefined);
+    const providerMessage = typeof providerValue?.message === 'string'
+        ? providerValue.message
+        : [providerValue?.name, providerValue?.code, providerValue?.statusCode]
+            .filter((value) => value !== undefined && value !== null && String(value).trim())
+            .join(' ');
+    const detail = providerMessage
+        ? providerMessage
             .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
             .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
             .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
@@ -233,8 +239,18 @@ async function ensureTelemetryBucket(): Promise<void> {
     if (!telemetryPersistenceEnabled()) return;
     if (!telemetryBucketReady) {
         const pending = (async () => {
-            const { error } = await supabaseAdmin.storage.createBucket(telemetryBucket(), { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
-            if (error && !/already exists|duplicate/i.test(error.message || '')) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
+            const bucketName = telemetryBucket();
+            // Storage provisioning is an infrastructure concern. Read first so
+            // a normal restart does not call createBucket for an already
+            // provisioned production bucket. If it is absent, retain the
+            // existing private-bucket bootstrap as a compatibility path.
+            const listed = await supabaseAdmin.storage.listBuckets();
+            if (listed.error) throw telemetryStorageError('Live voice telemetry storage unavailable', listed.error);
+            const exists = (listed.data || []).some((bucket) => bucket.name === bucketName);
+            if (!exists) {
+                const { error } = await supabaseAdmin.storage.createBucket(bucketName, { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
+                if (error && !/already exists|duplicate/i.test(error.message || '')) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
+            }
             markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
