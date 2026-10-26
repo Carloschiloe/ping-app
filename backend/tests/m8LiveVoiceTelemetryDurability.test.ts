@@ -2,26 +2,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storageState = vi.hoisted(() => ({
     objects: new Map<string, string>(),
-    bucketExists: false,
+    bucketExists: true,
     bucketCreates: 0,
-    bucketCreateFailures: 0,
+    bucketListFailures: 0,
     uploadFailures: 0,
 }));
 
 vi.mock('../src/lib/supabaseAdmin', () => ({
     supabaseAdmin: {
         storage: {
-            listBuckets: async () => ({
-                data: storageState.bucketExists ? [{ name: 'm8-live-voice-telemetry' }] : [],
-                error: null,
-            }),
+            listBuckets: async () => {
+                if (storageState.bucketListFailures > 0) {
+                    storageState.bucketListFailures -= 1;
+                    return { data: null, error: { message: 'temporary storage unavailable' } };
+                }
+                return {
+                    data: storageState.bucketExists ? [{ name: 'm8-live-voice-telemetry' }] : [],
+                    error: null,
+                };
+            },
             createBucket: async () => {
                 storageState.bucketCreates += 1;
-                if (storageState.bucketCreateFailures > 0) {
-                    storageState.bucketCreateFailures -= 1;
-                    return { error: { message: 'temporary storage unavailable' } };
-                }
-                storageState.bucketExists = true;
                 return { error: null };
             },
             from: () => ({
@@ -70,9 +71,9 @@ describe('M8 production telemetry durable storage contract', () => {
         process.env.SUPABASE_SERVICE_ROLE_KEY = 'diagnostic-only-test-key';
         process.env.M8_LIVE_VOICE_TELEMETRY_PERSISTENCE = 'true';
         storageState.objects.clear();
-        storageState.bucketExists = false;
+        storageState.bucketExists = true;
         storageState.bucketCreates = 0;
-        storageState.bucketCreateFailures = 0;
+        storageState.bucketListFailures = 0;
         storageState.uploadFailures = 0;
         clearM8LiveVoiceTelemetryForTests();
     });
@@ -101,11 +102,11 @@ describe('M8 production telemetry durable storage contract', () => {
         expect(recovered).toMatchObject({ voiceSessionId: voice, deviceSessionId: device, closed: true, eventCount: 2, sideEffects: 0 });
         expect(JSON.stringify(recovered)).not.toContain(conversation);
         expect(JSON.stringify(recovered)).not.toContain('hidden');
-        expect(storageState.bucketCreates).toBe(1);
+        expect(storageState.bucketCreates).toBe(0);
     });
 
-    it('recovers bucket initialization after a transient storage failure', async () => {
-        storageState.bucketCreateFailures = 1;
+    it('recovers bucket verification after a transient storage failure', async () => {
+        storageState.bucketListFailures = 1;
 
         await expect(recordM8LiveVoiceTelemetry(actor, {
             voiceSessionId: voice,
@@ -123,9 +124,24 @@ describe('M8 production telemetry durable storage contract', () => {
             sideEffects: 0,
         })).resolves.toBeUndefined();
 
-        expect(storageState.bucketCreates).toBe(2);
+        expect(storageState.bucketCreates).toBe(0);
         const recovered = await getLatestM8LiveVoiceTelemetryInternal();
         expect(recovered).toMatchObject({ voiceSessionId: voice, eventCount: 2 });
+    });
+
+    it('does not provision a missing production bucket from the telemetry request path', async () => {
+        storageState.bucketExists = false;
+
+        await expect(recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: 'session_started',
+            atMs: 2,
+            sideEffects: 0,
+        })).resolves.toBeUndefined();
+
+        expect(storageState.bucketCreates).toBe(0);
+        expect(storageState.objects.size).toBe(0);
     });
 
     it('retries a transient telemetry object write without losing the event', async () => {

@@ -240,17 +240,15 @@ async function ensureTelemetryBucket(): Promise<void> {
     if (!telemetryBucketReady) {
         const pending = (async () => {
             const bucketName = telemetryBucket();
-            // Storage provisioning is an infrastructure concern. Read first so
-            // a normal restart does not call createBucket for an already
-            // provisioned production bucket. If it is absent, retain the
-            // existing private-bucket bootstrap as a compatibility path.
+            // Storage provisioning is an infrastructure concern and must not
+            // happen from the request path. Verify the explicitly provisioned
+            // private bucket; a missing bucket is a configuration failure that
+            // must remain visible instead of being masked by an admin-level
+            // createBucket attempt.
             const listed = await supabaseAdmin.storage.listBuckets();
             if (listed.error) throw telemetryStorageError('Live voice telemetry storage unavailable', listed.error);
             const exists = (listed.data || []).some((bucket) => bucket.name === bucketName);
-            if (!exists) {
-                const { error } = await supabaseAdmin.storage.createBucket(bucketName, { public: false, fileSizeLimit: '2097152', allowedMimeTypes: ['application/json'] });
-                if (error && !/already exists|duplicate/i.test(error.message || '')) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
-            }
+            if (!exists) throw telemetryStorageError('Live voice telemetry bucket is not configured', { message: `bucket_not_configured:${bucketName}` });
             markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
