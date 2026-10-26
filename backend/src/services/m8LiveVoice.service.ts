@@ -197,8 +197,41 @@ function markTelemetryPersistenceDegraded(error: unknown): void {
 }
 
 type TelemetryStorageOperation = 'list_buckets' | 'list_objects' | 'download' | 'upload' | 'remove';
+const TELEMETRY_STORAGE_ERROR_NAMES = new Set([
+    'StorageApiError',
+    'StorageError',
+    'StorageUnknownError',
+]);
+const TELEMETRY_STORAGE_ERROR_CODES = new Set([
+    '400',
+    '401',
+    '403',
+    '404',
+    '409',
+    '413',
+    '415',
+    '422',
+    '429',
+    '500',
+    '502',
+    '503',
+    '504',
+    'BucketNotFound',
+    'InvalidBucketName',
+    'InvalidKey',
+    'NoSuchBucket',
+    'NoSuchKey',
+    'NotFound',
+    'PayloadTooLarge',
+    'ResourceAlreadyExists',
+    'ServiceUnavailable',
+    'Unauthorized',
+    'Forbidden',
+    'bucket_not_configured',
+]);
+const GENERIC_STORAGE_DIAGNOSTIC = 'storage_error_unstructured' as const;
 type TelemetryStorageError = AppError & {
-    storageDiagnostic?: string;
+    storageDiagnostic?: typeof GENERIC_STORAGE_DIAGNOSTIC;
     storageOperation?: TelemetryStorageOperation;
     storageErrorName?: string;
     storageStatus?: number;
@@ -206,7 +239,6 @@ type TelemetryStorageError = AppError & {
 };
 
 type TelemetryStorageProviderError = {
-    message?: unknown;
     status?: unknown;
     statusCode?: unknown;
     code?: unknown;
@@ -215,14 +247,20 @@ type TelemetryStorageProviderError = {
     originalError?: unknown;
 };
 
-function safeStorageDiagnostic(value: unknown): string | undefined {
-    if (typeof value !== 'string') return undefined;
-    const sanitized = value
-        .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
-        .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
-        .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
-        .slice(0, 160);
-    return sanitized && sanitized !== '{}' ? sanitized : undefined;
+function allowedStorageErrorName(value: unknown): string | undefined {
+    return typeof value === 'string' && TELEMETRY_STORAGE_ERROR_NAMES.has(value) ? value : undefined;
+}
+
+function validStorageStatus(value: unknown): number | undefined {
+    const status = typeof value === 'number' || (typeof value === 'string' && /^\d{3}$/.test(value))
+        ? Number(value)
+        : NaN;
+    return Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+}
+
+function allowedStorageCode(value: unknown): string | undefined {
+    const code = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined;
+    return code && TELEMETRY_STORAGE_ERROR_CODES.has(code) ? code : undefined;
 }
 
 function telemetryStorageError(
@@ -233,36 +271,25 @@ function telemetryStorageError(
     const error = new AppError(message, 503) as TelemetryStorageError;
     const providerValue = providerError || {};
     const nested = (providerValue.cause || providerValue.originalError) as TelemetryStorageProviderError | undefined;
-    const providerMessage = safeStorageDiagnostic(providerValue.message)
-        || safeStorageDiagnostic(nested?.message);
-    const providerName = typeof providerValue.name === 'string'
-        ? providerValue.name
-        : typeof nested?.name === 'string' ? nested.name : undefined;
-    const providerStatus = Number(providerValue.status ?? nested?.status);
-    const providerCode = providerValue.statusCode ?? providerValue.code ?? nested?.statusCode ?? nested?.code;
+    const providerName = allowedStorageErrorName(providerValue.name)
+        || allowedStorageErrorName(nested?.name);
+    const providerStatus = validStorageStatus(providerValue.status)
+        || validStorageStatus(nested?.status);
+    const providerCode = allowedStorageCode(providerValue.statusCode)
+        || allowedStorageCode(providerValue.code)
+        || allowedStorageCode(nested?.statusCode)
+        || allowedStorageCode(nested?.code);
     if (operation) error.storageOperation = operation;
-    if (providerName) error.storageErrorName = safeStorageDiagnostic(providerName);
-    if (Number.isFinite(providerStatus)) error.storageStatus = providerStatus;
-    if (providerCode !== undefined && providerCode !== null && String(providerCode).trim()) {
-        error.storageCode = safeStorageDiagnostic(String(providerCode));
-    }
-    const detail = providerMessage
-        || [error.storageErrorName, error.storageCode, error.storageStatus]
-            .filter((value) => value !== undefined && value !== null && String(value).trim())
-            .join(' ')
-        || undefined;
-    if (detail) error.storageDiagnostic = detail;
+    if (providerName) error.storageErrorName = providerName;
+    if (providerStatus !== undefined) error.storageStatus = providerStatus;
+    if (providerCode) error.storageCode = providerCode;
+    if (!providerName && providerStatus === undefined && !providerCode) error.storageDiagnostic = GENERIC_STORAGE_DIAGNOSTIC;
     return error;
 }
 
 function telemetryErrorDiagnostic(error: unknown): string | undefined {
     const value = error as TelemetryStorageError | null;
-    if (typeof value?.storageDiagnostic === 'string') return value.storageDiagnostic;
-    const message = safeStorageDiagnostic(value?.message);
-    if (message) return message;
-    return [value?.storageErrorName, value?.storageCode, value?.storageStatus]
-        .filter((part) => part !== undefined && part !== null && String(part).trim())
-        .join(' ') || 'storage_error_unstructured';
+    return value?.storageDiagnostic;
 }
 
 export function getM8LiveVoiceTelemetryPersistenceStatus() {
@@ -289,7 +316,7 @@ async function ensureTelemetryBucket(): Promise<void> {
             const listed = await supabaseAdmin.storage.listBuckets();
             if (listed.error) throw telemetryStorageError('Live voice telemetry storage unavailable', listed.error, 'list_buckets');
             const exists = (listed.data || []).some((bucket) => bucket.name === bucketName);
-            if (!exists) throw telemetryStorageError('Live voice telemetry bucket is not configured', { message: `bucket_not_configured:${bucketName}` }, 'list_buckets');
+            if (!exists) throw telemetryStorageError('Live voice telemetry bucket is not configured', { code: 'bucket_not_configured' }, 'list_buckets');
             markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
@@ -399,7 +426,7 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
             storageErrorName: error instanceof Error && 'storageErrorName' in error ? (error as TelemetryStorageError).storageErrorName : undefined,
             storageStatus: error instanceof Error && 'storageStatus' in error ? (error as TelemetryStorageError).storageStatus : undefined,
             storageCode: error instanceof Error && 'storageCode' in error ? (error as TelemetryStorageError).storageCode : undefined,
-            errorMessage: telemetryErrorDiagnostic(error),
+            errorDiagnostic: telemetryErrorDiagnostic(error),
         });
         return;
     }
@@ -451,7 +478,7 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
             storageErrorName: error instanceof Error && 'storageErrorName' in error ? (error as TelemetryStorageError).storageErrorName : undefined,
             storageStatus: error instanceof Error && 'storageStatus' in error ? (error as TelemetryStorageError).storageStatus : undefined,
             storageCode: error instanceof Error && 'storageCode' in error ? (error as TelemetryStorageError).storageCode : undefined,
-            errorMessage: telemetryErrorDiagnostic(error),
+            errorDiagnostic: telemetryErrorDiagnostic(error),
         });
     } finally {
         if (telemetryWriteQueues.get(event.voiceSessionId) === next) telemetryWriteQueues.delete(event.voiceSessionId);

@@ -25,6 +25,9 @@ vi.mock('../src/lib/supabaseAdmin', () => ({
                             name: storageState.bucketListErrorName ?? undefined,
                             status: storageState.bucketListErrorStatus ?? undefined,
                             statusCode: storageState.bucketListErrorCode ?? undefined,
+                            code: 'unexpected-code-with-private-content',
+                            cause: { message: 'cause contains a private transcript and secret=hidden' },
+                            originalError: { message: 'original error contains Bearer private-token' },
                         },
                     };
                 }
@@ -167,7 +170,8 @@ describe('M8 production telemetry durable storage contract', () => {
             last_failure_code: 503,
         });
         const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
-        expect(warningText).toContain('bucket_not_configured:m8-live-voice-telemetry');
+        expect(warningText).toContain('"storageCode":"bucket_not_configured"');
+        expect(warningText).not.toContain('m8-live-voice-telemetry');
         expect(warningText).not.toContain('conversación privada que no debe aparecer');
         expect(warningText).not.toContain(conversation);
         warning.mockRestore();
@@ -176,7 +180,10 @@ describe('M8 production telemetry durable storage contract', () => {
     it('logs Storage failures with useful sanitized diagnostics', async () => {
         const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         storageState.bucketListFailures = 1;
-        storageState.bucketListErrorMessage = 'Authorization: Bearer storage-secret access_token=token-secret';
+        storageState.bucketListErrorMessage = 'private transcript Authorization: Bearer storage-secret access_token=token-secret';
+        storageState.bucketListErrorName = 'StorageApiError';
+        storageState.bucketListErrorStatus = 503;
+        storageState.bucketListErrorCode = '503';
 
         await expect(recordM8LiveVoiceTelemetry(actor, {
             voiceSessionId: voice,
@@ -190,10 +197,16 @@ describe('M8 production telemetry durable storage contract', () => {
 
         const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
         expect(warningText).toContain('"storageOperation":"list_buckets"');
-        expect(warningText).toContain('Authorization=[redacted]');
-        expect(warningText).toContain('access_token=[redacted]');
+        expect(warningText).toContain('"storageErrorName":"StorageApiError"');
+        expect(warningText).toContain('"storageStatus":503');
+        expect(warningText).toContain('"storageCode":"503"');
+        expect(warningText).not.toContain('errorMessage');
         expect(warningText).not.toContain('storage-secret');
         expect(warningText).not.toContain('token-secret');
+        expect(warningText).not.toContain('private transcript');
+        expect(warningText).not.toContain('unexpected-code-with-private-content');
+        expect(warningText).not.toContain('cause contains a private transcript');
+        expect(warningText).not.toContain('original error contains Bearer private-token');
         expect(warningText).not.toContain('otra conversación privada que no debe aparecer');
         expect(warningText).not.toContain(conversation);
         warning.mockRestore();
@@ -202,10 +215,10 @@ describe('M8 production telemetry durable storage contract', () => {
     it('identifies listBuckets when Supabase returns an unstructured error body', async () => {
         const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         storageState.bucketListFailures = 1;
-        storageState.bucketListErrorMessage = '{}';
-        storageState.bucketListErrorName = 'StorageApiError';
-        storageState.bucketListErrorStatus = 503;
-        storageState.bucketListErrorCode = '503';
+        storageState.bucketListErrorMessage = '{"private":"conversation"}';
+        storageState.bucketListErrorName = 'UnexpectedProviderError';
+        storageState.bucketListErrorStatus = null;
+        storageState.bucketListErrorCode = 'provider-secret-code';
 
         await expect(recordM8LiveVoiceTelemetry(actor, {
             voiceSessionId: voice,
@@ -217,11 +230,11 @@ describe('M8 production telemetry durable storage contract', () => {
 
         const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
         expect(warningText).toContain('"storageOperation":"list_buckets"');
-        expect(warningText).toContain('"storageErrorName":"StorageApiError"');
-        expect(warningText).toContain('"storageStatus":503');
-        expect(warningText).toContain('"storageCode":"503"');
-        expect(warningText).toContain('StorageApiError 503 503');
-        expect(warningText).not.toContain('{}');
+        expect(warningText).toContain('"errorDiagnostic":"storage_error_unstructured"');
+        expect(warningText).not.toContain('UnexpectedProviderError');
+        expect(warningText).not.toContain('provider-secret-code');
+        expect(warningText).not.toContain('private');
+        expect(warningText).not.toContain('conversation');
         warning.mockRestore();
     });
 
@@ -254,7 +267,8 @@ describe('M8 production telemetry durable storage contract', () => {
 
         const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
         expect(warningText).toContain('"storageOperation":"upload"');
-        expect(warningText).toContain('temporary storage unavailable');
+        expect(warningText).toContain('"errorDiagnostic":"storage_error_unstructured"');
+        expect(warningText).not.toContain('temporary storage unavailable');
         warning.mockRestore();
     });
 
