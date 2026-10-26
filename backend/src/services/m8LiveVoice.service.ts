@@ -196,32 +196,100 @@ function markTelemetryPersistenceDegraded(error: unknown): void {
     telemetryPersistenceLastFailureCode = error instanceof AppError ? error.statusCode : 'unknown';
 }
 
-type TelemetryStorageError = AppError & { storageDiagnostic?: string };
+type TelemetryStorageOperation = 'list_buckets' | 'list_objects' | 'download' | 'upload' | 'remove';
+const TELEMETRY_STORAGE_ERROR_NAMES = new Set([
+    'StorageApiError',
+    'StorageError',
+    'StorageUnknownError',
+]);
+const TELEMETRY_STORAGE_ERROR_CODES = new Set([
+    '400',
+    '401',
+    '403',
+    '404',
+    '409',
+    '413',
+    '415',
+    '422',
+    '429',
+    '500',
+    '502',
+    '503',
+    '504',
+    'BucketNotFound',
+    'InvalidBucketName',
+    'InvalidKey',
+    'NoSuchBucket',
+    'NoSuchKey',
+    'NotFound',
+    'PayloadTooLarge',
+    'ResourceAlreadyExists',
+    'ServiceUnavailable',
+    'Unauthorized',
+    'Forbidden',
+    'bucket_not_configured',
+]);
+const GENERIC_STORAGE_DIAGNOSTIC = 'storage_error_unstructured' as const;
+type TelemetryStorageError = AppError & {
+    storageDiagnostic?: typeof GENERIC_STORAGE_DIAGNOSTIC;
+    storageOperation?: TelemetryStorageOperation;
+    storageErrorName?: string;
+    storageStatus?: number;
+    storageCode?: string;
+};
 
-function telemetryStorageError(message: string, providerError?: { message?: string } | null): TelemetryStorageError {
+type TelemetryStorageProviderError = {
+    status?: unknown;
+    statusCode?: unknown;
+    code?: unknown;
+    name?: unknown;
+    cause?: unknown;
+    originalError?: unknown;
+};
+
+function allowedStorageErrorName(value: unknown): string | undefined {
+    return typeof value === 'string' && TELEMETRY_STORAGE_ERROR_NAMES.has(value) ? value : undefined;
+}
+
+function validStorageStatus(value: unknown): number | undefined {
+    const status = typeof value === 'number' || (typeof value === 'string' && /^\d{3}$/.test(value))
+        ? Number(value)
+        : NaN;
+    return Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+}
+
+function allowedStorageCode(value: unknown): string | undefined {
+    const code = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined;
+    return code && TELEMETRY_STORAGE_ERROR_CODES.has(code) ? code : undefined;
+}
+
+function telemetryStorageError(
+    message: string,
+    providerError?: TelemetryStorageProviderError | null,
+    operation?: TelemetryStorageOperation,
+): TelemetryStorageError {
     const error = new AppError(message, 503) as TelemetryStorageError;
-    const providerValue = providerError as ({ message?: unknown; statusCode?: unknown; code?: unknown; name?: unknown } | null | undefined);
-    const providerMessage = typeof providerValue?.message === 'string'
-        ? providerValue.message
-        : [providerValue?.name, providerValue?.code, providerValue?.statusCode]
-            .filter((value) => value !== undefined && value !== null && String(value).trim())
-            .join(' ');
-    const detail = providerMessage
-        ? providerMessage
-            .replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]')
-            .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
-            .replace(/(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
-            .slice(0, 160)
-        : undefined;
-    if (detail) error.storageDiagnostic = detail;
+    const providerValue = providerError || {};
+    const nested = (providerValue.cause || providerValue.originalError) as TelemetryStorageProviderError | undefined;
+    const providerName = allowedStorageErrorName(providerValue.name)
+        || allowedStorageErrorName(nested?.name);
+    const providerStatus = validStorageStatus(providerValue.status)
+        || validStorageStatus(nested?.status);
+    const providerCode = allowedStorageCode(providerValue.statusCode)
+        || allowedStorageCode(providerValue.code)
+        || allowedStorageCode(nested?.statusCode)
+        || allowedStorageCode(nested?.code);
+    if (operation) error.storageOperation = operation;
+    if (providerName) error.storageErrorName = providerName;
+    if (providerStatus !== undefined) error.storageStatus = providerStatus;
+    if (providerCode) error.storageCode = providerCode;
+    if (!providerName && providerStatus === undefined && !providerCode) error.storageDiagnostic = GENERIC_STORAGE_DIAGNOSTIC;
     return error;
 }
 
 function telemetryErrorDiagnostic(error: unknown): string | undefined {
-    const value = error as { storageDiagnostic?: unknown; message?: unknown } | null;
-    if (typeof value?.storageDiagnostic === 'string') return value.storageDiagnostic;
-    if (typeof value?.message === 'string') return value.message.slice(0, 160);
-    return undefined;
+    const value = error as TelemetryStorageError | null;
+    return value?.storageDiagnostic;
 }
 
 export function getM8LiveVoiceTelemetryPersistenceStatus() {
@@ -246,9 +314,9 @@ async function ensureTelemetryBucket(): Promise<void> {
             // must remain visible instead of being masked by an admin-level
             // createBucket attempt.
             const listed = await supabaseAdmin.storage.listBuckets();
-            if (listed.error) throw telemetryStorageError('Live voice telemetry storage unavailable', listed.error);
+            if (listed.error) throw telemetryStorageError('Live voice telemetry storage unavailable', listed.error, 'list_buckets');
             const exists = (listed.data || []).some((bucket) => bucket.name === bucketName);
-            if (!exists) throw telemetryStorageError('Live voice telemetry bucket is not configured', { message: `bucket_not_configured:${bucketName}` });
+            if (!exists) throw telemetryStorageError('Live voice telemetry bucket is not configured', { code: 'bucket_not_configured' }, 'list_buckets');
             markTelemetryPersistenceReady();
         })();
         // Do not permanently cache a transient provider/storage failure. A
@@ -294,12 +362,12 @@ async function downloadJson(path: string): Promise<Record<string, any> | null> {
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).download(path);
     if (error) {
         if (/not found|404|object does not exist/i.test(error.message || '')) return null;
-        throw telemetryStorageError('Live voice telemetry storage unavailable', error);
+        throw telemetryStorageError('Live voice telemetry storage unavailable', error, 'download');
     }
     try {
         return JSON.parse(await data.text()) as Record<string, any>;
     } catch {
-        throw telemetryStorageError('Live voice telemetry storage unavailable');
+        throw telemetryStorageError('Live voice telemetry storage unavailable', null, 'download');
     }
 }
 
@@ -324,12 +392,12 @@ async function uploadJson(path: string, value: unknown): Promise<void> {
         if (!error || !isTransientTelemetryStorageError(error) || attempt === TELEMETRY_WRITE_MAX_ATTEMPTS) break;
         await waitForTelemetryWriteRetry(attempt);
     }
-    if (error) throw telemetryStorageError('Live voice telemetry persistence failed', error);
+    if (error) throw telemetryStorageError('Live voice telemetry persistence failed', error, 'upload');
 }
 
 async function cleanupExpiredTelemetry(): Promise<void> {
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).list('latest', { limit: 1000, sortBy: { column: 'updated_at', order: 'asc' } });
-    if (error) throw telemetryStorageError('Live voice telemetry storage unavailable', error);
+    if (error) throw telemetryStorageError('Live voice telemetry storage unavailable', error, 'list_objects');
     const cutoff = Date.now() - TELEMETRY_RETENTION_MS;
     const expired = (data || []).filter(item => item.updated_at && Date.parse(item.updated_at) < cutoff).map(item => item.name).filter(Boolean);
     if (!expired.length) return;
@@ -338,10 +406,11 @@ async function cleanupExpiredTelemetry(): Promise<void> {
         const marker = await downloadJson(`latest/${name}`);
         if (marker?.actorUserIdHash && marker.voiceSessionId) sessionPaths.push(`sessions/${marker.actorUserIdHash}/${marker.voiceSessionId}.json`);
     }
-    await supabaseAdmin.storage.from(telemetryBucket()).remove([
+    const { error: removeError } = await supabaseAdmin.storage.from(telemetryBucket()).remove([
         ...expired.map(name => `latest/${name}`),
         ...sessionPaths,
     ]);
+    if (removeError) throw telemetryStorageError('Live voice telemetry storage unavailable', removeError, 'remove');
 }
 
 async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTelemetry, payload: Record<string, unknown>): Promise<void> {
@@ -353,7 +422,11 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         console.warn('[M8_TELEMETRY_DEGRADED]', {
             voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
             errorCode: error instanceof AppError ? error.statusCode : 'unknown',
-            errorMessage: telemetryErrorDiagnostic(error),
+            storageOperation: error instanceof Error && 'storageOperation' in error ? (error as TelemetryStorageError).storageOperation : undefined,
+            storageErrorName: error instanceof Error && 'storageErrorName' in error ? (error as TelemetryStorageError).storageErrorName : undefined,
+            storageStatus: error instanceof Error && 'storageStatus' in error ? (error as TelemetryStorageError).storageStatus : undefined,
+            storageCode: error instanceof Error && 'storageCode' in error ? (error as TelemetryStorageError).storageCode : undefined,
+            errorDiagnostic: telemetryErrorDiagnostic(error),
         });
         return;
     }
@@ -401,7 +474,11 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         console.warn('[M8_TELEMETRY_DEGRADED]', {
             voiceSessionIdHash: safetyIdentifier(event.voiceSessionId),
             errorCode: error instanceof AppError ? error.statusCode : 'unknown',
-            errorMessage: telemetryErrorDiagnostic(error),
+            storageOperation: error instanceof Error && 'storageOperation' in error ? (error as TelemetryStorageError).storageOperation : undefined,
+            storageErrorName: error instanceof Error && 'storageErrorName' in error ? (error as TelemetryStorageError).storageErrorName : undefined,
+            storageStatus: error instanceof Error && 'storageStatus' in error ? (error as TelemetryStorageError).storageStatus : undefined,
+            storageCode: error instanceof Error && 'storageCode' in error ? (error as TelemetryStorageError).storageCode : undefined,
+            errorDiagnostic: telemetryErrorDiagnostic(error),
         });
     } finally {
         if (telemetryWriteQueues.get(event.voiceSessionId) === next) telemetryWriteQueues.delete(event.voiceSessionId);
