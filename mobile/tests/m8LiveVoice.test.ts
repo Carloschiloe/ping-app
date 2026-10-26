@@ -52,4 +52,11 @@ describe('M8 live voice production surface', () => {
         expect(screen).toContain('accessibilityLabel="Abrir Ping Voz"');
         expect(screen).toContain('<Ionicons name="radio"');
     });
+
+    it('uses the canonical self conversation for the main voice entry point', () => {
+        const screen = read('src/screens/AgentPreviewScreen.tsx');
+        expect(screen).toContain('const historyConversationId = conversationId ?? selfConversationId;');
+        expect(screen).toContain('conversationId={historyConversationId}');
+        expect(screen).not.toContain('conversationId={conversationId}\n                onClose={() => setLiveVoiceVisible(false)}');
+    });
 });
