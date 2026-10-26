@@ -1081,8 +1081,12 @@ export async function runAgentTurn(
     }
 
     // 1) Ambiguity in the READ pipeline (unresolved person/time/topic) always
-    // wins first — there is nothing a plan or a response could safely say
-    // yet.
+    // wins first — except when the semantic boundary has already identified a
+    // tracked write objective. A creation request with missing slots must stay
+    // in the write planner so it can ask for the exact missing fields (title,
+    // time, responsible person, etc.) instead of being downgraded to the
+    // read-side `topic_too_broad` wording. The planner remains the only layer
+    // allowed to decide whether a proposal is complete or executable.
     //
     // PING — M-7B PHYSICAL FAILURE #1 FIX: this branch used to put the raw
     // internal machine reason (e.g. "person_ambiguous") directly into
@@ -1093,6 +1097,40 @@ export async function runAgentTurn(
     // realizeAgentClarification templates the read-only synthesis path
     // (buildClarificationResponse) already used correctly -- one canonical
     // wording source, not two diverging ones.
+    // The legacy semantic route can conservatively say READ while the
+    // canonical objective interpreter still identifies a tracked write. That
+    // candidate is already used below to preserve dialogue state, so use the
+    // same evidence to enter the planner instead of returning the read-side
+    // generic clarification. This keeps the decision structural: objective
+    // family + Core planner validation, never a phrase-specific override.
+    let writeObjectiveForClarification = semantic.objective
+        && isDialogueTrackedObjectiveType(semantic.objective.objectiveType)
+        ? semantic.objective
+        : null;
+    if (context.needsClarification && !writeObjectiveForClarification
+        && (isWriteActionRequest || contextCapabilityWriteSignal)) {
+        const candidateObjective = await new LlmObjectiveInterpreter().interpret(content, {
+            actorUserId: input.actorUserId,
+            conversationId,
+        });
+        if (candidateObjective && isDialogueTrackedObjectiveType(candidateObjective.objectiveType)) {
+            writeObjectiveForClarification = candidateObjective;
+        }
+    }
+    if (context.needsClarification && writeObjectiveForClarification) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'write_objective_owns_read_clarification',
+            dialogueScopeKey,
+            objectiveType: writeObjectiveForClarification.objectiveType,
+        });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: writeObjectiveForClarification,
+            admittedTurnSequence: options.dialogueTurnSequence,
+            preloadedCommitments: context.commitments,
+        }), traceId);
+    }
     if (context.needsClarification) {
         const clarification = context.clarification;
         const language = detectAgentLanguage(content, locale);
@@ -1129,10 +1167,7 @@ export async function runAgentTurn(
             // blocking a write-shaped commitment. In that narrow case Core
             // asks the canonical objective interpreter for the pending
             // objective so the dialogue state is not lost.
-            const candidateObjective = semantic.objective ?? await new LlmObjectiveInterpreter().interpret(content, {
-                actorUserId: input.actorUserId,
-                conversationId,
-            });
+            const candidateObjective = semantic.objective;
             const eligible = !!candidateObjective && isDialogueTrackedObjectiveType(candidateObjective.objectiveType);
             traceAgentDevice(traceId, 'AGENT_DIALOGUE_STATE_WRITE_ATTEMPT', {
                 objectiveType: candidateObjective?.objectiveType ?? null, eligible, dialogueScopeKey,

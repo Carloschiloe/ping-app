@@ -1063,7 +1063,16 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
 
 describe('Acceptance: incomplete shared commitment is a slot-filling conversation', () => {
     it('Crea un compromiso para mañana -> Comprar materiales -> A las diez yields one guarded proposal', async () => {
-        llmInputInterpretMock.mockResolvedValue(writeInterpretation());
+        // Reproduce the production failure boundary: the input interpreter is
+        // conservative and emits a read-shaped ambiguity hint even though it
+        // also carries the structural write signal and objective. Core must
+        // keep this in the write planner, never return topic_too_broad.
+        llmInputInterpretMock
+            .mockResolvedValueOnce(writeInterpretation({
+                intent: 'general_context',
+                ambiguityHints: ['topic_too_broad'],
+            }))
+            .mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock
             .mockResolvedValueOnce(writeObjective({
                 objectiveType: 'create_commitment_or_proposal',
@@ -1083,6 +1092,7 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
         expect(first.kind).toBe('clarification');
         if (first.kind === 'clarification') {
             expect(first.questions.map((question) => question.field)).toEqual(expect.arrayContaining(['title', 'time']));
+            expect(first.questions.map((question) => question.question).join(' ')).not.toMatch(/m[aá]s detalle sobre lo que buscas/i);
         }
 
         const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Comprar materiales', ...turnContext });
