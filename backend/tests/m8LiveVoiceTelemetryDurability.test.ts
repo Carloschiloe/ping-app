@@ -5,6 +5,7 @@ const storageState = vi.hoisted(() => ({
     bucketExists: true,
     bucketCreates: 0,
     bucketListFailures: 0,
+    bucketListErrorMessage: null as string | null,
     uploadFailures: 0,
 }));
 
@@ -14,7 +15,7 @@ vi.mock('../src/lib/supabaseAdmin', () => ({
             listBuckets: async () => {
                 if (storageState.bucketListFailures > 0) {
                     storageState.bucketListFailures -= 1;
-                    return { data: null, error: { message: 'temporary storage unavailable' } };
+                    return { data: null, error: { message: storageState.bucketListErrorMessage ?? 'temporary storage unavailable' } };
                 }
                 return {
                     data: storageState.bucketExists ? [{ name: 'm8-live-voice-telemetry' }] : [],
@@ -55,6 +56,7 @@ vi.mock('../src/lib/supabaseAdmin', () => ({
 import {
     clearM8LiveVoiceTelemetryForTests,
     getLatestM8LiveVoiceTelemetryInternal,
+    getM8LiveVoiceTelemetryPersistenceStatus,
     recordM8LiveVoiceTelemetry,
 } from '../src/services/m8LiveVoice.service';
 
@@ -74,6 +76,7 @@ describe('M8 production telemetry durable storage contract', () => {
         storageState.bucketExists = true;
         storageState.bucketCreates = 0;
         storageState.bucketListFailures = 0;
+        storageState.bucketListErrorMessage = null;
         storageState.uploadFailures = 0;
         clearM8LiveVoiceTelemetryForTests();
     });
@@ -130,18 +133,55 @@ describe('M8 production telemetry durable storage contract', () => {
     });
 
     it('does not provision a missing production bucket from the telemetry request path', async () => {
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         storageState.bucketExists = false;
 
         await expect(recordM8LiveVoiceTelemetry(actor, {
             voiceSessionId: voice,
             deviceSessionId: device,
+            conversationId: conversation,
             event: 'session_started',
+            transcript: 'conversación privada que no debe aparecer en el diagnóstico',
             atMs: 2,
             sideEffects: 0,
         })).resolves.toBeUndefined();
 
         expect(storageState.bucketCreates).toBe(0);
         expect(storageState.objects.size).toBe(0);
+        expect(getM8LiveVoiceTelemetryPersistenceStatus()).toMatchObject({
+            state: 'degraded',
+            last_failure_code: 503,
+        });
+        const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
+        expect(warningText).toContain('bucket_not_configured:m8-live-voice-telemetry');
+        expect(warningText).not.toContain('conversación privada que no debe aparecer');
+        expect(warningText).not.toContain(conversation);
+        warning.mockRestore();
+    });
+
+    it('logs Storage failures with useful sanitized diagnostics', async () => {
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        storageState.bucketListFailures = 1;
+        storageState.bucketListErrorMessage = 'Authorization: Bearer storage-secret access_token=token-secret';
+
+        await expect(recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            conversationId: conversation,
+            event: 'session_started',
+            transcript: 'otra conversación privada que no debe aparecer',
+            atMs: 2,
+            sideEffects: 0,
+        })).resolves.toBeUndefined();
+
+        const warningText = warning.mock.calls.map(args => JSON.stringify(args)).join('\n');
+        expect(warningText).toContain('Authorization=[redacted]');
+        expect(warningText).toContain('access_token=[redacted]');
+        expect(warningText).not.toContain('storage-secret');
+        expect(warningText).not.toContain('token-secret');
+        expect(warningText).not.toContain('otra conversación privada que no debe aparecer');
+        expect(warningText).not.toContain(conversation);
+        warning.mockRestore();
     });
 
     it('retries a transient telemetry object write without losing the event', async () => {
