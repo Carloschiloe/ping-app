@@ -790,6 +790,27 @@ export async function runAgentTurn(
         }, traceId);
     }
 
+    // A planner clarification such as a missing due date is an open
+    // dialogue slot, not a new read query. The answer may be only a temporal
+    // fragment, so there is no standalone write verb for the input
+    // interpreter to route. Bind the fragment to the Core-owned objective
+    // before the attribute-read projection below, which otherwise would
+    // treat a valid answer such as "A las diez" as a question about the
+    // already-known date. The same planner / authorization path is reused;
+    // this branch only supplies the missing temporal slot.
+    const pendingTemporalObjective = buildPendingTemporalAnswerObjective(existingDialogueState, content);
+    if (pendingTemporalObjective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
+        });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: pendingTemporalObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
+        }), traceId);
+    }
+
     // An attribute question about the currently open Core-owned objective is
     // a read of dialogue state, not a new retrieval query. The state carries
     // only bounded user-proposed fields; it does not authorize or execute a
@@ -816,25 +837,6 @@ export async function runAgentTurn(
                 citations: [],
             },
         }, traceId);
-    }
-
-    // A planner clarification such as a missing due date is an open
-    // dialogue slot, not a new read query. The answer may be only a temporal
-    // fragment, so there is no standalone write verb for the input
-    // interpreter to route. Bind the fragment to the Core-owned objective
-    // after the normal semantic pass and send it through the same planner /
-    // authorization path.
-    const pendingTemporalObjective = buildPendingTemporalAnswerObjective(existingDialogueState, content);
-    if (pendingTemporalObjective) {
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
-        });
-        return finalizeAgentTurn(await runWriteActionTurn({
-            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-            newTurnObjective: pendingTemporalObjective,
-            admittedTurnSequence: options.dialogueTurnSequence,
-        }), traceId);
     }
 
     // A read-shaped turn can explicitly name a previously suspended objective

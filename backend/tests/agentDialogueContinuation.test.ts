@@ -1113,6 +1113,51 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
         expect(authorizePlanSpy).not.toHaveBeenCalled();
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });
+
+    it('reconciles a structured temporal answer when the provider marks the fragment unsupported', async () => {
+        llmInputInterpretMock
+            .mockResolvedValueOnce(writeInterpretation())
+            .mockResolvedValue(readOnlyInterpretation({
+                intent: 'commitment_query',
+                dialogueAct: 'clarify',
+                followUpAttribute: 'time',
+                timeExpression: 'A las diez',
+                isWriteActionRequest: false,
+            }));
+        llmObjectiveInterpretMock
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_commitment_or_proposal',
+                sourceUtterance: 'Crea un compromiso para mañana',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'mañana' },
+            }))
+            .mockResolvedValue(writeObjective({
+                objectiveType: 'unsupported',
+                dialogueAct: 'clarify',
+                sourceUtterance: 'A las diez',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'A las diez' },
+                slotDelta: { title: null, date: null, time: 'A las diez' },
+            }));
+
+        const turnContext = { timezone: 'America/Santiago', locale: 'es-CL' };
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Crea un compromiso para mañana', ...turnContext })).kind)
+            .toBe('clarification');
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Comprar materiales', ...turnContext })).kind)
+            .toBe('clarification');
+
+        const third = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las diez', ...turnContext });
+
+        expect(third.kind).toBe('plan');
+        if (third.kind === 'plan') {
+            expect(third.confirmationState).toBe('required');
+            expect(third.presentation.stepPresentations).toHaveLength(1);
+            expect(third.presentation.stepPresentations[0]?.targetLabel).toBe('Comprar materiales');
+            expect(third.presentation.stepPresentations[0]?.dateLabel).toContain('10:00');
+        }
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
 });
 
 describe('M-7 physical defect regressions: pending edits and cancellation', () => {
