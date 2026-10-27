@@ -33,6 +33,7 @@ import {
     isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
     buildPendingTemporalAnswerObjective,
+    resolvePendingTemporalClarificationAnswer,
     classifyPlanCorrection,
     buildPlanTitleCorrection,
     groundPendingPlanCandidate,
@@ -130,6 +131,59 @@ describe('isContinuationEligibleObjectiveType', () => {
         expect(isContinuationEligibleObjectiveType('reschedule_existing_commitment')).toBe(false);
         expect(isContinuationEligibleObjectiveType('respond_to_existing_proposal')).toBe(false);
         expect(isContinuationEligibleObjectiveType('unsupported')).toBe(false);
+    });
+});
+
+describe('temporal clarification precedence', () => {
+    const pendingTime = dialogueState({
+        pendingClarification: { field: 'time', question: '¿A qué hora?' },
+        openObjective: objective({
+            sourceUtterance: 'Crea un compromiso para mañana',
+            targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }),
+    });
+
+    it('accepts a valid contextual time answer even with suspend_current and unsupported objective', () => {
+        const resolved = resolvePendingTemporalClarificationAnswer(pendingTime, 'A las diez', {
+            interpretation: {
+                dialogueAct: 'clarify',
+                dialogueControl: 'suspend_current',
+                followUpAttribute: 'time',
+            },
+            objective: { dialogueAct: 'clarify' },
+        });
+
+        expect(resolved?.timeConstraints.rawHint).toBe('A las diez');
+        expect(resolved?.targetEntities.entityHints).toEqual(['Comprar materiales']);
+    });
+
+    it.each([
+        ['explicit rejection', { dialogueAct: 'reject', dialogueControl: 'suspend_current' }],
+        ['explicit deferral', { dialogueAct: 'defer', dialogueControl: 'suspend_current' }],
+        ['explicit topic change', { dialogueAct: 'new_objective', dialogueControl: 'suspend_current' }],
+        ['uncontextualized suspension', { dialogueAct: null, dialogueControl: 'suspend_current', followUpAttribute: null }],
+    ])('does not consume the temporal slot for %s', (_label, interpretation) => {
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, 'mañana a las diez', {
+            interpretation,
+            objective: { dialogueAct: interpretation.dialogueAct },
+        })).toBeNull();
+    });
+
+    it('rejects an ambiguous temporal answer and a turn without an active clarification', () => {
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, 'cuando pueda', {
+            interpretation: { dialogueAct: 'clarify', followUpAttribute: 'time' },
+            objective: { dialogueAct: 'clarify' },
+        })).toBeNull();
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, '¿Qué compromisos tengo mañana?', {
+            route: 'read',
+            interpretation: { dialogueAct: null, followUpAttribute: null },
+            objective: { dialogueAct: null },
+        })).toBeNull();
+        expect(resolvePendingTemporalClarificationAnswer(null, 'A las diez', {
+            interpretation: { dialogueAct: 'clarify', followUpAttribute: 'time' },
+            objective: { dialogueAct: 'clarify' },
+        })).toBeNull();
     });
 });
 
@@ -1120,6 +1174,7 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
             .mockResolvedValue(readOnlyInterpretation({
                 intent: 'commitment_query',
                 dialogueAct: 'clarify',
+                dialogueControl: 'suspend_current',
                 followUpAttribute: 'time',
                 timeExpression: 'A las diez',
                 isWriteActionRequest: false,

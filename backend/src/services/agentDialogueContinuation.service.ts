@@ -20,6 +20,7 @@
 // bounded-rollout instruction -- see isContinuationEligibleObjectiveType.
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
+import type { AgentDialogueAct, Interpretation } from '../types/agentContext';
 import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
 import {
@@ -564,6 +565,54 @@ export function buildPendingTemporalAnswerObjective(
         timeConstraints: { rawHint: timeHint },
         ambiguities: [],
     };
+}
+
+type PendingTemporalSemanticSignals = {
+    route?: 'read' | 'write';
+    interpretation?: Pick<Interpretation, 'dialogueAct' | 'dialogueControl' | 'followUpAttribute'> | null;
+    objective?: Pick<AgentObjective, 'dialogueAct' | 'objectiveType'> | null;
+};
+
+const EXPLICIT_TEMPORAL_OVERRIDE_ACTS: ReadonlySet<AgentDialogueAct> = new Set([
+    'reject', 'defer', 'new_objective',
+]);
+
+/**
+ * Resolve the precedence between an active temporal clarification and a
+ * contradictory provider control signal in one Core-owned boundary.
+ *
+ * A valid temporal slot answer wins only when the semantic result ties the
+ * turn to clarification of that slot.  Explicit rejection, deferral or a
+ * new objective remains authoritative, so a topic switch/cancellation cannot
+ * be consumed as a time answer merely because it contains a temporal phrase.
+ */
+export function resolvePendingTemporalClarificationAnswer(
+    dialogueState: AgentDialogueState | null,
+    rawAnswer: string,
+    semantic: PendingTemporalSemanticSignals | null,
+): AgentObjective | null {
+    const candidate = buildPendingTemporalAnswerObjective(dialogueState, rawAnswer);
+    if (!candidate) return null;
+
+    const interpretationAct = semantic?.interpretation?.dialogueAct ?? null;
+    const objectiveAct = semantic?.objective?.dialogueAct ?? null;
+    if (EXPLICIT_TEMPORAL_OVERRIDE_ACTS.has(interpretationAct as AgentDialogueAct)
+        || EXPLICIT_TEMPORAL_OVERRIDE_ACTS.has(objectiveAct as AgentDialogueAct)) {
+        return null;
+    }
+
+    const hasExplicitSuspension = semantic?.interpretation?.dialogueControl === 'suspend_current';
+    const isContextualClarification = semantic?.interpretation?.followUpAttribute === 'time'
+        || interpretationAct === 'clarify'
+        || objectiveAct === 'clarify';
+    // Legacy/provider-neutral interpreters may omit lifecycle metadata. In
+    // that case the already-open Core slot is sufficient evidence. A bare
+    // suspend signal is the only contradictory control that must be resolved
+    // explicitly before the temporal candidate can win.
+    if (hasExplicitSuspension || semantic?.route === 'read') {
+        return isContextualClarification ? candidate : null;
+    }
+    return candidate;
 }
 
 /** A pending plan can be replaced only by a complete, explicitly new act. */

@@ -67,7 +67,7 @@ import {
     isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
-    buildPendingTemporalAnswerObjective,
+    resolvePendingTemporalClarificationAnswer,
     classifyPlanCorrection,
     buildPlanDateCorrection,
     buildPendingPlanEdit,
@@ -760,6 +760,27 @@ export async function runAgentTurn(
         } : undefined,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
 
+    // A planner clarification has precedence over a contradictory provider
+    // suspend signal only when the semantic result links the valid answer to
+    // the active temporal slot. Explicit reject/defer/new-objective acts are
+    // retained by the resolver and continue through the suspension boundary.
+    const pendingTemporalObjective = resolvePendingTemporalClarificationAnswer(
+        existingDialogueState,
+        content,
+        semantic,
+    );
+    if (pendingTemporalObjective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
+        });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: pendingTemporalObjective,
+            admittedTurnSequence: options.dialogueTurnSequence,
+        }), traceId);
+    }
+
     // A semantic topic switch without a complete replacement objective must
     // suspend, not discard, the Core-owned objective. No write or execution
     // occurs here; the earlier plan remains non-authorized and can only be
@@ -788,27 +809,6 @@ export async function runAgentTurn(
                 citations: [],
             },
         }, traceId);
-    }
-
-    // A planner clarification such as a missing due date is an open
-    // dialogue slot, not a new read query. The answer may be only a temporal
-    // fragment, so there is no standalone write verb for the input
-    // interpreter to route. Bind the fragment to the Core-owned objective
-    // before the attribute-read projection below, which otherwise would
-    // treat a valid answer such as "A las diez" as a question about the
-    // already-known date. The same planner / authorization path is reused;
-    // this branch only supplies the missing temporal slot.
-    const pendingTemporalObjective = buildPendingTemporalAnswerObjective(existingDialogueState, content);
-    if (pendingTemporalObjective) {
-        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
-        });
-        return finalizeAgentTurn(await runWriteActionTurn({
-            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-            newTurnObjective: pendingTemporalObjective,
-            admittedTurnSequence: options.dialogueTurnSequence,
-        }), traceId);
     }
 
     // An attribute question about the currently open Core-owned objective is
