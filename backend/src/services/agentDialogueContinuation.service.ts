@@ -398,7 +398,13 @@ export function classifyContinuation(
         && normalizeContinuationText(priorTitle) === normalizeContinuationText(newTitle)
         && newTurnIntroducesTemporal
         && newTurnObjective.dialogueAct !== 'correct';
-    if (sameTitleReplacement && !fillingMissingTitle) {
+    // A temporal answer built by Core carries the prior source utterance as
+    // provenance. It is a slot fill for the active objective, not a new
+    // same-title request that should replace it.
+    const pendingTemporalMerge = !!dialogueState.openObjective.sourceUtterance.trim()
+        && newTurnObjective.sourceUtterance.trim().startsWith(dialogueState.openObjective.sourceUtterance.trim())
+        && !!newTurnObjective.timeConstraints.rawHint?.trim();
+    if (sameTitleReplacement && !fillingMissingTitle && !pendingTemporalMerge) {
         return { isContinuation: false, reason: 'same_title_new_temporal_request' };
     }
     if (newTurnHasOwnEntity && !fillingMissingTitle) {
@@ -521,10 +527,10 @@ function hasExplicitDateWord(text: string): boolean {
 // module's one caller contract (PendingClarificationAnswerOutcome) so
 // agentTurnCore.service.ts's single dialogue-first check handles either
 // without a field-specific branch of its own. Extending this further (e.g.
-// 'newDueAt'/'title', which need date-parsing/free-text reconciliation
-// instead of candidate selection -- a materially different shape) remains
-// explicitly a later, separate task -- never silently widened here.
-const ANSWERABLE_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set(['person_ambiguous', 'targetEntity']);
+// 'newDueAt', which needs date-parsing reconciliation instead of candidate
+// selection -- a materially different shape -- remains separately handled
+// below by the temporal slot contract.
+const ANSWERABLE_CLARIFICATION_FIELDS: ReadonlySet<string> = new Set(['person_ambiguous', 'targetEntity', 'title']);
 
 // Temporal planner clarifications are not entity selections.  They still
 // belong to the already-open create objective, but the answer is a structured
@@ -656,7 +662,8 @@ export type PendingClarificationAnswerOutcome =
     | { outcome: 'multi_match'; candidates: RetrievalPerson[] }
     | { outcome: 'multi_match_entity'; candidates: RetrievalCommitment[] }
     | { outcome: 'resolved'; reconciledObjective: AgentObjective; resolvedPerson: RetrievalPerson }
-    | { outcome: 'resolved_entity'; reconciledObjective: AgentObjective; resolvedEntity: RetrievalCommitment };
+    | { outcome: 'resolved_entity'; reconciledObjective: AgentObjective; resolvedEntity: RetrievalCommitment }
+    | { outcome: 'resolved_title'; reconciledObjective: AgentObjective };
 
 // GENERALIZATION (M-7): single dispatch point by pendingClarification.field,
 // so agentTurnCore.service.ts's one dialogue-first check stays field-
@@ -672,10 +679,48 @@ export async function tryAnswerPendingClarification(
     actorUserId: string,
     conversationId: string | undefined,
 ): Promise<PendingClarificationAnswerOutcome> {
+    if (dialogueState.pendingClarification?.field === 'title') {
+        return tryAnswerTitleClarification(dialogueState, rawAnswer, actorUserId, conversationId);
+    }
     if (dialogueState.pendingClarification?.field === 'targetEntity') {
         return tryAnswerTargetEntityClarification(dialogueState, rawAnswer, actorUserId, conversationId);
     }
     return tryAnswerPersonAmbiguousClarification(dialogueState, rawAnswer, actorUserId, conversationId);
+}
+
+// A title clarification is a free-text slot, not a canonical entity lookup.
+// Core still owns the boundary: an explicit query, negation, cancellation, or
+// complete replacement escapes before this answer can fill the slot; generic
+// object-type nouns remain invalid titles and are re-asked by the planner.
+async function tryAnswerTitleClarification(
+    dialogueState: AgentDialogueState,
+    rawAnswer: string,
+    actorUserId: string,
+    conversationId: string | undefined,
+): Promise<PendingClarificationAnswerOutcome> {
+    const trimmedAnswer = rawAnswer.trim();
+    if (!trimmedAnswer) return { outcome: 'escaped' };
+
+    const escape = await classifyExplicitEscape(trimmedAnswer, actorUserId, conversationId);
+    if (escape.escaped) return { outcome: 'escaped', newObjective: escape.newObjective };
+    if (isGenericCommitmentTitleHint(trimmedAnswer)) return { outcome: 'zero_match' };
+
+    const priorObjective = dialogueState.openObjective as AgentObjective;
+    return {
+        outcome: 'resolved_title',
+        reconciledObjective: {
+            ...priorObjective,
+            targetEntities: {
+                entityHints: [trimmedAnswer],
+                personHints: priorObjective.targetEntities.personHints,
+            },
+            // Keep the original date-bearing utterance; this turn supplies
+            // only the missing title slot and cannot replace temporal origin.
+            sourceUtterance: priorObjective.sourceUtterance,
+            desiredOutcome: trimmedAnswer,
+            ambiguities: [],
+        },
+    };
 }
 
 // TASK 5/6 -- the raw answer is NEVER trusted as canonical identity by
