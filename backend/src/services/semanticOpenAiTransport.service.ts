@@ -81,12 +81,13 @@ export interface SemanticOpenAiRequestOptions {
     modelName: string;
     messages: OpenAI.Chat.ChatCompletionMessageParam[];
     family?: SemanticModelFamily;
+    responseFormat?: OpenAI.Chat.Completions.ChatCompletionCreateParams['response_format'];
 }
 
-export function buildSemanticOpenAiRequest({ modelName, messages, family = resolveSemanticModelFamily() }: SemanticOpenAiRequestOptions): Record<string, unknown> {
+export function buildSemanticOpenAiRequest({ modelName, messages, family = resolveSemanticModelFamily(), responseFormat }: SemanticOpenAiRequestOptions): Record<string, unknown> {
     const policy = getSemanticOpenAiTransportPolicy(family);
     const request: Record<string, unknown> = {
-        model: modelName, messages, response_format: { type: 'json_object' },
+        model: modelName, messages, response_format: responseFormat ?? { type: 'json_object' },
     };
     if (policy.outputTokenParameter === 'max_completion_tokens') {
         request.max_completion_tokens = policy.outputTokenBudget;
